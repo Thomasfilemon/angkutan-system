@@ -135,7 +135,7 @@ Berikut daftar endpoint API yang lo butuhin paling minimal (versi pseudo-route):
 
 ### 3.4. Trip Management
 
-* `GET /api/trips?status=pending|on_progress|completed`
+* `GET /api/trips?status=on_progress|otw|perjalanan_pulang|selesai|completed`
 
   * Bisa tambahin filter `driver_id`, `date_from`, `date_to`.
 * `POST /api/trips` → Buat trip baru (dijalankan oleh Admin-App).
@@ -143,12 +143,12 @@ Berikut daftar endpoint API yang lo butuhin paling minimal (versi pseudo-route):
   * Payload: `{ driver_id, vehicle_id, drop_lat, drop_lng, ritase, tarif_per_ritase }`
   * **Validasi**: Pastikan driver & kendaraan `status = available`.
   * Setelah insert, update driver.status=‘busy’, vehicle.status=‘in\_use’, kirim FCM notif.
-* `PATCH /api/trips/:id/start` → Driver mulai trip.
+* `PATCH /api/trips/:id/on_progress` → Driver mulai trip.
 
   * Update `status = on_progress`, `started_at = NOW()`.
-* `PATCH /api/trips/:id/complete` → Driver selesai trip.
+* `PATCH /api/trips/:id/selesai` → Driver selesai trip.
 
-  * Update `status = completed`, `ended_at = NOW()`, update driver.status=‘available’, vehicle.status=‘available’ juga.
+  * Update `status = selesai`, `ended_at = NOW()`, update driver.status=‘available’, vehicle.status=‘available’ juga.
 
 ### 3.5. Driver Expenses
 
@@ -253,14 +253,14 @@ Berikut daftar endpoint API yang lo butuhin paling minimal (versi pseudo-route):
 
 4. **Driver Klik “Mulai Perjalanan”**:
 
-   * Frontend kirim `PATCH /api/trips/123/start` + JWT.
-   * API update `trips.status='on_progress'`, `trips.started_at=NOW()`.
+   * Frontend kirim `PATCH /api/trips/123/otw` + JWT.
+   * API update `trips.status='otw'`, `trips.started_at=NOW()`.
    * Return `{ message: 'Trip diupdate ke on_progress' }`.
 
 5. **Driver Klik “Sampai Tujuan”**:
 
-   * Frontend kirim `PATCH /api/trips/123/complete`.
-   * API update `trips.status='completed'`, `trips.ended_at=NOW()`.
+   * Frontend kirim `PATCH /api/trips/123/selesai`.
+   * API update `trips.status='selesai'`, `trips.ended_at=NOW()`.
    * Ambil `vehicle_id` dari trips, update `driver_profiles.status='available'`, `vehicles.status='available'`.
    * Otomatis insert ke `accounting_ritase` (nilai ritase & tarif sudah ada di trips, bisa fill).
    * Return `{ message: 'Trip selesai, driver & mobil kembali available' }`.
@@ -444,6 +444,13 @@ CREATE TABLE vehicles (
 );
 
 -- 5. Trips
+CREATE TYPE trip_status AS ENUM (
+  'on_progress',        -- langsung aktif begitu di-assign
+  'otw',                -- driver mulai perjalanan ke tujuan
+  'perjalanan_pulang',  -- driver sudah nyampai destinasi, kembali ke base
+  'selesai'             -- trip benar-benar berakhir
+);
+
 CREATE TABLE trips (
   id SERIAL PRIMARY KEY,
   driver_id INTEGER REFERENCES users(id),
@@ -453,11 +460,18 @@ CREATE TABLE trips (
   ritase NUMERIC,
   tarif_per_ritase NUMERIC,
   total_ritase NUMERIC,
-  status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','on_progress','completed','canceled')),
+  status trip_status NOT NULL DEFAULT 'on_progress',
   created_at TIMESTAMP DEFAULT NOW(),
-  started_at TIMESTAMP,
-  ended_at TIMESTAMP
+  started_at TIMESTAMP,  -- diisi waktu klik “Mulai Perjalanan”
+  reached_at TIMESTAMP,  -- diisi waktu klik “Sampai Tujuan”
+  returning_at TIMESTAMP, -- diisi waktu klik “Mulai Jalan Pulang”
+  completed_at TIMESTAMP  -- diisi waktu klik “Selesai”
 );
+
+ALTER TABLE trips
+  ALTER COLUMN status TYPE trip_status
+    USING status::text::trip_status,
+  ALTER COLUMN status SET DEFAULT 'on_progress';
 
 -- 6. Driver Expenses
 CREATE TABLE driver_expenses (
@@ -541,7 +555,7 @@ CREATE TABLE payment_terms (
 
      * Contoh: hanya `role='owner'` bisa akses `/api/admins` & `/api/drivers` daftar CRUD.
      * `role='admin'` boleh akses `POST /api/trips`, `GET /api/drivers?status=available`, `GET /api/vehicles?status=available`.
-     * `role='driver'` hanya bisa `GET /api/trips/assigned`, `PATCH /api/trips/:id/start`, `PATCH /api/trips/:id/complete`, `POST /api/driver-expenses`.
+     * `role='driver'` hanya bisa `GET /api/trips/assigned`, `PATCH /api/trips/:id/otw`, `PATCH /api/trips/:id/perjalanan_pulang`, `POST /api/driver-expenses`.
 
 4. **Validasi Input**:
 
