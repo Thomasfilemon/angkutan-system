@@ -55,7 +55,7 @@ Lo perlu bikin ERD (Entity-Relationship Diagram) mental dulu. Berikut ringkasann
 
 3. **Trips (Pengangkutan Barang)**
 
-   * **trips** `(id, driver_id[Fk users], vehicle_id[Fk vehicles], origin_lat?, origin_lng?, drop_lat, drop_lng, ritase, tarif_per_ritase, total_ritase, status, created_at, started_at, ended_at)`
+   * **trips** `(id, driver_id[Fk users], vehicle_id[Fk vehicles], origin_lat?, origin_lng?, drop_lat, drop_lng, ritase, tarif_per_ritase, total_ritase, status, created_at, started_at, reached_at, returning_at, completed_at)`
 
 4. **Driver Expenses (BBM, Tol, dll)**
 
@@ -135,20 +135,31 @@ Berikut daftar endpoint API yang lo butuhin paling minimal (versi pseudo-route):
 
 ### 3.4. Trip Management
 
-* `GET /api/trips?status=on_progress|otw|perjalanan_pulang|selesai|completed`
+* `GET /api/trips?status=on_progress|otw|perjalanan_pulang|selesai`
 
   * Bisa tambahin filter `driver_id`, `date_from`, `date_to`.
 * `POST /api/trips` → Buat trip baru (dijalankan oleh Admin-App).
 
   * Payload: `{ driver_id, vehicle_id, drop_lat, drop_lng, ritase, tarif_per_ritase }`
   * **Validasi**: Pastikan driver & kendaraan `status = available`.
-  * Setelah insert, update driver.status=‘busy’, vehicle.status=‘in\_use’, kirim FCM notif.
-* `PATCH /api/trips/:id/on_progress` → Driver mulai trip.
+  * Setelah insert, update `driver.status=‘busy’`, `vehicle.status=‘in_use’`, kirim FCM notif.
+* `PATCH /api/trips/:id/on_progress` → Trip aktif langsung setelah assignment tugas (status langsung on_progress).
 
-  * Update `status = on_progress`, `started_at = NOW()`.
-* `PATCH /api/trips/:id/selesai` → Driver selesai trip.
+  * Atau Update Status Manual `status = on_progress`, `created_at = NOW()`.
 
-  * Update `status = selesai`, `ended_at = NOW()`, update driver.status=‘available’, vehicle.status=‘available’ juga.
+* `PATCH /api/trips/:id/otw` → Driver mulai perjalanan ke tujuan.
+
+  * Update `status = otw`, `started_at = NOW()`.
+* `PATCH /api/trips/:id/sampai_tujuan` → Driver klik "Sampai Tujuan".
+
+  * Update `status = perjalanan_pulang`, `reached_at = NOW()` (**catatan:** timestamp ini diisi saat driver klik tombol “Sampai Tujuan” di aplikasi).
+* `PATCH /api/trips:id/perjalanan_pulang` → Driver klik "Mulai Jalan Pulang".
+
+  * Update `status = perjalanan_pulang`, `returning_at = NOW()` (timestamp ini diisi saat driver klik tombol "Mulai Jalan Pulang di app").
+* `PATCH /api/trips/:id/selesai` → Trip benar-benar selesai, driver sudah sampai base & klik tombol 'Selesai'.
+
+  * Update `status = selesai`, `completed_at = NOW()`, update `driver.status=‘available’`, `vehicle.status=‘available’` juga.
+
 
 ### 3.5. Driver Expenses
 
@@ -230,6 +241,7 @@ Berikut daftar endpoint API yang lo butuhin paling minimal (versi pseudo-route):
    * Validasi driver & kendaraan `status=available`.
    * Insert record `trips`.
    * Update `driver_profiles.status='busy'`, `vehicles.status='in_use'`.
+   * Update `trip.status='on_progress'`, `PATCH /api/trips/:id/on_progress`
    * Kirim FCM notifikasi ke driver:
 
      ```json
@@ -255,9 +267,21 @@ Berikut daftar endpoint API yang lo butuhin paling minimal (versi pseudo-route):
 
    * Frontend kirim `PATCH /api/trips/123/otw` + JWT.
    * API update `trips.status='otw'`, `trips.started_at=NOW()`.
-   * Return `{ message: 'Trip diupdate ke on_progress' }`.
+   * Return `{ message: 'Trip diupdate ke otw' }`.
 
 5. **Driver Klik “Sampai Tujuan”**:
+
+   * Frontend kirim `PATCH /api/trips/123/sampai_tujuan`.
+   * API update `trips.status='perjalanan_pulang'`, `trips.reached_at=NOW()`.
+   * Return `{ message: 'Sudan Sampai Tujuan, Silahkan Cek Kembali Surat Jalan' }`.
+  
+6. **Driver Klik “Mulai Jalan Pulang”**:
+
+   * Frontend kirim `PATCH /api/trips/123/perjalanan_pulang`.
+   * API update `trips.status='perjalanan_pulang'`, `trips.returning_at=NOW()`.
+   * Return `{ message: 'Sedang Berjalan Pulang, Hati-hati di jalan' }`.
+
+7. **Driver Klik “Selesai”**:
 
    * Frontend kirim `PATCH /api/trips/123/selesai`.
    * API update `trips.status='selesai'`, `trips.ended_at=NOW()`.
@@ -265,7 +289,7 @@ Berikut daftar endpoint API yang lo butuhin paling minimal (versi pseudo-route):
    * Otomatis insert ke `accounting_ritase` (nilai ritase & tarif sudah ada di trips, bisa fill).
    * Return `{ message: 'Trip selesai, driver & mobil kembali available' }`.
 
-6. **Admin/Owner Web**:
+8. **Admin/Owner Web**:
 
    * Bisa fetch `GET /api/accounting-ritase?date_from=&date_to=` buat laporan ritase, atau `GET /api/analytics/overview?…` buat dashboard.
 
