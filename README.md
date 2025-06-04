@@ -293,6 +293,47 @@ Berikut daftar endpoint API yang lo butuhin paling minimal (versi pseudo-route):
 
    * Bisa fetch `GET /api/accounting-ritase?date_from=&date_to=` buat laporan ritase, atau `GET /api/analytics/overview?…` buat dashboard.
 
+### 4.2. Kasus: Driver Melakukan Pengisian BBM / Pengeluaran Lain Saat Trip
+
+1. **Driver App**: Pada halaman “Detail Trip”, driver klik tombol “Tambah Pengeluaran”.
+
+2. **Form Input**:  
+
+   * Driver mengisi form:  
+     - Pilih jenis pengeluaran (BBM, Tol, Parkir, dll)
+     - Input jumlah (amount)
+     - Upload/take foto struk/bukti (opsional)
+     - Submit
+
+3. **API Request**:  
+
+   * Frontend kirim `POST /api/driver-expenses` dengan payload:  
+     ```json
+     {
+       "trip_id": 123,
+       "driver_id": 56,
+       "jenis": "BBM",
+       "amount": 200000,
+       "receipt_url": "https://..." // jika ada
+     }
+     ```
+5. **Backend**:  
+   - Validasi trip & driver aktif
+   - Insert ke tabel `driver_expenses`
+   - (Opsional) Kirim notifikasi ke admin jika pengeluaran > batas tertentu
+
+6. **Driver App**:  
+   - Setelah submit, histori pengeluaran trip otomatis ter-refresh (GET `/api/driver-expenses?trip_id=123`)
+   - Pengeluaran baru tampil di list, bisa di-edit/hapus selama trip belum selesai
+
+7. **Admin Web**:  
+   - Admin bisa lihat rekap pengeluaran driver di halaman Trip, Expenses, atau laporan keuangan (GET `/api/driver-expenses?trip_id=123` atau filter sesuai driver/tanggal)
+   - Admin bisa verifikasi validitas bukti jika perlu
+
+**Catatan:**  
+- Pengeluaran hanya bisa diinput/diubah ketika trip status belum `selesai`.
+- Setelah trip selesai, pengeluaran terkunci, hanya bisa diedit oleh admin.
+
 ---
 
 ## 5. Struktur Folder Project (Saran)
