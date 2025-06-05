@@ -1,0 +1,31 @@
+**/node_modules
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env
+.env.*
+
+# Expo/React Native
+.expo/
+.expo-shared/
+android/.gradle/
+ios/Pods/
+*.keystore
+*.p8
+*.jks
+*.pem
+
+# Build
+/dist/
+/build/
+/web-build/
+
+# VSCode
+.vscode/
+
+# System Files
+.DS_Store
+Thumbs.db
