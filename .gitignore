@@ -1,5 +1,7 @@
 # Dependency directories
 node_modules/
+angkutan-system-firebase-adminsdk-fbsvc-35bb803ee3.json
+**/angkutan-system-firebase-adminsdk-fbsvc-35bb803ee3.json
 
 # Logs
 npm-debug.log*
