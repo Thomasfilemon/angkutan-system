@@ -8,7 +8,7 @@ try {
     credential: admin.credential.cert(
       path.join(
         __dirname,
-        "../config/angkutan-system-firebase-adminsdk-fbsvc-35bb803ee3.json"
+        "../config/angkutan-system-firebase-adminsdk-fbsvc-35bb803ee3.json"``
       )
     ),
   });
