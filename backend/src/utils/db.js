@@ -8,6 +8,7 @@ const pool = new Pool({
   user: process.env.DB_USER,
   password: process.env.DB_PASS,
   database: process.env.DB_NAME,
+  max: 20, // Maximum number of clients in the pool
 });
 
 // Test connection
