@@ -1,9 +1,10 @@
-require("dotenv").config();
 const express = require("express");
 const setupMiddleware = require("./middlewares/setup.middleware");
 const errorHandler = require("./middlewares/error.middleware");
 const healthRoutes = require("./routes/health.routes");
 const firebaseRoutes = require("./routes/firebase.routes");
+const authRoutes = require("./routes/auth.routes");
+require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -18,6 +19,7 @@ app.get("/", (req, res) => {
 
 // Routes
 app.use("/api", healthRoutes);
+app.use("/api/auth", authRoutes);
 app.use("/api", firebaseRoutes);
 
 // Error handling middleware
