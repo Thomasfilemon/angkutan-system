@@ -4,6 +4,7 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const db = require("./utils/db");
+const routes = require("./routes/routes");
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -12,6 +13,7 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use("/api", routes);
 
 // Basic route
 app.get("/", (req, res) => {
@@ -37,6 +39,14 @@ app.get("/db-test", async (req, res) => {
 // Nanti: import routes di sini. Contoh:
 // const authRoutes = require('./routes/auth.routes');
 // app.use('/api/auth', authRoutes);
+const verifyFirebaseToken = require("./utils/verifyFirebaseToken");
+
+app.get("/api/protected", verifyFirebaseToken, (req, res) => {
+  res.json({
+    message: "Hello, ${req.user.email} ! This is a protected route",
+    user: req.user,
+  });
+});
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);

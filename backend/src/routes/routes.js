@@ -1,9 +1,10 @@
 const express = require("express");
+const router = express.Router();
+const admin = require("../services/firebase");
+
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const db = require("../utils/db");
-
-const router = express.Router();
 
 // Login endpoint
 router.post("/login", async (req, res) => {
@@ -45,6 +46,61 @@ router.post("/login", async (req, res) => {
   } catch (error) {
     console.error("Login error:", error);
     res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.get("/test-firebase", async (req, res) => {
+  try {
+    // Try to list users (requires auth)
+    const listUsers = await admin.auth().listUsers(1);
+    res.json({
+      success: true,
+      message: "Firebase Admin SDK is properly configured",
+      firstUser: listUsers.users[0]
+        ? listUsers.users[0].email
+        : "No users found",
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Firebase configuration error",
+      error: error.message,
+    });
+  }
+});
+
+// Simple test route
+router.get("/firebase-status", (req, res) => {
+  try {
+    const app = admin.app();
+    res.json({
+      success: true,
+      message: "Firebase properly initialized",
+      projectId: app.options.projectId,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Firebase initialization error",
+      error: error.message,
+    });
+  }
+});
+
+// Add this near your other routes
+router.get("/test-auth", async (req, res) => {
+  try {
+    // Create a test user token
+    const customToken = await admin.auth().createCustomToken("test-user");
+    res.json({
+      message: "Firebase Auth is working",
+      testToken: customToken,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Firebase Auth error",
+      details: error.message,
+    });
   }
 });
 
