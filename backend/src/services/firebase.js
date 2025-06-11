@@ -12,6 +12,7 @@ try {
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
   });
+  console.log("Firebase Admin SDK Initialized successfully!");
 } catch (error) {
   console.error("Firebase initialization error:", error);
 }

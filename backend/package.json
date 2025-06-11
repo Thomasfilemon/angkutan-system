@@ -8,6 +8,8 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "migrate": "node src/utils/runMigrations.js",
+    "seeder": "node src/utils/runSeeder.js",
+    "hash-passwords": "node src/utils/hashPasswords.js",
     "lint": "eslint src/"
   },
   "keywords": [],

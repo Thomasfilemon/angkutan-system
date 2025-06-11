@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS users (
   username VARCHAR(50) UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
   role VARCHAR(20) NOT NULL CHECK (role IN ('owner','admin','driver')),
+  fcm_token TEXT;
   created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -31,7 +32,7 @@ CREATE TABLE IF NOT EXISTS admin_profiles (
   user_id INTEGER UNIQUE REFERENCES users(id) ON DELETE CASCADE,
   full_name VARCHAR(100) NOT NULL,
   phone VARCHAR(20) NOT NULL,
-  email VARCHAR(100) NOT NULL,
+  email VARCHAR(100),
   address TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
@@ -43,7 +44,7 @@ CREATE TABLE IF NOT EXISTS driver_profiles (
   full_name VARCHAR(100) NOT NULL,
   phone VARCHAR(20) NOT NULL,
   address TEXT NOT NULL,
-  id_card_number VARCHAR(50) UNIQUE NOT NULL,
+  id_card_number VARCHAR(50) UNIQUE,
   sim_number VARCHAR(50) UNIQUE,
   license_type VARCHAR(10),
   status VARCHAR(20) NOT NULL DEFAULT 'available' CHECK(status IN ('available','busy')),

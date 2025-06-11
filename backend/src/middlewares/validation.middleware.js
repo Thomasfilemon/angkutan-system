@@ -1,4 +1,4 @@
-const { body } = require("express-validator");
+const { body, validationResult } = require("express-validator");
 
 exports.validateLogin = [
   body("username").notEmpty().trim().escape(),
@@ -6,22 +6,30 @@ exports.validateLogin = [
 ];
 
 exports.validateRegistration = [
-  // Common fields
-  body("username").isLength({ min: 3 }).trim().escape(),
+  body("username").notEmpty().trim().isLength({ min: 3 }),
   body("password").isLength({ min: 6 }),
-  body("role").isIn(["owner", "admin", "driver"]),
-  body("fullName").notEmpty(),
+  body("role").isIn(["admin", "driver"]),
+  body("fullName").notEmpty().trim(),
   body("phone").notEmpty(),
-  body("address").optional(),
+  body("address").notEmpty(),
 
-  // Conditional validation
-  body("email")
-    .if(body("role").not().equals("driver"))
-    .isEmail()
-    .normalizeEmail(),
-
-  // Driver-specific fields
+  // Conditional validations
+  body("email").if(body("role").equals("admin")).isEmail(),
   body("idCardNumber").if(body("role").equals("driver")).notEmpty(),
-  body("simNumber").if(body("role").equals("driver")).optional(),
-  body("licenseType").if(body("role").equals("driver")).optional(),
+
+  // Optional driver fields
+  body("simNumber").optional(),
+  body("licenseType").optional(),
+
+  // Validation result handler
+  (req, res, next) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        error: "Validation error",
+        details: errors.array(),
+      });
+    }
+    next();
+  },
 ];
