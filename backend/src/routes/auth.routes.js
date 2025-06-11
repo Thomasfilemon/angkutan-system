@@ -1,10 +1,12 @@
 const express = require("express");
 const router = express.Router();
+
 const {
   mobileLogin,
   webLogin,
   register,
 } = require("../controllers/auth.controller");
+
 const { verifyToken, requireOwner } = require("../middlewares/auth.middleware");
 
 const {
@@ -19,7 +21,7 @@ const {
 router.post("/mobile/login", validateLogin, mobileLogin); // Mobile app authentication (admin & driver)
 router.post("/web/login", validateLogin, webLogin); // Web authentication (owner only)
 
-// Protected registration route (owner only)
+// Protected register route (owner only)
 router.post(
   "/register",
   verifyToken,

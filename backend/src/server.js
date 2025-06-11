@@ -3,8 +3,7 @@ const setupMiddleware = require("./middlewares/setup.middleware");
 const errorHandler = require("./middlewares/error.middleware");
 const healthRoutes = require("./routes/health.routes");
 const authRoutes = require("./routes/auth.routes");
-
-const firebaseRoutes = require("./routes/firebase.routes");
+const userRoutes = require("./routes/user.routes");
 
 require("dotenv").config();
 
@@ -22,7 +21,7 @@ app.get("/", (req, res) => {
 // Routes
 app.use("/api", healthRoutes);
 app.use("/api/auth", authRoutes);
-app.use("/api", firebaseRoutes);
+app.use("/api/user", userRoutes);
 
 // Error handling middleware
 app.use(errorHandler);
