@@ -1,5 +1,10 @@
 const { body } = require("express-validator");
 
+exports.validateLogin = [
+  body("username").notEmpty().trim().escape(),
+  body("password").notEmpty(),
+];
+
 exports.validateRegistration = [
   // Common fields
   body("username").isLength({ min: 3 }).trim().escape(),
