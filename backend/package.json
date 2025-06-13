@@ -9,6 +9,7 @@
     "dev": "nodemon src/server.js",
     "migrate": "node src/utils/runMigrations.js",
     "seeder": "node src/utils/runSeeder.js",
+    "migrate:fresh": "node src/utils/migrateFresh.js",
     "hash-passwords": "node src/utils/hashPasswords.js",
     "lint": "eslint src/"
   },
@@ -28,7 +29,9 @@
     "multer": "^2.0.1",
     "node-cron": "^4.1.0",
     "pg": "^8.16.0",
-    "pg-pool": "^3.10.0"
+    "pg-hstore": "^2.3.4",
+    "pg-pool": "^3.10.0",
+    "sequelize": "^6.37.7"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
