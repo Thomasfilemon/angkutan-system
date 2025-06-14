@@ -4,7 +4,7 @@ require("dotenv").config();
 
 const serviceAccount = require(path.join(
   __dirname,
-  "../config/angkutan-system-firebase-adminsdk-fbsvc-35bb803ee3.json"
+  "../config/angkutan-system-d87e3-ef128576fdb9.json"
 ));
 
 // Initialize without loading the file
