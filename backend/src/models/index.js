@@ -1,50 +1,52 @@
-const { Sequelize, DataTypes } = require('sequelize');
-const config = require('../config/database');
+const { Sequelize } = require('sequelize');
 require('dotenv').config();
 
-// Get the environment (defaults to 'development')
-const env = process.env.NODE_ENV || 'development';
-const dbConfig = config[env];
-
-// Create Sequelize instance with proper config
 const sequelize = new Sequelize(
-  dbConfig.database,
-  dbConfig.username,
-  dbConfig.password,
+  process.env.DB_NAME,
+  process.env.DB_USER,
+  process.env.DB_PASS,
   {
-    host: dbConfig.host,
-    port: dbConfig.port,
-    dialect: dbConfig.dialect,
-    logging: dbConfig.logging,
+    host: process.env.DB_HOST,
+    port: process.env.DB_PORT,
+    dialect: 'postgres',
+    logging: console.log,
+    pool: {
+      max: 20,
+      min: 0,
+      acquire: 30000,
+      idle: 10000
+    }
   }
 );
 
-// Test the connection
-sequelize.authenticate()
-  .then(() => {
-    console.log('✅ PostgreSQL connection established successfully.');
-  })
-  .catch(err => {
-    console.error('❌ Unable to connect to PostgreSQL:', err);
-  });
+const db = {};
 
-// Initialize models object
-const models = {};
+// Import models - only the ones that exist
+const modelFiles = ['trip', 'user', 'vehicle']; // Add model names as you create them
 
-// Add models as you create them
-// models.User = require('./User')(sequelize, DataTypes);
-// models.Trip = require('./Trip')(sequelize, DataTypes);
-// models.Vehicle = require('./Vehicle')(sequelize, DataTypes);
-// models.DriverExpense = require('./DriverExpense')(sequelize, DataTypes);
-
-// Set up associations
-Object.keys(models).forEach(modelName => {
-  if (models[modelName].associate) {
-    models[modelName].associate(models);
+modelFiles.forEach(modelName => {
+  try {
+    const model = require(`./${modelName}`)(sequelize, Sequelize.DataTypes);
+    db[model.name] = model;
+    console.log(`✅ ${model.name} model loaded`);
+  } catch (error) {
+    console.error(`❌ Error loading ${modelName} model:`, error.message);
   }
 });
 
-models.sequelize = sequelize;
-models.Sequelize = Sequelize;
+// Set up associations AFTER all models are loaded
+Object.keys(db).forEach(modelName => {
+  if (db[modelName].associate) {
+    try {
+      db[modelName].associate(db);
+      console.log(`✅ ${modelName} associations set up`);
+    } catch (error) {
+      console.error(`❌ Error setting up ${modelName} associations:`, error.message);
+    }
+  }
+});
 
-module.exports = models;
+db.sequelize = sequelize;
+db.Sequelize = Sequelize;
+
+module.exports = db;

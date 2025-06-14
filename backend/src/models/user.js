@@ -1,29 +1,33 @@
 module.exports = (sequelize, DataTypes) => {
-  const Vehicle = sequelize.define('Vehicle', {
+  const User = sequelize.define('User', {
     id: {
       type: DataTypes.INTEGER,
       primaryKey: true,
       autoIncrement: true
     },
-    license_plate: {
+    name: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    email: {
       type: DataTypes.STRING,
       allowNull: false,
       unique: true
     },
-    type: {
+    password: {
       type: DataTypes.STRING,
       allowNull: false
     }
   }, {
-    tableName: 'vehicles',
+    tableName: 'users',
     timestamps: false
   });
 
-  Vehicle.associate = (models) => {
+  User.associate = (models) => {
     if (models.Trip) {
-      Vehicle.hasMany(models.Trip, { foreignKey: 'vehicle_id', as: 'trips' });
+      User.hasMany(models.Trip, { foreignKey: 'driver_id', as: 'trips' });
     }
   };
 
-  return Vehicle;
+  return User;
 };

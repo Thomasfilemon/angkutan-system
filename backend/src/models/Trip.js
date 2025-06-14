@@ -63,11 +63,24 @@ module.exports = (sequelize, DataTypes) => {
   });
 
   Trip.associate = (models) => {
-    Trip.belongsTo(models.User, { foreignKey: 'driver_id', as: 'driver' });
-    Trip.belongsTo(models.Vehicle, { foreignKey: 'vehicle_id', as: 'vehicle' });
-    Trip.hasMany(models.DriverExpense, { foreignKey: 'trip_id', as: 'expenses' });
-    Trip.hasMany(models.DeliveryOrder, { foreignKey: 'trip_id', as: 'deliveryOrders' });
-    Trip.hasMany(models.AccountingRitase, { foreignKey: 'trip_id', as: 'accountingRitase' });
+    // Only create associations for models that exist
+    if (models.User) {
+      Trip.belongsTo(models.User, { foreignKey: 'driver_id', as: 'driver' });
+    }
+    if (models.Vehicle) {
+      Trip.belongsTo(models.Vehicle, { foreignKey: 'vehicle_id', as: 'vehicle' });
+    }
+    
+    // Comment out associations for models you haven't created yet
+    // if (models.DriverExpense) {
+    //   Trip.hasMany(models.DriverExpense, { foreignKey: 'trip_id', as: 'expenses' });
+    // }
+    // if (models.DeliveryOrder) {
+    //   Trip.hasMany(models.DeliveryOrder, { foreignKey: 'trip_id', as: 'deliveryOrders' });
+    // }
+    // if (models.AccountingRitase) {
+    //   Trip.hasMany(models.AccountingRitase, { foreignKey: 'trip_id', as: 'accountingRitase' });
+    // }
   };
 
   return Trip;

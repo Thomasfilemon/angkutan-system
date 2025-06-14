@@ -3,6 +3,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { router } from 'expo-router';
 
+// --- ADD THIS LINE HERE ---
+// Set the ngrok bypass header globally for all axios requests in your app.
+// This should be done once, right after imports.
+axios.defaults.headers.common['ngrok-skip-browser-warning'] = 'true';
+
 // User interface
 interface User {
   id: string;
@@ -50,7 +55,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [token, setToken] = useState<string | null>(null);
 
   // Keep your original API URL
-  const API_BASE_URL = 'https://192.168.1.7:3000/api';
+  const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
   useEffect(() => {
     loadStoredAuth();
@@ -65,9 +70,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       console.log('Loading stored auth - User exists:', !!storedUser);
       
       if (storedToken && storedUser) {
-        // Set token and user immediately without validation
+        // Set token and user immediately
         setToken(storedToken);
         setUser(JSON.parse(storedUser));
+        // Set the Authorization header for subsequent requests
         axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
         
         console.log('Auth loaded successfully from storage');
@@ -89,6 +95,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       setIsLoading(true);
       
+      // The ngrok header is already set globally, so this call will work
       const response = await axios.post(`${API_BASE_URL}/auth/mobile/login`, {
         username,
         password,
@@ -102,7 +109,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       
       console.log('Token stored successfully:', newToken.substring(0, 20) + '...');
 
-      // Set axios default header
+      // Set axios default Authorization header for this session
       axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
 
       // Update state
@@ -121,7 +128,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  // In your AuthContext, add this to the signOut function
   const signOut = async (): Promise<void> => {
     try {
       console.log('=== SIGNOUT FUNCTION CALLED ===');
@@ -131,6 +137,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       await AsyncStorage.removeItem('token');
       await AsyncStorage.removeItem('user');
 
+      // Important: Clear the authorization header on sign out
       delete axios.defaults.headers.common['Authorization'];
 
       setToken(null);
@@ -153,6 +160,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       setIsLoading(true);
       
+      // The ngrok header is already set globally, so this call will work
       const response = await axios.post(`${API_BASE_URL}/auth/register`, userData);
 
       return { success: true, data: response.data };

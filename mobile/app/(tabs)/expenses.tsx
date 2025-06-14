@@ -44,7 +44,7 @@ export default function ExpensesScreen() {
     receipt_url: '',
   });
 
-  const API_BASE_URL = 'https://localhost:3000/api';
+  const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
   const expenseTypes = ['BBM', 'Tol', 'Parkir', 'Lainnya'];
 
   useEffect(() => {

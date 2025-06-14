@@ -41,7 +41,7 @@ export default function VehicleScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  const API_BASE_URL = 'https://localhost:3000/api';
+  const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
   useEffect(() => {
     fetchVehicleInfo();
