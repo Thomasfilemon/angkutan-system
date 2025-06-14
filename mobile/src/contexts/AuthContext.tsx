@@ -1,14 +1,12 @@
+// src/contexts/AuthContext.js
+
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
 import { router } from 'expo-router';
+// --- 1. Import your new dedicated API client ---
+import apiClient from '../services/api';
 
-// --- ADD THIS LINE HERE ---
-// Set the ngrok bypass header globally for all axios requests in your app.
-// This should be done once, right after imports.
-axios.defaults.headers.common['ngrok-skip-browser-warning'] = 'true';
-
-// User interface
+// User and AuthContextType interfaces remain the same
 interface User {
   id: string;
   username: string;
@@ -21,7 +19,6 @@ interface User {
   };
 }
 
-// Auth context interface
 interface AuthContextType {
   user: User | null;
   token: string | null;
@@ -32,10 +29,8 @@ interface AuthContextType {
   register: (userData: any) => Promise<{ success: boolean; error?: string; data?: any }>;
 }
 
-// Create context with undefined as initial value
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Custom hook with proper error handling
 export const useAuth = (): AuthContextType => {
   const context = useContext(AuthContext);
   if (context === undefined) {
@@ -44,7 +39,6 @@ export const useAuth = (): AuthContextType => {
   return context;
 };
 
-// Provider props interface
 interface AuthProviderProps {
   children: ReactNode;
 }
@@ -54,10 +48,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [token, setToken] = useState<string | null>(null);
 
-  // Keep your original API URL
-  const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
-
   useEffect(() => {
+    // This effect runs once on app start to load auth state from storage
     loadStoredAuth();
   }, []);
 
@@ -65,63 +57,48 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       const storedToken = await AsyncStorage.getItem('token');
       const storedUser = await AsyncStorage.getItem('user');
-      
-      console.log('Loading stored auth - Token exists:', !!storedToken);
-      console.log('Loading stored auth - User exists:', !!storedUser);
-      
+
       if (storedToken && storedUser) {
-        // Set token and user immediately
+        // --- 2. Simplified Logic ---
+        // Just load the data into React state. The apiClient interceptor will
+        // handle getting the token from storage when it's needed for an API call.
         setToken(storedToken);
         setUser(JSON.parse(storedUser));
-        // Set the Authorization header for subsequent requests
-        axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
-        
-        console.log('Auth loaded successfully from storage');
-      } else {
-        console.log('No stored auth found');
+        console.log('Auth state loaded from storage into context.');
       }
     } catch (error) {
-      console.error('Error loading stored auth:', error);
-      // Clear potentially corrupted data
-      await AsyncStorage.removeItem('token');
-      await AsyncStorage.removeItem('user');
+      console.error('Failed to load auth state from storage:', error);
     } finally {
       setIsLoading(false);
     }
   };
 
-
   const signIn = async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-      
-      // The ngrok header is already set globally, so this call will work
-      const response = await axios.post(`${API_BASE_URL}/auth/mobile/login`, {
+      // --- 3. Use the apiClient for the login request ---
+      const response = await apiClient.post('/auth/mobile/login', {
         username,
         password,
       });
 
       const { token: newToken, user: userData } = response.data;
 
-      // Store token and user data
+      // Store token and user data in AsyncStorage
       await AsyncStorage.setItem('token', newToken);
       await AsyncStorage.setItem('user', JSON.stringify(userData));
-      
-      console.log('Token stored successfully:', newToken.substring(0, 20) + '...');
 
-      // Set axios default Authorization header for this session
-      axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
-
-      // Update state
+      // Update React state
       setToken(newToken);
       setUser(userData);
 
+      console.log('Sign in successful. Token stored.');
       return { success: true };
     } catch (error: any) {
-      console.error('Sign in error:', error);
+      console.error('Sign in error:', error.response?.data || error.message);
       return {
         success: false,
-        error: error.response?.data?.error || 'Login failed',
+        error: error.response?.data?.message || 'Login failed. Please check your credentials.',
       };
     } finally {
       setIsLoading(false);
@@ -130,57 +107,41 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const signOut = async (): Promise<void> => {
     try {
-      console.log('=== SIGNOUT FUNCTION CALLED ===');
-      console.log('Current user before signOut:', user);
-      console.log('Current token before signOut:', token);
-      
+      // --- 4. Simplified signOut ---
+      // Clear data from storage and state. No need to touch axios headers.
       await AsyncStorage.removeItem('token');
       await AsyncStorage.removeItem('user');
-
-      // Important: Clear the authorization header on sign out
-      delete axios.defaults.headers.common['Authorization'];
-
       setToken(null);
       setUser(null);
       
-      console.log('=== SIGNOUT COMPLETED ===');
-      console.log('User after signOut:', null);
-      console.log('About to navigate to /login');
-      
+      console.log('Sign out complete. Navigating to login.');
       router.replace('/login');
-      
     } catch (error) {
       console.error('Sign out error:', error);
-      throw error;
     }
   };
 
-
   const register = async (userData: any): Promise<{ success: boolean; error?: string; data?: any }> => {
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-      
-      // The ngrok header is already set globally, so this call will work
-      const response = await axios.post(`${API_BASE_URL}/auth/register`, userData);
-
+      const response = await apiClient.post('/auth/register', userData);
       return { success: true, data: response.data };
     } catch (error: any) {
-      console.error('Registration error:', error);
+      console.error('Registration error:', error.response?.data || error.message);
       return {
         success: false,
-        error: error.response?.data?.error || 'Registration failed',
+        error: error.response?.data?.message || 'Registration failed.',
       };
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Create the context value object
   const contextValue: AuthContextType = {
     user,
     token,
     isLoading,
-    isSignedIn: !!user,
+    isSignedIn: !!token, // A more reliable check is for the token's existence
     signIn,
     signOut,
     register,

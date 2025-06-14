@@ -1,50 +1,45 @@
+require("dotenv").config();
+
 const express = require("express");
 const setupMiddleware = require("./middlewares/setup.middleware");
 const errorHandler = require("./middlewares/error.middleware");
+const { sequelize } = require('./models'); // <-- Import from the new models/index.js
+
+
+// === Import New Routes ===
 const healthRoutes = require("./routes/health.routes");
 const authRoutes = require("./routes/auth.routes");
-const userRoutes = require("./routes/user.routes");
-const tripRoutes = require('./routes/trip.routes');
-const vehicleRoutes = require('./routes/vehicle.routes');
-const driverExpenseRoutes = require('./routes/driverExpense.routes');
-
-const { sequelize } = require('./models');
-
-require("dotenv").config();
+const purchaseOrderRoutes = require('./routes/purchaseOrder.routes'); // <-- NEW
+const deliveryOrderRoutes = require('./routes/deliveryOrder.routes'); // <-- NEW
+// ... other routes
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 
-// Setup middleware
+// Setup middleware (cors, json)
 setupMiddleware(app);
 
+// Test database connection
 sequelize.authenticate()
-  .then(() => {
-    console.log('✅ Database connection established successfully.');
-  })
-  .catch(err => {
-    console.error('❌ Unable to connect to the database:', err);
-  });
+  .then(() => console.log('✅ Database connection established successfully.'))
+  .catch(err => console.error('❌ Unable to connect to the database:', err));
 
 // Basic route
 app.get("/", (req, res) => {
-  res.json({ message: "Angkutan API is running!" });
+  res.json({ message: "Angkutan API v2 (Sequelize) is running!" });
 });
 
-// Routes
+// === Use New Routes ===
 app.use("/api", healthRoutes);
 app.use("/api/auth", authRoutes);
-app.use("/api/user", userRoutes);
-app.use('/api/trips', tripRoutes);
-app.use('/api/vehicles', vehicleRoutes);
-app.use('/api/driver-expenses', driverExpenseRoutes);
+app.use('/api/purchase-orders', purchaseOrderRoutes); // <-- USE NEW
+app.use('/api/delivery-orders', deliveryOrderRoutes); // <-- USE NEW
+// app.use('/api/trips', tripRoutes); // <-- DELETE OR COMMENT OUT OLD ROUTE
 
 // Error handling middleware
 app.use(errorHandler);
 
-// Start HTTP server (ngrok will handle HTTPS)
+// Start HTTP server
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
-  console.log(`🌐 Local access: http://localhost:${PORT}`);
-  console.log(`📱 Start ngrok with: ngrok http ${PORT}`);
 });

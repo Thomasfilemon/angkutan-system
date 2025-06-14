@@ -1,213 +1,135 @@
-const admin = require("../services/firebase");
-const db = require("../utils/db");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const { User, DriverProfile, AdminProfile, sequelize } = require('../models');
+const { UniqueConstraintError } = require('sequelize');
 
-// Mobile app login (for admins and drivers)
-exports.mobileLogin = async (req, res) => {
+const mobileLogin = async (req, res, next) => {
   try {
     const { username, password } = req.body;
 
-    // Get user from database (only admin and driver roles)
-    const result = await db.query(
-      `SELECT u.*, 
-        CASE 
-          WHEN u.role = 'driver' THEN json_build_object(
-            'full_name', dp.full_name,
-            'phone', dp.phone,
-            'address', dp.address
-          )
-          WHEN u.role = 'admin' THEN json_build_object(
-            'full_name', ap.full_name,
-            'phone', ap.phone,
-            'email', ap.email,
-            'address', ap.address
-          )
-        END as profile
-       FROM users u
-       LEFT JOIN driver_profiles dp ON u.id = dp.user_id
-       LEFT JOIN admin_profiles ap ON u.id = ap.user_id
-       WHERE u.username = $1 AND u.role IN ('admin', 'driver')`,
-      [username]
-    );
+    // Find the user using Sequelize models, including their associated profile
+    const user = await User.findOne({
+      where: { username, role: ['admin', 'driver'] },
+      include: [
+        // These 'as' aliases must match the ones defined in your models/index.js associations
+        { model: DriverProfile, as: 'driverProfile' },
+        { model: AdminProfile, as: 'adminProfile' }
+      ]
+    });
 
-    if (result.rows.length === 0) {
-      return res.status(401).json({ error: "Invalid credentials" });
+    if (!user) {
+      return res.status(401).json({ message: "Invalid credentials or unauthorized role." });
     }
 
-    const user = result.rows[0];
-
-    // Verify password
     const validPassword = await bcrypt.compare(password, user.password_hash);
     if (!validPassword) {
-      return res.status(401).json({ error: "Invalid credentials" });
+      return res.status(401).json({ message: "Invalid credentials." });
     }
 
-    // Create JWT token for mobile users
+    // Create JWT token with a consistent payload
     const token = jwt.sign(
-      {
-        userId: user.id,
-        role: user.role,
-        username: user.username,
-      },
+      { id: user.id, role: user.role }, // Use 'id' to match your verifyToken middleware
       process.env.JWT_SECRET,
       { expiresIn: "24h" }
     );
+    
+    // Structure the user object for the response, combining profiles for simplicity
+    const userResponse = user.toJSON();
+    userResponse.profile = userResponse.driverProfile || userResponse.adminProfile;
+    delete userResponse.driverProfile;
+    delete userResponse.adminProfile;
+    delete userResponse.password_hash; // Never send the hash to the client
 
     res.json({
       message: "Login successful",
       token,
-      user: {
-        id: user.id,
-        username: user.username,
-        role: user.role,
-        profile: user.profile,
-      },
+      user: userResponse,
     });
-  } catch (error) {
-    console.error("Login error:", error);
-    res.status(500).json({
-      error: "Login failed",
-      details:
-        process.env.NODE_ENV === "development" ? error.message : undefined,
-    });
+  } catch (err) {
+    next(err); // Pass all errors to your global error handler
   }
 };
 
-// Web login (only for owner)
-exports.webLogin = async (req, res) => {
+const webLogin = async (req, res, next) => {
   try {
     const { username, password } = req.body;
 
-    // Get user from database (only owner role)
-    const result = await db.query(
-      `SELECT u.* FROM users u WHERE u.username = $1 AND u.role = 'owner'`,
-      [username]
-    );
+    const user = await User.findOne({
+      where: { username, role: 'owner' }
+    });
 
-    if (result.rows.length === 0) {
-      return res.status(401).json({ error: "Invalid credentials" });
+    if (!user) {
+      return res.status(401).json({ message: "Invalid credentials or unauthorized role." });
     }
 
-    const user = result.rows[0];
-
-    // Verify password
     const validPassword = await bcrypt.compare(password, user.password_hash);
     if (!validPassword) {
-      return res.status(401).json({ error: "Invalid credentials" });
+      return res.status(401).json({ message: "Invalid credentials." });
     }
 
-    // Create JWT token for web user
     const token = jwt.sign(
-      {
-        userId: user.id,
-        role: "owner",
-        username: user.username,
-      },
+      { id: user.id, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: "8h" }
     );
+    
+    const userResponse = user.toJSON();
+    delete userResponse.password_hash;
 
     res.json({
       message: "Login successful",
       token,
-      user: {
-        id: user.id,
-        username: user.username,
-        role: "owner",
-      },
+      user: userResponse,
     });
-  } catch (error) {
-    console.error("Login error:", error);
-    res.status(500).json({
-      error: "Login failed",
-      details:
-        process.env.NODE_ENV === "development" ? error.message : undefined,
-    });
+  } catch (err) {
+    next(err);
   }
 };
 
-exports.register = async (req, res) => {
-  const client = await db.getClient();
-
+const register = async (req, res, next) => {
   try {
-    await client.query("BEGIN");
+    // Separate user data from profile data using destructuring
+    const { username, password, role, ...profileData } = req.body;
 
-    const {
-      username,
-      password,
-      role,
-      fullName,
-      phone,
-      email,
-      address,
-      idCardNumber,
-      simNumber,
-      licenseType,
-    } = req.body;
+    // Use a managed transaction for safety; it automatically handles COMMIT and ROLLBACK.
+    const newUser = await sequelize.transaction(async (t) => {
+      const passwordHash = await bcrypt.hash(password, 10);
 
-    // Check if username already exists
-    const userExists = await client.query(
-      "SELECT username FROM users WHERE username = $1",
-      [username]
-    );
+      const user = await User.create({
+        username,
+        password_hash: passwordHash,
+        role,
+      }, { transaction: t });
 
-    if (userExists.rows.length > 0) {
-      return res.status(400).json({
-        error: "Registration failed",
-        details: "Username already exists",
-      });
-    }
+      // Create the corresponding profile based on the role
+      if (role === 'admin') {
+        await AdminProfile.create({ ...profileData, user_id: user.id }, { transaction: t });
+      } else if (role === 'driver') {
+        await DriverProfile.create({ ...profileData, user_id: user.id }, { transaction: t });
+      }
 
-    // Hash password
-    const passwordHash = await bcrypt.hash(password, 10);
-
-    // Insert user
-    const userResult = await client.query(
-      `INSERT INTO users (username, password_hash, role) 
-       VALUES ($1, $2, $3) 
-       RETURNING id`,
-      [username, passwordHash, role]
-    );
-
-    const userId = userResult.rows[0].id;
-
-    // Insert profile based on role
-    if (role === "admin") {
-      await client.query(
-        `INSERT INTO admin_profiles 
-         (user_id, full_name, phone, email, address) 
-         VALUES ($1, $2, $3, $4, $5)`,
-        [userId, fullName, phone, email, address]
-      );
-    } else if (role === "driver") {
-      await client.query(
-        `INSERT INTO driver_profiles 
-         (user_id, full_name, phone, address, id_card_number, sim_number, license_type) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [userId, fullName, phone, address, idCardNumber, simNumber, licenseType]
-      );
-    }
-
-    await client.query("COMMIT");
+      return user;
+    });
+    
+    const userResponse = newUser.toJSON();
+    delete userResponse.password_hash;
 
     res.status(201).json({
       message: "Registration successful",
-      user: {
-        id: userId,
-        username,
-        role,
-      },
+      user: userResponse,
     });
-  } catch (error) {
-    await client.query("ROLLBACK");
-    console.error("Registration error:", error);
-    res.status(500).json({
-      error: "Registration failed",
-      details:
-        process.env.NODE_ENV === "development" ? error.message : undefined,
-    });
-  } finally {
-    client.release();
+  } catch (err) {
+    // Provide a more specific error for unique constraints (e.g., username exists)
+    if (err instanceof UniqueConstraintError) {
+      return res.status(409).json({ message: 'Registration failed', details: 'Username or other unique field already exists.' });
+    }
+    next(err); // Pass all other errors to the global handler
   }
+};
+
+// Export all functions in a single object at the end to prevent crashes.
+module.exports = {
+  mobileLogin,
+  webLogin,
+  register,
 };

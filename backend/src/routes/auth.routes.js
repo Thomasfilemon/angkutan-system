@@ -1,41 +1,21 @@
 const express = require("express");
 const router = express.Router();
 
-const {
-  mobileLogin,
-  webLogin,
-  register,
-} = require("../controllers/auth.controller");
-
+const { mobileLogin, webLogin, register } = require("../controllers/auth.controller");
 const { verifyToken, requireOwner } = require("../middlewares/auth.middleware");
-
-const {
-  validateLogin,
-  validateRegistration,
-} = require("../middlewares/validation.middleware");
-
-// Protected route for all authenticated users
-// router.get("/profile", verifyToken, profileController.getProfile);
+const { validateLogin, validateRegistration } = require("../middlewares/validation.middleware");
 
 // Login routes
-router.post("/mobile/login", validateLogin, mobileLogin); // Mobile app authentication (admin & driver)
-router.post("/web/login", validateLogin, webLogin); // Web authentication (owner only)
+router.post("/mobile/login", ...validateLogin, mobileLogin); // <-- Use spread operator
+router.post("/web/login", ...validateLogin, webLogin);       // <-- Use spread operator
 
 // Protected register route (owner only)
 router.post(
   "/register",
   verifyToken,
   requireOwner,
-  validateRegistration,
+  ...validateRegistration, // <--- USE THE SPREAD (...) OPERATOR HERE
   register
 );
-
-// Protected route only for admins
-// router.post(
-//   "/assign-task",
-//   verifyToken,
-//   requireRole(["admin"]),
-//   taskController.assignTask
-// );
 
 module.exports = router;
