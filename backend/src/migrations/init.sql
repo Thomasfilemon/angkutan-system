@@ -143,6 +143,7 @@ CREATE TABLE driver_expenses (
   driver_id INTEGER REFERENCES users(id),
   jenis VARCHAR(50) NOT NULL,
   amount NUMERIC NOT NULL,
+  notes TEXT, -- <-- ADD THIS LINE
   receipt_url TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -203,21 +204,22 @@ CREATE TABLE payment_terms (
 -- BAGIAN 5: PEMELIHARAAN & LOGGING
 -- =================================================================
 
-CREATE TABLE vehicle_service (
+CREATE TABLE vehicle_services (
   id SERIAL PRIMARY KEY,
-  vehicle_id INTEGER REFERENCES vehicles(id),
+  vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE CASCADE,
   service_date DATE NOT NULL,
-  km_recorded INTEGER,
-  service_type VARCHAR(50) NOT NULL,
-  total_cost NUMERIC NOT NULL DEFAULT 0,
-  note TEXT,
-  receipt_url TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  description TEXT NOT NULL,
+  cost NUMERIC(15, 2) NOT NULL DEFAULT 0,
+  workshop_name VARCHAR(255),
+  CONSTRAINT fk_vehicle
+    FOREIGN KEY(vehicle_id) 
+    REFERENCES vehicles(id)
+    ON DELETE CASCADE
 );
 
 CREATE TABLE service_items (
   id SERIAL PRIMARY KEY,
-  service_id INTEGER REFERENCES vehicle_service(id) ON DELETE CASCADE,
+  service_id INTEGER REFERENCES vehicle_services(id) ON DELETE CASCADE,
   item_name VARCHAR(100) NOT NULL,
   item_type VARCHAR(20) NOT NULL CHECK(item_type IN ('part','labor','other')),
   quantity INTEGER NOT NULL DEFAULT 1,

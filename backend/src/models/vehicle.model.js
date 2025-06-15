@@ -209,5 +209,7 @@ module.exports = (sequelize) => {
     });
   };
 
+  
+
   return Vehicle;
 };

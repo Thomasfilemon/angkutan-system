@@ -11,6 +11,8 @@ const healthRoutes = require("./routes/health.routes");
 const authRoutes = require("./routes/auth.routes");
 const purchaseOrderRoutes = require('./routes/purchaseOrder.routes'); // <-- NEW
 const deliveryOrderRoutes = require('./routes/deliveryOrder.routes'); // <-- NEW
+const driverExpenseRoutes = require('./routes/driverExpense.routes');
+const vehicleRoutes = require('./routes/vehicle.routes');
 // ... other routes
 
 const app = express();
@@ -34,7 +36,8 @@ app.use("/api", healthRoutes);
 app.use("/api/auth", authRoutes);
 app.use('/api/purchase-orders', purchaseOrderRoutes); // <-- USE NEW
 app.use('/api/delivery-orders', deliveryOrderRoutes); // <-- USE NEW
-// app.use('/api/trips', tripRoutes); // <-- DELETE OR COMMENT OUT OLD ROUTE
+app.use('/api/driver-expenses', driverExpenseRoutes);
+app.use('/api/vehicles', vehicleRoutes);
 
 // Error handling middleware
 app.use(errorHandler);

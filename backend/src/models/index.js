@@ -10,6 +10,7 @@ const setupAdminProfileModel = require('./adminProfile.model'); // <-- Added thi
 const setupPurchaseOrderModel = require('./purchaseOrder.model');
 const setupDeliveryOrderModel = require('./deliveryOrder.model');
 const setupDriverExpenseModel = require('./driverExpense.model');
+const setupVehicleServiceModel = require('./vehicleService.model'); 
 
 // Initialize Sequelize connection using your .env variables
 const sequelize = new Sequelize(process.env.DB_NAME, process.env.DB_USER, process.env.DB_PASSWORD, {
@@ -38,12 +39,13 @@ db.AdminProfile = setupAdminProfileModel(sequelize); // <-- Added AdminProfile m
 db.PurchaseOrder = setupPurchaseOrderModel(sequelize);
 db.DeliveryOrder = setupDeliveryOrderModel(sequelize);
 db.DriverExpense = setupDriverExpenseModel(sequelize);
+db.VehicleService = setupVehicleServiceModel(sequelize);
 
 // === Define All Model Associations ===
 // This is where you tell Sequelize how your tables are related.
 // The 'as' alias is critical and must match what you use in your controllers' 'include' statements.
 
-const { User, DriverProfile, AdminProfile, PurchaseOrder, DeliveryOrder, Vehicle, DriverExpense } = db;
+const { User, DriverProfile, AdminProfile, PurchaseOrder, DeliveryOrder, Vehicle, DriverExpense, VehicleService } = db;
 
 // User <-> Profile Associations (One-to-One)
 User.hasOne(DriverProfile, { foreignKey: 'user_id', as: 'driverProfile' });
@@ -66,7 +68,10 @@ DeliveryOrder.belongsTo(Vehicle, { foreignKey: 'vehicle_id', as: 'vehicle' });
 
 // Expense-related Associations (One-to-Many)
 DeliveryOrder.hasMany(DriverExpense, { foreignKey: 'delivery_order_id', as: 'expenses' });
-DriverExpense.belongsTo(DeliveryOrder, { foreignKey: 'delivery_order_id', as: 'deliveryOrder' });
+DriverExpense.belongsTo(DeliveryOrder, { foreignKey: 'delivery_order_id', as: 'DeliveryOrder' });
+
+Vehicle.hasMany(VehicleService, { foreignKey: 'vehicle_id', as: 'serviceHistory' });
+VehicleService.belongsTo(Vehicle, { foreignKey: 'vehicle_id', as: 'vehicle' });
 
 // User (as Driver) <-> DriverExpense
 // Renamed alias to 'driverExpenses' to avoid conflict with DeliveryOrder's 'expenses' alias

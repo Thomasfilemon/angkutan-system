@@ -57,12 +57,7 @@ module.exports = (sequelize) => {
     },
     receipt_url: {
       type: DataTypes.TEXT,
-      allowNull: true,
-      validate: {
-        isUrl: {
-          msg: 'Receipt URL must be a valid URL format'
-        }
-      }
+      allowNull: true // No validation needed for a simple path string
     },
     notes: {
       type: DataTypes.TEXT,
@@ -217,5 +212,21 @@ module.exports = (sequelize) => {
     });
   };
 
-  return DriverExpense;
+  DriverExpense.associate = function(models) {
+    // An expense belongs to one DeliveryOrder
+    DriverExpense.belongsTo(models.DeliveryOrder, {
+      foreignKey: 'delivery_order_id',
+      as: 'DeliveryOrder' // This alias must match the one used in your 'include'
+    });
+
+    // An expense belongs to one User (acting as a driver)
+    DriverExpense.belongsTo(models.User, {
+      foreignKey: 'driver_id',
+      as: 'driver' // This alias must match
+    });
+  };
+
+  return DriverExpense
+
+  
 };
