@@ -1,7 +1,7 @@
 // src/services/api.js
 
-import axios from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from "axios";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
@@ -9,8 +9,8 @@ const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: {
-    'ngrok-skip-browser-warning': 'true', // Keep your ngrok header
-    'Content-Type': 'application/json',
+    "ngrok-skip-browser-warning": "true", // Keep your ngrok header
+    "Content-Type": "application/json",
   },
 });
 
@@ -18,7 +18,7 @@ const apiClient = axios.create({
 apiClient.interceptors.request.use(
   async (config) => {
     // Get the token from storage
-    const token = await AsyncStorage.getItem('token');
+    const token = await AsyncStorage.getItem("token");
     if (token) {
       // If the token exists, add it to the Authorization header
       config.headers.Authorization = `Bearer ${token}`;
@@ -30,5 +30,13 @@ apiClient.interceptors.request.use(
     return Promise.reject(error);
   }
 );
+
+export const getPoDetailsForNewDo = (poId) => {
+  return apiClient.get(`/purchase-orders/${poId}/details`);
+};
+
+export const getDeliveryOrderDetails = (id) => {
+  return apiClient.get(`/delivery-orders/${id}`);
+};
 
 export default apiClient;

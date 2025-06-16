@@ -31,8 +31,10 @@ You can start developing by editing the files inside the **app** directory. This
 ├── .env                 # Environment variables configuration
 ├── .env.example        # Example environment variables template
 ├── .gitignore         # Git ignore rules
+├── .expo/
 ├── app.json
 ├── env.d.ts
+├── expo-env.d.ts
 ├── eslint.config.js
 ├── tsconfig.json
 ├── package.json       # Project dependencies and scripts
@@ -41,6 +43,11 @@ You can start developing by editing the files inside the **app** directory. This
 ├── node_modules/
 ├── app/
 │   ├── _layout.tsx
+│   ├── (admin)/
+│   │   ├── _layout.tsx
+│   │   ├── create-trip.tsx
+│   │   └── index.tsx
+│   │
 │   ├── (auth)/
 │   │   ├── _layout.tsx
 │   │   ├── login.tsx

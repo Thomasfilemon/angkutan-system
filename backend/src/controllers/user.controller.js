@@ -12,7 +12,7 @@ exports.getUsers = async (req, res) => {
         include: [
           {
             model: DriverProfile,
-            as: "profile",
+            as: "driverProfile",
             where: { status: "available" },
             required: true,
           },
@@ -25,7 +25,7 @@ exports.getUsers = async (req, res) => {
     if (role === "driver") {
       const drivers = await User.findAll({
         where: { role: "driver" },
-        include: [{ model: DriverProfile, as: "profile" }],
+        include: [{ model: DriverProfile, as: "driverProfile" }],
       });
       return res.json(drivers);
     }

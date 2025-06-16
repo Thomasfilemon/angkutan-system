@@ -83,7 +83,6 @@ gitignore
     │   ├── firebase.routes.js # Firebase-related endpoints
     │   ├── health.routes.js # Health check endpoints
     │   ├── purchaseOrder.routes.js
-    │   ├── trip.routes.js
     │   ├── user.routes.js
     │   └── vehicle.routes.js   
     │

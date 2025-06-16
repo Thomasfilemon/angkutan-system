@@ -18,7 +18,7 @@ interface DeliveryOrder {
   item_name: string;
   quantity: number;
   status: string;
-  driver_name?: string;
+  driver?: { driverProfile?: { full_name?: string } };
   vehicle?: { license_plate: string };
   surat_jalan_url?: string;
 }
@@ -42,6 +42,23 @@ export default function AdminIndex() {
     }
   };
 
+  function formatStatus(status: string) {
+    switch (status) {
+      case "assigned":
+        return "Assigned";
+      case "otw_to_destination":
+        return "OTW ke Tujuan";
+      case "at_destination":
+        return "Tiba di Tujuan";
+      case "otw_to_base":
+        return "OTW ke Pool";
+      case "completed":
+        return "Selesai";
+      default:
+        return status.replace(/_/g, " ").toUpperCase();
+    }
+  }
+
   useEffect(() => {
     fetchOrders();
   }, []);
@@ -50,13 +67,15 @@ export default function AdminIndex() {
     <View style={styles.card}>
       <View style={styles.cardHeader}>
         <Text style={styles.doNumber}>{item.do_number}</Text>
-        <Text style={styles.status}>{item.status.toUpperCase()}</Text>
+        <Text style={styles.status}>{formatStatus(item.status)}</Text>
       </View>
       <Text style={styles.customer}>{item.customer_name}</Text>
       <Text style={styles.item}>
         {item.item_name} - {item.quantity} Ton
       </Text>
-      <Text style={styles.driver}>Driver: {item.driver_name || "-"}</Text>
+      <Text style={styles.driver}>
+        Driver: {item.driver?.driverProfile?.full_name || "-"}
+      </Text>
       <Text style={styles.vehicle}>
         Mobil: {item.vehicle?.license_plate || "-"}
       </Text>

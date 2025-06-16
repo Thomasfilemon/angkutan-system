@@ -1,4 +1,4 @@
-// In src/models/deliveryOrder.model.js
+// backend/src/models/deliveryOrder.model.js
 const { DataTypes, Sequelize } = require("sequelize");
 
 module.exports = (sequelize) => {
@@ -38,6 +38,15 @@ module.exports = (sequelize) => {
       deposit_amount: { type: DataTypes.DECIMAL, defaultValue: 0 },
       invoice_amount: { type: DataTypes.DECIMAL },
       due_date: { type: DataTypes.DATE },
+      trip_allowance: {
+        type: DataTypes.DECIMAL(15, 2),
+        allowNull: false,
+        defaultValue: 0,
+        validate: {
+          isDecimal: true,
+          min: 0,
+        },
+      },
       status: {
         // The ENUM type in Sequelize must match the custom type 'delivery_status' in Postgres
         type: DataTypes.ENUM(

@@ -96,7 +96,7 @@ DeliveryOrder.hasMany(DriverExpense, {
 });
 DriverExpense.belongsTo(DeliveryOrder, {
   foreignKey: "delivery_order_id",
-  as: "DeliveryOrder",
+  as: "deliveryOrder",
 });
 
 Vehicle.hasMany(VehicleService, {

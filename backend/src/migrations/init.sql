@@ -1,4 +1,4 @@
-
+-- backend/src/migrations/init.sql
 -- BAGIAN 1: PENGGUNA & PROFIL
 -- =================================================================
 
@@ -89,6 +89,8 @@ CREATE TABLE purchase_orders (
   id SERIAL PRIMARY KEY,
   po_number VARCHAR(50) UNIQUE NOT NULL,
   customer_name VARCHAR(100) NOT NULL,
+  item_name VARCHAR(255) NOT NULL,
+  total_quantity NUMERIC(10, 2) NOT NULL,
   order_date DATE NOT NULL,
   status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'completed', 'cancelled')),
   notes TEXT,
@@ -114,7 +116,7 @@ CREATE TABLE delivery_orders (
   do_number VARCHAR(50) UNIQUE NOT NULL,
   customer_name VARCHAR(100) NOT NULL,
   item_name VARCHAR(100),
-  quantity NUMERIC,s
+  quantity NUMERIC,
   unit_price NUMERIC,
   total_amount NUMERIC NOT NULL,
   load_location TEXT,
@@ -126,6 +128,7 @@ CREATE TABLE delivery_orders (
   deposit_amount NUMERIC DEFAULT 0,
   invoice_amount NUMERIC,
   due_date DATE,
+  trip_allowance NUMERIC(15, 2) NOT NULL DEFAULT 0,
   status delivery_status NOT NULL DEFAULT 'assigned',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   started_at TIMESTAMP WITH TIME ZONE,
@@ -270,8 +273,9 @@ CREATE INDEX idx_vehicles_tax_due ON vehicles(tax_due_date);
 CREATE INDEX idx_vehicles_stnk_expired ON vehicles(stnk_expired_date);
 CREATE INDEX idx_stock_items_low_stock ON stock_items(current_stock, min_stock);
 CREATE INDEX idx_delivery_orders_po_id ON delivery_orders(purchase_order_id);
-CREATE INDEX idx_delivery_orders_driver_id ON delivery_orders(driver_id);
 CREATE INDEX idx_delivery_orders_status ON delivery_orders(payment_status);
 CREATE INDEX idx_delivery_orders_due_date ON delivery_orders(due_date);
 CREATE INDEX idx_tire_inspections_date ON tire_inspections(inspection_date);
 CREATE INDEX idx_cash_transactions_date ON cash_transactions(transaction_date);
+CREATE UNIQUE INDEX idx_active_delivery_orders_per_driver_id ON delivery_orders(driver_id) WHERE status IN ('assigned', 'otw_to_destination', 'at_destination', 'otw_to_base');
+CREATE UNIQUE INDEX idx_active_delivery_orders_per_vehicle ON delivery_orders(vehicle_id) WHERE status IN ('assigned', 'otw_to_destination', 'at_destination', 'otw_to_base');

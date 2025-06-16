@@ -5,6 +5,7 @@ const {
   PurchaseOrder,
   Vehicle,
   User,
+  DriverExpense,
   DriverProfile,
   sequelize,
 } = require("../models");
@@ -49,9 +50,50 @@ exports.createDeliveryOrder = async (req, res, next) => {
       deposit_amount,
       invoice_amount,
       due_date,
+      trip_allowance,
     } = req.body;
 
     // Validasi sederhana
+    // CEK: Apakah driver sudah punya trip aktif (assigned, otw_to_destination, at_destination, otw_to_base)
+    const activeTrip = await DeliveryOrder.findOne({
+      where: {
+        driver_id,
+        status: {
+          [Op.in]: [
+            "assigned",
+            "otw_to_destination",
+            "at_destination",
+            "otw_to_base",
+          ],
+        },
+      },
+    });
+    if (activeTrip) {
+      return res.status(400).json({
+        message: "Driver ini masih menjalani trip lain yang belum selesai!",
+      });
+    }
+
+    // CEK: Apakah vehicle sudah punya trip aktif
+    const activeVehicle = await DeliveryOrder.findOne({
+      where: {
+        vehicle_id,
+        status: {
+          [Op.in]: [
+            "assigned",
+            "otw_to_destination",
+            "at_destination",
+            "otw_to_base",
+          ],
+        },
+      },
+    });
+    if (activeVehicle) {
+      return res.status(400).json({
+        message: "Mobil ini masih dipakai untuk trip lain yang belum selesai!",
+      });
+    }
+
     if (
       !purchase_order_id ||
       !driver_id ||
@@ -87,6 +129,7 @@ exports.createDeliveryOrder = async (req, res, next) => {
       deposit_amount,
       invoice_amount,
       due_date,
+      trip_allowance: trip_allowance || 0,
       status: "assigned", // status default saat dibuat
       surat_jalan_url,
     });
@@ -111,6 +154,20 @@ exports.getMyDeliveryOrders = async (req, res, next) => {
 
     const myOrders = await DeliveryOrder.findAll({
       where: { driver_id: driverId },
+      attributes: {
+        include: [
+          [
+            // Subquery untuk menjumlahkan semua expense yang terkait dengan DO ini
+            sequelize.literal(`(
+              SELECT COALESCE(SUM(amount), 0)
+              FROM driver_expenses AS de
+              WHERE
+                de.delivery_order_id = "DeliveryOrder".id
+            )`),
+            "expenses_total", // Nama alias untuk total expense
+          ],
+        ],
+      },
       include: [
         {
           model: PurchaseOrder,
@@ -138,18 +195,24 @@ exports.getMyDeliveryOrders = async (req, res, next) => {
       order: [["created_at", "DESC"]],
     });
 
-    const simplifiedOrders = myOrders.map((order) => {
+    // Proses data untuk menambahkan sisa saldo
+    const ordersWithAllowance = myOrders.map((order) => {
       const plainOrder = order.get({ plain: true });
+      const expensesTotal = parseFloat(plainOrder.expenses_total) || 0;
+      const tripAllowance = parseFloat(plainOrder.trip_allowance) || 0;
+
       return {
         ...plainOrder,
-        // --- THIS IS THE CORRECTED ALIAS ---
+        expenses_total: expensesTotal,
+        remaining_allowance: tripAllowance - expensesTotal, // Hitung sisa saldo
         driver_name:
           plainOrder.driver?.driverProfile?.full_name ||
           plainOrder.driver?.username,
         driver: undefined,
       };
     });
-    res.json(simplifiedOrders);
+
+    res.json(ordersWithAllowance); // Kirim data yang sudah diolah
   } catch (err) {
     console.error("Error in getMyDeliveryOrders:", err);
     next(err);
@@ -216,11 +279,36 @@ exports.getDeliveryOrderById = async (req, res, next) => {
           as: "driver",
           include: { model: DriverProfile, as: "driverProfile" },
         },
+        {
+          model: DriverExpense, // Pastikan model DriverExpense di-import di atas
+          as: "expenses", // Alias ini harus sama dengan yang ada di models/index.js
+          order: [["created_at", "DESC"]], // Urutkan dari yang terbaru
+        },
       ],
     });
-    if (!order)
+    if (!order) {
       return res.status(404).json({ message: "Delivery Order not found" });
-    res.json(order);
+    }
+
+    // --- KALKULASI SALDO DINAMIS ---
+    const plainOrder = order.get({ plain: true });
+
+    // Hitung total pengeluaran dari data yang sudah kita include
+    const expensesTotal = plainOrder.expenses.reduce(
+      (sum, expense) => sum + parseFloat(expense.amount),
+      0
+    );
+
+    const tripAllowance = parseFloat(plainOrder.trip_allowance) || 0;
+
+    // Tambahkan field kalkulasi ke dalam respons
+    const responseData = {
+      ...plainOrder,
+      expenses_total: expensesTotal,
+      remaining_allowance: tripAllowance - expensesTotal,
+    };
+
+    res.json(responseData);
   } catch (err) {
     next(err);
   }
