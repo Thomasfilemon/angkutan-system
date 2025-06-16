@@ -123,11 +123,6 @@ exports.getMyDeliveryOrders = async (req, res, next) => {
           attributes: ["id", "license_plate", "type"],
         },
         {
-          model: SuratJalan,
-          as: "suratJalan",
-          attributes: ["id", "surat_jalan_url"],
-        },
-        {
           model: User,
           as: "driver",
           attributes: ["id", "username"],
