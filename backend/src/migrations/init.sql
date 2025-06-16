@@ -114,11 +114,12 @@ CREATE TABLE delivery_orders (
   do_number VARCHAR(50) UNIQUE NOT NULL,
   customer_name VARCHAR(100) NOT NULL,
   item_name VARCHAR(100),
-  quantity NUMERIC,
+  quantity NUMERIC,s
   unit_price NUMERIC,
   total_amount NUMERIC NOT NULL,
   load_location TEXT,
   unload_location TEXT,
+  surat_jalan_url VARCHAR(255),
   payment_status VARCHAR(20) NOT NULL DEFAULT 'proses_tagihan' 
     CHECK(payment_status IN ('lunas','deposit','proses_tagihan')),
   payment_type VARCHAR(20) CHECK(payment_type IN ('cash','transfer','deposit')),

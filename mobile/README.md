@@ -25,6 +25,69 @@ In the output, you'll find options to open the app in a
 
 You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
+## Current directory structure:
+
+`mobile/
+├── .env                 # Environment variables configuration
+├── .env.example        # Example environment variables template
+├── .gitignore         # Git ignore rules
+├── app.json
+├── env.d.ts
+├── eslint.config.js
+├── tsconfig.json
+├── package.json       # Project dependencies and scripts
+├── package-lock.json
+├── README.md         # Project documentation
+├── node_modules/
+├── app/
+│   ├── _layout.tsx
+│   ├── (auth)/
+│   │   ├── _layout.tsx
+│   │   ├── login.tsx
+│   │   └── register.tsx
+│   │
+│   └── (tabs)/
+│       ├── _layout.tsx
+│       ├── expense.tsx
+│       ├── index.tsx
+│       └── vehicle.tsx
+│
+├── assets/
+│   ├── fonts/
+│   └── images/
+│
+├── components/
+│   ├── ui/
+│   │    ├── IconSymbol.ios.tsx
+│   │    ├── IconSymbol.tsx
+│   │    ├── TabBarBackground.ios.tsx
+│   │    └── TabBarBackground.tsx
+│   │
+│   ├── Collapsible.tsx
+│   ├── ExternalLink.tsx
+│   ├── HapticTab.tsx
+│   ├── HelloWave.tsx
+│   ├── ParallaxScrollView.tsx
+│   ├── ThemedText.tsx
+│   └── ThemedView.tsx
+│
+├── constants/
+│   └── Colors.ts
+│
+├── hooks/
+│   ├── useColorScheme.ts
+│   ├── useColorScheme.web.ts
+│   └── useThemeColor.ts
+│
+├── scripts/
+│   └── reset-project.js
+│
+└── src/
+   ├── contexts/
+   │     └── AuthContext.tsx
+   └── services/
+         └── api.js`
+
 ## Get a fresh project
 
 When you're ready, run:

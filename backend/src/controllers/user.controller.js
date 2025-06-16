@@ -1,4 +1,44 @@
 const db = require("../utils/db");
+const { User, DriverProfile } = require("../models");
+
+exports.getUsers = async (req, res) => {
+  try {
+    const { role, status } = req.query;
+
+    // Hanya untuk driver dengan status tertentu
+    if (role === "driver" && status === "available") {
+      const drivers = await User.findAll({
+        where: { role: "driver" },
+        include: [
+          {
+            model: DriverProfile,
+            as: "profile",
+            where: { status: "available" },
+            required: true,
+          },
+        ],
+      });
+      return res.json(drivers);
+    }
+
+    // Jika hanya role=driver tanpa status
+    if (role === "driver") {
+      const drivers = await User.findAll({
+        where: { role: "driver" },
+        include: [{ model: DriverProfile, as: "profile" }],
+      });
+      return res.json(drivers);
+    }
+
+    // Default: semua user
+    const users = await User.findAll();
+    res.json(users);
+  } catch (err) {
+    res
+      .status(500)
+      .json({ error: "Failed to fetch users", details: err.message });
+  }
+};
 
 exports.getProfile = async (req, res) => {
   try {

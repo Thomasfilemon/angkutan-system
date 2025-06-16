@@ -1,7 +1,8 @@
+const { Op } = require("sequelize");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
-const { User, DriverProfile, AdminProfile, sequelize } = require('../models');
-const { UniqueConstraintError } = require('sequelize');
+const { User, DriverProfile, AdminProfile, sequelize } = require("../models");
+const { UniqueConstraintError } = require("sequelize");
 
 const mobileLogin = async (req, res, next) => {
   try {
@@ -9,16 +10,21 @@ const mobileLogin = async (req, res, next) => {
 
     // Find the user using Sequelize models, including their associated profile
     const user = await User.findOne({
-      where: { username, role: ['admin', 'driver'] },
+      where: {
+        username,
+        role: { [Op.in]: ["admin", "driver"] },
+      },
       include: [
         // These 'as' aliases must match the ones defined in your models/index.js associations
-        { model: DriverProfile, as: 'driverProfile' },
-        { model: AdminProfile, as: 'adminProfile' }
-      ]
+        { model: DriverProfile, as: "driverProfile" },
+        { model: AdminProfile, as: "adminProfile" },
+      ],
     });
 
     if (!user) {
-      return res.status(401).json({ message: "Invalid credentials or unauthorized role." });
+      return res
+        .status(401)
+        .json({ message: "Invalid credentials or unauthorized role." });
     }
 
     const validPassword = await bcrypt.compare(password, user.password_hash);
@@ -28,17 +34,18 @@ const mobileLogin = async (req, res, next) => {
 
     // Create JWT token with a consistent payload
     const token = jwt.sign(
-      { id: user.id, role: user.role }, // Use 'id' to match your verifyToken middleware
+      { id: user.id, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: "24h" }
     );
-    
+
     // Structure the user object for the response, combining profiles for simplicity
     const userResponse = user.toJSON();
-    userResponse.profile = userResponse.driverProfile || userResponse.adminProfile;
+    userResponse.profile =
+      userResponse.driverProfile || userResponse.adminProfile;
     delete userResponse.driverProfile;
     delete userResponse.adminProfile;
-    delete userResponse.password_hash; // Never send the hash to the client
+    delete userResponse.password_hash;
 
     res.json({
       message: "Login successful",
@@ -55,11 +62,13 @@ const webLogin = async (req, res, next) => {
     const { username, password } = req.body;
 
     const user = await User.findOne({
-      where: { username, role: 'owner' }
+      where: { username, role: "owner" },
     });
 
     if (!user) {
-      return res.status(401).json({ message: "Invalid credentials or unauthorized role." });
+      return res
+        .status(401)
+        .json({ message: "Invalid credentials or unauthorized role." });
     }
 
     const validPassword = await bcrypt.compare(password, user.password_hash);
@@ -72,7 +81,7 @@ const webLogin = async (req, res, next) => {
       process.env.JWT_SECRET,
       { expiresIn: "8h" }
     );
-    
+
     const userResponse = user.toJSON();
     delete userResponse.password_hash;
 
@@ -95,22 +104,31 @@ const register = async (req, res, next) => {
     const newUser = await sequelize.transaction(async (t) => {
       const passwordHash = await bcrypt.hash(password, 10);
 
-      const user = await User.create({
-        username,
-        password_hash: passwordHash,
-        role,
-      }, { transaction: t });
+      const user = await User.create(
+        {
+          username,
+          password_hash: passwordHash,
+          role,
+        },
+        { transaction: t }
+      );
 
       // Create the corresponding profile based on the role
-      if (role === 'admin') {
-        await AdminProfile.create({ ...profileData, user_id: user.id }, { transaction: t });
-      } else if (role === 'driver') {
-        await DriverProfile.create({ ...profileData, user_id: user.id }, { transaction: t });
+      if (role === "admin") {
+        await AdminProfile.create(
+          { ...profileData, user_id: user.id },
+          { transaction: t }
+        );
+      } else if (role === "driver") {
+        await DriverProfile.create(
+          { ...profileData, user_id: user.id },
+          { transaction: t }
+        );
       }
 
       return user;
     });
-    
+
     const userResponse = newUser.toJSON();
     delete userResponse.password_hash;
 
@@ -121,7 +139,12 @@ const register = async (req, res, next) => {
   } catch (err) {
     // Provide a more specific error for unique constraints (e.g., username exists)
     if (err instanceof UniqueConstraintError) {
-      return res.status(409).json({ message: 'Registration failed', details: 'Username or other unique field already exists.' });
+      return res
+        .status(409)
+        .json({
+          message: "Registration failed",
+          details: "Username or other unique field already exists.",
+        });
     }
     next(err); // Pass all other errors to the global handler
   }

@@ -1,39 +1,79 @@
 // src/routes/deliveryOrder.routes.js
 
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const doController = require('../controllers/deliveryOrder.controller');
-const { verifyToken, checkRole } = require('../middlewares/auth.middleware');
+const doController = require("../controllers/deliveryOrder.controller");
+const { verifyToken, checkRole } = require("../middlewares/auth.middleware");
+const multer = require("multer");
+const path = require("path");
+
+// Setup multer for surat jalan uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, "uploads/surat_jalan"),
+  filename: (req, file, cb) =>
+    cb(null, "suratjalan-" + Date.now() + path.extname(file.originalname)),
+});
+const upload = multer({ storage });
 
 // All routes below are protected by the token verification middleware
 router.use(verifyToken);
 
+// === ADMIN-SPECIFIC ROUTES ===
+router.post(
+  "/",
+  checkRole(["admin", "owner"]),
+  upload.single("surat_jalan"),
+  doController.createDeliveryOrder
+);
+
 // === DRIVER-SPECIFIC ROUTES ===
 
 // GET /api/delivery-orders/me - For a driver to get ONLY their list of tasks
-router.get('/me', checkRole(['driver']), doController.getMyDeliveryOrders);
+router.get("/me", checkRole(["driver"]), doController.getMyDeliveryOrders);
 
 // PATCH /api/delivery-orders/:id/start - Driver starts the trip
-router.patch('/:id/start', checkRole(['driver']), doController.startToDestination);
+router.patch(
+  "/:id/start",
+  checkRole(["driver"]),
+  doController.startToDestination
+);
 
 // PATCH /api/delivery-orders/:id/arrive - Driver arrives at destination
-router.patch('/:id/arrive', checkRole(['driver']), doController.arriveAtDestination);
+router.patch(
+  "/:id/arrive",
+  checkRole(["driver"]),
+  doController.arriveAtDestination
+);
 
 // PATCH /api/delivery-orders/:id/return - Driver starts returning to base
-router.patch('/:id/return', checkRole(['driver']), doController.startReturnToBase);
+router.patch(
+  "/:id/return",
+  checkRole(["driver"]),
+  doController.startReturnToBase
+);
 
 // PATCH /api/delivery-orders/:id/complete - Driver completes the entire order
-router.patch('/:id/complete', checkRole(['driver']), doController.completeDeliveryOrder);
-
+router.patch(
+  "/:id/complete",
+  checkRole(["driver"]),
+  doController.completeDeliveryOrder
+);
 
 // === GENERAL & ADMIN ROUTES ===
 
 // GET /api/delivery-orders - Get ALL delivery orders, with optional filtering
 // This endpoint now handles the request from your Vehicle screen correctly.
-router.get('/', checkRole(['admin', 'owner', 'driver']), doController.getAllDeliveryOrders);
+router.get(
+  "/",
+  checkRole(["admin", "owner", "driver"]),
+  doController.getAllDeliveryOrders
+);
 
 // GET /api/delivery-orders/:id - Get a single delivery order by its ID
-router.get('/:id', checkRole(['admin', 'owner', 'driver']), doController.getDeliveryOrderById);
-
+router.get(
+  "/:id",
+  checkRole(["admin", "owner", "driver"]),
+  doController.getDeliveryOrderById
+);
 
 module.exports = router;

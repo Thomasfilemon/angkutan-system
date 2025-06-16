@@ -33,38 +33,69 @@ gitignore
 ├── .env.example        # Example environment variables template
 ├── .gitignore         # Git ignore rules
 ├── package.json       # Project dependencies and scripts
+├── package-lock.json
 ├── README.md         # Project documentation
+├── node_modules/
 └── src/              # Source code directory
     ├── server.js     # Main application entry point
     ├── config/       # Configuration files
+    │   ├── database.js
     │   └── angkutan-system-firebase-adminsdk-fbsvc-35bb803ee3.json  # Firebase credentials
     │
     ├── controllers/  # Business logic handlers
     │   ├── auth.controller.js      # Authentication logic
+    │   ├── deliveryOrder.controller.js
+    │   ├── driverExpenseController.js
     │   ├── firebase.controller.js  # Firebase-related operations
-    │   └── health.controller.js    # API health check endpoints
+    │   ├── health.controller.js    # API health check endpoints
+    │   ├── purchaseOrder.controller.js
+    │   ├── user.controller.js
+    │   └── vehicleController.js
     │
     ├── middlewares/  # Express middleware functions
+    │   ├── auth.middleware.js
     │   ├── error.middleware.js     # Global error handler
     │   ├── setup.middleware.js     # App-wide middleware setup
     │   └── validation.middleware.js # Request validation rules
     │
     ├── migrations/   # Database migration files
+    │   ├── seeder.sql
     │   └── init.sql  # Initial database schema
     │
     ├── models/      # Data models (currently empty)
+    │   ├── adminProfile.model.js
+    │   ├── deliveryOrder.model.js
+    │   ├── driverExpense.model.js
+    │   ├── driverProfile.model.js
+    │   ├── index.js
+    │   ├── purchaseOrder.model.js
+    │   ├── Trip.js
+    │   ├── user.model.js
+    │   ├── vehicle.model.js
+    │   ├── vehicleService.model.js
+    │   └── helpers/
+    │       └── validation.js
     │
     ├── routes/      # API route definitions
     │   ├── auth.routes.js     # Authentication endpoints
+    │   ├── deliveryOrder.routes.js
+    │   ├── deliveryExpense.routes.js
     │   ├── firebase.routes.js # Firebase-related endpoints
-    │   └── health.routes.js   # Health check endpoints
+    │   ├── health.routes.js # Health check endpoints
+    │   ├── purchaseOrder.routes.js
+    │   ├── trip.routes.js
+    │   ├── user.routes.js
+    │   └── vehicle.routes.js   
     │
     ├── services/    # External service integrations
     │   └── firebase.js  # Firebase Admin SDK setup
     │
     └── utils/       # Utility functions
         ├── db.js               # Database connection setup
+        ├── hashPasswords.js
+        ├── migrateFresh.js
         ├── runMigrations.js    # Database migration runner
+        ├── runSeeder.js
         └── verifyFirebaseToken.js  # Firebase token verification`
 
 # Angkutan System - Backend Documentation
