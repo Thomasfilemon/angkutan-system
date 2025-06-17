@@ -33,9 +33,9 @@ INSERT INTO vehicles (license_plate, type, capacity, stnk_expired_date, tax_due_
 ('B 1122 PQR', 'Isuzu Giga', 15000, '2025-08-20', '2025-08-20', 'available');
 
 -- 3. PURCHASE ORDERS
-INSERT INTO purchase_orders (po_number, customer_name, item_name, total_quantity, order_date, status) VALUES
-('PO/WIKA/09/2024-01', 'PT WIKA BETON', 'Abu Batu', 200.00, '2024-09-28', 'in_progress'),
-('PO/ADHI/10/2024-02', 'PT ADHI KARYA', 'Pasir dan Batu Split', 500.00, '2024-10-05', 'in_progress');
+INSERT INTO purchase_orders (po_number, customer_name, load_location, load_latitude, load_longitude, unload_location, unload_latitude, unload_longitude, item_name, total_quantity, order_date, status) VALUES
+('PO/WIKA/09/2024-01', 'PT WIKA BETON', 'Quarry Jonggol, Bogor', -6.4925, 106.8467, 'Proyek Tol Cibitung, Bekasi', -6.2615, 107.0012, 'Abu Batu', 200.00, '2024-09-28', 'in_progress'),
+('PO/ADHI/10/2024-02', 'PT ADHI KARYA', 'Quarry Cibinong, Bogor', -6.4925, 106.8467, 'Proyek Tol Cimanggis, Depok', -6.2615, 107.0012, 'Pasir dan Batu Split', 500.00, '2024-10-05', 'in_progress');
 
 -- 4. DELIVERY ORDERS (DO/TRIP) + UANG JALAN
 INSERT INTO delivery_orders (

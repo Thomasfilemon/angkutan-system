@@ -117,24 +117,6 @@ const DriverDashboard = () => {
     fetchMyTasks();
   }, []);
 
-  // --- UI Rendering Logic (No changes needed) ---
-  const renderStatusBadge = (status: DeliveryOrder["status"]) => {
-    const statusInfo = {
-      assigned: { text: "BARU", color: "#3498db" },
-      otw_to_destination: { text: "OTW TUJUAN", color: "#f39c12" },
-      at_destination: { text: "DI LOKASI", color: "#e67e22" },
-      otw_to_base: { text: "OTW PULANG", color: "#1abc9c" },
-      completed: { text: "SELESAI", color: "#2ecc71" },
-      cancelled: { text: "BATAL", color: "#e74c3c" },
-    };
-    const info = statusInfo[status] || { text: "UNKNOWN", color: "#95a5a6" };
-    return (
-      <View style={[styles.statusBadge, { backgroundColor: info.color }]}>
-        <Text style={styles.statusText}>{info.text}</Text>
-      </View>
-    );
-  };
-
   const renderActionButtons = (order: DeliveryOrder) => {
     switch (order.status) {
       case "assigned":
@@ -182,17 +164,69 @@ const DriverDashboard = () => {
     }
   };
 
-  const renderTaskItem = ({ item }: { item: DeliveryOrder }) => (
-    <TouchableOpacity
-      onPress={() =>
-        router.push({ pathname: "/trip-detail/[id]", params: { id: item.id } })
-      }
-    >
-      <View style={styles.card}>
+  // Helper to get status badge background color
+  const getStatusColor = (status: DeliveryOrder["status"]) => {
+    switch (status) {
+      case "assigned":
+        return { backgroundColor: "#3498db" };
+      case "otw_to_destination":
+        return { backgroundColor: "#f39c12" };
+      case "at_destination":
+        return { backgroundColor: "#e67e22" };
+      case "otw_to_base":
+        return { backgroundColor: "#1abc9c" };
+      case "completed":
+        return { backgroundColor: "#2ecc71" };
+      case "cancelled":
+        return { backgroundColor: "#e74c3c" };
+      default:
+        return { backgroundColor: "#95a5a6" };
+    }
+  };
+
+  // Helper to get status text
+  const getStatusText = (status: DeliveryOrder["status"]) => {
+    switch (status) {
+      case "assigned":
+        return "BARU";
+      case "otw_to_destination":
+        return "OTW TUJUAN";
+      case "at_destination":
+        return "DI LOKASI";
+      case "otw_to_base":
+        return "OTW PULANG";
+      case "completed":
+        return "SELESAI";
+      case "cancelled":
+        return "BATAL";
+      default:
+        return "UNKNOWN";
+    }
+  };
+
+  const renderTaskItem = ({ item }: { item: DeliveryOrder }) => {
+    const isCompleted = item.status === "completed";
+    return (
+      <TouchableOpacity
+        onPress={() => router.push(`/trip-detail/${item.id}`)}
+        style={[styles.card, isCompleted && styles.completedCard]}
+        disabled={false} // Tetap bisa diklik, tapi read-only
+      >
         <View style={styles.cardHeader}>
           <Text style={styles.doNumber}>{item.do_number}</Text>
-          {renderStatusBadge(item.status)}
+          <View style={[styles.statusBadge, getStatusColor(item.status)]}>
+            <Text style={styles.statusText}>{getStatusText(item.status)}</Text>
+          </View>
+          {isCompleted && (
+            <FontAwesome5
+              name="check-circle"
+              size={20}
+              color="#28a745"
+              style={{ marginLeft: 8 }}
+            />
+          )}
         </View>
+
         <View style={styles.cardBody}>
           <Text style={styles.customerName}>{item.customer_name}</Text>
           <Text style={styles.itemDetails}>
@@ -208,7 +242,28 @@ const DriverDashboard = () => {
           </View>
         </View>
 
-        <View style={styles.allowanceContainer}>
+        {/* <View style={styles.allowanceContainer}>
+          <View style={styles.allowanceItem}>
+            <Text style={styles.allowanceLabel}>Uang Jalan</Text>
+            <Text style={styles.allowanceValue}>
+              Rp {Number(item.trip_allowance).toLocaleString("id-ID")}
+            </Text>
+          </View>
+          <View style={styles.allowanceItem}>
+            <Text style={styles.allowanceLabel}>Sisa Saldo</Text>
+            <Text style={[styles.allowanceValue, styles.remainingValue]}>
+              Rp {Number(item.remaining_allowance).toLocaleString("id-ID")}
+            </Text>
+          </View>
+        </View> */}
+
+        {/* Allowance info - dengan styling berbeda untuk completed */}
+        <View
+          style={[
+            styles.allowanceContainer,
+            isCompleted && styles.completedAllowanceContainer,
+          ]}
+        >
           <View style={styles.allowanceItem}>
             <Text style={styles.allowanceLabel}>Uang Jalan</Text>
             <Text style={styles.allowanceValue}>
@@ -223,10 +278,19 @@ const DriverDashboard = () => {
           </View>
         </View>
 
+        {/* Info untuk completed trip */}
+        {isCompleted && (
+          <View style={styles.completedInfo}>
+            <Text style={styles.completedInfoText}>
+              ✓ Perjalanan telah selesai - Tap untuk melihat detail
+            </Text>
+          </View>
+        )}
+
         <View style={styles.cardFooter}>{renderActionButtons(item)}</View>
-      </View>
-    </TouchableOpacity>
-  );
+      </TouchableOpacity>
+    );
+  };
 
   if (isLoading) {
     return (
@@ -394,6 +458,42 @@ const styles = StyleSheet.create({
   },
   remainingValue: {
     color: "#28a745", // Warna hijau untuk sisa saldo
+  },
+
+  completedCard: {
+    opacity: 0.8,
+    borderColor: "#28a745",
+    borderWidth: 2,
+  },
+
+  completedAllowanceContainer: {
+    backgroundColor: "#f8fff8",
+  },
+
+  completedInfo: {
+    marginTop: 12,
+    padding: 8,
+    backgroundColor: "#e8f5e8",
+    borderRadius: 6,
+  },
+
+  completedInfoText: {
+    fontSize: 12,
+    color: "#155724",
+    textAlign: "center",
+    fontStyle: "italic",
+  },
+  routeContainer: {
+    marginTop: 8,
+    marginBottom: 8,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  routeText: {
+    fontSize: 14,
+    color: "#333",
+    marginTop: 4,
+    marginBottom: 4,
   },
 });
 

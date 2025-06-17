@@ -1,39 +1,61 @@
-// src/routes/driverExpense.routes.js
+// src/routes/deliveryExpense.routes.js
 
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const driverExpenseController = require('../controllers/driverExpenseController');
-const { verifyToken } = require('../middlewares/auth.middleware');
-const multer = require('multer');
-const path = require('path');
+const driverExpenseController = require("../controllers/driverExpenseController");
+const { verifyToken } = require("../middlewares/auth.middleware");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs"); // <-- Tambahkan import fs
 
-// Set up multer for file uploads [3]
+// Tentukan direktori tujuan upload
+const uploadDir = "uploads/receipts";
+
+// Setup multer yang lebih tangguh untuk receipt uploads
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, 'uploads/receipts/'),
-  filename: (req, file, cb) => cb(null, 'receipt-' + Date.now() + path.extname(file.originalname))
+  destination: (req, file, cb) => {
+    // Buat direktori secara otomatis jika belum ada
+    fs.mkdirSync(uploadDir, { recursive: true });
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const fileExtension = path.extname(file.originalname);
+    cb(null, "receipt-" + uniqueSuffix + fileExtension);
+  },
 });
-const upload = multer({ storage });
 
-// --- All routes below this are protected by the token middleware ---
+// Filter file untuk hanya menerima gambar
+const fileFilter = (req, file, cb) => {
+  const allowedTypes = /jpeg|jpg|png/;
+  const mimetype = allowedTypes.test(file.mimetype);
+  const extname = allowedTypes.test(
+    path.extname(file.originalname).toLowerCase()
+  );
+
+  if (mimetype && extname) {
+    return cb(null, true);
+  }
+  cb(
+    new Error("Error: File upload hanya mendukung format JPEG, JPG, atau PNG.")
+  );
+};
+
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // Batasi ukuran 5MB
+  fileFilter: fileFilter,
+});
+
+// --- Sisa kode routes tetap sama ---
 router.use(verifyToken);
-
-// --- Define RESTful routes [4] ---
-
-// GET /api/driver-expenses -> Get all expenses for the logged-in driver
-router.get('/', driverExpenseController.getExpenses);
-
-// POST /api/driver-expenses -> Create a new expense
-router.post('/', upload.single('receipt'), driverExpenseController.createExpense);
-
-// --- ADD THESE NEW ROUTES FOR DETAIL VIEW AND DELETION ---
-
-// GET /api/driver-expenses/:id -> Get a single expense by its ID
-router.get('/:id', driverExpenseController.getExpenseById);
-
-// DELETE /api/driver-expenses/:id -> Delete an expense
-router.delete('/:id', driverExpenseController.deleteExpense);
-
-// You can add an update route here in the future if needed:
-// router.put('/:id', upload.single('receipt'), driverExpenseController.updateExpense);
+router.get("/", driverExpenseController.getExpenses);
+router.post(
+  "/",
+  upload.single("receipt"),
+  driverExpenseController.createExpense
+);
+router.get("/:id", driverExpenseController.getExpenseById);
+router.delete("/:id", driverExpenseController.deleteExpense);
 
 module.exports = router;

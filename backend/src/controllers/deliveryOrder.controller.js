@@ -33,6 +33,11 @@ const updateStatus = async (id, driverId, newStatus, timestampField) => {
 // CREATE Delivery Order by Admin user
 exports.createDeliveryOrder = async (req, res, next) => {
   try {
+    // TAMBAHKAN DEBUG LOGGING
+    console.log("=== DELIVERY ORDER CREATION DEBUG ===");
+    console.log("Request body:", req.body);
+    console.log("Request file:", req.file);
+    console.log("=====================================");
     const {
       purchase_order_id,
       driver_id,
@@ -100,7 +105,7 @@ exports.createDeliveryOrder = async (req, res, next) => {
       !vehicle_id ||
       !do_number ||
       !customer_name ||
-      !total_amount
+      !trip_allowance
     ) {
       return res.status(400).json({ message: "Data wajib belum lengkap." });
     }
@@ -119,14 +124,14 @@ exports.createDeliveryOrder = async (req, res, next) => {
       do_number,
       customer_name,
       item_name,
-      quantity,
-      unit_price,
-      total_amount,
+      quantity: quantity || 0,
+      unit_price: unit_price || 0,
+      total_amount: total_amount || quantity * unit_price || 0,
       load_location,
       unload_location,
-      payment_status,
+      payment_status: payment_status || "proses_tagihan",
       payment_type,
-      deposit_amount,
+      deposit_amount: deposit_amount || 0,
       invoice_amount,
       due_date,
       trip_allowance: trip_allowance || 0,

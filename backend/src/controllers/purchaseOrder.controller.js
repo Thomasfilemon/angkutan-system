@@ -63,6 +63,10 @@ exports.getPurchaseOrderById = async (req, res, next) => {
 exports.getPurchaseOrderDetailsForNewDO = async (req, res, next) => {
   try {
     const { id } = req.params;
+
+    // Tambahkan logging untuk debugging
+    console.log(`Getting PO details for ID: ${id}`);
+
     const purchaseOrder = await PurchaseOrder.findByPk(id);
 
     if (!purchaseOrder) {
@@ -81,7 +85,7 @@ exports.getPurchaseOrderDetailsForNewDO = async (req, res, next) => {
     const nextDoSequence = (doCount + 1).toString().padStart(3, "0");
     const generatedDoNumber = `${purchaseOrder.po_number}/${nextDoSequence}`;
 
-    // 3. Siapkan data untuk dikirim ke frontend
+    // 3. Siapkan data untuk dikirim ke frontend (DENGAN LOKASI)
     const details = {
       po_id: purchaseOrder.id,
       po_number: purchaseOrder.po_number,
@@ -93,10 +97,19 @@ exports.getPurchaseOrderDetailsForNewDO = async (req, res, next) => {
         parseFloat(purchaseOrder.total_quantity) -
         (parseFloat(deliveredSum) || 0),
       generated_do_number: generatedDoNumber,
+      // === TAMBAHKAN DATA LOKASI ===
+      load_location: purchaseOrder.load_location || "",
+      unload_location: purchaseOrder.unload_location || "",
+      has_location_data: !!(
+        purchaseOrder.load_location && purchaseOrder.unload_location
+      ),
     };
+
+    console.log("PO Details response:", details); // Debug log
 
     res.json(details);
   } catch (err) {
+    console.error("Error in getPurchaseOrderDetailsForNewDO:", err);
     next(err);
   }
 };

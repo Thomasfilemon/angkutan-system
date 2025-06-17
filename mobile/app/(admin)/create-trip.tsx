@@ -11,8 +11,10 @@ import {
   Alert,
 } from "react-native";
 import apiClient, { getPoDetailsForNewDo } from "../../src/services/api";
+import MapSelector from "../../components/MapSelector";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
+import { FontAwesome5 } from "@expo/vector-icons";
 
 interface Driver {
   id: number;
@@ -35,6 +37,14 @@ interface PoDetails {
   delivered_quantity: number;
   remaining_quantity: number;
   generated_do_number: string;
+  load_location: string;
+  unload_location: string;
+  has_location_data: boolean;
+}
+interface Coordinates {
+  latitude: number;
+  longitude: number;
+  address?: string;
 }
 
 export default function CreateTrip() {
@@ -55,6 +65,12 @@ export default function CreateTrip() {
     driver_id: "",
     vehicle_id: "",
     trip_allowance: "",
+    load_location: "",
+    unload_location: "",
+    load_latitude: "",
+    load_longitude: "",
+    unload_latitude: "",
+    unload_longitude: "",
   });
 
   const [poDetails, setPoDetails] = useState<PoDetails | null>(null);
@@ -62,6 +78,10 @@ export default function CreateTrip() {
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showMapSelector, setShowMapSelector] = useState(false);
+  const [mapSelectorType, setMapSelectorType] = useState<
+    "loading" | "unloading"
+  >("loading");
 
   // Fetch drivers, vehicles, and PO
   const fetchMasterData = async () => {
@@ -98,6 +118,12 @@ export default function CreateTrip() {
       do_number: "",
       customer_name: "",
       item_name: "",
+      load_location: "",
+      unload_location: "",
+      load_latitude: "",
+      load_longitude: "",
+      unload_latitude: "",
+      unload_longitude: "",
     }));
     setPoDetails(null);
     if (!poId) return;
@@ -105,7 +131,10 @@ export default function CreateTrip() {
     setLoadingDetails(true);
     setError(null);
     try {
+      console.log(`Fetching PO details for ID: ${poId}`);
       const { data } = await getPoDetailsForNewDo(poId);
+      console.log("Received PO details:", data);
+
       setPoDetails(data);
       // Auto-fill form fields
       setForm((prev) => ({
@@ -113,11 +142,46 @@ export default function CreateTrip() {
         do_number: data.generated_do_number,
         customer_name: data.customer_name,
         item_name: data.item_name,
+        // === AUTO-FILL LOKASI DARI PO ===
+        load_location: data.load_location || "",
+        unload_location: data.unload_location || "",
+        load_latitude: data.load_latitude ? data.load_latitude.toString() : "",
+        load_longitude: data.load_longitude
+          ? data.load_longitude.toString()
+          : "",
+        unload_latitude: data.unload_latitude
+          ? data.unload_latitude.toString()
+          : "",
+        unload_longitude: data.unload_longitude
+          ? data.unload_longitude.toString()
+          : "",
       }));
     } catch (err) {
+      console.error("Error fetching PO details:", err);
       setError("Gagal mengambil detail Purchase Order.");
     } finally {
       setLoadingDetails(false);
+    }
+  };
+
+  // Function untuk handle map selection
+  const handleMapLocationSelect = (location: Coordinates) => {
+    if (mapSelectorType === "loading") {
+      setForm((prev) => ({
+        ...prev,
+        load_location:
+          location.address || `${location.latitude}, ${location.longitude}`,
+        load_latitude: location.latitude.toString(),
+        load_longitude: location.longitude.toString(),
+      }));
+    } else {
+      setForm((prev) => ({
+        ...prev,
+        unload_location:
+          location.address || `${location.latitude}, ${location.longitude}`,
+        unload_latitude: location.latitude.toString(),
+        unload_longitude: location.longitude.toString(),
+      }));
     }
   };
 
@@ -134,6 +198,7 @@ export default function CreateTrip() {
 
   const handleSubmit = async () => {
     setError(null);
+
     if (parseFloat(form.quantity) > (poDetails?.remaining_quantity ?? 0)) {
       Alert.alert(
         "Validasi Gagal",
@@ -148,7 +213,10 @@ export default function CreateTrip() {
       !form.quantity ||
       !form.purchase_order_id ||
       !form.driver_id ||
-      !form.vehicle_id
+      !form.vehicle_id ||
+      !form.trip_allowance ||
+      !form.load_location ||
+      !form.unload_location
     ) {
       setError("Semua field wajib diisi.");
       return;
@@ -166,6 +234,7 @@ export default function CreateTrip() {
       });
       router.replace("/(admin)");
     } catch (err: any) {
+      console.error("Submit error:", err);
       setError("Gagal membuat trip. " + (err.response?.data?.message || ""));
     } finally {
       setLoading(false);
@@ -219,10 +288,27 @@ export default function CreateTrip() {
               <Text style={styles.infoLabel}>Item</Text>
               <Text style={styles.infoValue}>{form.item_name}</Text>
             </View>
+            {/* === TAMPILKAN STATUS LOKASI === */}
+            <View style={styles.locationStatusContainer}>
+              <Text style={styles.locationStatusLabel}>Status Lokasi:</Text>
+              <Text
+                style={[
+                  styles.locationStatusValue,
+                  {
+                    color: poDetails.has_location_data ? "#28a745" : "#ffc107",
+                  },
+                ]}
+              >
+                {poDetails.has_location_data
+                  ? "✓ Lokasi tersedia dari PO"
+                  : "⚠ Lokasi perlu diisi manual"}
+              </Text>
+            </View>
           </View>
         )}
       </View>
 
+      {/* === SECTION 2: DETAIL MUATAN === */}
       {poDetails && (
         <View style={styles.card}>
           <Text style={styles.cardTitle}>2. Detail Muatan</Text>
@@ -245,66 +331,171 @@ export default function CreateTrip() {
         </View>
       )}
 
-      <Text style={styles.label}>Driver</Text>
-      <View style={styles.select}>
-        <select
-          value={form.driver_id}
-          onChange={(e) => handleChange("driver_id", e.target.value)}
-        >
-          <option value="">
-            {masterData.drivers.length === 0
-              ? "Tidak ada driver tersedia"
-              : "Pilih Driver"}
-          </option>
-          {masterData.drivers.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.driverProfile?.full_name || d.username}
-            </option>
-          ))}
-        </select>
-      </View>
-      {masterData.drivers.length === 0 && (
-        <Text style={{ color: "red", marginBottom: 8 }}>
-          Semua Driver Sibuk. Tidak ada driver yang tersedia untuk sekarang.
-        </Text>
+      {/* === SECTION 3: LOKASI (BARU) === */}
+      {poDetails && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>3. Lokasi Pengiriman</Text>
+
+          {/* LOKASI LOADING DENGAN MAP BUTTON */}
+          <View style={styles.locationInputContainer}>
+            <Text style={styles.label}>Lokasi Loading (Muat Barang) *</Text>
+            <View style={styles.locationInputRow}>
+              <TextInput
+                style={[styles.input, styles.locationInput]}
+                value={form.load_location}
+                onChangeText={(v) => handleChange("load_location", v)}
+                placeholder="Alamat lokasi loading"
+                multiline
+              />
+              <TouchableOpacity
+                style={styles.mapButton}
+                onPress={() => {
+                  setMapSelectorType("loading");
+                  setShowMapSelector(true);
+                }}
+              >
+                <FontAwesome5 name="map-marker-alt" size={20} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            {form.load_latitude && form.load_longitude && (
+              <Text style={styles.coordinateText}>
+                📍 {parseFloat(form.load_latitude).toFixed(6)},{" "}
+                {parseFloat(form.load_longitude).toFixed(6)}
+              </Text>
+            )}
+          </View>
+
+          {/* LOKASI UNLOADING DENGAN MAP BUTTON */}
+          <View style={styles.locationInputContainer}>
+            <Text style={styles.label}>
+              Lokasi Unloading (Bongkar Barang) *
+            </Text>
+            <View style={styles.locationInputRow}>
+              <TextInput
+                style={[styles.input, styles.locationInput]}
+                value={form.unload_location}
+                onChangeText={(v) => handleChange("unload_location", v)}
+                placeholder="Alamat lokasi unloading"
+                multiline
+              />
+              <TouchableOpacity
+                style={styles.mapButton}
+                onPress={() => {
+                  setMapSelectorType("unloading");
+                  setShowMapSelector(true);
+                }}
+              >
+                <FontAwesome5 name="map-marker-alt" size={20} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            {form.unload_latitude && form.unload_longitude && (
+              <Text style={styles.coordinateText}>
+                📍 {parseFloat(form.unload_latitude).toFixed(6)},{" "}
+                {parseFloat(form.unload_longitude).toFixed(6)}
+              </Text>
+            )}
+          </View>
+        </View>
       )}
 
-      <Text style={styles.label}>Mobil</Text>
-      <View style={styles.select}>
-        <select
-          value={form.vehicle_id}
-          onChange={(e) => handleChange("vehicle_id", e.target.value)}
-        >
-          <option value="">Pilih Mobil</option>
-          {masterData.vehicles.map((v) => (
-            <option key={v.id} value={v.id}>
-              {v.license_plate} ({v.type})
-            </option>
-          ))}
-        </select>
-      </View>
+      {/* === SECTION 4: PENUGASAN === */}
+      {poDetails && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>4. Penugasan Driver & Kendaraan</Text>
 
-      <Text style={styles.label}>Uang Jalan (Rp)</Text>
-      <TextInput
-        style={styles.input}
-        value={form.trip_allowance}
-        onChangeText={(v) => handleChange("trip_allowance", v)}
-        placeholder="Contoh: 2500000"
-        keyboardType="numeric"
+          <Text style={styles.label}>Driver</Text>
+          <View style={styles.select}>
+            <select
+              value={form.driver_id}
+              onChange={(e) => handleChange("driver_id", e.target.value)}
+            >
+              <option value="">
+                {masterData.drivers.length === 0
+                  ? "Tidak ada driver tersedia"
+                  : "Pilih Driver"}
+              </option>
+              {masterData.drivers.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.driverProfile?.full_name || d.username}
+                </option>
+              ))}
+            </select>
+          </View>
+          {masterData.drivers.length === 0 && (
+            <Text style={{ color: "red", marginBottom: 8 }}>
+              Semua Driver Sibuk. Tidak ada driver yang tersedia untuk sekarang.
+            </Text>
+          )}
+
+          <Text style={styles.label}>Mobil</Text>
+          <View style={styles.select}>
+            <select
+              value={form.vehicle_id}
+              onChange={(e) => handleChange("vehicle_id", e.target.value)}
+            >
+              <option value="">Pilih Mobil</option>
+              {masterData.vehicles.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.license_plate} ({v.type})
+                </option>
+              ))}
+            </select>
+          </View>
+
+          <Text style={styles.label}>Uang Jalan (Rp)</Text>
+          <TextInput
+            style={styles.input}
+            value={form.trip_allowance}
+            onChangeText={(v) => handleChange("trip_allowance", v)}
+            placeholder="Contoh: 2500000"
+            keyboardType="numeric"
+          />
+        </View>
+      )}
+
+      {/* === SECTION 5: DOKUMEN === */}
+      {poDetails && (
+        <View style={styles.card}>
+          <Text style={styles.label}>Upload Surat Jalan</Text>
+          {Platform.OS === "web" ? (
+            <input
+              type="file"
+              accept="image/*,application/pdf"
+              onChange={handleFileChange}
+            />
+          ) : (
+            <Text style={{ color: "#888" }}>
+              Upload file hanya tersedia di web.
+            </Text>
+          )}
+        </View>
+      )}
+
+      <MapSelector
+        visible={showMapSelector}
+        title={`Pilih Lokasi ${
+          mapSelectorType === "loading" ? "Loading" : "Unloading"
+        }`}
+        initialLocation={
+          mapSelectorType === "loading"
+            ? form.load_latitude && form.load_longitude
+              ? {
+                  latitude: parseFloat(form.load_latitude),
+                  longitude: parseFloat(form.load_longitude),
+                  address: form.load_location,
+                }
+              : undefined
+            : form.unload_latitude && form.unload_longitude
+            ? {
+                latitude: parseFloat(form.unload_latitude),
+                longitude: parseFloat(form.unload_longitude),
+                address: form.unload_location,
+              }
+            : undefined
+        }
+        onLocationSelect={handleMapLocationSelect}
+        onClose={() => setShowMapSelector(false)}
       />
-
-      <Text style={styles.label}>Upload Surat Jalan</Text>
-      {Platform.OS === "web" ? (
-        <input
-          type="file"
-          accept="image/*,application/pdf"
-          onChange={handleFileChange}
-        />
-      ) : (
-        <Text style={{ color: "#888" }}>
-          Upload file hanya tersedia di web.
-        </Text>
-      )}
 
       <TouchableOpacity
         style={[
@@ -312,10 +503,10 @@ export default function CreateTrip() {
           (!poDetails || loading) && styles.disabledButton,
         ]}
         onPress={handleSubmit}
-        disabled={loading}
+        disabled={!poDetails || loading}
       >
         <Text style={styles.submitButtonText}>
-          {loading ? "Menyimpan..." : "Simpan Trip"}
+          {loading ? "Menyimpan..." : "Simpan Delivery Order"}
         </Text>
       </TouchableOpacity>
     </ScrollView>
@@ -356,6 +547,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     backgroundColor: "#fff",
   },
+  textArea: { minHeight: 60, textAlignVertical: "top" },
   select: {
     borderWidth: 1,
     borderColor: "#cbd5e0",
@@ -378,6 +570,33 @@ const styles = StyleSheet.create({
   },
   infoLabel: { color: "#718096" },
   infoValue: { fontWeight: "600", color: "#2d3748" },
+  locationInputContainer: {
+    marginBottom: 16,
+  },
+  locationInputRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  locationInput: {
+    flex: 1,
+    marginRight: 8,
+    minHeight: 60,
+  },
+  mapButton: {
+    backgroundColor: "#e74c3c",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    minHeight: 60,
+  },
+  coordinateText: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 4,
+    fontStyle: "italic",
+  },
   quantityInfo: {
     padding: 10,
     backgroundColor: "#e6f7ff",
@@ -386,6 +605,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#91d5ff",
   },
+  locationStatusContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#e2e8f0",
+  },
+  locationStatusLabel: { color: "#718096", fontSize: 12 },
+  locationStatusValue: { fontSize: 12, fontWeight: "600" },
   error: {
     color: "#e53e3e",
     marginBottom: 10,
