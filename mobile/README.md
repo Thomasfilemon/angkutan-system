@@ -1,120 +1,129 @@
-# Welcome to your Expo app 👋
+# Angkutan System - Mobile (Expo React Native)
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Aplikasi mobile untuk sistem manajemen angkutan, dibangun dengan [Expo](https://expo.dev) dan React Native. Mendukung fitur driver, admin, pengelolaan trip, pengeluaran, dan kendaraan.
 
-## Get started
+---
 
-1. Install dependencies
+## Struktur Direktori
+
+```
+mobile/
+├── .env                  # Konfigurasi environment (API URL, dsb)
+├── .env.example          # Template environment
+├── .gitignore
+├── app.json              # Konfigurasi Expo
+├── package.json
+├── tsconfig.json
+├── README.md
+├── node_modules/
+├── app/
+│   ├── _layout.tsx
+│   ├── (admin)/          # Halaman admin (buat trip, dsb)
+│   ├── (auth)/           # Halaman login/register
+│   ├── (tabs)/           # Halaman utama driver (trip, expense, vehicle, dsb)
+│   └── trip-detail/      # Detail trip & pengeluaran
+├── assets/
+│   ├── fonts/
+│   └── images/
+├── components/
+│   ├── ui/
+│   ├── Collapsible.tsx
+│   ├── ExternalLink.tsx
+│   ├── HapticTab.tsx
+│   ├── HelloWave.tsx
+│   ├── MapSelector.tsx
+│   ├── ParallaxScrollView.tsx
+│   ├── ThemedText.tsx
+│   └── ThemedView.tsx
+├── constants/
+│   └── Colors.ts
+├── hooks/
+│   ├── useColorScheme.ts
+│   ├── useColorScheme.web.ts
+│   └── useThemeColor.ts
+├── scripts/
+│   └── reset-project.js
+└── src/
+    ├── contexts/
+    │   └── AuthContext.tsx
+    └── services/
+        └── api.js
+```
+
+---
+
+## Environment Variables
+
+Buat file `.env` di root `mobile/` dengan format berikut:
+
+```
+EXPO_PUBLIC_API_BASE_URL=http://localhost:8080/api
+```
+
+---
+
+## Menjalankan Aplikasi
+
+1. **Install dependencies**
 
    ```bash
    npm install
    ```
 
-2. Start the app
+2. **Jalankan aplikasi**
 
    ```bash
    npx expo start
    ```
 
-In the output, you'll find options to open the app in a
+   Pilih untuk membuka di:
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+   - Android emulator
+   - iOS simulator
+   - Expo Go (scan QR)
+   - Web browser
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+---
 
-## Current directory structure:
+## Fitur Utama
 
-`mobile/
-├── .env                 # Environment variables configuration
-├── .env.example        # Example environment variables template
-├── .gitignore         # Git ignore rules
-├── .expo/
-├── app.json
-├── env.d.ts
-├── expo-env.d.ts
-├── eslint.config.js
-├── tsconfig.json
-├── package.json       # Project dependencies and scripts
-├── package-lock.json
-├── README.md         # Project documentation
-├── node_modules/
-├── app/
-│   ├── _layout.tsx
-│   ├── (admin)/
-│   │   ├── _layout.tsx
-│   │   ├── create-trip.tsx
-│   │   └── index.tsx
-│   │
-│   ├── (auth)/
-│   │   ├── _layout.tsx
-│   │   ├── login.tsx
-│   │   └── register.tsx
-│   │
-│   └── (tabs)/
-│       ├── _layout.tsx
-│       ├── expense.tsx
-│       ├── index.tsx
-│       └── vehicle.tsx
-│
-├── assets/
-│   ├── fonts/
-│   └── images/
-│
-├── components/
-│   ├── ui/
-│   │    ├── IconSymbol.ios.tsx
-│   │    ├── IconSymbol.tsx
-│   │    ├── TabBarBackground.ios.tsx
-│   │    └── TabBarBackground.tsx
-│   │
-│   ├── Collapsible.tsx
-│   ├── ExternalLink.tsx
-│   ├── HapticTab.tsx
-│   ├── HelloWave.tsx
-│   ├── ParallaxScrollView.tsx
-│   ├── ThemedText.tsx
-│   └── ThemedView.tsx
-│
-├── constants/
-│   └── Colors.ts
-│
-├── hooks/
-│   ├── useColorScheme.ts
-│   ├── useColorScheme.web.ts
-│   └── useThemeColor.ts
-│
-├── scripts/
-│   └── reset-project.js
-│
-└── src/
-   ├── contexts/
-   │     └── AuthContext.tsx
-   └── services/
-         └── api.js`
+- **Autentikasi**: Login/register driver & admin.
+- **Dashboard Driver**: Lihat tugas trip, status, dan saldo uang jalan.
+- **Detail Trip**: Rincian perjalanan, status, dan riwayat pengeluaran.
+- **Pengeluaran Driver**: Tambah, lihat, dan hapus pengeluaran (dengan upload foto struk).
+- **Manajemen Kendaraan**: Lihat detail kendaraan & riwayat servis.
+- **Admin**: Buat trip/DO baru, assign driver & kendaraan, upload surat jalan.
+- **Integrasi Kamera & Galeri**: Upload foto struk dari kamera/galeri (mobile & web).
+- **Routing berbasis file**: Navigasi otomatis sesuai struktur folder.
 
-## Get a fresh project
+---
 
-When you're ready, run:
+## Catatan Pengembangan
 
-```bash
-npm run reset-project
-```
+- **File-based routing**: Semua file di dalam `app/` otomatis menjadi route.
+- **Context Auth**: Lihat `src/contexts/AuthContext.tsx` untuk manajemen login.
+- **API Service**: Semua request ke backend melalui `src/services/api.js`.
+- **Kompatibel Web & Mobile**: Beberapa fitur (upload, kamera) otomatis menyesuaikan platform.
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+---
 
-## Learn more
+## Tips
 
-To learn more about developing your project with Expo, look at the following resources:
+- Untuk development, pastikan backend sudah berjalan di alamat yang sama dengan `EXPO_PUBLIC_API_BASE_URL`.
+- Untuk upload file di web, gunakan browser yang mendukung input file.
+- Untuk fitur lokasi, pastikan sudah memberi izin lokasi di perangkat.
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+---
 
-## Join the community
+## Sumber Belajar
 
-Join our community of developers creating universal apps.
+- [Expo documentation](https://docs.expo.dev/)
+- [React Native docs](https://reactnative.dev/)
+- [Expo Router](https://docs.expo.dev/router/introduction/)
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+---
+
+## Komunitas
+
+- [Expo di GitHub](https://github.com/expo/expo)
+-
