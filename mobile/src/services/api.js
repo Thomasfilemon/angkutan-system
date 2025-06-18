@@ -72,7 +72,20 @@ export const createDriverExpense = (expenseData) => {
 
 // === NEW STATUS UPDATE FUNCTIONS ===
 export const updateDeliveryStatus = (doId, action) => {
-  return apiClient.patch(`/delivery-orders/${doId}/status`, { action });
+  const endpointMapping = {
+    start_to_load: `${doId}/start-to-load`,
+    arrive_at_load: `${doId}/arrive-at-load`,
+    arrive_at_unload: `${doId}/arrive-at-unload`,
+    start_return: `${doId}/start-return`,
+    complete: `${doId}/complete`,
+  };
+
+  const endpoint = endpointMapping[action];
+  if (!endpoint) {
+    return Promise.reject(new Error(`Invalid action: ${action}`));
+  }
+
+  return apiClient.patch(`/delivery-orders/${endpoint}`);
 };
 
 export const confirmLoad = (doId, loadData) => {

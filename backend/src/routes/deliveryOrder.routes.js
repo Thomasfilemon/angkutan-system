@@ -61,21 +61,39 @@ router.post(
 
 // === DRIVER-SPECIFIC ROUTES ===
 router.get("/me", checkRole(["driver"]), doController.getMyDeliveryOrders);
+// Rename dan update endpoints sesuai flow baru
 router.patch(
-  "/:id/start",
+  "/:id/start-to-load",
   checkRole(["driver"]),
   doController.startToDestination
 );
+
 router.patch(
-  "/:id/arrive",
+  "/:id/arrive-at-load",
+  checkRole(["driver"]),
+  doController.arriveAtLoadLocation
+);
+
+// Confirm load endpoint (sudah ada dari implementasi sebelumnya)
+router.post(
+  "/:id/confirm-load",
+  checkRole(["driver"]),
+  suratJalanUpload.single("surat_jalan_photo"),
+  loadConfirmationController.confirmLoad
+);
+
+router.patch(
+  "/:id/arrive-at-unload",
   checkRole(["driver"]),
   doController.arriveAtDestination
 );
+
 router.patch(
-  "/:id/return",
+  "/:id/start-return",
   checkRole(["driver"]),
   doController.startReturnToBase
 );
+
 router.patch(
   "/:id/complete",
   checkRole(["driver"]),

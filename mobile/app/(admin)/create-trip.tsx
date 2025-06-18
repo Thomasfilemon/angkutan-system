@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import apiClient, { getPoDetailsForNewDo } from "../../src/services/api";
-import MapSelector from "../../components/MapSelector";
+import MapSelector from "../../components/MapSelector"; // INI GAK ERROR, CUMAN VSCODE AJA YANG OON
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { FontAwesome5 } from "@expo/vector-icons";

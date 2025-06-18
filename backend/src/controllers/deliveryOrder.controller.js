@@ -8,27 +8,9 @@ const {
   DriverExpense,
   DriverProfile,
   sequelize,
+  Sequelize,
 } = require("../models");
 const { Op } = require("sequelize");
-
-// A generic function to update status and timestamp
-const updateStatus = async (id, driverId, newStatus, timestampField) => {
-  const order = await DeliveryOrder.findOne({
-    where: { id, driver_id: driverId },
-  });
-  if (!order) {
-    throw {
-      status: 404,
-      message: "Delivery Order not found or you are not authorized.",
-    };
-  }
-
-  order[timestampField] = new Date();
-  order.status = newStatus;
-
-  await order.save();
-  return order;
-};
 
 // === TAMBAHKAN UTILITY FUNCTION ===
 const filterSensitiveDataForDriver = (data, userRole) => {
@@ -417,9 +399,18 @@ exports.getDeliveryOrderById = async (req, res, next) => {
 
 // PATCH /api/delivery-orders/:id/start
 exports.startToDestination = (req, res, next) => {
-  updateStatus(req.params.id, req.user.id, "otw_to_destination", "started_at")
+  updateStatus(
+    req.params.id,
+    req.user.id,
+    "otw_to_load_location", // ✅ Update ke enum baru
+    "departed_to_load_location_at" // ✅ Update field timestamp baru
+  )
     .then((order) =>
-      res.json({ message: "Status updated to OTW to Destination", order })
+      res.json({
+        message: "Status updated to OTW to Load Location",
+        order,
+        status_text: "Menuju Lokasi Muat",
+      })
     )
     .catch(next);
 };
@@ -429,20 +420,33 @@ exports.arriveAtDestination = (req, res, next) => {
   updateStatus(
     req.params.id,
     req.user.id,
-    "at_destination",
-    "reached_destination_at"
+    "at_unload_location", // ✅ Update ke enum baru
+    "arrived_at_unload_location_at" // ✅ Update field timestamp baru
   )
     .then((order) =>
-      res.json({ message: "Status updated to At Destination", order })
+      res.json({
+        message: "Status updated to At Unload Location",
+        order,
+        status_text: "Di Lokasi Bongkar",
+      })
     )
     .catch(next);
 };
 
 // PATCH /api/delivery-orders/:id/return
 exports.startReturnToBase = (req, res, next) => {
-  updateStatus(req.params.id, req.user.id, "otw_to_base", "started_return_at")
+  updateStatus(
+    req.params.id,
+    req.user.id,
+    "otw_to_base", // ✅ Sudah benar
+    "departed_from_unload_location_at" // ✅ Update field timestamp baru
+  )
     .then((order) =>
-      res.json({ message: "Status updated to OTW to Base", order })
+      res.json({
+        message: "Status updated to OTW to Base",
+        order,
+        status_text: "Perjalanan Pulang",
+      })
     )
     .catch(next);
 };
@@ -456,11 +460,24 @@ exports.completeDeliveryOrder = async (req, res, next) => {
         transaction: t,
       });
 
-      if (!order) throw { status: 404, message: "Delivery Order not found." };
+      if (!order) {
+        throw { status: 404, message: "Delivery Order not found." };
+      }
+
+      // Verify current status
+      if (order.status !== "otw_to_base") {
+        throw {
+          status: 400,
+          message: `Cannot complete delivery. Current status: ${order.status}`,
+        };
+      }
 
       // Update DO Status
       await order.update(
-        { status: "completed", completed_at: new Date() },
+        {
+          status: "completed",
+          completed_at: new Date(),
+        },
         { transaction: t }
       );
 
@@ -469,6 +486,7 @@ exports.completeDeliveryOrder = async (req, res, next) => {
         const po = await PurchaseOrder.findByPk(order.purchase_order_id, {
           transaction: t,
         });
+
         if (po) {
           // Calculate total delivered quantity for this PO
           const totalDelivered = await DeliveryOrder.sum(
@@ -497,17 +515,86 @@ exports.completeDeliveryOrder = async (req, res, next) => {
         }
       }
 
+      // Free up resources
       await DriverProfile.update(
         { status: "available" },
         { where: { user_id: req.user.id }, transaction: t }
       );
+
       await Vehicle.update(
         { status: "available" },
         { where: { id: order.vehicle_id }, transaction: t }
       );
     });
-    res.json({ message: "Delivery Order completed successfully!" });
+
+    res.json({
+      message: "Delivery Order completed successfully!",
+      status_text: "Perjalanan Selesai",
+    });
   } catch (err) {
+    console.error("Error completing delivery order:", err);
     next(err);
+  }
+};
+
+// PATCH /api/delivery-orders/:id/arrive-at-load
+exports.arriveAtLoadLocation = (req, res, next) => {
+  updateStatus(
+    req.params.id,
+    req.user.id,
+    "at_load_location",
+    "arrived_at_load_location_at"
+  )
+    .then((order) =>
+      res.json({
+        message: "Status updated to At Load Location",
+        order,
+        status_text: "Di Lokasi Muat",
+      })
+    )
+    .catch(next);
+};
+
+// === UPDATE HELPER FUNCTION updateStatus ===
+const updateStatus = async (orderId, driverId, newStatus, timestampField) => {
+  try {
+    const order = await DeliveryOrder.findOne({
+      where: { id: orderId, driver_id: driverId },
+    });
+
+    if (!order) {
+      throw { status: 404, message: "Delivery Order tidak ditemukan." };
+    }
+
+    // Status validation mapping
+    const validTransitions = {
+      assigned: ["otw_to_load_location"],
+      otw_to_load_location: ["at_load_location"],
+      at_load_location: ["otw_to_unload_location"], // Setelah confirm load
+      otw_to_unload_location: ["at_unload_location"],
+      at_unload_location: ["otw_to_base"],
+      otw_to_base: ["completed"],
+      completed: [],
+      cancelled: [],
+    };
+
+    const allowedTransitions = validTransitions[order.status] || [];
+    if (!allowedTransitions.includes(newStatus)) {
+      throw {
+        status: 400,
+        message: `Invalid status transition from ${order.status} to ${newStatus}`,
+      };
+    }
+
+    const updateData = {
+      status: newStatus,
+      [timestampField]: new Date(),
+    };
+
+    await order.update(updateData);
+
+    return order;
+  } catch (error) {
+    throw error;
   }
 };
