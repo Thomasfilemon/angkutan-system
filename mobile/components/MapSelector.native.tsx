@@ -1,4 +1,4 @@
-// mobile/components/MapSelector.tsx
+// mobile/components/MapSelector.native.tsx
 import React, { useState, useRef, useEffect } from "react";
 import {
   View,
@@ -8,30 +8,11 @@ import {
   TextInput,
   Alert,
   Modal,
-  Platform,
   ActivityIndicator,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import * as Location from "expo-location";
-
-// Platform-specific imports
-let MapView: any, Marker: any, LeafletMap: any, LeafletMarker: any;
-
-if (Platform.OS !== "web") {
-  // Mobile imports
-  const Maps = require("react-native-maps");
-  MapView = Maps.default;
-  Marker = Maps.Marker;
-} else {
-  // Web imports - will be loaded dynamically
-  try {
-    const Leaflet = require("react-leaflet");
-    LeafletMap = Leaflet.MapContainer;
-    LeafletMarker = Leaflet.Marker;
-  } catch (e) {
-    console.log("Leaflet not available");
-  }
-}
+import MapView, { Marker } from "react-native-maps";
 
 interface Location {
   latitude: number;
@@ -60,7 +41,7 @@ const MapSelector: React.FC<MapSelectorProps> = ({
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [currentLocation, setCurrentLocation] = useState<Location | null>(null);
-  const mapRef = useRef<any>(null);
+  const mapRef = useRef<MapView>(null);
 
   // Default center (Jakarta)
   const defaultLocation = {
@@ -104,7 +85,6 @@ const MapSelector: React.FC<MapSelectorProps> = ({
 
     setIsLoading(true);
     try {
-      // Using Nominatim for geocoding (free)
       const response = await fetch(
         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
           searchQuery
@@ -122,8 +102,7 @@ const MapSelector: React.FC<MapSelectorProps> = ({
 
         setSelectedLocation(location);
 
-        // Animate to location
-        if (Platform.OS !== "web" && mapRef.current) {
+        if (mapRef.current) {
           mapRef.current.animateToRegion({
             ...location,
             latitudeDelta: 0.01,
@@ -141,18 +120,8 @@ const MapSelector: React.FC<MapSelectorProps> = ({
   };
 
   const handleMapPress = async (event: any) => {
-    let coordinate;
+    const coordinate = event.nativeEvent.coordinate;
 
-    if (Platform.OS !== "web") {
-      coordinate = event.nativeEvent.coordinate;
-    } else {
-      coordinate = {
-        latitude: event.latlng.lat,
-        longitude: event.latlng.lng,
-      };
-    }
-
-    // Reverse geocoding to get address
     try {
       const response = await fetch(
         `https://nominatim.openstreetmap.org/reverse?format=json&lat=${coordinate.latitude}&lon=${coordinate.longitude}`
@@ -175,67 +144,6 @@ const MapSelector: React.FC<MapSelectorProps> = ({
     }
   };
 
-  const renderMap = () => {
-    if (Platform.OS !== "web") {
-      // Mobile Map (React Native Maps)
-      return (
-        <MapView
-          ref={mapRef}
-          style={styles.map}
-          initialRegion={
-            selectedLocation
-              ? {
-                  ...selectedLocation,
-                  latitudeDelta: 0.01,
-                  longitudeDelta: 0.01,
-                }
-              : defaultLocation
-          }
-          onPress={handleMapPress}
-        >
-          {currentLocation && (
-            <Marker
-              coordinate={currentLocation}
-              title="Lokasi Saya"
-              pinColor="blue"
-            />
-          )}
-          {selectedLocation && (
-            <Marker
-              coordinate={selectedLocation}
-              title="Lokasi Dipilih"
-              pinColor="red"
-              draggable
-              onDragEnd={handleMapPress}
-            />
-          )}
-        </MapView>
-      );
-    } else {
-      // Web Map (Leaflet)
-      if (!LeafletMap) {
-        return (
-          <View style={[styles.map, styles.centeredContent]}>
-            <Text>Map tidak tersedia di web</Text>
-            <Text style={styles.instruction}>
-              Silakan masukkan alamat di kolom pencarian
-            </Text>
-          </View>
-        );
-      }
-
-      // Web implementation would go here
-      return (
-        <View style={[styles.map, styles.centeredContent]}>
-          <Text>Web Map Implementation</Text>
-          <Text style={styles.instruction}>
-            Gunakan kolom pencarian untuk menentukan lokasi
-          </Text>
-        </View>
-      );
-    }
-  };
-
   return (
     <Modal
       visible={visible}
@@ -243,7 +151,6 @@ const MapSelector: React.FC<MapSelectorProps> = ({
       presentationStyle="pageSheet"
     >
       <View style={styles.container}>
-        {/* Header */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>{title}</Text>
           <TouchableOpacity onPress={onClose} style={styles.closeButton}>
@@ -251,7 +158,6 @@ const MapSelector: React.FC<MapSelectorProps> = ({
           </TouchableOpacity>
         </View>
 
-        {/* Search Bar */}
         <View style={styles.searchContainer}>
           <TextInput
             style={styles.searchInput}
@@ -273,17 +179,46 @@ const MapSelector: React.FC<MapSelectorProps> = ({
           </TouchableOpacity>
         </View>
 
-        {/* Instructions */}
         <View style={styles.instructionsContainer}>
           <Text style={styles.instructions}>
             Tap pada map untuk memilih lokasi atau gunakan pencarian di atas
           </Text>
         </View>
 
-        {/* Map */}
-        <View style={styles.mapContainer}>{renderMap()}</View>
+        <View style={styles.mapContainer}>
+          <MapView
+            ref={mapRef}
+            style={styles.map}
+            initialRegion={
+              selectedLocation
+                ? {
+                    ...selectedLocation,
+                    latitudeDelta: 0.01,
+                    longitudeDelta: 0.01,
+                  }
+                : defaultLocation
+            }
+            onPress={handleMapPress}
+          >
+            {currentLocation && (
+              <Marker
+                coordinate={currentLocation}
+                title="Lokasi Saya"
+                pinColor="blue"
+              />
+            )}
+            {selectedLocation && (
+              <Marker
+                coordinate={selectedLocation}
+                title="Lokasi Dipilih"
+                pinColor="red"
+                draggable
+                onDragEnd={handleMapPress}
+              />
+            )}
+          </MapView>
+        </View>
 
-        {/* Selected Location Info */}
         {selectedLocation && (
           <View style={styles.locationInfo}>
             <Text style={styles.locationLabel}>Lokasi Dipilih:</Text>
@@ -296,7 +231,6 @@ const MapSelector: React.FC<MapSelectorProps> = ({
           </View>
         )}
 
-        {/* Action Buttons */}
         <View style={styles.actionButtons}>
           <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
             <Text style={styles.cancelButtonText}>Batal</Text>
@@ -318,10 +252,7 @@ const MapSelector: React.FC<MapSelectorProps> = ({
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-  },
+  container: { flex: 1, backgroundColor: "#fff" },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -330,14 +261,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#eee",
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  closeButton: {
-    padding: 8,
-  },
+  headerTitle: { fontSize: 20, fontWeight: "bold", color: "#333" },
+  closeButton: { padding: 8 },
   searchContainer: {
     flexDirection: "row",
     margin: 16,
@@ -361,10 +286,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  instructionsContainer: {
-    paddingHorizontal: 16,
-    marginBottom: 8,
-  },
+  instructionsContainer: { paddingHorizontal: 16, marginBottom: 8 },
   instructions: {
     fontSize: 14,
     color: "#666",
@@ -382,20 +304,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
-  map: {
-    flex: 1,
-  },
-  centeredContent: {
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#f8f9fa",
-  },
-  instruction: {
-    marginTop: 8,
-    fontSize: 14,
-    color: "#666",
-    textAlign: "center",
-  },
+  map: { flex: 1 },
   locationInfo: {
     margin: 16,
     padding: 12,
@@ -429,11 +338,7 @@ const styles = StyleSheet.create({
     borderColor: "#ddd",
     alignItems: "center",
   },
-  cancelButtonText: {
-    fontSize: 16,
-    color: "#666",
-    fontWeight: "600",
-  },
+  cancelButtonText: { fontSize: 16, color: "#666", fontWeight: "600" },
   confirmButton: {
     flex: 1,
     paddingVertical: 12,
@@ -442,14 +347,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#3b82f6",
     alignItems: "center",
   },
-  confirmButtonText: {
-    fontSize: 16,
-    color: "#fff",
-    fontWeight: "600",
-  },
-  disabledButton: {
-    backgroundColor: "#ccc",
-  },
+  confirmButtonText: { fontSize: 16, color: "#fff", fontWeight: "600" },
+  disabledButton: { backgroundColor: "#ccc" },
 });
 
 export default MapSelector;

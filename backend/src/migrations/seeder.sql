@@ -39,33 +39,33 @@ INSERT INTO purchase_orders (po_number, customer_name, load_location, load_latit
 
 -- 4. DELIVERY ORDERS (DO/TRIP) + UANG JALAN
 INSERT INTO delivery_orders (
-  purchase_order_id, driver_id, vehicle_id, do_number, customer_name, item_name, quantity, unit_price, total_amount,
-  payment_status, due_date, load_location, unload_location, status, started_at, reached_destination_at, started_return_at, completed_at, trip_allowance
+  purchase_order_id, driver_id, vehicle_id, do_number, customer_name, item_name, minimal_load_quantity, actual_load_quantity, unit_price, total_amount,
+  payment_status, due_date, load_location, unload_location, status, departed_to_load_location_at, arrived_at_load_location_at, departed_from_load_location_at, arrived_at_unload_location_at, departed_from_unload_location_at, completed_at, trip_allowance, gaji
 )
 VALUES
 -- DO 1: assigned (supir_andi, B 1234 ABC)
 ((SELECT id FROM purchase_orders WHERE po_number = 'PO/WIKA/09/2024-01'), (SELECT id FROM users WHERE username = 'supir_andi'), (SELECT id FROM vehicles WHERE license_plate = 'B 1234 ABC'), 
-'DO-240928-01', 'PT WIKA BETON', 'Abu Batu', 34.05, 155000, 5277750, 'proses_tagihan', '2024-10-28', 'Quarry Jonggol', 'Proyek Tol Cibitung', 'assigned', NULL, NULL, NULL, NULL, 1700000),
+'DO-240928-01', 'PT WIKA BETON', 'Abu Batu', 34, 34.05, 155000, 5277750, 'proses_tagihan', '2024-10-28', 'Quarry Jonggol', 'Proyek Tol Cibitung', 'assigned', NULL, NULL, NULL, NULL, NULL, NULL, 1700000, 500000),
 
 -- DO 2: otw_to_destination (supir_budi, B 5678 DEF)
 ((SELECT id FROM purchase_orders WHERE po_number = 'PO/WIKA/09/2024-01'), (SELECT id FROM users WHERE username = 'supir_budi'), (SELECT id FROM vehicles WHERE license_plate = 'B 5678 DEF'), 
-'DO-240928-02', 'PT WIKA BETON', 'Abu Batu', 34.72, 155000, 5381600, 'proses_tagihan', '2024-10-28', 'Quarry Jonggol', 'Proyek Tol Cibitung', 'otw_to_destination', '2024-06-16 08:00:00', NULL, NULL, NULL, 1800000),
+'DO-240928-02', 'PT WIKA BETON', 'Abu Batu', 34, 34.72, 155000, 5381600, 'proses_tagihan', '2024-10-28', 'Quarry Jonggol', 'Proyek Tol Cibitung', 'otw_to_load_location', '2024-06-16 08:00:00', NULL, NULL, NULL, NULL, NULL, 1800000, 500000),
 
 -- DO 3: at_destination (supir_charlie, B 9012 GHI)
 ((SELECT id FROM purchase_orders WHERE po_number = 'PO/WIKA/09/2024-01'), (SELECT id FROM users WHERE username = 'supir_charlie'), (SELECT id FROM vehicles WHERE license_plate = 'B 9012 GHI'), 
-'DO-240928-03', 'PT WIKA BETON', 'Split 1-2', 33.53, 155000, 5197150, 'deposit', '2024-10-28', 'Quarry Jonggol', 'Proyek Tol Cibitung', 'at_destination', '2024-06-16 07:00:00', '2024-06-16 10:00:00', NULL, NULL, 1750000),
+'DO-240928-03', 'PT WIKA BETON', 'Split 1-2', 33, 33.53, 155000, 5197150, 'deposit', '2024-10-28', 'Quarry Jonggol', 'Proyek Tol Cibitung', 'at_unload_location', '2024-06-16 07:00:00', '2024-06-16 10:00:00', '2024-06-16 12:00:00', '2024-06-16 16:00:00', NULL, NULL, 1750000, 500000),
 
 -- DO 4: otw_to_base (supir_yoyo, BE 9090 AC)
 ((SELECT id FROM purchase_orders WHERE po_number = 'PO/ADHI/10/2024-02'), (SELECT id FROM users WHERE username = 'supir_yoyo'), (SELECT id FROM vehicles WHERE license_plate = 'BE 9090 AC'), 
-'DO-241005-01', 'PT ADHI KARYA', 'Pasir', 40.00, 160000, 6400000, 'proses_tagihan', '2024-11-05', 'Quarry Cibinong', 'Proyek Tol Cimanggis', 'otw_to_base', '2024-06-15 09:00:00', '2024-06-15 12:00:00', '2024-06-15 13:00:00', NULL, 2000000),
+'DO-241005-01', 'PT ADHI KARYA', 'Pasir', 40.00, 40.15, 160000, 6400000, 'proses_tagihan', '2024-11-05', 'Quarry Cibinong', 'Proyek Tol Cimanggis', 'otw_to_base', '2024-06-15 09:00:00', '2024-06-15 12:00:00', '2024-06-15 13:00:00', '2024-06-15 17:00:00', '2024-06-15 18:00:00', NULL, 2000000, 500000),
 
 -- DO 5: completed (supir_dedi, B 3456 JKL)
 ((SELECT id FROM purchase_orders WHERE po_number = 'PO/ADHI/10/2024-02'), (SELECT id FROM users WHERE username = 'supir_dedi'), (SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL'), 
-'DO-241005-02', 'PT ADHI KARYA', 'Batu Split', 38.00, 158000, 6004000, 'lunas', '2024-11-06', 'Quarry Cibinong', 'Proyek Tol Cimanggis', 'completed', '2024-06-14 08:00:00', '2024-06-14 11:00:00', '2024-06-14 12:00:00', '2024-06-14 15:00:00', 2100000),
+'DO-241005-02', 'PT ADHI KARYA', 'Batu Split', 38.00, 38.70, 158000, 6004000, 'lunas', '2024-11-06', 'Quarry Cibinong', 'Proyek Tol Cimanggis', 'completed', '2024-06-14 08:00:00', '2024-06-14 11:00:00', '2024-06-14 12:00:00', '2024-06-14 15:00:00', '2024-06-14 18:30:00', '2024-06-14 20:00:00', 2100000, 500000),
 
 -- DO 6: assigned (supir_eko, B 7890 MNO)
 ((SELECT id FROM purchase_orders WHERE po_number = 'PO/ADHI/10/2024-02'), (SELECT id FROM users WHERE username = 'supir_eko'), (SELECT id FROM vehicles WHERE license_plate = 'B 7890 MNO'), 
-'DO-241005-03', 'PT ADHI KARYA', 'Sirtu', 36.00, 157000, 5652000, 'proses_tagihan', '2024-11-07', 'Quarry Cibinong', 'Proyek Tol Cimanggis', 'assigned', NULL, NULL, NULL, NULL, 1900000);
+'DO-241005-03', 'PT ADHI KARYA', 'Sirtu', 36.00, 36.10, 157000, 5652000, 'proses_tagihan', '2024-11-07', 'Quarry Cibinong', 'Proyek Tol Cimanggis', 'assigned', NULL, NULL, NULL, NULL, NULL, NULL, 1900000, 500000);
 
 -- 5. DRIVER EXPENSES (PENGELUARAN DRIVER)
 INSERT INTO driver_expenses (delivery_order_id, driver_id, jenis, amount, notes) VALUES

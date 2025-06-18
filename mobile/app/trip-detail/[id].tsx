@@ -16,9 +16,12 @@ import {
   Platform,
 } from "react-native";
 import { useLocalSearchParams, useFocusEffect, useRouter } from "expo-router";
+import LoadConfirmationModal from "../../components/LoadConfirmationModal";
 import {
   getDeliveryOrderDetails,
   createDriverExpense,
+  updateDeliveryStatus,
+  confirmLoad,
 } from "../../src/services/api";
 import { FontAwesome5 } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -40,10 +43,18 @@ interface DeliveryOrderDetails {
   load_location: string;
   unload_location: string;
   trip_allowance: number;
+  minimal_load_quantity: number;
+  actual_load_quantity?: number;
   expenses_total: number;
   remaining_allowance: number;
   expenses: Expense[];
-  status: string; // Added status property
+  status: string;
+  financial_summary?: {
+    trip_allowance: number;
+    total_for_driver: number;
+    expenses_total: number;
+    remaining_allowance: number;
+  };
 }
 
 interface ExpenseForm {
@@ -64,8 +75,11 @@ const TripDetailScreen = () => {
   const mountedRef = useRef(true);
 
   // State untuk form expense
+  // Add component state here
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [submittingExpense, setSubmittingExpense] = useState(false);
+  const [showLoadConfirmation, setShowLoadConfirmation] = useState(false);
+  const [submittingLoad, setSubmittingLoad] = useState(false);
   const [expenseForm, setExpenseForm] = useState<ExpenseForm>({
     jenis: "",
     amount: "",
@@ -115,7 +129,7 @@ const TripDetailScreen = () => {
     }
   }, [id]);
 
-  // PERBAIKAN: useFocusEffect dengan proper dependency dan cleanup
+  // useFocusEffect dengan proper dependency dan cleanup
   useFocusEffect(
     useCallback(() => {
       console.log("Screen focused, starting fetch...");
@@ -470,6 +484,54 @@ const TripDetailScreen = () => {
     </View>
   );
 
+  // Add these functions before the render
+  const handleLoadConfirmation = async (loadData: {
+    actual_load_quantity: number;
+    surat_jalan_photo: any;
+  }) => {
+    if (!trip) return;
+
+    setSubmittingLoad(true);
+    try {
+      await confirmLoad(trip.id, loadData);
+      setShowLoadConfirmation(false);
+      await fetchTripDetails(); // Refresh data
+      Alert.alert(
+        "Berhasil!",
+        "Muatan berhasil dikonfirmasi. Perjalanan ke lokasi bongkar dimulai.",
+        [{ text: "OK" }]
+      );
+    } catch (error: any) {
+      Alert.alert(
+        "Error",
+        error.response?.data?.message || "Gagal mengkonfirmasi muatan"
+      );
+    } finally {
+      setSubmittingLoad(false);
+    }
+  };
+
+  const getStatusActions = () => {
+    if (!trip) return null;
+
+    switch (trip.status) {
+      case "at_load_location":
+        return (
+          <TouchableOpacity
+            style={[styles.statusActionButton, { backgroundColor: "#e67e22" }]}
+            onPress={() => setShowLoadConfirmation(true)}
+          >
+            <FontAwesome5 name="clipboard-check" size={20} color="#fff" />
+            <Text style={styles.statusActionText}>
+              Konfirmasi Muatan & Berangkat
+            </Text>
+          </TouchableOpacity>
+        );
+      default:
+        return null;
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -499,6 +561,7 @@ const TripDetailScreen = () => {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Detail Perjalanan</Text>
       </View>
+
       <ScrollView
         style={styles.container}
         refreshControl={
@@ -586,6 +649,9 @@ const TripDetailScreen = () => {
             </View>
           )}
         </View>
+
+        {getStatusActions()}
+
         <View style={{ alignItems: "center", marginVertical: 16 }}>
           <TouchableOpacity
             style={{
@@ -795,6 +861,14 @@ const TripDetailScreen = () => {
           </ScrollView>
         </View>
       </Modal>
+
+      <LoadConfirmationModal
+        visible={showLoadConfirmation}
+        onClose={() => setShowLoadConfirmation(false)}
+        onConfirm={handleLoadConfirmation}
+        minimalQuantity={trip?.minimal_load_quantity || 0}
+        isLoading={submittingLoad}
+      />
     </>
   );
 };
@@ -851,6 +925,26 @@ const styles = StyleSheet.create({
   },
   container: { flex: 1, backgroundColor: "#f4f6f8" },
   centered: { flex: 1, justifyContent: "center", alignItems: "center" },
+  statusActionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 15,
+    marginHorizontal: 16,
+    marginBottom: 20,
+    borderRadius: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  statusActionText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+    marginLeft: 10,
+  },
   saldoCard: {
     backgroundColor: "#3b82f6",
     padding: 20,

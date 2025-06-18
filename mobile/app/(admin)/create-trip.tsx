@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, ChangeEvent } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Platform,
   Alert,
 } from "react-native";
+import { Picker } from "@react-native-picker/picker";
 import apiClient, { getPoDetailsForNewDo } from "../../src/services/api";
 import MapSelector from "../../components/MapSelector";
 import { useRouter } from "expo-router";
@@ -61,10 +62,11 @@ export default function CreateTrip() {
     do_number: "",
     customer_name: "",
     item_name: "",
-    quantity: "",
+    minimal_load_quantity: "",
     driver_id: "",
     vehicle_id: "",
     trip_allowance: "",
+    gaji: "",
     load_location: "",
     unload_location: "",
     load_latitude: "",
@@ -76,7 +78,6 @@ export default function CreateTrip() {
   const [poDetails, setPoDetails] = useState<PoDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
-  const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showMapSelector, setShowMapSelector] = useState(false);
   const [mapSelectorType, setMapSelectorType] = useState<
@@ -99,6 +100,7 @@ export default function CreateTrip() {
         purchaseOrders: poRes.data,
       });
     } catch (err) {
+      console.error("Error fetching master data:", err);
       setError("Gagal memuat data master. Coba lagi nanti.");
     } finally {
       setLoading(false);
@@ -189,17 +191,13 @@ export default function CreateTrip() {
     setForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  // File picker for web
-  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      setFile(e.target.files[0]);
-    }
-  };
-
   const handleSubmit = async () => {
     setError(null);
 
-    if (parseFloat(form.quantity) > (poDetails?.remaining_quantity ?? 0)) {
+    if (
+      parseFloat(form.minimal_load_quantity) >
+      (poDetails?.remaining_quantity ?? 0)
+    ) {
       Alert.alert(
         "Validasi Gagal",
         "Kuantitas DO tidak boleh melebihi sisa kuantitas di PO."
@@ -210,25 +208,28 @@ export default function CreateTrip() {
       !form.do_number ||
       !form.customer_name ||
       !form.item_name ||
-      !form.quantity ||
+      !form.minimal_load_quantity ||
       !form.purchase_order_id ||
       !form.driver_id ||
       !form.vehicle_id ||
       !form.trip_allowance ||
+      !form.gaji ||
       !form.load_location ||
       !form.unload_location
     ) {
       setError("Semua field wajib diisi.");
       return;
     }
+    console.log("Form data before submit:", form); // Debug log
+
     setLoading(true);
     try {
       const formData = new FormData();
+
+      // Append semua field
       Object.entries(form).forEach(([key, value]) =>
         formData.append(key, value)
       );
-      if (file) formData.append("surat_jalan", file);
-
       await apiClient.post("/delivery-orders", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
@@ -250,6 +251,7 @@ export default function CreateTrip() {
     );
   }
 
+  // RENDER DI SINI:
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Buat Trip/Delivery Order Baru</Text>
@@ -259,17 +261,30 @@ export default function CreateTrip() {
         <Text style={styles.cardTitle}>1. Informasi Purchase Order</Text>
         <Text style={styles.label}>Pilih Purchase Order</Text>
         <View style={styles.select}>
-          <select
-            value={form.purchase_order_id}
-            onChange={(e) => handlePoChange(e.target.value)}
-          >
-            <option value="">-- Pilih PO --</option>
-            {masterData.purchaseOrders.map((po) => (
-              <option key={po.id} value={po.id}>
-                {po.po_number}
-              </option>
-            ))}
-          </select>
+          {Platform.OS === "web" ? (
+            <select
+              value={form.purchase_order_id}
+              onChange={(e) => handlePoChange(e.target.value)}
+            >
+              <option value="">-- Pilih PO --</option>
+              {masterData.purchaseOrders.map((po) => (
+                <option key={po.id} value={po.id}>
+                  {po.po_number}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <Picker
+              selectedValue={form.purchase_order_id}
+              onValueChange={(itemValue) => handlePoChange(itemValue)}
+              style={{ width: "100%" }}
+            >
+              <Picker.Item label="-- Pilih PO --" value="" />
+              {masterData.purchaseOrders.map((po) => (
+                <Picker.Item key={po.id} label={po.po_number} value={po.id} />
+              ))}
+            </Picker>
+          )}
         </View>
 
         {loadingDetails && <ActivityIndicator style={{ marginVertical: 10 }} />}
@@ -320,11 +335,11 @@ export default function CreateTrip() {
               </Text>
             </Text>
           </View>
-          <Text style={styles.label}>Kuantitas Muatan (Ton)</Text>
+          <Text style={styles.label}>Minimal Kuantitas Muatan (Ton)</Text>
           <TextInput
             style={styles.input}
-            value={form.quantity}
-            onChangeText={(v) => handleChange("quantity", v)}
+            value={form.minimal_load_quantity}
+            onChangeText={(v) => handleChange("minimal_load_quantity", v)}
             placeholder={`Max: ${poDetails.remaining_quantity}`}
             keyboardType="numeric"
           />
@@ -405,21 +420,47 @@ export default function CreateTrip() {
 
           <Text style={styles.label}>Driver</Text>
           <View style={styles.select}>
-            <select
-              value={form.driver_id}
-              onChange={(e) => handleChange("driver_id", e.target.value)}
-            >
-              <option value="">
-                {masterData.drivers.length === 0
-                  ? "Tidak ada driver tersedia"
-                  : "Pilih Driver"}
-              </option>
-              {masterData.drivers.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.driverProfile?.full_name || d.username}
+            {Platform.OS === "web" ? (
+              <select
+                value={form.driver_id}
+                onChange={(e) => handleChange("driver_id", e.target.value)}
+              >
+                <option value="">
+                  {masterData.drivers.length === 0
+                    ? "Tidak ada driver tersedia"
+                    : "Pilih Driver"}
                 </option>
-              ))}
-            </select>
+                {masterData.drivers.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.driverProfile?.full_name || d.username}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <Picker
+                selectedValue={form.driver_id}
+                onValueChange={(itemValue) =>
+                  handleChange("driver_id", itemValue)
+                }
+                style={{ width: "100%" }}
+              >
+                <Picker.Item
+                  label={
+                    masterData.drivers.length === 0
+                      ? "Tidak ada driver tersedia"
+                      : "Pilih Driver"
+                  }
+                  value=""
+                />
+                {masterData.drivers.map((d) => (
+                  <Picker.Item
+                    key={d.id}
+                    label={d.driverProfile?.full_name || d.username}
+                    value={d.id}
+                  />
+                ))}
+              </Picker>
+            )}
           </View>
           {masterData.drivers.length === 0 && (
             <Text style={{ color: "red", marginBottom: 8 }}>
@@ -429,45 +470,117 @@ export default function CreateTrip() {
 
           <Text style={styles.label}>Mobil</Text>
           <View style={styles.select}>
-            <select
-              value={form.vehicle_id}
-              onChange={(e) => handleChange("vehicle_id", e.target.value)}
-            >
-              <option value="">Pilih Mobil</option>
-              {masterData.vehicles.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.license_plate} ({v.type})
-                </option>
-              ))}
-            </select>
+            {Platform.OS === "web" ? (
+              <select
+                value={form.vehicle_id}
+                onChange={(e) => handleChange("vehicle_id", e.target.value)}
+              >
+                <option value="">Pilih Mobil</option>
+                {masterData.vehicles.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.license_plate} ({v.type})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <Picker
+                selectedValue={form.vehicle_id}
+                onValueChange={(itemValue) =>
+                  handleChange("vehicle_id", itemValue)
+                }
+                style={{ width: "100%" }}
+              >
+                <Picker.Item
+                  label={
+                    masterData.vehicles.length === 0
+                      ? "Tidak ada mobil tersedia"
+                      : "Pilih Mobil"
+                  }
+                  value=""
+                />
+                {masterData.vehicles.map((v) => (
+                  <Picker.Item
+                    key={v.id}
+                    label={`${v.license_plate} (${v.type})`}
+                    value={v.id}
+                  />
+                ))}
+              </Picker>
+            )}
           </View>
 
-          <Text style={styles.label}>Uang Jalan (Rp)</Text>
-          <TextInput
-            style={styles.input}
-            value={form.trip_allowance}
-            onChangeText={(v) => handleChange("trip_allowance", v)}
-            placeholder="Contoh: 2500000"
-            keyboardType="numeric"
-          />
-        </View>
-      )}
+          <View style={styles.financialSection}>
+            <Text style={styles.sectionTitle}>💰 Finansial</Text>
 
-      {/* === SECTION 5: DOKUMEN === */}
-      {poDetails && (
-        <View style={styles.card}>
-          <Text style={styles.label}>Upload Surat Jalan</Text>
-          {Platform.OS === "web" ? (
-            <input
-              type="file"
-              accept="image/*,application/pdf"
-              onChange={handleFileChange}
+            <Text style={styles.label}>Uang Jalan - Operasional (Rp) *</Text>
+            <TextInput
+              style={styles.input}
+              value={form.trip_allowance}
+              onChangeText={(v) => handleChange("trip_allowance", v)}
+              placeholder="Contoh: 2500000 (untuk bensin, tol, dll)"
+              keyboardType="numeric"
             />
-          ) : (
-            <Text style={{ color: "#888" }}>
-              Upload file hanya tersedia di web.
+
+            <Text style={styles.label}>Gaji Driver (Rp) *</Text>
+            <TextInput
+              style={styles.input}
+              value={form.gaji}
+              onChangeText={(v) => handleChange("gaji", v)}
+              placeholder="Contoh: 1500000 (untuk payroll internal)"
+              keyboardType="numeric"
+            />
+
+            <View style={styles.infoContainer}>
+              <FontAwesome5 name="info-circle" size={16} color="#666" />
+              <Text style={styles.infoText}>
+                Data gaji disimpan untuk keperluan payroll bulanan dan tidak
+                ditampilkan ke driver.
+              </Text>
+            </View>
+
+            {/* Financial Summary */}
+            {form.trip_allowance && form.gaji && (
+              <View style={styles.financialSummary}>
+                <Text style={styles.summaryTitle}>
+                  Ringkasan Finansial (Admin View):
+                </Text>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>
+                    Uang Operasional (Visible to Driver):
+                  </Text>
+                  <Text style={styles.summaryValue}>
+                    Rp{" "}
+                    {Number(form.trip_allowance || 0).toLocaleString("id-ID")}
+                  </Text>
+                </View>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>
+                    Gaji Driver (Internal Only):
+                  </Text>
+                  <Text style={[styles.summaryValue, { fontStyle: "italic" }]}>
+                    Rp {Number(form.gaji || 0).toLocaleString("id-ID")}
+                  </Text>
+                </View>
+                <View style={[styles.summaryRow, styles.totalRow]}>
+                  <Text style={styles.totalLabel}>Total Cost (Internal):</Text>
+                  <Text style={styles.totalValue}>
+                    Rp{" "}
+                    {(
+                      Number(form.trip_allowance || 0) + Number(form.gaji || 0)
+                    ).toLocaleString("id-ID")}
+                  </Text>
+                </View>
+              </View>
+            )}
+          </View>
+
+          <View style={styles.infoContainer}>
+            <FontAwesome5 name="info-circle" size={16} color="#3498db" />
+            <Text style={styles.infoText}>
+              Driver akan menginput berat muatan aktual dan mengupload foto
+              surat jalan saat berangkat dari lokasi muat.
             </Text>
-          )}
+          </View>
         </View>
       )}
 
@@ -502,7 +615,10 @@ export default function CreateTrip() {
           styles.submitButton,
           (!poDetails || loading) && styles.disabledButton,
         ]}
-        onPress={handleSubmit}
+        onPress={() => {
+          console.log("Button pressed!"); // Debug log
+          handleSubmit();
+        }}
         disabled={!poDetails || loading}
       >
         <Text style={styles.submitButtonText}>
@@ -562,6 +678,63 @@ const styles = StyleSheet.create({
     padding: 12,
     borderWidth: 1,
     borderColor: "#e2e8f0",
+  },
+  // Financial Section
+  financialSection: {
+    marginTop: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#e2e8f0",
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#2d3748",
+    marginBottom: 12,
+  },
+  financialSummary: {
+    backgroundColor: "#f7fafc",
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  summaryTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#2d3748",
+    marginBottom: 8,
+  },
+  summaryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 2,
+  },
+  summaryLabel: {
+    fontSize: 13,
+    color: "#4a5568",
+  },
+  summaryValue: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#2d3748",
+  },
+  totalRow: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#cbd5e0",
+  },
+  totalLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#2d3748",
+  },
+  totalValue: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#3182ce",
   },
   infoRow: {
     flexDirection: "row",
@@ -632,4 +805,21 @@ const styles = StyleSheet.create({
   },
   submitButtonText: { color: "white", fontWeight: "bold", fontSize: 16 },
   disabledButton: { backgroundColor: "#a0aec0" },
+  infoContainer: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "#e6f7ff",
+    borderRadius: 6,
+    padding: 10,
+    marginTop: 16,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#91d5ff",
+  },
+  infoText: {
+    flex: 1,
+    color: "#2d3748",
+    fontSize: 13,
+    marginLeft: 8,
+  },
 });

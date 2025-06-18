@@ -1,3 +1,5 @@
+// mobile/app/(tabs)/index.tsx
+
 import React, { useState, useCallback } from "react";
 import {
   View,
@@ -7,14 +9,14 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Alert,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
-// --- 1. Import the dedicated apiClient ---
-import apiClient from "../../src/services/api";
+import apiClient, { updateDeliveryStatus } from "../../src/services/api";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { FontAwesome5 } from "@expo/vector-icons";
 
-// --- Interfaces for your data structures ---
+// === UPDATED INTERFACES ===
 interface Vehicle {
   id: number;
   license_plate: string;
@@ -31,11 +33,14 @@ interface DeliveryOrder {
   do_number: string;
   customer_name: string;
   item_name: string;
-  quantity: number;
+  minimal_load_quantity: number;
+  actual_load_quantity?: number;
   status:
     | "assigned"
-    | "otw_to_destination"
-    | "at_destination"
+    | "otw_to_load_location"
+    | "at_load_location"
+    | "otw_to_unload_location"
+    | "at_unload_location"
     | "otw_to_base"
     | "completed"
     | "cancelled";
@@ -44,24 +49,31 @@ interface DeliveryOrder {
   purchaseOrder?: PurchaseOrder;
   vehicle?: Vehicle;
   trip_allowance: number;
+  gaji: number;
   expenses_total: number;
   remaining_allowance: number;
+  financial_summary?: {
+    trip_allowance: number;
+    gaji: number;
+    total_for_driver: number;
+    expenses_total: number;
+    remaining_allowance: number;
+  };
   created_at: string;
   driver_name?: string;
 }
 
 const DriverDashboard = () => {
-  const router = useRouter(); // <-- 2. Inisialisasi router
+  const router = useRouter();
   const { signOut } = useAuth();
   const [deliveryOrders, setDeliveryOrders] = useState<DeliveryOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState<number | null>(null);
 
-  // --- 2. This function now uses the reliable apiClient ---
   const fetchMyTasks = async () => {
     try {
-      // The apiClient automatically adds the base URL and Authorization header.
       const response = await apiClient.get<DeliveryOrder[]>(
         "/delivery-orders/me"
       );
@@ -73,7 +85,6 @@ const DriverDashboard = () => {
         err.response?.data || err.message
       );
       setError("Gagal memuat tugas. Tarik ke bawah untuk muat ulang.");
-      // The signOut logic for 401 errors is crucial and correct.
       if (err.response?.status === 401) {
         signOut();
       }
@@ -83,28 +94,41 @@ const DriverDashboard = () => {
     }
   };
 
-  // --- 3. This function also uses the apiClient ---
-  const handleUpdateStatus = async (
-    orderId: number,
-    action: "start" | "arrive" | "return" | "complete"
-  ) => {
+  const handleUpdateStatus = async (orderId: number, action: string) => {
+    setUpdatingStatus(orderId);
     try {
-      // Use the apiClient to make the patch request.
-      await apiClient.patch(`/delivery-orders/${orderId}/${action}`);
-      // Refetch data to get the latest, confirmed state from the server.
-      await fetchMyTasks();
+      await updateDeliveryStatus(orderId, action);
+      await fetchMyTasks(); // Refresh data
+
+      // Show success message
+      const messages = {
+        start_to_load: "Berhasil memulai perjalanan ke lokasi muat",
+        arrive_at_load: "Berhasil tiba di lokasi muat",
+        arrive_at_unload: "Berhasil tiba di lokasi bongkar",
+        start_return: "Berhasil memulai perjalanan pulang",
+        complete: "Tugas berhasil diselesaikan",
+      };
+
+      Alert.alert(
+        "Berhasil",
+        messages[action as keyof typeof messages] ||
+          "Status berhasil diperbarui"
+      );
     } catch (err: any) {
       console.error(
-        `Error updating status for order ${orderId} to ${action}:`,
+        `Error updating status for order ${orderId}:`,
         err.response?.data || err.message
       );
-      alert(`Gagal memperbarui status. Silakan coba lagi.`);
-      // Refetch to revert any optimistic UI updates if the call failed.
-      await fetchMyTasks();
+      Alert.alert(
+        "Error",
+        err.response?.data?.message ||
+          "Gagal memperbarui status. Silakan coba lagi."
+      );
+    } finally {
+      setUpdatingStatus(null);
     }
   };
 
-  // useFocusEffect is perfect for this use case. No changes needed here.
   useFocusEffect(
     useCallback(() => {
       setIsLoading(true);
@@ -117,66 +141,112 @@ const DriverDashboard = () => {
     fetchMyTasks();
   }, []);
 
-  const renderActionButtons = (order: DeliveryOrder) => {
+  // === NEW STATUS ACTIONS MAPPING ===
+  const getStatusActions = (order: DeliveryOrder) => {
+    const isUpdating = updatingStatus === order.id;
+
     switch (order.status) {
       case "assigned":
-        return (
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => handleUpdateStatus(order.id, "start")}
-          >
-            <FontAwesome5 name="truck" size={16} color="white" />
-            <Text style={styles.actionButtonText}>Mulai OTW ke Tujuan</Text>
-          </TouchableOpacity>
-        );
-      case "otw_to_destination":
-        return (
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => handleUpdateStatus(order.id, "arrive")}
-          >
-            <FontAwesome5 name="map-marker-alt" size={16} color="white" />
-            <Text style={styles.actionButtonText}>Sudah Sampai Tujuan</Text>
-          </TouchableOpacity>
-        );
-      case "at_destination":
-        return (
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => handleUpdateStatus(order.id, "return")}
-          >
-            <FontAwesome5 name="warehouse" size={16} color="white" />
-            <Text style={styles.actionButtonText}>Mulai OTW ke Gudang</Text>
-          </TouchableOpacity>
-        );
+        return {
+          action: "start_to_load",
+          label: "Berangkat ke Lokasi Muat",
+          icon: "truck",
+          color: "#3498db",
+          disabled: isUpdating,
+        };
+      case "otw_to_load_location":
+        return {
+          action: "arrive_at_load",
+          label: "Tiba di Lokasi Muat",
+          icon: "map-marker-alt",
+          color: "#f39c12",
+          disabled: isUpdating,
+        };
+      case "at_load_location":
+        return {
+          action: "navigate_to_confirm",
+          label: "Konfirmasi Muatan & Berangkat",
+          icon: "clipboard-check",
+          color: "#e67e22",
+          disabled: false,
+          special: true, // This will navigate to detail page
+        };
+      case "otw_to_unload_location":
+        return {
+          action: "arrive_at_unload",
+          label: "Tiba di Lokasi Bongkar",
+          icon: "map-marker-alt",
+          color: "#9b59b6",
+          disabled: isUpdating,
+        };
+      case "at_unload_location":
+        return {
+          action: "start_return",
+          label: "Mulai Perjalanan Pulang",
+          icon: "home",
+          color: "#1abc9c",
+          disabled: isUpdating,
+        };
       case "otw_to_base":
-        return (
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => handleUpdateStatus(order.id, "complete")}
-          >
-            <FontAwesome5 name="check-circle" size={16} color="white" />
-            <Text style={styles.actionButtonText}>Selesaikan Tugas</Text>
-          </TouchableOpacity>
-        );
+        return {
+          action: "complete",
+          label: "Selesaikan Tugas",
+          icon: "check-circle",
+          color: "#27ae60",
+          disabled: isUpdating,
+        };
       default:
         return null;
     }
+  };
+
+  const renderActionButtons = (order: DeliveryOrder) => {
+    const actionConfig = getStatusActions(order);
+
+    if (!actionConfig) return null;
+
+    const handlePress = () => {
+      if (actionConfig.special) {
+        // Navigate to detail page for load confirmation
+        router.push(`/trip-detail/${order.id}`);
+      } else {
+        handleUpdateStatus(order.id, actionConfig.action);
+      }
+    };
+
+    return (
+      <TouchableOpacity
+        style={[styles.actionButton, { backgroundColor: actionConfig.color }]}
+        onPress={handlePress}
+        disabled={actionConfig.disabled}
+      >
+        {updatingStatus === order.id ? (
+          <ActivityIndicator size="small" color="white" />
+        ) : (
+          <FontAwesome5 name={actionConfig.icon} size={16} color="white" />
+        )}
+        <Text style={styles.actionButtonText}>{actionConfig.label}</Text>
+      </TouchableOpacity>
+    );
   };
 
   // Helper to get status badge background color
   const getStatusColor = (status: DeliveryOrder["status"]) => {
     switch (status) {
       case "assigned":
+        return { backgroundColor: "#6c757d" };
+      case "otw_to_load_location":
         return { backgroundColor: "#3498db" };
-      case "otw_to_destination":
+      case "at_load_location":
         return { backgroundColor: "#f39c12" };
-      case "at_destination":
+      case "otw_to_unload_location":
         return { backgroundColor: "#e67e22" };
+      case "at_unload_location":
+        return { backgroundColor: "#9b59b6" };
       case "otw_to_base":
         return { backgroundColor: "#1abc9c" };
       case "completed":
-        return { backgroundColor: "#2ecc71" };
+        return { backgroundColor: "#27ae60" };
       case "cancelled":
         return { backgroundColor: "#e74c3c" };
       default:
@@ -188,13 +258,17 @@ const DriverDashboard = () => {
   const getStatusText = (status: DeliveryOrder["status"]) => {
     switch (status) {
       case "assigned":
-        return "BARU";
-      case "otw_to_destination":
-        return "OTW TUJUAN";
-      case "at_destination":
-        return "DI LOKASI";
+        return "DITUGASKAN";
+      case "otw_to_load_location":
+        return "MENUJU MUAT";
+      case "at_load_location":
+        return "DI LOK. MUAT";
+      case "otw_to_unload_location":
+        return "MENUJU BONGKAR";
+      case "at_unload_location":
+        return "DI LOK. BONGKAR";
       case "otw_to_base":
-        return "OTW PULANG";
+        return "PULANG";
       case "completed":
         return "SELESAI";
       case "cancelled":
@@ -206,11 +280,11 @@ const DriverDashboard = () => {
 
   const renderTaskItem = ({ item }: { item: DeliveryOrder }) => {
     const isCompleted = item.status === "completed";
+
     return (
       <TouchableOpacity
         onPress={() => router.push(`/trip-detail/${item.id}`)}
         style={[styles.card, isCompleted && styles.completedCard]}
-        disabled={false} // Tetap bisa diklik, tapi read-only
       >
         <View style={styles.cardHeader}>
           <Text style={styles.doNumber}>{item.do_number}</Text>
@@ -221,7 +295,7 @@ const DriverDashboard = () => {
             <FontAwesome5
               name="check-circle"
               size={20}
-              color="#28a745"
+              color="#27ae60"
               style={{ marginLeft: 8 }}
             />
           )}
@@ -230,7 +304,9 @@ const DriverDashboard = () => {
         <View style={styles.cardBody}>
           <Text style={styles.customerName}>{item.customer_name}</Text>
           <Text style={styles.itemDetails}>
-            {item.item_name} - {item.quantity} Ton
+            {item.item_name} - {item.minimal_load_quantity} Ton (minimal)
+            {item.actual_load_quantity &&
+              ` → ${item.actual_load_quantity} Ton (aktual)`}
           </Text>
           <View style={styles.locationContainer}>
             <FontAwesome5 name="arrow-up" size={14} color="#3498db" />
@@ -242,22 +318,7 @@ const DriverDashboard = () => {
           </View>
         </View>
 
-        {/* <View style={styles.allowanceContainer}>
-          <View style={styles.allowanceItem}>
-            <Text style={styles.allowanceLabel}>Uang Jalan</Text>
-            <Text style={styles.allowanceValue}>
-              Rp {Number(item.trip_allowance).toLocaleString("id-ID")}
-            </Text>
-          </View>
-          <View style={styles.allowanceItem}>
-            <Text style={styles.allowanceLabel}>Sisa Saldo</Text>
-            <Text style={[styles.allowanceValue, styles.remainingValue]}>
-              Rp {Number(item.remaining_allowance).toLocaleString("id-ID")}
-            </Text>
-          </View>
-        </View> */}
-
-        {/* Allowance info - dengan styling berbeda untuk completed */}
+        {/* FINANCIAL SUMMARY */}
         <View
           style={[
             styles.allowanceContainer,
@@ -323,17 +384,10 @@ const DriverDashboard = () => {
   );
 };
 
-// --- Styles (No changes needed, but included for completeness) ---
+// === UPDATED STYLES ===
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f4f6f8",
-  },
-  centered: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
+  container: { flex: 1, backgroundColor: "#f4f6f8" },
+  centered: { flex: 1, justifyContent: "center", alignItems: "center" },
   headerContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -342,14 +396,8 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 8,
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: "bold",
-  },
-  listContainer: {
-    paddingHorizontal: 10,
-    paddingBottom: 20,
-  },
+  headerTitle: { fontSize: 24, fontWeight: "bold" },
+  listContainer: { paddingHorizontal: 10, paddingBottom: 20 },
   card: {
     backgroundColor: "white",
     borderRadius: 8,
@@ -370,49 +418,20 @@ const styles = StyleSheet.create({
     borderBottomColor: "#eee",
     paddingBottom: 8,
   },
-  doNumber: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  statusBadge: {
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 12,
-  },
-  statusText: {
-    color: "white",
-    fontSize: 12,
-    fontWeight: "bold",
-  },
-  cardBody: {
-    marginBottom: 12,
-  },
-  customerName: {
-    fontSize: 18,
-    fontWeight: "600",
-    marginBottom: 4,
-  },
-  itemDetails: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 8,
-  },
+  doNumber: { fontSize: 16, fontWeight: "bold", color: "#333" },
+  statusBadge: { paddingVertical: 4, paddingHorizontal: 8, borderRadius: 12 },
+  statusText: { color: "white", fontSize: 12, fontWeight: "bold" },
+  cardBody: { marginBottom: 12 },
+  customerName: { fontSize: 18, fontWeight: "600", marginBottom: 4 },
+  itemDetails: { fontSize: 14, color: "#666", marginBottom: 8 },
   locationContainer: {
     flexDirection: "row",
     alignItems: "center",
     marginTop: 4,
   },
-  locationText: {
-    marginLeft: 8,
-    fontSize: 14,
-    color: "#555",
-  },
-  cardFooter: {
-    marginTop: 8,
-  },
+  locationText: { marginLeft: 8, fontSize: 14, color: "#555" },
+  cardFooter: { marginTop: 8 },
   actionButton: {
-    backgroundColor: "#27ae60",
     padding: 12,
     borderRadius: 6,
     flexDirection: "row",
@@ -425,17 +444,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "bold",
   },
-  errorText: {
-    color: "red",
-    textAlign: "center",
-    margin: 10,
-  },
+  errorText: { color: "red", textAlign: "center", margin: 10 },
   emptyText: {
     textAlign: "center",
     marginTop: 50,
     fontSize: 16,
     color: "#888",
   },
+
+  // ENHANCED ALLOWANCE SECTION
   allowanceContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -444,56 +461,24 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#eee",
   },
-  allowanceItem: {
-    alignItems: "center",
-  },
-  allowanceLabel: {
-    fontSize: 12,
-    color: "#666",
-  },
-  allowanceValue: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  remainingValue: {
-    color: "#28a745", // Warna hijau untuk sisa saldo
-  },
+  allowanceItem: { alignItems: "center", flex: 1 },
+  allowanceLabel: { fontSize: 12, color: "#666" },
+  allowanceValue: { fontSize: 14, fontWeight: "bold", color: "#333" },
+  remainingValue: { color: "#e67e22" }, // Orange for remaining balance
 
-  completedCard: {
-    opacity: 0.8,
-    borderColor: "#28a745",
-    borderWidth: 2,
-  },
-
-  completedAllowanceContainer: {
-    backgroundColor: "#f8fff8",
-  },
-
+  completedCard: { opacity: 0.8, borderColor: "#27ae60", borderWidth: 2 },
+  completedAllowanceContainer: { backgroundColor: "#f8fff8" },
   completedInfo: {
     marginTop: 12,
     padding: 8,
     backgroundColor: "#e8f5e8",
     borderRadius: 6,
   },
-
   completedInfoText: {
     fontSize: 12,
     color: "#155724",
     textAlign: "center",
     fontStyle: "italic",
-  },
-  routeContainer: {
-    marginTop: 8,
-    marginBottom: 8,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  routeText: {
-    fontSize: 14,
-    color: "#333",
-    marginTop: 4,
-    marginBottom: 4,
   },
 });
 

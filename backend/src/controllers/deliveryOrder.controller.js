@@ -30,6 +30,36 @@ const updateStatus = async (id, driverId, newStatus, timestampField) => {
   return order;
 };
 
+// === TAMBAHKAN UTILITY FUNCTION ===
+const filterSensitiveDataForDriver = (data, userRole) => {
+  if (userRole !== "driver") {
+    return data; // Admin/Owner tetap bisa lihat semua data
+  }
+
+  // Function untuk remove gaji dari object
+  const removeGaji = (obj) => {
+    if (obj && typeof obj === "object") {
+      delete obj.gaji;
+
+      // Remove gaji dari financial_summary juga
+      if (obj.financial_summary) {
+        delete obj.financial_summary.gaji;
+        // Recalculate total_for_driver without gaji
+        obj.financial_summary.total_for_driver =
+          obj.financial_summary.trip_allowance || 0;
+      }
+    }
+    return obj;
+  };
+
+  // Handle array atau single object
+  if (Array.isArray(data)) {
+    return data.map((item) => removeGaji({ ...item }));
+  } else {
+    return removeGaji({ ...data });
+  }
+};
+
 // CREATE Delivery Order by Admin user
 exports.createDeliveryOrder = async (req, res, next) => {
   try {
@@ -45,17 +75,22 @@ exports.createDeliveryOrder = async (req, res, next) => {
       do_number,
       customer_name,
       item_name,
-      quantity,
+      minimal_load_quantity, // <-- RENAMED
       unit_price,
       total_amount,
       load_location,
       unload_location,
+      load_latitude,
+      load_longitude,
+      unload_latitude,
+      unload_longitude,
       payment_status,
       payment_type,
       deposit_amount,
       invoice_amount,
       due_date,
       trip_allowance,
+      gaji, // <-- FIELD BARU
     } = req.body;
 
     // Validasi sederhana
@@ -66,9 +101,13 @@ exports.createDeliveryOrder = async (req, res, next) => {
         status: {
           [Op.in]: [
             "assigned",
-            "otw_to_destination",
-            "at_destination",
+            "otw_to_load_location",
+            "at_load_location",
+            "otw_to_unload_location",
+            "at_unload_location",
             "otw_to_base",
+            "completed",
+            "cancelled",
           ],
         },
       },
@@ -86,9 +125,13 @@ exports.createDeliveryOrder = async (req, res, next) => {
         status: {
           [Op.in]: [
             "assigned",
-            "otw_to_destination",
-            "at_destination",
+            "otw_to_load_location",
+            "at_load_location",
+            "otw_to_unload_location",
+            "at_unload_location",
             "otw_to_base",
+            "completed",
+            "cancelled",
           ],
         },
       },
@@ -105,9 +148,23 @@ exports.createDeliveryOrder = async (req, res, next) => {
       !vehicle_id ||
       !do_number ||
       !customer_name ||
-      !trip_allowance
+      !minimal_load_quantity ||
+      !trip_allowance ||
+      !gaji
     ) {
-      return res.status(400).json({ message: "Data wajib belum lengkap." });
+      return res.status(400).json({
+        message: "Data wajib belum lengkap.",
+        missing_fields: {
+          purchase_order_id: !purchase_order_id,
+          driver_id: !driver_id,
+          vehicle_id: !vehicle_id,
+          do_number: !do_number,
+          customer_name: !customer_name,
+          minimal_load_quantity: !minimal_load_quantity,
+          trip_allowance: !trip_allowance,
+          gaji: !gaji,
+        },
+      });
     }
 
     // Handle file upload (surat jalan)
@@ -124,19 +181,23 @@ exports.createDeliveryOrder = async (req, res, next) => {
       do_number,
       customer_name,
       item_name,
-      quantity: quantity || 0,
+      minimal_load_quantity: minimal_load_quantity || 0,
       unit_price: unit_price || 0,
-      total_amount: total_amount || quantity * unit_price || 0,
+      total_amount: total_amount || 0,
       load_location,
       unload_location,
+      load_latitude,
+      load_longitude,
+      unload_latitude,
+      unload_longitude,
       payment_status: payment_status || "proses_tagihan",
       payment_type,
       deposit_amount: deposit_amount || 0,
       invoice_amount,
       due_date,
       trip_allowance: trip_allowance || 0,
-      status: "assigned", // status default saat dibuat
-      surat_jalan_url,
+      gaji: gaji || 0,
+      status: "assigned",
     });
 
     // Set status driver & mobil ke busy/in_use (opsional, jika ada field status di tabel driver/vehicle)
@@ -146,8 +207,12 @@ exports.createDeliveryOrder = async (req, res, next) => {
     );
     await Vehicle.update({ status: "in_use" }, { where: { id: vehicle_id } });
 
-    res.status(201).json(newDO);
+    res.status(201).json({
+      ...newDO.toJSON(),
+      financial_summary: newDO.getFinancialSummary(),
+    });
   } catch (err) {
+    console.error("Error creating delivery order:", err);
     next(err);
   }
 };
@@ -156,6 +221,7 @@ exports.createDeliveryOrder = async (req, res, next) => {
 exports.getMyDeliveryOrders = async (req, res, next) => {
   try {
     const driverId = req.user.id;
+    const userRole = req.user.role;
 
     const myOrders = await DeliveryOrder.findAll({
       where: { driver_id: driverId },
@@ -201,15 +267,24 @@ exports.getMyDeliveryOrders = async (req, res, next) => {
     });
 
     // Proses data untuk menambahkan sisa saldo
+    // Update response untuk include financial data
     const ordersWithAllowance = myOrders.map((order) => {
       const plainOrder = order.get({ plain: true });
       const expensesTotal = parseFloat(plainOrder.expenses_total) || 0;
       const tripAllowance = parseFloat(plainOrder.trip_allowance) || 0;
+      const gaji = parseFloat(plainOrder.gaji) || 0;
 
       return {
         ...plainOrder,
         expenses_total: expensesTotal,
-        remaining_allowance: tripAllowance - expensesTotal, // Hitung sisa saldo
+        remaining_allowance: tripAllowance - expensesTotal,
+        financial_summary: {
+          trip_allowance: tripAllowance,
+          gaji: gaji,
+          total_for_driver: tripAllowance + gaji,
+          expenses_total: expensesTotal,
+          remaining_allowance: tripAllowance - expensesTotal,
+        },
         driver_name:
           plainOrder.driver?.driverProfile?.full_name ||
           plainOrder.driver?.username,
@@ -217,7 +292,13 @@ exports.getMyDeliveryOrders = async (req, res, next) => {
       };
     });
 
-    res.json(ordersWithAllowance); // Kirim data yang sudah diolah
+    // === FILTER SENSITIVE DATA FOR DRIVERS ===
+    const filteredOrders = filterSensitiveDataForDriver(
+      ordersWithAllowance,
+      userRole
+    );
+
+    res.json(filteredOrders); // Kirim data yang sudah diolah
   } catch (err) {
     console.error("Error in getMyDeliveryOrders:", err);
     next(err);
@@ -265,7 +346,12 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
     }
 
     const deliveryOrders = await DeliveryOrder.findAll(options);
-    res.json(deliveryOrders);
+    // === FILTER SENSITIVE DATA FOR DRIVERS ===
+    const filteredOrders = filterSensitiveDataForDriver(
+      deliveryOrders.map((order) => order.get({ plain: true })),
+      user.role
+    );
+    res.json(filteredOrders);
   } catch (err) {
     console.error("Error in getAllDeliveryOrders:", err);
     next(err);
@@ -303,17 +389,27 @@ exports.getDeliveryOrderById = async (req, res, next) => {
       (sum, expense) => sum + parseFloat(expense.amount),
       0
     );
-
     const tripAllowance = parseFloat(plainOrder.trip_allowance) || 0;
+    const gaji = parseFloat(plainOrder.gaji) || 0;
 
     // Tambahkan field kalkulasi ke dalam respons
     const responseData = {
       ...plainOrder,
       expenses_total: expensesTotal,
       remaining_allowance: tripAllowance - expensesTotal,
+      financial_summary: {
+        trip_allowance: tripAllowance,
+        gaji: gaji, // Will be filtered out below for drivers
+        total_for_driver: tripAllowance + gaji, // Will be recalculated below for drivers
+        expenses_total: expensesTotal,
+        remaining_allowance: tripAllowance - expensesTotal,
+      },
     };
 
-    res.json(responseData);
+    // === FILTER SENSITIVE DATA FOR DRIVERS ===
+    const filteredData = filterSensitiveDataForDriver(responseData, userRole);
+
+    res.json(filteredData);
   } catch (err) {
     next(err);
   }
@@ -359,12 +455,48 @@ exports.completeDeliveryOrder = async (req, res, next) => {
         where: { id: req.params.id, driver_id: req.user.id },
         transaction: t,
       });
+
       if (!order) throw { status: 404, message: "Delivery Order not found." };
 
+      // Update DO Status
       await order.update(
         { status: "completed", completed_at: new Date() },
         { transaction: t }
       );
+
+      // === AUTO-REDUCE PO QUANTITY ===
+      if (order.purchase_order_id && order.actual_load_quantity) {
+        const po = await PurchaseOrder.findByPk(order.purchase_order_id, {
+          transaction: t,
+        });
+        if (po) {
+          // Calculate total delivered quantity for this PO
+          const totalDelivered = await DeliveryOrder.sum(
+            "actual_load_quantity",
+            {
+              where: {
+                purchase_order_id: order.purchase_order_id,
+                status: "completed",
+                actual_load_quantity: { [Op.ne]: null },
+              },
+              transaction: t,
+            }
+          );
+
+          console.log(
+            `PO ${po.po_number}: Total delivered = ${totalDelivered}/${po.total_quantity}`
+          );
+
+          // Update PO status if fully delivered
+          const remainingQuantity =
+            parseFloat(po.total_quantity) - (totalDelivered || 0);
+          if (remainingQuantity <= 0) {
+            await po.update({ status: "completed" }, { transaction: t });
+            console.log(`PO ${po.po_number} marked as completed`);
+          }
+        }
+      }
+
       await DriverProfile.update(
         { status: "available" },
         { where: { user_id: req.user.id }, transaction: t }

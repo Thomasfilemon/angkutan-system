@@ -106,8 +106,10 @@ CREATE TABLE purchase_orders (
 -- TIPE BARU: Status untuk setiap Delivery Order (Ritase)
 CREATE TYPE delivery_status AS ENUM (
     'assigned',
-    'otw_to_destination',
-    'at_destination',
+    'otw_to_load_location',
+    'at_load_location',
+    'otw_to_unload_location',
+    'at_unload_location',
     'otw_to_base',
     'completed',
     'cancelled'
@@ -119,31 +121,43 @@ CREATE TABLE delivery_orders (
   purchase_order_id INTEGER REFERENCES purchase_orders(id) ON DELETE SET NULL,
   driver_id INTEGER REFERENCES users(id),
   vehicle_id INTEGER REFERENCES vehicles(id),
+  
   do_number VARCHAR(50) UNIQUE NOT NULL,
   customer_name VARCHAR(100) NOT NULL,
   item_name VARCHAR(100),
-  quantity NUMERIC,
+  
+  minimal_load_quantity NUMERIC(10, 2) DEFAULT 0,
+  actual_load_quantity NUMERIC(10, 2),
+
   unit_price NUMERIC,
   total_amount NUMERIC NOT NULL,
+  trip_allowance NUMERIC(15, 2) NOT NULL DEFAULT 0,
+  gaji NUMERIC(15, 2) NOT NULL DEFAULT 0,
+
   load_location TEXT,
   load_latitude DECIMAL(10, 8),
   load_longitude DECIMAL(11, 8),
   unload_location TEXT,
   unload_latitude DECIMAL(10, 8),
   unload_longitude DECIMAL(11, 8),
-  surat_jalan_url VARCHAR(255),
+
+  surat_jalan_photo_url VARCHAR(255),
+
   payment_status VARCHAR(20) NOT NULL DEFAULT 'proses_tagihan' 
     CHECK(payment_status IN ('lunas','deposit','proses_tagihan')),
   payment_type VARCHAR(20) CHECK(payment_type IN ('cash','transfer','deposit')),
   deposit_amount NUMERIC DEFAULT 0,
   invoice_amount NUMERIC,
   due_date DATE,
-  trip_allowance NUMERIC(15, 2) NOT NULL DEFAULT 0,
+
   status delivery_status NOT NULL DEFAULT 'assigned',
+  
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  started_at TIMESTAMP WITH TIME ZONE,
-  reached_destination_at TIMESTAMP WITH TIME ZONE,
-  started_return_at TIMESTAMP WITH TIME ZONE,
+  departed_to_load_location_at TIMESTAMP WITH TIME ZONE, -- Otw muat barang (Gudang)
+  arrived_at_load_location_at TIMESTAMP WITH TIME ZONE, -- Sampai di lokasi muat
+  departed_from_load_location_at TIMESTAMP WITH TIME ZONE, -- Selesai muat barang, otw ke lokasi bongkar (customer)
+  arrived_at_unload_location_at TIMESTAMP WITH TIME ZONE, -- Sampai di lokasi bongkar
+  departed_from_unload_location_at TIMESTAMP WITH TIME ZONE, -- Selesai bongkar barang, kembali ke base
   completed_at TIMESTAMP WITH TIME ZONE
 );
 
@@ -282,10 +296,10 @@ CREATE TABLE tire_inspections (
 CREATE INDEX idx_vehicles_tax_due ON vehicles(tax_due_date);
 CREATE INDEX idx_vehicles_stnk_expired ON vehicles(stnk_expired_date);
 CREATE INDEX idx_stock_items_low_stock ON stock_items(current_stock, min_stock);
-CREATE INDEX idx_delivery_orders_po_id ON delivery_orders(purchase_order_id);
-CREATE INDEX idx_delivery_orders_status ON delivery_orders(payment_status);
-CREATE INDEX idx_delivery_orders_due_date ON delivery_orders(due_date);
 CREATE INDEX idx_tire_inspections_date ON tire_inspections(inspection_date);
 CREATE INDEX idx_cash_transactions_date ON cash_transactions(transaction_date);
-CREATE UNIQUE INDEX idx_active_delivery_orders_per_driver_id ON delivery_orders(driver_id) WHERE status IN ('assigned', 'otw_to_destination', 'at_destination', 'otw_to_base');
-CREATE UNIQUE INDEX idx_active_delivery_orders_per_vehicle ON delivery_orders(vehicle_id) WHERE status IN ('assigned', 'otw_to_destination', 'at_destination', 'otw_to_base');
+CREATE UNIQUE INDEX idx_active_delivery_orders_per_driver_id ON delivery_orders(driver_id) WHERE status IN ('assigned', 'otw_to_load_location', 'at_load_location', 'otw_to_unload_location', 'at_unload_location', 'otw_to_base');
+CREATE UNIQUE INDEX idx_active_delivery_orders_per_vehicle ON delivery_orders(vehicle_id) WHERE status IN ('assigned', 'otw_to_load_location', 'at_load_location', 'otw_to_unload_location', 'at_unload_location', 'otw_to_base');
+CREATE INDEX idx_delivery_orders_status ON delivery_orders(payment_status);
+CREATE INDEX idx_delivery_orders_po_id ON delivery_orders(purchase_order_id);
+CREATE INDEX idx_delivery_orders_due_date ON delivery_orders(due_date);

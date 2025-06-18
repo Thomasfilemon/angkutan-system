@@ -74,34 +74,59 @@ exports.getPurchaseOrderDetailsForNewDO = async (req, res, next) => {
     }
 
     // 1. Hitung total kuantitas yang sudah terkirim untuk PO ini
-    const deliveredSum = await DeliveryOrder.sum("quantity", {
-      where: { purchase_order_id: id },
+    const deliveredSum = await DeliveryOrder.sum("actual_load_quantity", {
+      where: {
+        purchase_order_id: id,
+        status: "completed", // Hanya hitung yang sudah selesai
+        actual_load_quantity: { [Sequelize.Op.ne]: null }, // Yang punya actual quantity
+      },
     });
 
-    // 2. Hitung jumlah DO yang sudah ada untuk PO ini untuk menentukan nomor urut berikutnya
+    // 2. Hitung total kuantitas yang sudah di-assign (termasuk yang belum selesai)
+    const assignedSum = await DeliveryOrder.sum("minimal_load_quantity", {
+      where: {
+        purchase_order_id: id,
+        status: { [Sequelize.Op.ne]: "cancelled" }, // Kecuali yang dibatalkan
+      },
+    });
+
+    // 3. Hitung jumlah DO yang sudah ada untuk PO ini untuk menentukan nomor urut berikutnya
     const doCount = await DeliveryOrder.count({
       where: { purchase_order_id: id },
     });
     const nextDoSequence = (doCount + 1).toString().padStart(3, "0");
     const generatedDoNumber = `${purchaseOrder.po_number}/${nextDoSequence}`;
 
-    // 3. Siapkan data untuk dikirim ke frontend (DENGAN LOKASI)
+    // 4. Siapkan data untuk dikirim ke frontend (DENGAN LOKASI)
+    const totalQuantity = parseFloat(purchaseOrder.total_quantity);
+    const actualDelivered = parseFloat(deliveredSum) || 0;
+    const totalAssigned = parseFloat(assignedSum) || 0;
+
     const details = {
       po_id: purchaseOrder.id,
       po_number: purchaseOrder.po_number,
       customer_name: purchaseOrder.customer_name,
       item_name: purchaseOrder.item_name,
       total_quantity: parseFloat(purchaseOrder.total_quantity),
-      delivered_quantity: parseFloat(deliveredSum) || 0,
-      remaining_quantity:
-        parseFloat(purchaseOrder.total_quantity) -
-        (parseFloat(deliveredSum) || 0),
+
+      delivered_quantity: actualDelivered,
+      assigned_quantity: totalAssigned,
+      remaining_quantity: totalQuantity - totalAssigned,
+      available_for_new_do: totalQuantity - totalAssigned,
+
       generated_do_number: generatedDoNumber,
+
       // === TAMBAHKAN DATA LOKASI ===
       load_location: purchaseOrder.load_location || "",
       unload_location: purchaseOrder.unload_location || "",
-      has_location_data: !!(
-        purchaseOrder.load_location && purchaseOrder.unload_location
+      load_latitude: purchaseOrder.load_latitude,
+      load_longitude: purchaseOrder.load_longitude,
+      unload_latitude: purchaseOrder.unload_latitude,
+      unload_longitude: purchaseOrder.unload_longitude,
+      has_location_data: !!(purchaseOrder.load_location && purchaseOrder.unload_location),
+      has_coordinates: !!(
+        purchaseOrder.load_latitude && purchaseOrder.load_longitude &&
+        purchaseOrder.unload_latitude && purchaseOrder.unload_longitude
       ),
     };
 
