@@ -88,8 +88,6 @@ exports.createDeliveryOrder = async (req, res, next) => {
             "otw_to_unload_location",
             "at_unload_location",
             "otw_to_base",
-            "completed",
-            "cancelled",
           ],
         },
       },

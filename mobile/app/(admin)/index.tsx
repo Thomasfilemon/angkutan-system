@@ -16,7 +16,8 @@ interface DeliveryOrder {
   do_number: string;
   customer_name: string;
   item_name: string;
-  quantity: number;
+  minimal_load_quantity: number;
+  actual_load_quantity: number;
   status: string;
   driver?: { driverProfile?: { full_name?: string } };
   vehicle?: { license_plate: string };
@@ -71,7 +72,10 @@ export default function AdminIndex() {
       </View>
       <Text style={styles.customer}>{item.customer_name}</Text>
       <Text style={styles.item}>
-        {item.item_name} - {item.quantity} Ton
+        {item.item_name} - {item.minimal_load_quantity} Ton
+      </Text>
+      <Text style={styles.item}>
+        Kuantitas Aktual - {item.actual_load_quantity} Ton
       </Text>
       <Text style={styles.driver}>
         Driver: {item.driver?.driverProfile?.full_name || "-"}
