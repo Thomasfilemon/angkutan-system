@@ -1,48 +1,114 @@
-const jwt = require('jsonwebtoken');
-const { User } = require('../models');
+const jwt = require("jsonwebtoken");
+const { User, DriverProfile } = require("../models");
 
-// This function is correct.
+// === IMPROVED verifyToken MIDDLEWARE ===
 const verifyToken = async (req, res, next) => {
   try {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader) {
+      return res.status(401).json({
+        message: "Access token is required",
+      });
+    }
+
+    const token = authHeader.split(" ")[1]; // Bearer <token>
 
     if (!token) {
-      return res.status(401).json({ message: 'Access denied. No token provided.' });
+      return res.status(401).json({
+        message: "Invalid token format",
+      });
     }
 
+    // Verify JWT token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findByPk(decoded.id);
+    console.log("Decoded token:", decoded);
+
+    // Fetch complete user data with profile
+    const user = await User.findByPk(decoded.id, {
+      include: [
+        {
+          model: DriverProfile,
+          as: "driverProfile",
+          required: false,
+        },
+      ],
+    });
 
     if (!user) {
-      return res.status(401).json({ message: 'Authentication failed. User not found.' });
+      return res.status(401).json({
+        message: "Invalid or expired token",
+      });
     }
 
-    req.user = user; // Attach user to the request
+    // === PASTIKAN req.user COMPLETE ===
+    req.user = {
+      id: user.id,
+      username: user.username,
+      role: user.role, // <-- PASTIKAN FIELD INI ADA
+      driverProfile: user.driverProfile,
+    };
+
+    console.log("Authenticated user:", req.user);
     next();
-  } catch (err) {
-    return res.status(401).json({ message: 'Invalid or expired token.' });
+  } catch (error) {
+    console.error("Token verification error:", error);
+
+    if (error.name === "JsonWebTokenError") {
+      return res.status(401).json({
+        message: "Invalid token",
+      });
+    }
+
+    if (error.name === "TokenExpiredError") {
+      return res.status(401).json({
+        message: "Token expired",
+      });
+    }
+
+    return res.status(500).json({
+      message: "Token verification failed",
+    });
   }
 };
 
-// A "factory" function to create role-checking middleware. This is best practice.
-const checkRole = (roles) => {
+// === IMPROVED checkRole MIDDLEWARE ===
+const checkRole = (allowedRoles) => {
   return (req, res, next) => {
-    // This middleware must run AFTER verifyToken, so req.user will exist.
-    if (!req.user || !roles.includes(req.user.role)) {
-      return res.status(403).json({ message: "Forbidden: You do not have the required permissions." });
+    try {
+      // Debug logging
+      console.log("checkRole middleware - req.user:", req.user);
+      console.log("checkRole middleware - allowedRoles:", allowedRoles);
+
+      if (!req.user) {
+        return res.status(401).json({
+          message: "Authentication required",
+        });
+      }
+
+      if (!req.user.role) {
+        console.error("req.user.role is undefined:", req.user);
+        return res.status(500).json({
+          message: "User role is not defined",
+        });
+      }
+
+      if (!allowedRoles.includes(req.user.role)) {
+        return res.status(403).json({
+          message: `Access denied. Required roles: ${allowedRoles.join(
+            ", "
+          )}. Your role: ${req.user.role}`,
+        });
+      }
+
+      next();
+    } catch (error) {
+      console.error("Role check error:", error);
+      return res.status(500).json({
+        message: "Role verification failed",
+      });
     }
-    next();
   };
 };
 
-// --- THIS IS THE FIX ---
-// Create the specific 'requireOwner' middleware using the factory.
-const requireOwner = checkRole(['owner']);
-
-// Export all the functions you need in other files.
-module.exports = {
-  verifyToken,
-  requireOwner, // <-- This line ensures it's no longer undefined
-  checkRole,    // Good practice to export the factory too
-};
+module.exports = { verifyToken, checkRole };

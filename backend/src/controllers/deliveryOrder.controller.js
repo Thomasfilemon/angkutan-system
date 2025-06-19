@@ -343,6 +343,30 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
 // GET /api/delivery-orders/:id - Get a single order by ID
 exports.getDeliveryOrderById = async (req, res, next) => {
   try {
+    // Debug logging
+    console.log("getDeliveryOrderById - req.user:", req.user);
+    console.log("getDeliveryOrderById - req.params:", req.params);
+
+    // Validasi req.user
+    if (!req.user) {
+      return res.status(401).json({
+        message: "Authentication required",
+      });
+    }
+
+    if (!req.user.role) {
+      console.error(
+        "User role is undefined in getDeliveryOrderById:",
+        req.user
+      );
+      return res.status(500).json({
+        message: "User role is not defined",
+      });
+    }
+
+    const userRole = req.user.role;
+    const userId = req.user.id;
+
     const order = await DeliveryOrder.findByPk(req.params.id, {
       include: [
         { model: PurchaseOrder, as: "purchaseOrder" },
@@ -353,20 +377,25 @@ exports.getDeliveryOrderById = async (req, res, next) => {
           include: { model: DriverProfile, as: "driverProfile" },
         },
         {
-          model: DriverExpense, // Pastikan model DriverExpense di-import di atas
-          as: "expenses", // Alias ini harus sama dengan yang ada di models/index.js
-          order: [["created_at", "DESC"]], // Urutkan dari yang terbaru
+          model: DriverExpense,
+          as: "expenses",
+          order: [["created_at", "DESC"]],
         },
       ],
     });
+
     if (!order) {
       return res.status(404).json({ message: "Delivery Order not found" });
     }
 
-    // --- KALKULASI SALDO DINAMIS ---
-    const plainOrder = order.get({ plain: true });
+    // === AUTHORIZATION CHECK ===
+    if (userRole === "driver" && order.driver_id !== userId) {
+      return res.status(403).json({
+        message: "Access denied. You can only view your own delivery orders.",
+      });
+    }
 
-    // Hitung total pengeluaran dari data yang sudah kita include
+    const plainOrder = order.get({ plain: true });
     const expensesTotal = plainOrder.expenses.reduce(
       (sum, expense) => sum + parseFloat(expense.amount),
       0
@@ -374,15 +403,14 @@ exports.getDeliveryOrderById = async (req, res, next) => {
     const tripAllowance = parseFloat(plainOrder.trip_allowance) || 0;
     const gaji = parseFloat(plainOrder.gaji) || 0;
 
-    // Tambahkan field kalkulasi ke dalam respons
     const responseData = {
       ...plainOrder,
       expenses_total: expensesTotal,
       remaining_allowance: tripAllowance - expensesTotal,
       financial_summary: {
         trip_allowance: tripAllowance,
-        gaji: gaji, // Will be filtered out below for drivers
-        total_for_driver: tripAllowance + gaji, // Will be recalculated below for drivers
+        gaji: gaji,
+        total_for_driver: tripAllowance + gaji,
         expenses_total: expensesTotal,
         remaining_allowance: tripAllowance - expensesTotal,
       },
@@ -393,6 +421,7 @@ exports.getDeliveryOrderById = async (req, res, next) => {
 
     res.json(filteredData);
   } catch (err) {
+    console.error("Error in getDeliveryOrderById:", err);
     next(err);
   }
 };

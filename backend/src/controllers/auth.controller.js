@@ -139,15 +139,34 @@ const register = async (req, res, next) => {
   } catch (err) {
     // Provide a more specific error for unique constraints (e.g., username exists)
     if (err instanceof UniqueConstraintError) {
-      return res
-        .status(409)
-        .json({
-          message: "Registration failed",
-          details: "Username or other unique field already exists.",
-        });
+      return res.status(409).json({
+        message: "Registration failed",
+        details: "Username or other unique field already exists.",
+      });
     }
     next(err); // Pass all other errors to the global handler
   }
+};
+
+const validateToken = async (req, res) => {
+  // Jika middleware verifyToken berhasil, berarti token valid.
+  // req.user sudah berisi data user yang terverifikasi.
+  res.json({
+    valid: true,
+    user: {
+      id: req.user.id,
+      username: req.user.username,
+      role: req.user.role,
+      // Tambahkan profil jika diperlukan di frontend
+      profile: req.user.driverProfile || req.user.adminProfile || null,
+    },
+  });
+};
+
+const logout = async (req, res) => {
+  // Untuk JWT stateless, logout cukup di client (hapus token).
+  // Endpoint ini hanya untuk konvensi/kompatibilitas.
+  res.json({ message: "Logout successful" });
 };
 
 // Export all functions in a single object at the end to prevent crashes.
@@ -155,4 +174,6 @@ module.exports = {
   mobileLogin,
   webLogin,
   register,
+  validateToken,
+  logout,
 };

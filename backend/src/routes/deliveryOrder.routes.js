@@ -3,6 +3,7 @@
 const express = require("express");
 const router = express.Router();
 const doController = require("../controllers/deliveryOrder.controller");
+const loadConfirmationController = require("../controllers/loadConfirmation.controller");
 const { verifyToken, checkRole } = require("../middlewares/auth.middleware");
 const multer = require("multer");
 const path = require("path");
@@ -48,12 +49,6 @@ const upload = multer({
   fileFilter: fileFilter,
 });
 
-const suratJalanPhotoFilter = (req, file, cb) => {
-  const allowedTypes = /jpeg|jpg|png/;
-  const mimetype = allowedTypes.test(file.mimetype);
-  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-
-
 // === SETUP MULTER UNTUK SURAT JALAN PHOTOS (DRIVER) ===
 const suratJalanPhotoDir = "uploads/surat_jalan_photos";
 
@@ -72,12 +67,18 @@ const suratJalanPhotoStorage = multer.diskStorage({
 const suratJalanPhotoFilter = (req, file, cb) => {
   const allowedTypes = /jpeg|jpg|png/;
   const mimetype = allowedTypes.test(file.mimetype);
-  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+  const extname = allowedTypes.test(
+    path.extname(file.originalname).toLowerCase()
+  );
 
   if (mimetype && extname) {
     return cb(null, true);
   }
-  cb(new Error("Error: Foto surat jalan hanya mendukung format JPEG, JPG, atau PNG."));
+  cb(
+    new Error(
+      "Error: Foto surat jalan hanya mendukung format JPEG, JPG, atau PNG."
+    )
+  );
 };
 
 const suratJalanUpload = multer({
@@ -86,8 +87,8 @@ const suratJalanUpload = multer({
   fileFilter: suratJalanPhotoFilter,
 });
 
-/\\\
-
+// All routes below are protected by the token verification middleware
+router.use(verifyToken);
 
 // === ADMIN-SPECIFIC ROUTES ===
 router.post(
@@ -99,6 +100,7 @@ router.post(
 
 // === DRIVER-SPECIFIC ROUTES ===
 router.get("/me", checkRole(["driver"]), doController.getMyDeliveryOrders);
+
 // Rename dan update endpoints sesuai flow baru
 router.patch(
   "/:id/start-to-load",
@@ -136,6 +138,12 @@ router.patch(
   "/:id/complete",
   checkRole(["driver"]),
   doController.completeDeliveryOrder
+);
+
+router.get(
+  "/:id/load-status",
+  checkRole(["driver", "admin", "owner"]),
+  loadConfirmationController.getLoadStatus
 );
 
 // === GENERAL & ADMIN ROUTES ===

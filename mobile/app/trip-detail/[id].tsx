@@ -115,10 +115,31 @@ const TripDetailScreen = () => {
     } catch (error: any) {
       if (mountedRef.current) {
         console.error("Error fetching trip:", error);
-        Alert.alert(
-          "Error",
-          error.response?.data?.message || "Gagal memuat detail trip."
-        );
+
+        // Handle specific error types
+        if (error.response?.status === 401) {
+          Alert.alert("Session Expired", "Please login again.", [
+            {
+              text: "OK",
+              onPress: () => {
+                // This should be handled by interceptor, but just in case
+                router.replace("/(auth)/login");
+              },
+            },
+          ]);
+        } else if (error.response?.status === 403) {
+          Alert.alert(
+            "Access Denied",
+            "You don't have permission to view this delivery order."
+          );
+        } else if (error.response?.status === 404) {
+          Alert.alert("Not Found", "Delivery order not found.");
+        } else {
+          Alert.alert(
+            "Error",
+            error.response?.data?.message || "Failed to load trip details."
+          );
+        }
       }
     } finally {
       if (mountedRef.current) {
