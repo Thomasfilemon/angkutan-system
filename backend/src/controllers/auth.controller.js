@@ -62,9 +62,11 @@ const webLogin = async (req, res, next) => {
     const { username, password } = req.body;
 
     const user = await User.findOne({
-      where: { username, role: "owner" },
+      where: { 
+        username, 
+        role: { [Op.in]: ["owner", "admin"] } 
+      },
     });
-
     if (!user) {
       return res
         .status(401)
@@ -132,7 +134,7 @@ const register = async (req, res, next) => {
     const userResponse = newUser.toJSON();
     delete userResponse.password_hash;
 
-    res.status(201).json({
+    res.status (201).json({
       message: "Registration successful",
       user: userResponse,
     });
