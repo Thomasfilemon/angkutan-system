@@ -1,3 +1,5 @@
+// mobile/app/(admin)/_layout.tsx
+
 import React from "react";
 import { Pressable } from "react-native";
 import { Redirect, Stack, useRouter } from "expo-router";
@@ -8,7 +10,6 @@ export default function AdminLayout() {
   const { user, isSignedIn, isLoading, signOut } = useAuth();
   const router = useRouter();
 
-  // Show nothing while checking auth
   if (isLoading) {
     return null;
   }
@@ -44,6 +45,18 @@ export default function AdminLayout() {
         name="index"
         options={{
           title: "Admin Dashboard",
+        }}
+      />
+      <Stack.Screen
+        name="create-trip"
+        options={{
+          title: "Create New Trip",
+        }}
+      />
+      <Stack.Screen
+        name="do-detail/[id]"
+        options={{
+          title: "Delivery Order Details",
         }}
       />
     </Stack>

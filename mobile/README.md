@@ -31,6 +31,9 @@ mobile/
 │   ├── ExternalLink.tsx
 │   ├── HapticTab.tsx
 │   ├── HelloWave.tsx
+│   ├── LoadConfirmationModal.tsx
+│   ├── MapSelector.native.tsx
+│   ├── MapSelector.web.tsx
 │   ├── MapSelector.tsx
 │   ├── ParallaxScrollView.tsx
 │   ├── ThemedText.tsx
