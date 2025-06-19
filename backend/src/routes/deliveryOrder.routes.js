@@ -48,8 +48,46 @@ const upload = multer({
   fileFilter: fileFilter,
 });
 
-// All routes below are protected by the token verification middleware
-router.use(verifyToken);
+const suratJalanPhotoFilter = (req, file, cb) => {
+  const allowedTypes = /jpeg|jpg|png/;
+  const mimetype = allowedTypes.test(file.mimetype);
+  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+
+
+// === SETUP MULTER UNTUK SURAT JALAN PHOTOS (DRIVER) ===
+const suratJalanPhotoDir = "uploads/surat_jalan_photos";
+
+const suratJalanPhotoStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    fs.mkdirSync(suratJalanPhotoDir, { recursive: true });
+    cb(null, suratJalanPhotoDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const fileExtension = path.extname(file.originalname);
+    cb(null, "surat-jalan-photo-" + uniqueSuffix + fileExtension);
+  },
+});
+
+const suratJalanPhotoFilter = (req, file, cb) => {
+  const allowedTypes = /jpeg|jpg|png/;
+  const mimetype = allowedTypes.test(file.mimetype);
+  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+
+  if (mimetype && extname) {
+    return cb(null, true);
+  }
+  cb(new Error("Error: Foto surat jalan hanya mendukung format JPEG, JPG, atau PNG."));
+};
+
+const suratJalanUpload = multer({
+  storage: suratJalanPhotoStorage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB untuk foto
+  fileFilter: suratJalanPhotoFilter,
+});
+
+/\\\
+
 
 // === ADMIN-SPECIFIC ROUTES ===
 router.post(
