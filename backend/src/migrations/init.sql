@@ -40,7 +40,7 @@ CREATE TABLE vehicles (
   id SERIAL PRIMARY KEY,
   license_plate VARCHAR(20) UNIQUE NOT NULL,
   type VARCHAR(50),
-  capacity INTEGER,
+  capacity VARCHAR(10),
   status VARCHAR(20) NOT NULL DEFAULT 'available' CHECK(status IN ('available','in_use','maintenance')),
   last_service_date DATE,
   next_service_due DATE,

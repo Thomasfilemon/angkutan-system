@@ -33,13 +33,26 @@ module.exports = (sequelize) => {
         }
       }
     },
-    capacity: {
-      type: DataTypes.INTEGER,
+     capacity: {
+      type: DataTypes.STRING(10), // Changed from INTEGER to STRING
       allowNull: true,
       validate: {
-        min: {
-          args: 0,
-          msg: 'Capacity must be a positive number'
+        isNumericString(value) {
+          if (value !== null && value !== undefined && value !== '') {
+            // Check if the string contains only digits
+            if (!/^\d+$/.test(value.toString().trim())) {
+              throw new Error('Capacity must contain only numbers');
+            }
+            
+            // Optional: Check if the number is reasonable (not too large)
+            const numValue = parseInt(value, 10);
+            if (numValue < 0) {
+              throw new Error('Capacity must be a positive number');
+            }
+            if (numValue > 999999) {
+              throw new Error('Capacity cannot exceed 999,999 kg');
+            }
+          }
         }
       }
     },
@@ -137,12 +150,35 @@ module.exports = (sequelize) => {
     ],
     hooks: {
       beforeValidate: (vehicle) => {
+        console.log('=== BEFORE VALIDATE HOOK ===');
+        console.log('Original vehicle.capacity:', vehicle.capacity, 'type:', typeof vehicle.capacity);
+        
+        // Handle license plate and STNK formatting
         if (vehicle.license_plate) {
           vehicle.license_plate = vehicle.license_plate.toUpperCase().trim();
         }
         if (vehicle.stnk_number) {
           vehicle.stnk_number = vehicle.stnk_number.trim();
         }
+        
+        // Handle capacity conversion
+        if (vehicle.capacity !== null && vehicle.capacity !== undefined && vehicle.capacity !== '') {
+          if (typeof vehicle.capacity === 'string') {
+            const trimmed = vehicle.capacity.trim();
+            console.log('Trimmed capacity string:', trimmed);
+            
+            if (trimmed === '') {
+              vehicle.capacity = null;
+            } else {
+              const parsed = parseInt(trimmed, 10);
+              console.log('Parsed capacity:', parsed);
+              vehicle.capacity = isNaN(parsed) ? null : parsed;
+            }
+          }
+        }
+        
+        console.log('Final vehicle.capacity:', vehicle.capacity, 'type:', typeof vehicle.capacity);
+        console.log('===========================');
       }
     }
   });
@@ -208,8 +244,6 @@ module.exports = (sequelize) => {
       }
     });
   };
-
-  
 
   return Vehicle;
 };
