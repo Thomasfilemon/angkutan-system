@@ -19,8 +19,18 @@ mobile/
 ├── app/
 │   ├── _layout.tsx
 │   ├── (admin)/          # Halaman admin (buat trip, dsb)
+│   │    ├── _layout.tsx
+│   │    ├── create-trip.tsx
+│   │    ├── index.tsx
+│   │    └── do-detail/[id].tsx
 │   ├── (auth)/           # Halaman login/register
+│   │    ├── _layout.tsx
+│   │    ├── login.tsx
+│   │    └── register.tsx
 │   ├── (tabs)/           # Halaman utama driver (trip, expense, vehicle, dsb)
+│   │    ├── _layout.tsx
+│   │    ├── vehichle.tsx
+│   │    └── index.tsx
 │   └── trip-detail/      # Detail trip & pengeluaran
 ├── assets/
 │   ├── fonts/

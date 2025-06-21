@@ -5,7 +5,8 @@ const admin = require("./services/firebase");
 const express = require("express");
 const setupMiddleware = require("./middlewares/setup.middleware");
 const errorHandler = require("./middlewares/error.middleware");
-const { sequelize } = require("./models"); // <-- Import from the new models/index.js
+const { sequelize } = require("./models");
+const path = require("path");
 
 // === Import New Routes ===
 const healthRoutes = require("./routes/health.routes");
@@ -41,11 +42,18 @@ app.use("/api", healthRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/vehicles", vehicleRoutes);
-app.use("/api/purchase-orders", purchaseOrderRoutes); // <-- USE NEW
-app.use("/api/delivery-orders", deliveryOrderRoutes); // <-- USE NEW
+app.use("/api/purchase-orders", purchaseOrderRoutes);
+app.use("/api/delivery-orders", deliveryOrderRoutes);
 app.use("/api/driver-expenses", driverExpenseRoutes);
 app.use("/api/drivers", driverRoutes);
-
+app.use(
+  "/uploads",
+  (req, res, next) => {
+    res.setHeader("ngrok-skip-browser-warning", "true");
+    next();
+  },
+  express.static(path.join(__dirname, "../uploads"))
+);
 // Error handling middleware
 app.use(errorHandler);
 

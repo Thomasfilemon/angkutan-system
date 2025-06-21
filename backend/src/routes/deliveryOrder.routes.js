@@ -153,6 +153,11 @@ router.get(
   doController.getAllDeliveryOrders
 );
 router.get(
+  "/active",
+  checkRole(["admin", "owner", "driver"]),
+  doController.getActiveDeliveryOrders
+);
+router.get(
   "/:id",
   checkRole(["admin", "owner", "driver"]),
   doController.getDeliveryOrderById

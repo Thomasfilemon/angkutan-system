@@ -92,7 +92,7 @@ export default function CreateTrip() {
       const [driversRes, vehiclesRes, poRes] = await Promise.all([
         apiClient.get("/users?role=driver&status=available"),
         apiClient.get("/vehicles?status=available"),
-        apiClient.get("/purchase-orders"), // Asumsikan endpoint ini mengembalikan daftar PO
+        apiClient.get("/purchase-orders"),
       ]);
       setMasterData({
         drivers: driversRes.data,

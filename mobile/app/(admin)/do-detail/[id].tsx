@@ -15,6 +15,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import apiClient from "../../../src/services/api";
+import DocumentImageViewer from "@/components/DocumentImageViewer";
+import Timeline from "@/components/Timeline";
 
 interface DODetails {
   id: number;
@@ -29,6 +31,10 @@ interface DODetails {
   gaji: number;
   load_location: string;
   unload_location: string;
+  load_latitude: string;
+  load_longitude: string;
+  unload_latitude: string;
+  unload_longitude: string;
   status: string;
   created_at: string;
   surat_jalan_photo_url?: string;
@@ -78,6 +84,7 @@ const DODetailScreen = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [poSummary, setPoSummary] = useState<any>(null);
+  const [showImage, setShowImage] = useState(false);
 
   const fetchDODetails = async () => {
     if (!id) return;
@@ -292,14 +299,45 @@ const DODetailScreen = () => {
       {/* Location Information */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>📍 Location Information</Text>
-        <View style={styles.locationItem}>
+
+        {/* Load Location - Clickable */}
+        <TouchableOpacity
+          style={styles.locationItem}
+          onPress={() =>
+            router.push({
+              pathname: "/map-view",
+              params: {
+                lat: doDetails.load_latitude,
+                lng: doDetails.load_longitude,
+                title: doDetails.load_location,
+                type: "load",
+              },
+            })
+          }
+        >
           <FontAwesome5 name="arrow-up" size={16} color="#3498db" />
           <View style={styles.locationText}>
             <Text style={styles.locationLabel}>Loading Location:</Text>
             <Text style={styles.locationValue}>{doDetails.load_location}</Text>
           </View>
-        </View>
-        <View style={styles.locationItem}>
+          <FontAwesome5 name="map-marker-alt" size={16} color="#3498db" />
+        </TouchableOpacity>
+
+        {/* Unload Location - Clickable */}
+        <TouchableOpacity
+          style={styles.locationItem}
+          onPress={() =>
+            router.push({
+              pathname: "/map-view",
+              params: {
+                lat: doDetails.unload_latitude,
+                lng: doDetails.unload_longitude,
+                title: doDetails.unload_location,
+                type: "unload",
+              },
+            })
+          }
+        >
           <FontAwesome5 name="arrow-down" size={16} color="#e74c3c" />
           <View style={styles.locationText}>
             <Text style={styles.locationLabel}>Unloading Location:</Text>
@@ -307,7 +345,8 @@ const DODetailScreen = () => {
               {doDetails.unload_location}
             </Text>
           </View>
-        </View>
+          <FontAwesome5 name="map-marker-alt" size={16} color="#e74c3c" />
+        </TouchableOpacity>
       </View>
 
       {/* Assignment Information */}
@@ -407,25 +446,34 @@ const DODetailScreen = () => {
 
       {/* Documents */}
       {doDetails.surat_jalan_photo_url && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>📄 Documents</Text>
-          <TouchableOpacity style={styles.documentItem}>
-            <FontAwesome5 name="file-image" size={20} color="#3498db" />
-            <Text style={styles.documentText}>Surat Jalan Photo</Text>
-            <FontAwesome5 name="external-link-alt" size={16} color="#666" />
-          </TouchableOpacity>
-        </View>
+        <>
+          {console.log(
+            "surat_jalan_photo_url:",
+            doDetails.surat_jalan_photo_url
+          )}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>📄 Documents</Text>
+            <TouchableOpacity
+              style={styles.documentItem}
+              onPress={() => setShowImage(true)}
+            >
+              <FontAwesome5 name="file-image" size={20} color="#3498db" />
+              <Text style={styles.documentText}>Surat Jalan Photo</Text>
+              <FontAwesome5 name="external-link-alt" size={16} color="#666" />
+            </TouchableOpacity>
+            <DocumentImageViewer
+              visible={showImage}
+              imageUrl={doDetails.surat_jalan_photo_url}
+              onClose={() => setShowImage(false)}
+            />
+          </View>
+        </>
       )}
 
       {/* Timestamps */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>⏰ Timeline</Text>
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Created:</Text>
-          <Text style={styles.infoValue}>
-            {new Date(doDetails.created_at).toLocaleString("id-ID")}
-          </Text>
-        </View>
+        <Text style={styles.cardTitle}>Timeline</Text>
+        <Timeline data={{ ...doDetails } as any} />
       </View>
     </ScrollView>
   );

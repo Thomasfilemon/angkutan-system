@@ -76,7 +76,7 @@ exports.createDeliveryOrder = async (req, res, next) => {
     } = req.body;
 
     // Validasi sederhana
-    // CEK: Apakah driver sudah punya trip aktif (assigned, otw_to_destination, at_destination, otw_to_base)
+    // CEK: Apakah driver sudah punya trip aktif (assigned, otw_to_load_location, at_load_location, otw_to_unload_location, at_unload_location, otw_to_base)
     const activeTrip = await DeliveryOrder.findOne({
       where: {
         driver_id,
@@ -110,8 +110,6 @@ exports.createDeliveryOrder = async (req, res, next) => {
             "otw_to_unload_location",
             "at_unload_location",
             "otw_to_base",
-            "completed",
-            "cancelled",
           ],
         },
       },
@@ -334,6 +332,66 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
     res.json(filteredOrders);
   } catch (err) {
     console.error("Error in getAllDeliveryOrders:", err);
+    next(err);
+  }
+};
+
+// GET /api/delivery-orders/active - Get all active delivery orders
+exports.getActiveDeliveryOrders = async (req, res, next) => {
+  try {
+    const ACTIVE_STATUSES = [
+      "assigned",
+      "otw_to_load_location",
+      "at_load_location",
+      "otw_to_unload_location",
+      "at_unload_location",
+      "otw_to_base",
+    ];
+
+    const user = req.user;
+
+    const options = {
+      where: { status: { [Op.in]: ACTIVE_STATUSES } },
+      include: [
+        {
+          model: PurchaseOrder,
+          as: "purchaseOrder",
+          attributes: ["po_number"],
+        },
+        {
+          model: Vehicle,
+          as: "vehicle",
+          attributes: ["license_plate", "type"],
+        },
+        {
+          model: User,
+          as: "driver",
+          include: {
+            model: DriverProfile,
+            as: "driverProfile",
+            attributes: ["full_name"],
+          },
+        },
+      ],
+      order: [["created_at", "DESC"]],
+    };
+
+    // If driver, only show their own DOs
+    if (user.role === "driver") {
+      options.where.driver_id = user.id;
+    }
+
+    const activeDOs = await DeliveryOrder.findAll(options);
+
+    // Filter sensitive data for drivers
+    const filtered = filterSensitiveDataForDriver(
+      activeDOs.map((order) => order.get({ plain: true })),
+      user.role
+    );
+
+    res.json(filtered);
+  } catch (err) {
+    console.error("Error in getActiveDeliveryOrders:", err);
     next(err);
   }
 };
