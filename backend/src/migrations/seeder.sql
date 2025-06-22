@@ -30,7 +30,7 @@ INSERT INTO vehicles (license_plate, type, capacity, driver_id, stnk_expired_dat
 ('B 9012 GHI', 'Isuzu Elf NMR 71', '7500', (SELECT id FROM users WHERE username = 'supir_charlie'), '2024-11-30', '2024-11-30', 'in_use'),
 ('B 3456 JKL', 'Hino Ranger FG', '12000', (SELECT id FROM users WHERE username = 'supir_dedi'), '2025-12-01', '2025-12-01', 'available'), -- Assign to dedi for completed trip
 ('BE 9090 AC', 'Mitsubishi Colt Diesel', '6800', (SELECT id FROM users WHERE username = 'supir_yoyo'), '2026-04-17', '2030-05-11', 'in_use'),
-('B 7890 MNO', 'Mitsubishi Colt Diesel', '7000', (SELECT id FROM users WHERE username = 'supir_eko'), '2026-01-10', '2026-01-10', 'available'), -- Assign to eko for trip
+('B 7890 MNO', 'Mitsubishi Colt Diesel', '7000', (SELECT id FROM users WHERE username = 'supir_eko'), '2026-01-10', '2026-01-10', 'in_use'), -- Assign to eko for trip
 ('B 1122 PQR', 'Isuzu Giga', '15000', NULL, '2025-08-20', '2025-08-20', 'available'); -- No driver assigned
 
 -- 3. PURCHASE ORDERS (UPDATED STRUCTURE)
