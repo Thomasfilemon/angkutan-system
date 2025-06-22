@@ -21,7 +21,7 @@ const sequelize = new Sequelize(
     host: process.env.DB_HOST,
     port: process.env.DB_PORT,
     dialect: "postgres",
-    logging: console.log, // Set to console.log to see the generated SQL queries
+    logging: console.log,
     pool: {
       max: 5,
       min: 0,
@@ -47,9 +47,6 @@ db.DriverExpense = setupDriverExpenseModel(sequelize);
 db.VehicleService = setupVehicleServiceModel(sequelize);
 
 // === Define All Model Associations ===
-// This is where you tell Sequelize how your tables are related.
-// The 'as' alias is critical and must match what you use in your controllers' 'include' statements.
-
 const {
   User,
   DriverProfile,
@@ -88,6 +85,28 @@ Vehicle.hasMany(DeliveryOrder, {
   as: "deliveryOrders",
 });
 DeliveryOrder.belongsTo(Vehicle, { foreignKey: "vehicle_id", as: "vehicle" });
+
+// NEW: Vehicle <-> Driver (User) Assignments
+User.hasMany(Vehicle, { 
+  foreignKey: "driver_id", 
+  as: "assignedVehicles" 
+});
+Vehicle.belongsTo(User, { 
+  foreignKey: "driver_id", 
+  as: "assignedDriver" 
+});
+
+// NEW: Vehicle <-> DriverProfile (through User)
+Vehicle.belongsTo(DriverProfile, {
+  foreignKey: "driver_id",
+  targetKey: "user_id",
+  as: "driverProfile"
+});
+DriverProfile.hasMany(Vehicle, {
+  foreignKey: "driver_id",
+  sourceKey: "user_id",
+  as: "assignedVehicles"
+});
 
 // Expense-related Associations (One-to-Many)
 DeliveryOrder.hasMany(DriverExpense, {

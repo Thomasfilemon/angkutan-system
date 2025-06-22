@@ -41,6 +41,7 @@ CREATE TABLE vehicles (
   license_plate VARCHAR(20) UNIQUE NOT NULL,
   type VARCHAR(50),
   capacity VARCHAR(10),
+  driver_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'available' CHECK(status IN ('available','in_use','maintenance')),
   last_service_date DATE,
   next_service_due DATE,
@@ -81,29 +82,25 @@ CREATE TABLE tire_inventory (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- BAGIAN 3: OPERASIONAL INTI (PO & DO) -- INI ADALAH PERUBAHAN UTAMA
+-- BAGIAN 3: OPERASIONAL INTI (PO & DO)
 -- =================================================================
 
--- TABEL BARU: Purchase Orders sebagai induk dari beberapa pengiriman
 CREATE TABLE purchase_orders (
   id SERIAL PRIMARY KEY,
   po_number VARCHAR(50) UNIQUE NOT NULL,
   customer_name VARCHAR(100) NOT NULL,
-  load_location TEXT NOT NULL,
-  load_latitude DECIMAL(10, 8),
-  load_longitude DECIMAL(11, 8),
-  unload_location TEXT NOT NULL,
-  unload_latitude DECIMAL(10, 8),
-  unload_longitude DECIMAL(11, 8),
   item_name VARCHAR(255) NOT NULL,
   total_quantity NUMERIC(10, 2) NOT NULL,
-  order_date DATE NOT NULL,
-  status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'completed', 'cancelled')),
+  unit_price NUMERIC(15, 2),
+  total_amount NUMERIC(15, 2),
+  load_location TEXT,
+  unload_location TEXT,
+  order_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  status VARCHAR(20) DEFAULT 'confirmed' CHECK (status IN ('confirmed', 'partial', 'completed', 'cancelled')),
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- TIPE BARU: Status untuk setiap Delivery Order (Ritase)
 CREATE TYPE delivery_status AS ENUM (
     'assigned',
     'otw_to_load_location',
@@ -115,7 +112,6 @@ CREATE TYPE delivery_status AS ENUM (
     'cancelled'
 );
 
--- MODIFIKASI: Delivery Orders sekarang menjadi anak dari Purchase Orders
 CREATE TABLE delivery_orders (
   id SERIAL PRIMARY KEY,
   purchase_order_id INTEGER REFERENCES purchase_orders(id) ON DELETE SET NULL,
@@ -133,7 +129,8 @@ CREATE TABLE delivery_orders (
   total_amount NUMERIC NOT NULL,
   trip_allowance NUMERIC(15, 2) NOT NULL DEFAULT 0,
   gaji NUMERIC(15, 2) NOT NULL DEFAULT 0,
-
+  ongkosan NUMERIC(15, 2) DEFAULT 0,
+  
   load_location TEXT,
   load_latitude DECIMAL(10, 8),
   load_longitude DECIMAL(11, 8),
@@ -153,30 +150,41 @@ CREATE TABLE delivery_orders (
   status delivery_status NOT NULL DEFAULT 'assigned',
   
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  departed_to_load_location_at TIMESTAMP WITH TIME ZONE, -- Otw muat barang (Gudang)
-  arrived_at_load_location_at TIMESTAMP WITH TIME ZONE, -- Sampai di lokasi muat
-  departed_from_load_location_at TIMESTAMP WITH TIME ZONE, -- Selesai muat barang, otw ke lokasi bongkar (customer)
-  arrived_at_unload_location_at TIMESTAMP WITH TIME ZONE, -- Sampai di lokasi bongkar
-  departed_from_unload_location_at TIMESTAMP WITH TIME ZONE, -- Selesai bongkar barang, kembali ke base
+  departed_to_load_location_at TIMESTAMP WITH TIME ZONE,
+  arrived_at_load_location_at TIMESTAMP WITH TIME ZONE,
+  departed_from_load_location_at TIMESTAMP WITH TIME ZONE,
+  arrived_at_unload_location_at TIMESTAMP WITH TIME ZONE,
+  departed_from_unload_location_at TIMESTAMP WITH TIME ZONE,
   completed_at TIMESTAMP WITH TIME ZONE
 );
 
--- BAGIAN 4: KEUANGAN & BIAYA (DISESUAIKAN DENGAN DO)
+-- BAGIAN 4: KEUANGAN & BIAYA
 -- =================================================================
 
--- MODIFIKASI: Driver Expenses sekarang terhubung ke Delivery Order
 CREATE TABLE driver_expenses (
   id SERIAL PRIMARY KEY,
   delivery_order_id INTEGER REFERENCES delivery_orders(id) ON DELETE CASCADE,
   driver_id INTEGER REFERENCES users(id),
   jenis VARCHAR(50) NOT NULL,
   amount NUMERIC NOT NULL,
-  notes TEXT, -- <-- ADD THIS LINE
+  notes TEXT,
   receipt_url TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- MODIFIKASI: Accounting Ritase sekarang terhubung ke Delivery Order
+-- MISSING TABLES THAT YOUR SEEDER REFERENCES
+-- =================================================================
+
+CREATE TABLE vehicle_services (
+  id SERIAL PRIMARY KEY,
+  vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE CASCADE,
+  service_date DATE NOT NULL,
+  description TEXT NOT NULL,
+  cost NUMERIC(15, 2) NOT NULL DEFAULT 0,
+  workshop_name VARCHAR(255),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 CREATE TABLE accounting_ritase (
   id SERIAL PRIMARY KEY,
   delivery_order_id INTEGER REFERENCES delivery_orders(id) ON DELETE CASCADE,
@@ -184,6 +192,16 @@ CREATE TABLE accounting_ritase (
   tarif NUMERIC NOT NULL,
   total NUMERIC NOT NULL,
   recorded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE office_expenses (
+  id SERIAL PRIMARY KEY,
+  kategori VARCHAR(50) NOT NULL,
+  description TEXT,
+  amount NUMERIC NOT NULL,
+  receipt_url TEXT,
+  expense_date DATE NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE TABLE payment_transactions (
@@ -202,19 +220,9 @@ CREATE TABLE cash_transactions (
   transaction_type VARCHAR(20) NOT NULL CHECK(transaction_type IN ('income','expense')),
   amount NUMERIC NOT NULL,
   description TEXT NOT NULL,
-  reference_type VARCHAR(50), -- 'delivery_order', 'office_expense', 'other'
+  reference_type VARCHAR(50),
   reference_id INTEGER,
   transaction_date DATE NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE office_expenses (
-  id SERIAL PRIMARY KEY,
-  kategori VARCHAR(50) NOT NULL,
-  description TEXT,
-  amount NUMERIC NOT NULL,
-  receipt_url TEXT,
-  expense_date DATE NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -227,22 +235,6 @@ CREATE TABLE payment_terms (
   reminder_sent BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   paid_at TIMESTAMP WITH TIME ZONE
-);
-
--- BAGIAN 5: PEMELIHARAAN & LOGGING
--- =================================================================
-
-CREATE TABLE vehicle_services (
-  id SERIAL PRIMARY KEY,
-  vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE CASCADE,
-  service_date DATE NOT NULL,
-  description TEXT NOT NULL,
-  cost NUMERIC(15, 2) NOT NULL DEFAULT 0,
-  workshop_name VARCHAR(255),
-  CONSTRAINT fk_vehicle
-    FOREIGN KEY(vehicle_id) 
-    REFERENCES vehicles(id)
-    ON DELETE CASCADE
 );
 
 CREATE TABLE service_items (
@@ -262,7 +254,7 @@ CREATE TABLE stock_transactions (
   item_id INTEGER REFERENCES stock_items(id),
   transaction_type VARCHAR(20) NOT NULL CHECK(transaction_type IN ('in','out','adjustment')),
   quantity INTEGER NOT NULL,
-  reference_type VARCHAR(50), -- 'service', 'purchase', 'adjustment'
+  reference_type VARCHAR(50),
   reference_id INTEGER,
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -290,16 +282,17 @@ CREATE TABLE tire_inspections (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- BAGIAN 6: INDEKS UNTUK PERFORMA
+-- BAGIAN 5: INDEKS UNTUK PERFORMA
 -- =================================================================
 
 CREATE INDEX idx_vehicles_tax_due ON vehicles(tax_due_date);
 CREATE INDEX idx_vehicles_stnk_expired ON vehicles(stnk_expired_date);
+CREATE INDEX idx_vehicles_driver_id ON vehicles(driver_id);
 CREATE INDEX idx_stock_items_low_stock ON stock_items(current_stock, min_stock);
 CREATE INDEX idx_tire_inspections_date ON tire_inspections(inspection_date);
 CREATE INDEX idx_cash_transactions_date ON cash_transactions(transaction_date);
-CREATE UNIQUE INDEX idx_active_delivery_orders_per_driver_id ON delivery_orders(driver_id) WHERE status IN ('assigned', 'otw_to_load_location', 'at_load_location', 'otw_to_unload_location', 'at_unload_location', 'otw_to_base');
-CREATE UNIQUE INDEX idx_active_delivery_orders_per_vehicle ON delivery_orders(vehicle_id) WHERE status IN ('assigned', 'otw_to_load_location', 'at_load_location', 'otw_to_unload_location', 'at_unload_location', 'otw_to_base');
 CREATE INDEX idx_delivery_orders_status ON delivery_orders(payment_status);
 CREATE INDEX idx_delivery_orders_po_id ON delivery_orders(purchase_order_id);
 CREATE INDEX idx_delivery_orders_due_date ON delivery_orders(due_date);
+CREATE UNIQUE INDEX idx_active_delivery_orders_per_driver_id ON delivery_orders(driver_id) WHERE status IN ('assigned', 'otw_to_load_location', 'at_load_location', 'otw_to_unload_location', 'at_unload_location', 'otw_to_base');
+CREATE UNIQUE INDEX idx_active_delivery_orders_per_vehicle ON delivery_orders(vehicle_id) WHERE status IN ('assigned', 'otw_to_load_location', 'at_load_location', 'otw_to_unload_location', 'at_unload_location', 'otw_to_base');

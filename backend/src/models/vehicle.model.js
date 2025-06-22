@@ -33,24 +33,44 @@ module.exports = (sequelize) => {
         }
       }
     },
-     capacity: {
-      type: DataTypes.STRING(10), // Changed from INTEGER to STRING
+    capacity: {
+      type: DataTypes.STRING(10),
       allowNull: true,
       validate: {
         isNumericString(value) {
           if (value !== null && value !== undefined && value !== '') {
-            // Check if the string contains only digits
             if (!/^\d+$/.test(value.toString().trim())) {
               throw new Error('Capacity must contain only numbers');
             }
             
-            // Optional: Check if the number is reasonable (not too large)
             const numValue = parseInt(value, 10);
             if (numValue < 0) {
               throw new Error('Capacity must be a positive number');
             }
             if (numValue > 999999) {
               throw new Error('Capacity cannot exceed 999,999 kg');
+            }
+          }
+        }
+      }
+    },
+    driver_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'users',
+        key: 'id'
+      },
+      onDelete: 'SET NULL',
+      validate: {
+        async isValidDriver(value) {
+          if (value) {
+            const { User } = require('./index');
+            const driver = await User.findOne({
+              where: { id: value, role: 'driver' }
+            });
+            if (!driver) {
+              throw new Error('Selected user is not a valid driver');
             }
           }
         }
@@ -146,6 +166,9 @@ module.exports = (sequelize) => {
       },
       {
         fields: ['stnk_expired_date']
+      },
+      {
+        fields: ['driver_id']
       }
     ],
     hooks: {

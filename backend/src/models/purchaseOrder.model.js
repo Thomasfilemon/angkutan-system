@@ -17,12 +17,34 @@ module.exports = (sequelize) => {
         type: DataTypes.DECIMAL(10, 2),
         allowNull: false,
         comment: "Total kuantitas barang dalam satu PO",
+        validate: {
+          min: 0.01,
+          isDecimal: true
+        }
       },
-      // === TAMBAHKAN FIELD LOKASI BARU ===
+      unit_price: {
+        type: DataTypes.DECIMAL(15, 2),
+        allowNull: true,
+        comment: "Harga per unit (Rp/ton)",
+        validate: {
+          min: 0,
+          isDecimal: true
+        }
+      },
+      total_amount: {
+        type: DataTypes.DECIMAL(15, 2),
+        allowNull: true,
+        comment: "Total nilai PO (auto calculated)",
+        validate: {
+          min: 0,
+          isDecimal: true
+        }
+      },
+      // SIMPLIFIED: Remove coordinate fields, only keep location text
       load_location: {
         type: DataTypes.TEXT,
-        allowNull: true,
-        comment: "Lokasi pemuatan barang",
+        allowNull: true, // FIXED: Made nullable
+        comment: "Lokasi pemuatan barang (optional)",
         validate: {
           len: {
             args: [0, 500],
@@ -32,8 +54,8 @@ module.exports = (sequelize) => {
       },
       unload_location: {
         type: DataTypes.TEXT,
-        allowNull: true,
-        comment: "Lokasi pembongkaran barang",
+        allowNull: true, // FIXED: Made nullable
+        comment: "Lokasi pembongkaran barang (optional)",
         validate: {
           len: {
             args: [0, 500],
@@ -41,54 +63,16 @@ module.exports = (sequelize) => {
           },
         },
       },
-
-      // === KOORDINAT LOADING ===
-      load_latitude: {
-        type: DataTypes.DECIMAL(10, 8),
-        allowNull: true,
-        comment: "Latitude lokasi loading",
-        validate: {
-          min: -90,
-          max: 90,
-        },
+      order_date: { 
+        type: DataTypes.DATE, 
+        allowNull: false,
+        defaultValue: DataTypes.NOW
       },
-      load_longitude: {
-        type: DataTypes.DECIMAL(11, 8),
-        allowNull: true,
-        comment: "Longitude lokasi loading",
-        validate: {
-          min: -180,
-          max: 180,
-        },
-      },
-
-      // === KOORDINAT UNLOADING ===
-      unload_latitude: {
-        type: DataTypes.DECIMAL(10, 8),
-        allowNull: true,
-        comment: "Latitude lokasi unloading",
-        validate: {
-          min: -90,
-          max: 90,
-        },
-      },
-      unload_longitude: {
-        type: DataTypes.DECIMAL(11, 8),
-        allowNull: true,
-        comment: "Longitude lokasi unloading",
-        validate: {
-          min: -180,
-          max: 180,
-        },
-      },
-
-      // === FIELD YANG SUDAH ADA ===
-      order_date: { type: DataTypes.DATE, allowNull: false },
       status: {
         type: DataTypes.STRING,
-        defaultValue: "pending",
+        defaultValue: "confirmed",
         validate: {
-          isIn: [["pending", "in_progress", "completed", "cancelled"]],
+          isIn: [["confirmed", "partial", "completed", "cancelled"]],
         },
       },
       notes: { type: DataTypes.TEXT },
@@ -98,41 +82,27 @@ module.exports = (sequelize) => {
       timestamps: true,
       createdAt: "created_at",
       updatedAt: false,
+      hooks: {
+        beforeSave: (po) => {
+          // Auto-calculate total_amount if unit_price and total_quantity are provided
+          if (po.unit_price && po.total_quantity) {
+            po.total_amount = parseFloat(po.unit_price) * parseFloat(po.total_quantity);
+          }
+        }
+      }
     }
   );
 
   // === INSTANCE METHODS ===
-  PurchaseOrder.prototype.hasCompleteLocationData = function () {
+  PurchaseOrder.prototype.hasLocationData = function () {
     return !!(this.load_location && this.unload_location);
   };
 
-  PurchaseOrder.prototype.hasCompleteCoordinates = function () {
-    return !!(
-      this.load_latitude &&
-      this.load_longitude &&
-      this.unload_latitude &&
-      this.unload_longitude
-    );
-  };
-
-  PurchaseOrder.prototype.getLoadingCoordinates = function () {
-    if (this.load_latitude && this.load_longitude) {
-      return {
-        latitude: parseFloat(this.load_latitude),
-        longitude: parseFloat(this.load_longitude),
-      };
+  PurchaseOrder.prototype.calculateTotalAmount = function () {
+    if (this.unit_price && this.total_quantity) {
+      return parseFloat(this.unit_price) * parseFloat(this.total_quantity);
     }
-    return null;
-  };
-
-  PurchaseOrder.prototype.getUnloadingCoordinates = function () {
-    if (this.unload_latitude && this.unload_longitude) {
-      return {
-        latitude: parseFloat(this.unload_latitude),
-        longitude: parseFloat(this.unload_longitude),
-      };
-    }
-    return null;
+    return 0;
   };
 
   return PurchaseOrder;

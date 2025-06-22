@@ -1,3 +1,4 @@
+// server.js
 require("dotenv").config();
 
 const admin = require("./services/firebase");
@@ -5,19 +6,24 @@ const admin = require("./services/firebase");
 const express = require("express");
 const setupMiddleware = require("./middlewares/setup.middleware");
 const errorHandler = require("./middlewares/error.middleware");
-const { sequelize } = require("./models"); // <-- Import from the new models/index.js
+const { sequelize } = require("./models");
 
-// === Import New Routes ===
+// === Import Existing Routes (MOBILE - UNCHANGED) ===
 const healthRoutes = require("./routes/health.routes");
 const authRoutes = require("./routes/auth.routes");
-const purchaseOrderRoutes = require("./routes/purchaseOrder.routes"); // <-- NEW
-const deliveryOrderRoutes = require("./routes/deliveryOrder.routes"); // <-- NEW
+const purchaseOrderRoutes = require("./routes/purchaseOrder.routes"); // Mobile existing
+const deliveryOrderRoutes = require("./routes/deliveryOrder.routes"); // Mobile existing
 const userRoutes = require("./routes/user.routes");
 const driverExpenseRoutes = require("./routes/driverExpense.routes");
-const vehicleRoutes = require("./routes/vehicle.routes");
+const vehicleRoutes = require("./routes/vehicle.routes"); // Mobile existing
 const driverRoutes = require("./routes/driver.routes");
 
-// ... other routes
+// === Import Web Routes (NEW) ===
+const webPurchaseOrderRoutes = require("./routes/web/purchaseOrder.routes");
+const webDeliveryOrderRoutes = require("./routes/web/deliveryOrder.routes");
+const webVehicleRoutes = require("./routes/web/vehicle.routes");
+const webDriverRoutes = require("./routes/web/driver.routes"); // ADD THIS LINE
+
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -33,18 +39,39 @@ sequelize
 
 // Basic route
 app.get("/", (req, res) => {
-  res.json({ message: "Angkutan API v2 (Sequelize) is running!" });
+  res.json({ 
+    message: "Angkutan API v2 (Sequelize) is running!",
+    endpoints: {
+      mobile: {
+        purchase_orders: "/api/purchase-orders",
+        delivery_orders: "/api/delivery-orders",
+        vehicles: "/api/vehicles"
+      },
+      web: {
+        purchase_orders: "/api/web/purchase-orders",
+        delivery_orders: "/api/web/delivery-orders",
+        vehicles: "/api/web/vehicles"
+      }
+    }
+  });
 });
 
-// === Use New Routes ===
+// === Existing Mobile Routes (UNCHANGED) ===
 app.use("/api", healthRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
-app.use("/api/vehicles", vehicleRoutes);
-app.use("/api/purchase-orders", purchaseOrderRoutes); // <-- USE NEW
-app.use("/api/delivery-orders", deliveryOrderRoutes); // <-- USE NEW
+app.use("/api/vehicles", vehicleRoutes); // Mobile existing
+app.use("/api/purchase-orders", purchaseOrderRoutes); // Mobile existing
+app.use("/api/delivery-orders", deliveryOrderRoutes); // Mobile existing
 app.use("/api/driver-expenses", driverExpenseRoutes);
 app.use("/api/drivers", driverRoutes);
+
+// === New Web Routes (ADDED) ===
+app.use("/api/web/purchase-orders", webPurchaseOrderRoutes);
+app.use("/api/web/delivery-orders", webDeliveryOrderRoutes);
+app.use("/api/web/vehicles", webVehicleRoutes);
+app.use("/api/web/drivers", webDriverRoutes); // ADD THIS LINE
+
 
 // Error handling middleware
 app.use(errorHandler);
@@ -52,4 +79,6 @@ app.use(errorHandler);
 // Start HTTP server
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
+  console.log(`📱 Mobile API: /api/purchase-orders, /api/delivery-orders, /api/vehicles`);
+  console.log(`🌐 Web API: /api/web/purchase-orders, /api/web/delivery-orders, /api/web/vehicles`);
 });

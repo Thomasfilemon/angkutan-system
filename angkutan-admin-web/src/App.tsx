@@ -1,5 +1,4 @@
 // src/App.tsx
-
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import MainLayout from './components/MainLayout';
@@ -14,6 +13,11 @@ import DriverCreatePage from './pages/DriverCreate';
 import DriverEditPage from './pages/DriverEdit';
 import TripsPage from './pages/Trips';
 import PurchaseOrderCreatePage from './pages/PurchaseOrderCreate';
+import PurchaseOrderDetailPage from './pages/PurchaseOrderDetail';
+import PurchaseOrderEditPage from './pages/PurchaseOrderEdit';
+import CreateDeliveryFromPO from './pages/CreateDeliveryFromPO';
+import DeliveryOrdersPage from './pages/DeliveryOrders';
+import DeliveryOrderDetailPage from './pages/DeliveryOrderDetail';
 
 function App() {
   const { token } = useAuth();
@@ -25,14 +29,27 @@ function App() {
         
         <Route path="/*" element={token ? <MainLayout /> : <Navigate to="/login" replace />}>
           <Route path="" element={<Dashboard />} />
+          
+          {/* Vehicles Routes */}
           <Route path="vehicles" element={<VehiclesPage />} />
           <Route path="vehicles/create" element={<VehicleCreatePage />} />
           <Route path="vehicles/edit/:id" element={<VehicleEditPage />} />
+          
+          {/* Drivers Routes */}
           <Route path="drivers" element={<DriversPage />} />
           <Route path="drivers/create" element={<DriverCreatePage />} />
           <Route path="drivers/edit/:id" element={<DriverEditPage />} />
+          
+          {/* Trips/Purchase Orders Routes */}
           <Route path="trips" element={<TripsPage />} />
           <Route path="trips/create-po" element={<PurchaseOrderCreatePage />} />
+          <Route path="trips/po/:id" element={<PurchaseOrderDetailPage />} />
+          <Route path="trips/po/:id/edit" element={<PurchaseOrderEditPage />} />
+          <Route path="trips/po/:poId/create-do" element={<CreateDeliveryFromPO />} />
+          
+          {/* Delivery Orders Routes */}
+          <Route path="delivery-orders" element={<DeliveryOrdersPage />} />
+          <Route path="delivery-orders/:id" element={<DeliveryOrderDetailPage />} />
         </Route>
       </Routes>
     </Router>

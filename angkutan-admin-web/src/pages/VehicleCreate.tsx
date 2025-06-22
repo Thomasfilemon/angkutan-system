@@ -16,11 +16,11 @@ const VehicleCreatePage = () => {
     setError(null);
     
     try {
-      // *** SIMPLIFIED: Let Sequelize handle the type conversion ***
       const payload = {
         license_plate: data.license_plate?.trim(),
         type: data.type?.trim(),
-        capacity: data.capacity, // Send as-is, let backend convert
+        capacity: data.capacity,
+        driver_id: data.driver_id, // NEW: Include driver assignment
         status: data.status,
         stnk_number: data.stnk_number?.trim(),
         stnk_expired_date: data.stnk_expired_date || null,

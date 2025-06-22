@@ -4,12 +4,15 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import apiClient from '../api/axiosConfig';
 
-// --- CHANGE 1: Updated interface to include all relevant fields ---
 interface Vehicle {
   id: number;
   license_plate: string;
   type: string;
   capacity: string;
+  driver_id: number | null;
+  driver_name: string | null; // NEW: Driver name from backend
+  driver_phone: string | null; // NEW: Driver phone from backend
+  driver_status: string | null; // NEW: Driver status from backend
   stnk_expired_date: string;
   tax_due_date: string;
   status: 'available' | 'in_use' | 'maintenance';
@@ -65,12 +68,12 @@ const VehiclesPage = () => {
 
       <div className="bg-white shadow-md rounded-lg overflow-x-auto">
         <table className="min-w-full leading-normal">
-          {/* --- CHANGE 2: Added new table headers --- */}
           <thead>
             <tr>
               <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Plat Nomor</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Tipe</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Kapasitas (kg)</th>
+              <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Supir</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">STNK Expired</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Pajak</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
@@ -81,7 +84,6 @@ const VehiclesPage = () => {
             {vehicles.length > 0 ? (
               vehicles.map((vehicle) => (
                 <tr key={vehicle.id}>
-                  {/* --- CHANGE 3: Added new table cells to display the data --- */}
                   <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
                     <p className="text-gray-900 whitespace-no-wrap">{vehicle.license_plate}</p>
                   </td>
@@ -90,18 +92,44 @@ const VehiclesPage = () => {
                   </td>
                   <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
                     <p className="text-gray-900 whitespace-no-wrap">
-                        {vehicle.capacity ? parseInt(vehicle.capacity).toLocaleString('id-ID') : '-'}
+                      {vehicle.capacity ? parseInt(vehicle.capacity).toLocaleString('id-ID') : '-'}
+                    </p>
+                  </td>
+                  {/* NEW: Driver Information Column */}
+                  <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
+                    {vehicle.driver_name ? (
+                      <div>
+                        <p className="text-gray-900 whitespace-no-wrap font-medium">{vehicle.driver_name}</p>
+                        <p className="text-gray-600 text-xs">{vehicle.driver_phone}</p>
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                          vehicle.driver_status === 'available' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {vehicle.driver_status}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-gray-400 italic">Tidak ada supir</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
+                    <p className="text-gray-900 whitespace-no-wrap">
+                      {vehicle.stnk_expired_date ? new Date(vehicle.stnk_expired_date).toLocaleDateString('id-ID') : '-'}
                     </p>
                   </td>
                   <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
-                    <p className="text-gray-900 whitespace-no-wrap">{new Date(vehicle.stnk_expired_date).toLocaleDateString('id-ID')}</p>
+                    <p className="text-gray-900 whitespace-no-wrap">
+                      {vehicle.tax_due_date ? new Date(vehicle.tax_due_date).toLocaleDateString('id-ID') : '-'}
+                    </p>
                   </td>
                   <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
-                    <p className="text-gray-900 whitespace-no-wrap">{new Date(vehicle.tax_due_date).toLocaleDateString('id-ID')}</p>
-                  </td>
-                  <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
-                    <span className={`relative inline-block px-3 py-1 font-semibold leading-tight ${vehicle.status === 'available' ? 'text-green-900' : 'text-red-900'}`}>
-                      <span aria-hidden className={`absolute inset-0 ${vehicle.status === 'available' ? 'bg-green-200' : 'bg-red-200'} opacity-50 rounded-full`}></span>
+                    <span className={`relative inline-block px-3 py-1 font-semibold leading-tight ${
+                      vehicle.status === 'available' ? 'text-green-900' : 
+                      vehicle.status === 'in_use' ? 'text-blue-900' : 'text-red-900'
+                    }`}>
+                      <span aria-hidden className={`absolute inset-0 ${
+                        vehicle.status === 'available' ? 'bg-green-200' : 
+                        vehicle.status === 'in_use' ? 'bg-blue-200' : 'bg-red-200'
+                      } opacity-50 rounded-full`}></span>
                       <span className="relative">{vehicle.status}</span>
                     </span>
                   </td>
@@ -113,7 +141,7 @@ const VehiclesPage = () => {
               ))
             ) : (
               <tr>
-                <td colSpan={7} className="text-center py-10 text-gray-500">Tidak ada data kendaraan.</td>
+                <td colSpan={8} className="text-center py-10 text-gray-500">Tidak ada data kendaraan.</td>
               </tr>
             )}
           </tbody>
