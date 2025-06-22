@@ -23,17 +23,13 @@ module.exports = (sequelize) => {
         allowNull: false,
         defaultValue: 0,
         comment: "Minimal quantity yang harus diangkut (dari admin)",
-        validate: {
-          min: 0,
-        },
+        validate: { min: 0 },
       },
       actual_load_quantity: {
         type: DataTypes.DECIMAL(10, 2),
         allowNull: true,
         comment: "Actual quantity yang diangkut (dari driver)",
-        validate: {
-          min: 0,
-        },
+        validate: { min: 0 },
       },
 
       // === FINANCIAL FIELDS ===
@@ -44,18 +40,22 @@ module.exports = (sequelize) => {
         allowNull: false,
         defaultValue: 0,
         comment: "Uang operasional (bensin, tol, dll)",
-        validate: {
-          min: 0,
-        },
+        validate: { min: 0 },
       },
       gaji: {
         type: DataTypes.DECIMAL(15, 2),
         allowNull: false,
         defaultValue: 0,
         comment: "Upah/bayaran untuk driver",
-        validate: {
-          min: 0,
-        },
+        validate: { min: 0 },
+      },
+      // NEW: Admin-only profit field
+      ongkosan: {
+        type: DataTypes.DECIMAL(15, 2),
+        allowNull: true,
+        defaultValue: 0,
+        comment: "Pendapatan/keuntungan dari trip (hanya untuk admin/web)",
+        validate: { min: 0 },
       },
 
       // === LOCATION FIELDS ===
@@ -131,6 +131,15 @@ module.exports = (sequelize) => {
     {
       tableName: "delivery_orders",
       timestamps: false,
+      // Add scope to hide ongkosan from mobile API
+      scopes: {
+        mobile: {
+          attributes: { exclude: ['ongkosan'] }
+        },
+        web: {
+          // Include all fields for web
+        }
+      }
     }
   );
 
@@ -183,6 +192,8 @@ module.exports = (sequelize) => {
       gaji: parseFloat(this.gaji) || 0,
       total_for_driver: this.getTotalDriverPayment(),
       total_amount: parseFloat(this.total_amount) || 0,
+      ongkosan: parseFloat(this.ongkosan) || 0, // NEW: Include ongkosan
+      net_profit: (parseFloat(this.ongkosan) || 0) - this.getTotalDriverPayment(), // NEW: Calculate net profit
     };
   };
 

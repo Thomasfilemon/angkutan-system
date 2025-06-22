@@ -1,11 +1,27 @@
 // src/components/MainLayout.tsx
-
 import React from 'react';
-import { Outlet, Link } from 'react-router-dom';
+import { Outlet, Link, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 
 const MainLayout = () => {
   const { user, logout } = useAuth();
+  const location = useLocation();
+
+  const getPageTitle = () => {
+    const path = location.pathname;
+    if (path === '/') return 'Dashboard';
+    if (path.startsWith('/trips')) return 'Manajemen Trips';
+    if (path.startsWith('/delivery-orders')) return 'Delivery Orders';
+    if (path.startsWith('/vehicles')) return 'Manajemen Kendaraan';
+    if (path.startsWith('/drivers')) return 'Manajemen Supir';
+    return 'Dashboard';
+  };
+
+  const isActiveLink = (path: string) => {
+    if (path === '/' && location.pathname === '/') return true;
+    if (path !== '/' && location.pathname.startsWith(path)) return true;
+    return false;
+  };
 
   return (
     <div className="flex h-screen bg-gray-100 font-sans">
@@ -15,20 +31,58 @@ const MainLayout = () => {
         <nav className="flex-grow">
           <ul>
             <li className="mb-4">
-              <Link to="/" className="block p-2 rounded hover:bg-gray-700">Dashboard</Link>
+              <Link 
+                to="/" 
+                className={`block p-2 rounded hover:bg-gray-700 ${
+                  isActiveLink('/') ? 'bg-gray-700 border-l-4 border-blue-500' : ''
+                }`}
+              >
+                📊 Dashboard
+              </Link>
             </li>
             <li className="mb-4">
-                <Link to="/trips" className="block p-2 rounded hover:bg-gray-700">Manajemen Trips</Link>
+              <Link 
+                to="/trips" 
+                className={`block p-2 rounded hover:bg-gray-700 ${
+                  isActiveLink('/trips') ? 'bg-gray-700 border-l-4 border-blue-500' : ''
+                }`}
+              >
+                📋 Purchase Orders
+              </Link>
             </li>
             <li className="mb-4">
-              <Link to="/vehicles" className="block p-2 rounded hover:bg-gray-700">Manajemen Kendaraan</Link>
+              <Link 
+                to="/delivery-orders" 
+                className={`block p-2 rounded hover:bg-gray-700 ${
+                  isActiveLink('/delivery-orders') ? 'bg-gray-700 border-l-4 border-blue-500' : ''
+                }`}
+              >
+                🚚 Delivery Orders
+              </Link>
             </li>
             <li className="mb-4">
-                <Link to="/drivers" className="block p-2 rounded hover:bg-gray-700">Manajemen Supir</Link>
+              <Link 
+                to="/vehicles" 
+                className={`block p-2 rounded hover:bg-gray-700 ${
+                  isActiveLink('/vehicles') ? 'bg-gray-700 border-l-4 border-blue-500' : ''
+                }`}
+              >
+                🚛 Manajemen Kendaraan
+              </Link>
+            </li>
+            <li className="mb-4">
+              <Link 
+                to="/drivers" 
+                className={`block p-2 rounded hover:bg-gray-700 ${
+                  isActiveLink('/drivers') ? 'bg-gray-700 border-l-4 border-blue-500' : ''
+                }`}
+              >
+                👨‍💼 Manajemen Supir
+              </Link>
             </li>
           </ul>
         </nav>
-        <div className="text-sm">
+        <div className="text-sm text-gray-400">
           <p>v1.0.0</p>
         </div>
       </aside>
@@ -36,8 +90,7 @@ const MainLayout = () => {
       {/* Main Content */}
       <main className="flex-1 flex flex-col">
         <header className="bg-white shadow p-4 flex justify-between items-center">
-          {/* We will make this header dynamic later */}
-          <h2 className="text-xl font-semibold">Dashboard</h2> 
+          <h2 className="text-xl font-semibold">{getPageTitle()}</h2> 
           <div className="flex items-center">
             <span className="mr-4">Welcome, <strong className="font-semibold">{user?.username || 'User'}</strong></span>
             <button onClick={logout} className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">
@@ -46,7 +99,6 @@ const MainLayout = () => {
           </div>
         </header>
         <div className="p-8 overflow-y-auto bg-gray-50 flex-grow">
-          {/* --- THIS IS THE CRITICAL LINE --- */}
           <Outlet /> 
         </div>
       </main>

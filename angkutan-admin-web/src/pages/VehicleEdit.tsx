@@ -14,7 +14,6 @@ const VehicleEditPage = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // ... (fetch logic is correct)
     const fetchVehicle = async () => {
       try {
         setIsPageLoading(true);
@@ -33,7 +32,6 @@ const VehicleEditPage = () => {
     setIsLoading(true);
     setError(null);
     try {
-      // --- APPLY THE SAME FINAL SANITIZATION ---
       const payload: any = { ...data };
 
       if (data.capacity === null || data.capacity.trim() === '') {
@@ -46,6 +44,8 @@ const VehicleEditPage = () => {
         payload.capacity = numCapacity;
       }
       
+      // Include driver assignment
+      payload.driver_id = data.driver_id;
       payload.stnk_expired_date = data.stnk_expired_date || null;
       payload.tax_due_date = data.tax_due_date || null;
       payload.last_service_date = data.last_service_date || null;

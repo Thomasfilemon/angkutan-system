@@ -1,5 +1,4 @@
 // src/pages/PurchaseOrderCreate.tsx
-
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/axiosConfig';
@@ -13,20 +12,58 @@ const PurchaseOrderCreatePage = () => {
   const handleCreatePO = async (data: any) => {
     setIsLoading(true);
     setError(null);
+    
     try {
+      // Validate required fields
+      if (!data.customer_name || !data.item_name || !data.total_quantity) {
+        throw new Error('Please fill in all required fields');
+      }
+
       const payload = {
-        ...data,
+        customer_name: data.customer_name.trim(),
+        item_name: data.item_name.trim(),
         total_quantity: parseFloat(data.total_quantity),
-        load_latitude: data.load_latitude ? parseFloat(data.load_latitude) : null,
-        load_longitude: data.load_longitude ? parseFloat(data.load_longitude) : null,
-        unload_latitude: data.unload_latitude ? parseFloat(data.unload_latitude) : null,
-        unload_longitude: data.unload_longitude ? parseFloat(data.unload_longitude) : null,
+        unit_price: data.unit_price ? parseFloat(data.unit_price) : null,
+        load_location: data.load_location?.trim() || null,
+        unload_location: data.unload_location?.trim() || null,
+        notes: data.notes?.trim() || null,
+        order_date: new Date().toISOString().split('T')[0] // Current date
       };
 
-      await apiClient.post('/purchase-orders', payload);
+      // Validate numeric fields
+      if (isNaN(payload.total_quantity) || payload.total_quantity <= 0) {
+        throw new Error('Total quantity must be a valid positive number');
+      }
+
+      if (payload.unit_price !== null && (isNaN(payload.unit_price) || payload.unit_price < 0)) {
+        throw new Error('Unit price must be a valid non-negative number');
+      }
+
+      console.log('Creating PO with payload:', payload);
+
+      const response = await apiClient.post('/purchase-orders', payload);
+      console.log('Create response:', response.data);
+
       navigate('/trips');
     } catch (err: any) {
-      const errorMessage = err.response?.data?.details || err.response?.data?.message || err.message || 'Failed to create purchase order.';
+      console.error('Error creating PO:', err);
+      
+      let errorMessage = 'An unknown error occurred.';
+      
+      if (err.response?.data) {
+        if (err.response.data.message) {
+          errorMessage = err.response.data.message;
+        } else if (err.response.data.errors) {
+          errorMessage = Array.isArray(err.response.data.errors) 
+            ? err.response.data.errors.join('. ')
+            : err.response.data.errors;
+        } else if (err.response.data.details) {
+          errorMessage = err.response.data.details;
+        }
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
       setError(errorMessage);
     } finally {
       setIsLoading(false);
@@ -34,13 +71,28 @@ const PurchaseOrderCreatePage = () => {
   };
 
   return (
-    <div>
-      <h1 className="text-3xl font-bold text-gray-800 mb-6">Buat Purchase Order Baru</h1>
-      {error && <div className="bg-red-100 border border-red-400 text-red-700 p-4 rounded mb-4">{error}</div>}
+    <div className="max-w-4xl mx-auto">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold text-gray-800">Create New Purchase Order</h1>
+        <button
+          onClick={() => navigate('/trips')}
+          className="bg-gray-500 hover:bg-gray-700 text-white px-4 py-2 rounded"
+        >
+          ← Back to Purchase Orders
+        </button>
+      </div>
+      
+      {error && (
+        <div className="bg-red-100 border border-red-400 text-red-700 p-4 rounded mb-6">
+          <h3 className="font-semibold mb-2">Error Creating Purchase Order</h3>
+          <p>{error}</p>
+        </div>
+      )}
+      
       <PurchaseOrderForm 
         onSubmit={handleCreatePO} 
         isLoading={isLoading}
-        buttonText="Buat Purchase Order"
+        buttonText="Create Purchase Order"
       />
     </div>
   );
