@@ -962,17 +962,17 @@ const TripDetailScreen = () => {
 
         {getStatusActions()}
 
-        <View style={{ alignItems: "center", marginVertical: 16 }}>
+        <View style={{ alignItems: "center", marginVertical: 6 }}>
           <TouchableOpacity
             style={{
               flexDirection: "row",
               alignItems: "center",
               backgroundColor: "#eee",
               paddingHorizontal: 20,
-              paddingVertical: 10,
+              paddingVertical: 5,
               borderRadius: 8,
             }}
-            onPress={() => router.back()}
+            onPress={handleBack}
             activeOpacity={0.7}
           >
             <FontAwesome5 name="arrow-left" size={16} color="#333" />
@@ -1370,7 +1370,12 @@ const styles = StyleSheet.create({
     shadowRadius: 5,
     elevation: 8,
   },
-  saldoTitle: { fontSize: 16, color: "#fff", opacity: 0.8 },
+  saldoTitle: {
+    fontSize: 16,
+    color: "#fff",
+    textAlign: "center",
+    opacity: 0.8,
+  },
   saldoAmount: {
     fontSize: 32,
     fontWeight: "bold",
@@ -1400,7 +1405,7 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
     padding: 16,
     marginHorizontal: 16,
-    marginBottom: 80, // Extra space for FAB
+    marginBottom: 20, // Extra space for FAB
     borderRadius: 8,
   },
   cardTitle: {
