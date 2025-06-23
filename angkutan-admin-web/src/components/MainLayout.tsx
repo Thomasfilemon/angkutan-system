@@ -14,6 +14,8 @@ const MainLayout = () => {
     if (path.startsWith('/delivery-orders')) return 'Delivery Orders';
     if (path.startsWith('/vehicles')) return 'Manajemen Kendaraan';
     if (path.startsWith('/drivers')) return 'Manajemen Supir';
+    if (path.startsWith('/stock')) return 'Manajemen Stok';
+    if (path.startsWith('/services')) return 'Riwayat Servis';
     return 'Dashboard';
   };
 
@@ -40,6 +42,13 @@ const MainLayout = () => {
                 📊 Dashboard
               </Link>
             </li>
+            
+            {/* Operations Section */}
+            <li className="mb-2">
+              <div className="text-xs uppercase text-gray-400 font-semibold mb-2 px-2">
+                Operasional
+              </div>
+            </li>
             <li className="mb-4">
               <Link 
                 to="/trips" 
@@ -60,6 +69,13 @@ const MainLayout = () => {
                 🚚 Delivery Orders
               </Link>
             </li>
+
+            {/* Fleet Management Section */}
+            <li className="mb-2 mt-6">
+              <div className="text-xs uppercase text-gray-400 font-semibold mb-2 px-2">
+                Manajemen Armada
+              </div>
+            </li>
             <li className="mb-4">
               <Link 
                 to="/vehicles" 
@@ -78,6 +94,33 @@ const MainLayout = () => {
                 }`}
               >
                 👨‍💼 Manajemen Supir
+              </Link>
+            </li>
+            <li className="mb-4">
+              <Link 
+                to="/services" 
+                className={`block p-2 rounded hover:bg-gray-700 ${
+                  isActiveLink('/services') ? 'bg-gray-700 border-l-4 border-blue-500' : ''
+                }`}
+              >
+                🔧 Riwayat Servis
+              </Link>
+            </li>
+
+            {/* Inventory Management Section */}
+            <li className="mb-2 mt-6">
+              <div className="text-xs uppercase text-gray-400 font-semibold mb-2 px-2">
+                Inventaris
+              </div>
+            </li>
+            <li className="mb-4">
+              <Link 
+                to="/stock" 
+                className={`block p-2 rounded hover:bg-gray-700 ${
+                  isActiveLink('/stock') ? 'bg-gray-700 border-l-4 border-blue-500' : ''
+                }`}
+              >
+                📦 Manajemen Stok
               </Link>
             </li>
           </ul>

@@ -51,6 +51,7 @@ CREATE TABLE vehicles (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- UPDATED STOCK MANAGEMENT TABLES
 CREATE TABLE stock_categories (
   id SERIAL PRIMARY KEY,
   category_name VARCHAR(100) NOT NULL,
@@ -61,13 +62,63 @@ CREATE TABLE stock_categories (
 CREATE TABLE stock_items (
   id SERIAL PRIMARY KEY,
   category_id INTEGER REFERENCES stock_categories(id),
-  item_name VARCHAR(100) NOT NULL,
   item_code VARCHAR(50) UNIQUE,
-  unit VARCHAR(20) NOT NULL,
-  current_stock INTEGER NOT NULL DEFAULT 0,
-  min_stock INTEGER NOT NULL DEFAULT 0,
-  max_stock INTEGER,
-  unit_price NUMERIC,
+  item_name VARCHAR(255) NOT NULL,
+  supplier VARCHAR(255),
+  unit VARCHAR(20) NOT NULL DEFAULT 'Pcs',
+  current_stock NUMERIC(10,2) NOT NULL DEFAULT 0,
+  min_stock NUMERIC(10,2) NOT NULL DEFAULT 0,
+  unit_price NUMERIC(15,2) DEFAULT 0,
+  total_value NUMERIC(15,2) GENERATED ALWAYS AS (current_stock * unit_price) STORED,
+  notes TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Stock transactions for tracking stock movements
+CREATE TABLE stock_transactions (
+  id SERIAL PRIMARY KEY,
+  item_id INTEGER REFERENCES stock_items(id) ON DELETE CASCADE,
+  transaction_type VARCHAR(20) NOT NULL CHECK(transaction_type IN ('in','out','adjustment')),
+  quantity NUMERIC(10,2) NOT NULL,
+  unit_price NUMERIC(15,2),
+  total_amount NUMERIC(15,2),
+  reference_type VARCHAR(50), -- 'restock', 'service', 'adjustment'
+  reference_id INTEGER,
+  supplier VARCHAR(255),
+  notes TEXT,
+  transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- UPDATED VEHICLE SERVICES TABLE
+CREATE TABLE vehicle_services (
+  id SERIAL PRIMARY KEY,
+  vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE CASCADE,
+  service_number VARCHAR(50) UNIQUE NOT NULL,
+  service_date DATE NOT NULL,
+  service_type VARCHAR(20) NOT NULL CHECK(service_type IN ('regular', 'with_parts')) DEFAULT 'regular',
+  description TEXT NOT NULL,
+  workshop_name VARCHAR(255),
+  labor_cost NUMERIC(15,2) NOT NULL DEFAULT 0,
+  parts_cost NUMERIC(15,2) NOT NULL DEFAULT 0,
+  total_cost NUMERIC(15,2) GENERATED ALWAYS AS (labor_cost + parts_cost) STORED,
+  status VARCHAR(20) NOT NULL DEFAULT 'completed' CHECK(status IN ('completed', 'cancelled')),
+  notes TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Service items for tracking parts used in services
+CREATE TABLE service_items (
+  id SERIAL PRIMARY KEY,
+  service_id INTEGER REFERENCES vehicle_services(id) ON DELETE CASCADE,
+  stock_item_id INTEGER REFERENCES stock_items(id),
+  item_name VARCHAR(255) NOT NULL,
+  quantity NUMERIC(10,2) NOT NULL,
+  unit_price NUMERIC(15,2) NOT NULL,
+  total_price NUMERIC(15,2) GENERATED ALWAYS AS (quantity * unit_price) STORED,
+  from_stock BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -137,7 +188,7 @@ CREATE TABLE delivery_orders (
   unload_location TEXT,
   unload_latitude DECIMAL(10, 8),
   unload_longitude DECIMAL(11, 8),
-
+  
   surat_jalan_photo_url VARCHAR(255),
 
   payment_status VARCHAR(20) NOT NULL DEFAULT 'proses_tagihan' 
@@ -169,19 +220,6 @@ CREATE TABLE driver_expenses (
   amount NUMERIC NOT NULL,
   notes TEXT,
   receipt_url TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- MISSING TABLES THAT YOUR SEEDER REFERENCES
--- =================================================================
-
-CREATE TABLE vehicle_services (
-  id SERIAL PRIMARY KEY,
-  vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE CASCADE,
-  service_date DATE NOT NULL,
-  description TEXT NOT NULL,
-  cost NUMERIC(15, 2) NOT NULL DEFAULT 0,
-  workshop_name VARCHAR(255),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -237,29 +275,6 @@ CREATE TABLE payment_terms (
   paid_at TIMESTAMP WITH TIME ZONE
 );
 
-CREATE TABLE service_items (
-  id SERIAL PRIMARY KEY,
-  service_id INTEGER REFERENCES vehicle_services(id) ON DELETE CASCADE,
-  item_name VARCHAR(100) NOT NULL,
-  item_type VARCHAR(20) NOT NULL CHECK(item_type IN ('part','labor','other')),
-  quantity INTEGER NOT NULL DEFAULT 1,
-  unit_price NUMERIC NOT NULL,
-  total_price NUMERIC NOT NULL,
-  stock_item_id INTEGER REFERENCES stock_items(id),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE stock_transactions (
-  id SERIAL PRIMARY KEY,
-  item_id INTEGER REFERENCES stock_items(id),
-  transaction_type VARCHAR(20) NOT NULL CHECK(transaction_type IN ('in','out','adjustment')),
-  quantity INTEGER NOT NULL,
-  reference_type VARCHAR(50),
-  reference_id INTEGER,
-  notes TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
 CREATE TABLE vehicle_tires (
   id SERIAL PRIMARY KEY,
   vehicle_id INTEGER REFERENCES vehicles(id),
@@ -288,7 +303,14 @@ CREATE TABLE tire_inspections (
 CREATE INDEX idx_vehicles_tax_due ON vehicles(tax_due_date);
 CREATE INDEX idx_vehicles_stnk_expired ON vehicles(stnk_expired_date);
 CREATE INDEX idx_vehicles_driver_id ON vehicles(driver_id);
+CREATE INDEX idx_stock_items_category ON stock_items(category_id);
 CREATE INDEX idx_stock_items_low_stock ON stock_items(current_stock, min_stock);
+CREATE INDEX idx_stock_transactions_item ON stock_transactions(item_id);
+CREATE INDEX idx_stock_transactions_date ON stock_transactions(transaction_date);
+CREATE INDEX idx_vehicle_services_vehicle ON vehicle_services(vehicle_id);
+CREATE INDEX idx_vehicle_services_date ON vehicle_services(service_date);
+CREATE INDEX idx_service_items_service ON service_items(service_id);
+CREATE INDEX idx_service_items_stock ON service_items(stock_item_id);
 CREATE INDEX idx_tire_inspections_date ON tire_inspections(inspection_date);
 CREATE INDEX idx_cash_transactions_date ON cash_transactions(transaction_date);
 CREATE INDEX idx_delivery_orders_status ON delivery_orders(payment_status);

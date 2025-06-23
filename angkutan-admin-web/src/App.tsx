@@ -1,4 +1,4 @@
-// src/App.tsx
+// src/App.tsx - Updated with all routes
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import MainLayout from './components/MainLayout';
@@ -18,6 +18,12 @@ import PurchaseOrderEditPage from './pages/PurchaseOrderEdit';
 import CreateDeliveryFromPO from './pages/CreateDeliveryFromPO';
 import DeliveryOrdersPage from './pages/DeliveryOrders';
 import DeliveryOrderDetailPage from './pages/DeliveryOrderDetail';
+import StockManagementPage from './pages/StockManagement';
+import StockCreatePage from './pages/StockCreate';
+import ServiceManagementPage from './pages/ServiceManagement';
+import ServiceCreatePage from './pages/ServiceCreate';
+import ServiceDetailPage from './pages/ServiceDetail';
+import ServiceEditPage from './pages/ServiceEdit';
 
 function App() {
   const { token } = useAuth();
@@ -50,6 +56,17 @@ function App() {
           {/* Delivery Orders Routes */}
           <Route path="delivery-orders" element={<DeliveryOrdersPage />} />
           <Route path="delivery-orders/:id" element={<DeliveryOrderDetailPage />} />
+          
+          {/* Stock Management Routes */}
+          <Route path="stock" element={<StockManagementPage />} />
+          <Route path="stock/create" element={<StockCreatePage />} />
+          <Route path="stock/edit/:id" element={<StockCreatePage />} />
+          
+          {/* Service Management Routes */}
+          <Route path="services" element={<ServiceManagementPage />} />
+          <Route path="services/create" element={<ServiceCreatePage />} />
+          <Route path="services/:id" element={<ServiceDetailPage />} />
+          <Route path="services/edit/:id" element={<ServiceEditPage />} />
         </Route>
       </Routes>
     </Router>

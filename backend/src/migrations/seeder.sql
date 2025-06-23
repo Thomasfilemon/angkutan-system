@@ -1,5 +1,5 @@
 -- =================================================================
--- SEED DATA LENGKAP (ANGKUTAN) - WITH DRIVER ASSIGNMENTS AND ONGKOSAN
+-- SEED DATA LENGKAP (ANGKUTAN) - WITH STOCK & SERVICE MANAGEMENT
 -- =================================================================
 
 -- 1. USERS & PROFILES
@@ -28,18 +28,69 @@ INSERT INTO vehicles (license_plate, type, capacity, driver_id, stnk_expired_dat
 ('B 1234 ABC', 'Hino Dutro 130 HD', '8000', (SELECT id FROM users WHERE username = 'supir_andi'), '2025-10-20', '2025-10-20', 'in_use'),
 ('B 5678 DEF', 'Mitsubishi Fuso Canter', '8250', (SELECT id FROM users WHERE username = 'supir_budi'), '2026-03-15', '2025-03-15', 'in_use'),
 ('B 9012 GHI', 'Isuzu Elf NMR 71', '7500', (SELECT id FROM users WHERE username = 'supir_charlie'), '2024-11-30', '2024-11-30', 'in_use'),
-('B 3456 JKL', 'Hino Ranger FG', '12000', (SELECT id FROM users WHERE username = 'supir_dedi'), '2025-12-01', '2025-12-01', 'available'), -- Assign to dedi for completed trip
+('B 3456 JKL', 'Hino Ranger FG', '12000', (SELECT id FROM users WHERE username = 'supir_dedi'), '2025-12-01', '2025-12-01', 'available'),
 ('BE 9090 AC', 'Mitsubishi Colt Diesel', '6800', (SELECT id FROM users WHERE username = 'supir_yoyo'), '2026-04-17', '2030-05-11', 'in_use'),
-('B 7890 MNO', 'Mitsubishi Colt Diesel', '7000', (SELECT id FROM users WHERE username = 'supir_eko'), '2026-01-10', '2026-01-10', 'available'), -- Assign to eko for trip
-('B 1122 PQR', 'Isuzu Giga', '15000', NULL, '2025-08-20', '2025-08-20', 'available'); -- No driver assigned
+('B 7890 MNO', 'Mitsubishi Colt Diesel', '7000', (SELECT id FROM users WHERE username = 'supir_eko'), '2026-01-10', '2026-01-10', 'available'),
+('B 1122 PQR', 'Isuzu Giga', '15000', NULL, '2025-08-20', '2025-08-20', 'available');
 
--- 3. PURCHASE ORDERS (UPDATED STRUCTURE)
+-- 3. STOCK CATEGORIES & ITEMS
+INSERT INTO stock_categories (category_name, description) VALUES
+('Oli & Pelumas', 'Segala jenis oli mesin, gardan, dan hidrolik'),
+('Filter', 'Filter udara, filter oli, filter solar'),
+('Suku Cadang Mesin', 'Komponen mesin dan sistem penggerak'),
+('Ban & Velg', 'Ban, velg, dan aksesoris roda'),
+('Sistem Rem', 'Kampas rem, minyak rem, dan komponen rem'),
+('Sistem Kelistrikan', 'Aki, lampu, kabel, dan komponen listrik'),
+('Bahan Bakar & Aditif', 'Solar, bensin, dan aditif bahan bakar'),
+('Alat Kerja', 'Perkakas dan alat maintenance');
+
+INSERT INTO stock_items (category_id, item_code, item_name, supplier, unit, current_stock, min_stock, unit_price, notes) VALUES
+-- Oli & Pelumas
+((SELECT id FROM stock_categories WHERE category_name = 'Oli & Pelumas'), 'OLI-001', 'Oli Mesin Meditran SX SAE 15W-40', 'PT Pertamina Lubricants', 'Liter', 120.00, 30.00, 55000, 'Oli mesin untuk truk diesel'),
+((SELECT id FROM stock_categories WHERE category_name = 'Oli & Pelumas'), 'OLI-002', 'Oli Gardan SAE 90', 'PT Shell Indonesia', 'Liter', 45.00, 15.00, 75000, 'Oli gardan untuk truk berat'),
+((SELECT id FROM stock_categories WHERE category_name = 'Oli & Pelumas'), 'OLI-003', 'Oli Hidrolik ATF Dexron III', 'PT Castrol Indonesia', 'Liter', 25.00, 10.00, 85000, 'Oli power steering dan transmisi otomatis'),
+
+-- Filter
+((SELECT id FROM stock_categories WHERE category_name = 'Filter'), 'FLT-001', 'Filter Solar Hino Dutro', 'Hino Motors', 'Pcs', 15.00, 5.00, 120000, 'Filter solar original Hino'),
+((SELECT id FROM stock_categories WHERE category_name = 'Filter'), 'FLT-002', 'Filter Oli Mitsubishi Fuso', 'Mitsubishi Motors', 'Pcs', 12.00, 4.00, 95000, 'Filter oli original Mitsubishi'),
+((SELECT id FROM stock_categories WHERE category_name = 'Filter'), 'FLT-003', 'Filter Udara Universal Truck', 'Mann Filter', 'Pcs', 8.00, 3.00, 180000, 'Filter udara untuk truk diesel'),
+
+-- Suku Cadang Mesin
+((SELECT id FROM stock_categories WHERE category_name = 'Suku Cadang Mesin'), 'ENG-001', 'Kampas Kopling Set Hino', 'Hino Motors', 'Set', 3.00, 1.00, 2500000, 'Set kampas kopling Hino Dutro'),
+((SELECT id FROM stock_categories WHERE category_name = 'Suku Cadang Mesin'), 'ENG-002', 'V-Belt Fan Belt', 'Gates Corporation', 'Pcs', 6.00, 2.00, 350000, 'V-Belt untuk kipas radiator'),
+((SELECT id FROM stock_categories WHERE category_name = 'Suku Cadang Mesin'), 'ENG-003', 'Radiator Cap Universal', 'Denso', 'Pcs', 4.00, 2.00, 125000, 'Tutup radiator universal'),
+
+-- Ban & Velg
+((SELECT id FROM stock_categories WHERE category_name = 'Ban & Velg'), 'TIR-001', 'Ban Truck 1000 R20 Bridgestone', 'PT Bridgestone Tire Indonesia', 'Pcs', 8.00, 4.00, 3200000, 'Ban truk depan Bridgestone'),
+((SELECT id FROM stock_categories WHERE category_name = 'Ban & Velg'), 'TIR-002', 'Ban Truck 1000 R20 Dunlop', 'PT Dunlop Indonesia', 'Pcs', 6.00, 4.00, 2950000, 'Ban truk belakang Dunlop'),
+((SELECT id FROM stock_categories WHERE category_name = 'Ban & Velg'), 'TIR-003', 'Pentil Ban Truck', 'Universal', 'Pcs', 20.00, 10.00, 15000, 'Pentil ban untuk truk'),
+
+-- Sistem Rem
+((SELECT id FROM stock_categories WHERE category_name = 'Sistem Rem'), 'BRK-001', 'Kampas Rem Depan Hino', 'Hino Motors', 'Set', 4.00, 2.00, 850000, 'Kampas rem depan Hino Dutro'),
+((SELECT id FROM stock_categories WHERE category_name = 'Sistem Rem'), 'BRK-002', 'Minyak Rem DOT 4', 'Castrol', 'Liter', 10.00, 3.00, 125000, 'Minyak rem DOT 4'),
+((SELECT id FROM stock_categories WHERE category_name = 'Sistem Rem'), 'BRK-003', 'Selang Rem Fleksibel', 'Universal', 'Meter', 15.00, 5.00, 45000, 'Selang rem fleksibel per meter'),
+
+-- Sistem Kelistrikan
+((SELECT id FROM stock_categories WHERE category_name = 'Sistem Kelistrikan'), 'ELC-001', 'Aki Truck 12V 100Ah', 'GS Astra', 'Pcs', 3.00, 1.00, 1850000, 'Aki basah untuk truk diesel'),
+((SELECT id FROM stock_categories WHERE category_name = 'Sistem Kelistrikan'), 'ELC-002', 'Lampu Depan H4 24V', 'Philips', 'Pcs', 8.00, 4.00, 185000, 'Lampu depan H4 untuk truk 24V'),
+((SELECT id FROM stock_categories WHERE category_name = 'Sistem Kelistrikan'), 'ELC-003', 'Kabel Jumper Set', 'Universal', 'Set', 2.00, 1.00, 450000, 'Kabel jumper aki 24V'),
+
+-- Bahan Bakar & Aditif
+((SELECT id FROM stock_categories WHERE category_name = 'Bahan Bakar & Aditif'), 'FUL-001', 'Solar Dex Pertamina', 'SPBU Pertamina', 'Liter', 500.00, 200.00, 15500, 'Solar Dex untuk truk'),
+((SELECT id FROM stock_categories WHERE category_name = 'Bahan Bakar & Aditif'), 'FUL-002', 'Aditif Solar STP', 'STP Corporation', 'Botol', 5.00, 2.00, 85000, 'Aditif pembersih sistem bahan bakar'),
+
+-- Alat Kerja
+((SELECT id FROM stock_categories WHERE category_name = 'Alat Kerja'), 'TOL-001', 'Kunci Roda Truck Cross', 'Tekiro', 'Pcs', 3.00, 1.00, 350000, 'Kunci roda silang untuk truk'),
+((SELECT id FROM stock_categories WHERE category_name = 'Alat Kerja'), 'TOL-002', 'Dongkrak Botol 20 Ton', 'Masada', 'Pcs', 2.00, 1.00, 1250000, 'Dongkrak botol kapasitas 20 ton'),
+((SELECT id FROM stock_categories WHERE category_name = 'Alat Kerja'), 'TOL-003', 'Tool Box Plastik Besar', 'Kenmaster', 'Pcs', 4.00, 2.00, 185000, 'Tool box plastik untuk alat kerja');
+
+-- 4. PURCHASE ORDERS
 INSERT INTO purchase_orders (po_number, customer_name, item_name, total_quantity, unit_price, total_amount, load_location, unload_location, order_date, status) VALUES
 ('PO/WIKA/09/2024-01', 'PT WIKA BETON', 'Abu Batu', 200.00, 155000, 31000000, 'Quarry Jonggol, Bogor', 'Proyek Tol Cibitung, Bekasi', '2024-09-28', 'partial'),
 ('PO/ADHI/10/2024-02', 'PT ADHI KARYA', 'Pasir dan Batu Split', 500.00, 160000, 80000000, 'Quarry Cibinong, Bogor', 'Proyek Tol Cimanggis, Depok', '2024-10-05', 'partial'),
-('PO/WIJAYA/11/2024-03', 'PT WIJAYA KARYA', 'Batu Split 1-2', 300.00, 165000, 49500000, NULL, NULL, '2024-11-01', 'confirmed'); -- Example without location
+('PO/WIJAYA/11/2024-03', 'PT WIJAYA KARYA', 'Batu Split 1-2', 300.00, 165000, 49500000, NULL, NULL, '2024-11-01', 'confirmed');
 
--- 4. DELIVERY ORDERS WITH ONGKOSAN
+-- 5. DELIVERY ORDERS WITH ONGKOSAN
 INSERT INTO delivery_orders (
   purchase_order_id, driver_id, vehicle_id, do_number, customer_name, item_name, minimal_load_quantity, actual_load_quantity, unit_price, total_amount,
   payment_status, due_date, load_location, load_latitude, load_longitude, unload_location, unload_latitude, unload_longitude, status, 
@@ -107,7 +158,7 @@ VALUES
  'assigned', NULL, NULL, NULL, NULL, NULL, NULL, 
  1900000, 500000, 3265700);
 
--- 5. DRIVER EXPENSES (PENGELUARAN DRIVER)
+-- 6. DRIVER EXPENSES
 INSERT INTO driver_expenses (delivery_order_id, driver_id, jenis, amount, notes) VALUES
 ((SELECT id FROM delivery_orders WHERE do_number = 'DO-240928-01'), (SELECT id FROM users WHERE username = 'supir_andi'), 'bbm', 500000, 'Pengisian Solar Awal'),
 ((SELECT id FROM delivery_orders WHERE do_number = 'DO-240928-01'), (SELECT id FROM users WHERE username = 'supir_andi'), 'makan', 100000, 'Makan di Rest Area'),
@@ -122,31 +173,70 @@ INSERT INTO driver_expenses (delivery_order_id, driver_id, jenis, amount, notes)
 ((SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-03'), (SELECT id FROM users WHERE username = 'supir_eko'), 'bbm', 600000, 'Pengisian Solar'),
 ((SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-03'), (SELECT id FROM users WHERE username = 'supir_eko'), 'makan', 105000, 'Makan di Rest Area');
 
--- 6. VEHICLE SERVICES
-INSERT INTO vehicle_services (vehicle_id, service_date, description, cost, workshop_name) VALUES
-((SELECT id FROM vehicles WHERE license_plate = 'B 1234 ABC'), '2024-07-15', 'Ganti Oli Mesin dan Filter Oli', 750000, 'Bengkel Internal'),
-((SELECT id FROM vehicles WHERE license_plate = 'B 5678 DEF'), '2024-08-20', 'Servis Rutin - Ganti Filter Solar & Cek Kaki-kaki', 950000, 'Bengkel Internal'),
-((SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL'), '2024-09-01', 'Ganti Ban Depan', 3200000, 'Bengkel Ban Jaya'),
-((SELECT id FROM vehicles WHERE license_plate = 'B 7890 MNO'), '2024-09-10', 'Tune Up Mesin', 1200000, 'Bengkel Internal');
+-- 7. VEHICLE SERVICES (UPDATED WITH NEW STRUCTURE)
+INSERT INTO vehicle_services (vehicle_id, service_number, service_date, service_type, description, workshop_name, labor_cost, parts_cost, status, notes) VALUES
+((SELECT id FROM vehicles WHERE license_plate = 'B 1234 ABC'), 'SRV-20240715-001', '2024-07-15', 'with_parts', 'Ganti Oli Mesin dan Filter Oli', 'Bengkel Internal', 200000, 550000, 'completed', 'Servis rutin bulanan'),
+((SELECT id FROM vehicles WHERE license_plate = 'B 5678 DEF'), 'SRV-20240820-001', '2024-08-20', 'with_parts', 'Servis Rutin - Ganti Filter Solar & Cek Kaki-kaki', 'Bengkel Internal', 300000, 650000, 'completed', 'Servis berkala'),
+((SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL'), 'SRV-20240901-001', '2024-09-01', 'with_parts', 'Ganti Ban Depan', 'Bengkel Ban Jaya', 400000, 2800000, 'completed', 'Penggantian ban karena aus'),
+((SELECT id FROM vehicles WHERE license_plate = 'B 7890 MNO'), 'SRV-20240910-001', '2024-09-10', 'regular', 'Tune Up Mesin', 'Bengkel Internal', 1200000, 0, 'completed', 'Tune up mesin tanpa ganti parts'),
+((SELECT id FROM vehicles WHERE license_plate = 'BE 9090 AC'), 'SRV-20241201-001', '2024-12-01', 'with_parts', 'Ganti Kampas Rem dan Minyak Rem', 'Bengkel Internal', 350000, 975000, 'completed', 'Perbaikan sistem rem');
 
--- 7. AKUNTANSI RITASE
+-- 8. SERVICE ITEMS (PARTS USED IN SERVICES)
+INSERT INTO service_items (service_id, stock_item_id, item_name, quantity, unit_price, from_stock) VALUES
+-- Service 1: Ganti Oli Mesin dan Filter Oli (B 1234 ABC)
+((SELECT id FROM vehicle_services WHERE service_number = 'SRV-20240715-001'), 
+ (SELECT id FROM stock_items WHERE item_code = 'OLI-001'), 'Oli Mesin Meditran SX SAE 15W-40', 10.00, 55000, true),
+((SELECT id FROM vehicle_services WHERE service_number = 'SRV-20240715-001'), 
+ (SELECT id FROM stock_items WHERE item_code = 'FLT-002'), 'Filter Oli Mitsubishi Fuso', 1.00, 95000, true),
+
+-- Service 2: Servis Rutin Filter Solar (B 5678 DEF)
+((SELECT id FROM vehicle_services WHERE service_number = 'SRV-20240820-001'), 
+ (SELECT id FROM stock_items WHERE item_code = 'FLT-001'), 'Filter Solar Hino Dutro', 1.00, 120000, true),
+((SELECT id FROM vehicle_services WHERE service_number = 'SRV-20240820-001'), 
+ (SELECT id FROM stock_items WHERE item_code = 'OLI-001'), 'Oli Mesin Meditran SX SAE 15W-40', 8.00, 55000, true),
+((SELECT id FROM vehicle_services WHERE service_number = 'SRV-20240820-001'), 
+ (SELECT id FROM stock_items WHERE item_code = 'FUL-002'), 'Aditif Solar STP', 1.00, 85000, true),
+
+-- Service 3: Ganti Ban Depan (B 3456 JKL)
+((SELECT id FROM vehicle_services WHERE service_number = 'SRV-20240901-001'), 
+ NULL, 'Ban Truck 1000 R20 Bridgestone (External)', 2.00, 3200000, false),
+
+-- Service 5: Ganti Kampas Rem (BE 9090 AC)
+((SELECT id FROM vehicle_services WHERE service_number = 'SRV-20241201-001'), 
+ (SELECT id FROM stock_items WHERE item_code = 'BRK-001'), 'Kampas Rem Depan Hino', 1.00, 850000, true),
+((SELECT id FROM vehicle_services WHERE service_number = 'SRV-20241201-001'), 
+ (SELECT id FROM stock_items WHERE item_code = 'BRK-002'), 'Minyak Rem DOT 4', 1.00, 125000, true);
+
+-- 9. STOCK TRANSACTIONS (TRACKING STOCK MOVEMENTS)
+INSERT INTO stock_transactions (item_id, transaction_type, quantity, unit_price, total_amount, reference_type, reference_id, notes, transaction_date) VALUES
+-- Initial stock entries
+((SELECT id FROM stock_items WHERE item_code = 'OLI-001'), 'in', 150.00, 55000, 8250000, 'restock', NULL, 'Pembelian awal stok oli mesin', '2024-06-01'),
+((SELECT id FROM stock_items WHERE item_code = 'FLT-001'), 'in', 20.00, 120000, 2400000, 'restock', NULL, 'Pembelian awal filter solar', '2024-06-01'),
+((SELECT id FROM stock_items WHERE item_code = 'BRK-001'), 'in', 6.00, 850000, 5100000, 'restock', NULL, 'Pembelian kampas rem', '2024-06-01'),
+
+-- Service-related stock movements
+((SELECT id FROM stock_items WHERE item_code = 'OLI-001'), 'out', 10.00, 55000, 550000, 'service', (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20240715-001'), 'Digunakan untuk servis B 1234 ABC', '2024-07-15'),
+((SELECT id FROM stock_items WHERE item_code = 'FLT-002'), 'out', 1.00, 95000, 95000, 'service', (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20240715-001'), 'Digunakan untuk servis B 1234 ABC', '2024-07-15'),
+((SELECT id FROM stock_items WHERE item_code = 'FLT-001'), 'out', 1.00, 120000, 120000, 'service', (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20240820-001'), 'Digunakan untuk servis B 5678 DEF', '2024-08-20'),
+((SELECT id FROM stock_items WHERE item_code = 'OLI-001'), 'out', 8.00, 55000, 440000, 'service', (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20240820-001'), 'Digunakan untuk servis B 5678 DEF', '2024-08-20'),
+((SELECT id FROM stock_items WHERE item_code = 'BRK-001'), 'out', 1.00, 850000, 850000, 'service', (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20241201-001'), 'Digunakan untuk servis BE 9090 AC', '2024-12-01'),
+((SELECT id FROM stock_items WHERE item_code = 'BRK-002'), 'out', 1.00, 125000, 125000, 'service', (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20241201-001'), 'Digunakan untuk servis BE 9090 AC', '2024-12-01');
+
+-- 10. ACCOUNTING RITASE
 INSERT INTO accounting_ritase (delivery_order_id, ritase, tarif, total) VALUES
 ((SELECT id FROM delivery_orders WHERE do_number = 'DO-240928-01'), 1, 2000000, 2000000),
 ((SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-02'), 1, 2100000, 2100000);
 
--- 8. INVENTARIS & STOK
-INSERT INTO stock_categories (category_name, description) VALUES
-('Oli & Pelumas', 'Segala jenis oli mesin, gardan, dan hidrolik'),
-('Filter', 'Filter udara, filter oli, filter solar');
-
-INSERT INTO stock_items (category_id, item_name, item_code, unit, current_stock, min_stock, unit_price) VALUES
-((SELECT id FROM stock_categories WHERE category_name = 'Oli & Pelumas'), 'Oli Mesin Meditran SX', 'OLI-001', 'Liter', 50, 20, 55000),
-((SELECT id FROM stock_categories WHERE category_name = 'Filter'), 'Filter Solar Hino Dutro', 'FLT-001', 'Pcs', 15, 5, 120000);
-
--- 9. BIAYA KANTOR
+-- 11. OFFICE EXPENSES
 INSERT INTO office_expenses (kategori, description, amount, expense_date) VALUES
 ('Listrik & Internet', 'Pembayaran Tagihan Listrik Kantor Bulan September', 1500000, '2024-09-25'),
-('Gaji Karyawan', 'Gaji Admin September', 4000000, '2024-09-25');
+('Gaji Karyawan', 'Gaji Admin September', 4000000, '2024-09-25'),
+('Operasional Kantor', 'Pembelian ATK dan Supplies Kantor', 750000, '2024-10-01'),
+('Maintenance', 'Biaya maintenance AC kantor', 450000, '2024-10-15');
 
--- 10. ADDITIONAL TABLES (if they exist in your migration)
--- Add any other table inserts that are missing from the migration but exist in your schema
+-- 12. TIRE INVENTORY
+INSERT INTO tire_inventory (tire_brand, tire_size, tire_type, current_stock, min_stock, unit_price) VALUES
+('Bridgestone', '1000 R20', 'Radial', 12, 4, 3200000),
+('Dunlop', '1000 R20', 'Radial', 8, 4, 2950000),
+('Michelin', '295/80 R22.5', 'Radial', 6, 2, 4500000),
+('GT Radial', '1000 R20', 'Bias', 10, 3, 2100000);
