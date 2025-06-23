@@ -11,6 +11,11 @@ const setupPurchaseOrderModel = require("./purchaseOrder.model");
 const setupDeliveryOrderModel = require("./deliveryOrder.model");
 const setupDriverExpenseModel = require("./driverExpense.model");
 const setupVehicleServiceModel = require("./vehicleService.model");
+// NEW: Stock and Service Management Models
+const setupStockCategoryModel = require("./stockCategory.model");
+const setupStockItemModel = require("./stockItem.model");
+const setupStockTransactionModel = require("./stockTransaction.model");
+const setupServiceItemModel = require("./serviceItem.model");
 
 // Initialize Sequelize connection using your .env variables
 const sequelize = new Sequelize(
@@ -45,6 +50,11 @@ db.PurchaseOrder = setupPurchaseOrderModel(sequelize);
 db.DeliveryOrder = setupDeliveryOrderModel(sequelize);
 db.DriverExpense = setupDriverExpenseModel(sequelize);
 db.VehicleService = setupVehicleServiceModel(sequelize);
+// NEW: Stock and Service Management Models
+db.StockCategory = setupStockCategoryModel(sequelize);
+db.StockItem = setupStockItemModel(sequelize);
+db.StockTransaction = setupStockTransactionModel(sequelize);
+db.ServiceItem = setupServiceItemModel(sequelize);
 
 // === Define All Model Associations ===
 const {
@@ -56,6 +66,10 @@ const {
   Vehicle,
   DriverExpense,
   VehicleService,
+  StockCategory,
+  StockItem,
+  StockTransaction,
+  ServiceItem,
 } = db;
 
 // User <-> Profile Associations (One-to-One)
@@ -86,17 +100,17 @@ Vehicle.hasMany(DeliveryOrder, {
 });
 DeliveryOrder.belongsTo(Vehicle, { foreignKey: "vehicle_id", as: "vehicle" });
 
-// NEW: Vehicle <-> Driver (User) Assignments
+// Vehicle <-> Driver (User) Assignments
 User.hasMany(Vehicle, { 
   foreignKey: "driver_id", 
   as: "assignedVehicles" 
 });
 Vehicle.belongsTo(User, { 
   foreignKey: "driver_id", 
-  as: "assignedDriver" 
+  as: "driver" // Changed from "assignedDriver" to match your controller
 });
 
-// NEW: Vehicle <-> DriverProfile (through User)
+// Vehicle <-> DriverProfile (through User)
 Vehicle.belongsTo(DriverProfile, {
   foreignKey: "driver_id",
   targetKey: "user_id",
@@ -118,6 +132,7 @@ DriverExpense.belongsTo(DeliveryOrder, {
   as: "deliveryOrder",
 });
 
+// Vehicle Service Associations
 Vehicle.hasMany(VehicleService, {
   foreignKey: "vehicle_id",
   as: "serviceHistory",
@@ -127,5 +142,49 @@ VehicleService.belongsTo(Vehicle, { foreignKey: "vehicle_id", as: "vehicle" });
 // User (as Driver) <-> DriverExpense
 User.hasMany(DriverExpense, { foreignKey: "driver_id", as: "driverExpenses" });
 DriverExpense.belongsTo(User, { foreignKey: "driver_id", as: "driver" });
+
+// === NEW: Stock Management Associations ===
+
+// StockCategory <-> StockItem (One-to-Many)
+StockCategory.hasMany(StockItem, {
+  foreignKey: "category_id",
+  as: "items"
+});
+StockItem.belongsTo(StockCategory, {
+  foreignKey: "category_id",
+  as: "category"
+});
+
+// StockItem <-> StockTransaction (One-to-Many)
+StockItem.hasMany(StockTransaction, {
+  foreignKey: "item_id",
+  as: "transactions"
+});
+StockTransaction.belongsTo(StockItem, {
+  foreignKey: "item_id",
+  as: "stockItem"
+});
+
+// === NEW: Service Management Associations ===
+
+// VehicleService <-> ServiceItem (One-to-Many)
+VehicleService.hasMany(ServiceItem, {
+  foreignKey: "service_id",
+  as: "serviceItems"
+});
+ServiceItem.belongsTo(VehicleService, {
+  foreignKey: "service_id",
+  as: "service"
+});
+
+// StockItem <-> ServiceItem (Many-to-One, optional)
+StockItem.hasMany(ServiceItem, {
+  foreignKey: "stock_item_id",
+  as: "usedInServices"
+});
+ServiceItem.belongsTo(StockItem, {
+  foreignKey: "stock_item_id",
+  as: "stockItem"
+});
 
 module.exports = db;
