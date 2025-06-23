@@ -18,6 +18,7 @@ mobile/
 ├── node_modules/
 ├── app/
 │   ├── _layout.tsx
+│   ├── map-view.tsx
 │   ├── (admin)/          # Halaman admin (buat trip, dsb)
 │   │    ├── _layout.tsx
 │   │    ├── create-trip.tsx
@@ -31,7 +32,7 @@ mobile/
 │   │    ├── _layout.tsx
 │   │    ├── vehichle.tsx
 │   │    └── index.tsx
-│   └── trip-detail/      # Detail trip & pengeluaran
+│   └── trip-detail/[id].tsx     # Detail trip & pengeluaran
 ├── assets/
 │   ├── fonts/
 │   └── images/

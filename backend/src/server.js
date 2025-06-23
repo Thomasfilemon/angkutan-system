@@ -9,21 +9,21 @@ const errorHandler = require("./middlewares/error.middleware");
 const { sequelize } = require("./models");
 const path = require("path");
 
-// === Import Existing Routes (MOBILE - UNCHANGED) ===
+// === Import Existing Routes (MOBILE) ===
 const healthRoutes = require("./routes/health.routes");
 const authRoutes = require("./routes/auth.routes");
-const purchaseOrderRoutes = require("./routes/purchaseOrder.routes"); // Mobile existing
-const deliveryOrderRoutes = require("./routes/deliveryOrder.routes"); // Mobile existing
+const purchaseOrderRoutes = require("./routes/purchaseOrder.routes");
+const deliveryOrderRoutes = require("./routes/deliveryOrder.routes");
 const userRoutes = require("./routes/user.routes");
 const driverExpenseRoutes = require("./routes/driverExpense.routes");
-const vehicleRoutes = require("./routes/vehicle.routes"); // Mobile existing
+const vehicleRoutes = require("./routes/vehicle.routes");
 const driverRoutes = require("./routes/driver.routes");
 
 // === Import Web Routes (NEW) ===
 const webPurchaseOrderRoutes = require("./routes/web/purchaseOrder.routes");
 const webDeliveryOrderRoutes = require("./routes/web/deliveryOrder.routes");
 const webVehicleRoutes = require("./routes/web/vehicle.routes");
-const webDriverRoutes = require("./routes/web/driver.routes"); // ADD THIS LINE
+const webDriverRoutes = require("./routes/web/driver.routes");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -40,7 +40,7 @@ sequelize
 // Basic route
 app.get("/", (req, res) => {
   res.json({
-    message: "Angkutan API v2 (Sequelize) is running!",
+    message: "Angkutan API (Sequelize) is running!",
     endpoints: {
       mobile: {
         purchase_orders: "/api/purchase-orders",

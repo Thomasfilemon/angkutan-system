@@ -9,6 +9,7 @@ import {
   Alert,
   Modal,
   ActivityIndicator,
+  ScrollView,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 
@@ -120,27 +121,31 @@ const MapSelector: React.FC<MapSelectorProps> = ({
           {searchResults.length > 0 && (
             <View style={styles.resultsContainer}>
               <Text style={styles.resultsTitle}>Hasil Pencarian:</Text>
-              {searchResults.map((location, index) => (
-                <TouchableOpacity
-                  key={index}
-                  style={styles.resultItem}
-                  onPress={() => handleSelectLocation(location)}
-                >
-                  <FontAwesome5
-                    name="map-marker-alt"
-                    size={16}
-                    color="#3498db"
-                  />
-                  <View style={styles.resultTextContainer}>
-                    <Text style={styles.resultAddress}>{location.address}</Text>
-                    <Text style={styles.resultCoordinates}>
-                      {location.latitude.toFixed(6)},{" "}
-                      {location.longitude.toFixed(6)}
-                    </Text>
-                  </View>
-                  <FontAwesome5 name="chevron-right" size={14} color="#666" />
-                </TouchableOpacity>
-              ))}
+              <ScrollView style={{ maxHeight: 250 }}>
+                {searchResults.map((location, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={styles.resultItem}
+                    onPress={() => handleSelectLocation(location)}
+                  >
+                    <FontAwesome5
+                      name="map-marker-alt"
+                      size={16}
+                      color="#3498db"
+                    />
+                    <View style={styles.resultTextContainer}>
+                      <Text style={styles.resultAddress}>
+                        {location.address}
+                      </Text>
+                      <Text style={styles.resultCoordinates}>
+                        {location.latitude.toFixed(6)},{" "}
+                        {location.longitude.toFixed(6)}
+                      </Text>
+                    </View>
+                    <FontAwesome5 name="chevron-right" size={14} color="#666" />
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             </View>
           )}
 

@@ -31,7 +31,7 @@ interface AuthContextType {
   signIn: (
     username: string,
     password: string
-  ) => Promise<{ success: boolean; error?: string }>;
+  ) => Promise<{ success: boolean; error?: string; user?: User }>;
   signOut: () => Promise<void>;
   register: (
     userData: any
@@ -67,8 +67,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     })();
   }, []);
 
+  // Update signIn function
   const signIn = async (username: string, password: string) => {
-    setIsLoading(true);
     try {
       const { data } = await apiClient.post("/auth/mobile/login", {
         username,
@@ -82,17 +82,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setToken(newToken);
       setUser(userData);
 
-      return { success: true };
+      return { success: true, user: userData }; // ✅ Return user data
     } catch (err: any) {
-      const errorMessage =
-        err.response?.data?.message || err.message || "Login failed";
-      console.error("SignIn error:", { message: errorMessage });
+      console.error("SignIn error:", err);
+
+      let errorMessage = "Login gagal";
+
+      if (err.response?.status === 401) {
+        errorMessage = "Username atau password salah";
+      } else if (err.response?.data?.message) {
+        errorMessage = err.response.data.message;
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+
       return {
         success: false,
         error: errorMessage,
       };
-    } finally {
-      setIsLoading(false);
     }
   };
 

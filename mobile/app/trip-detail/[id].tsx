@@ -14,13 +14,13 @@ import {
   Modal,
   TextInput,
   Platform,
+  Linking,
 } from "react-native";
 import { useLocalSearchParams, useFocusEffect, useRouter } from "expo-router";
 import LoadConfirmationModal from "../../components/LoadConfirmationModal";
 import {
   getDeliveryOrderDetails,
   createDriverExpense,
-  updateDeliveryStatus,
   confirmLoad,
 } from "../../src/services/api";
 import { FontAwesome5 } from "@expo/vector-icons";
@@ -36,19 +36,33 @@ interface Expense {
   notes?: string;
 }
 
+interface LocationData {
+  latitude: number;
+  longitude: number;
+  address: string;
+  type: "load" | "unload";
+}
+
 interface DeliveryOrderDetails {
   id: number;
   do_number: string;
   customer_name: string;
-  load_location: string;
-  unload_location: string;
+  item_name: string;
   trip_allowance: number;
   minimal_load_quantity: number;
   actual_load_quantity?: number;
+  load_location: string;
+  unload_location: string;
+  load_latitude: string; // Add these fields
+  load_longitude: string;
+  unload_latitude: string;
+  unload_longitude: string;
+  surat_jalan_photo_url?: string;
   expenses_total: number;
   remaining_allowance: number;
   expenses: Expense[];
   status: string;
+  created_at: string;
   financial_summary?: {
     trip_allowance: number;
     total_for_driver: number;
@@ -318,6 +332,134 @@ const TripDetailScreen = () => {
     }
   };
 
+  const getNavigationTarget = (): LocationData | null => {
+    if (!trip) return null;
+
+    const loadLat = parseFloat(trip.load_latitude);
+    const loadLng = parseFloat(trip.load_longitude);
+    const unloadLat = parseFloat(trip.unload_latitude);
+    const unloadLng = parseFloat(trip.unload_longitude);
+
+    // Smart routing based on DO status
+    switch (trip.status) {
+      case "assigned":
+      case "otw_to_load_location":
+        return {
+          latitude: loadLat,
+          longitude: loadLng,
+          address: trip.load_location,
+          type: "load",
+        };
+      case "at_load_location":
+        // Show both locations but prioritize unload for navigation
+        return {
+          latitude: unloadLat,
+          longitude: unloadLng,
+          address: trip.unload_location,
+          type: "unload",
+        };
+      case "otw_to_unload_location":
+      case "at_unload_location":
+        return {
+          latitude: unloadLat,
+          longitude: unloadLng,
+          address: trip.unload_location,
+          type: "unload",
+        };
+      default:
+        return null;
+    }
+  };
+
+  const handleBack = () => {
+    try {
+      // Check if we can go back
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        // Fallback: navigate to driver dashboard
+        router.replace("/(tabs)");
+      }
+    } catch (error) {
+      console.log("Back navigation failed, using fallback");
+      // Ultimate fallback
+      router.replace("/(tabs)");
+    }
+  };
+
+  const handleOpenMap = () => {
+    if (!trip) return;
+
+    router.push({
+      pathname: "/trip-map-view",
+      params: {
+        doId: trip.id.toString(),
+        loadLat: trip.load_latitude,
+        loadLng: trip.load_longitude,
+        loadAddress: trip.load_location,
+        unloadLat: trip.unload_latitude,
+        unloadLng: trip.unload_longitude,
+        unloadAddress: trip.unload_location,
+        status: trip.status,
+        doNumber: trip.do_number,
+      },
+    });
+  };
+
+  const handleNavigate = async (app: "google" | "waze") => {
+    const target = getNavigationTarget();
+    if (!target) {
+      Alert.alert("Error", "No navigation target available");
+      return;
+    }
+
+    let url = "";
+
+    if (app === "google") {
+      if (Platform.OS === "ios") {
+        url = `http://maps.apple.com/?q=${target.latitude},${target.longitude}`;
+      } else {
+        url = `geo:${target.latitude},${target.longitude}?q=${
+          target.latitude
+        },${target.longitude}(${
+          target.type === "load" ? "Loading" : "Unloading"
+        } Location)`;
+      }
+    } else if (app === "waze") {
+      url = `https://waze.com/ul?ll=${target.latitude},${target.longitude}&navigate=yes`;
+    }
+
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert(
+          "Error",
+          `${app === "google" ? "Maps" : "Waze"} app not installed`
+        );
+      }
+    } catch (error) {
+      Alert.alert("Error", "Failed to open navigation app");
+    }
+  };
+
+  const getNavigationButtonText = () => {
+    const target = getNavigationTarget();
+    if (!target) return "Navigate";
+
+    return target.type === "load"
+      ? "Navigate to Loading"
+      : "Navigate to Unloading";
+  };
+
+  const getNavigationIcon = () => {
+    const target = getNavigationTarget();
+    if (!target) return "map-marker-alt";
+
+    return target.type === "load" ? "arrow-up" : "arrow-down";
+  };
+
   const resetExpenseForm = () => {
     setExpenseForm({ jenis: "", amount: "", notes: "" });
     setReceiptImage(null);
@@ -572,17 +714,6 @@ const TripDetailScreen = () => {
 
   return (
     <>
-      <View style={styles.headerBar}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-          activeOpacity={0.7}
-        >
-          <FontAwesome5 name="arrow-left" size={22} color="#333" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Detail Perjalanan</Text>
-      </View>
-
       <ScrollView
         style={styles.container}
         refreshControl={
@@ -594,7 +725,39 @@ const TripDetailScreen = () => {
           />
         }
       >
-        {/* KARTU INFORMASI SALDO */}
+        {/* ✅ Header Card - Clean & Consistent */}
+        <View style={styles.headerCard}>
+          <View style={styles.headerTop}>
+            <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+              <FontAwesome5 name="arrow-left" size={20} color="#fff" />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Detail Perjalanan</Text>
+            <View style={styles.placeholder} />
+          </View>
+
+          <View style={styles.headerContent}>
+            <View style={styles.headerRow}>
+              <Text style={styles.doNumber}>{trip.do_number}</Text>
+              <View
+                style={[
+                  styles.statusBadge,
+                  { backgroundColor: getStatusColor(trip.status) },
+                ]}
+              >
+                <Text style={styles.statusBadgeText}>
+                  {getStatusText(trip.status)}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.headerInfo}>
+              <Text style={styles.customerName}>{trip.customer_name}</Text>
+              <Text style={styles.itemName}>{trip.item_name}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* ✅ Saldo Card - Tetap Konsisten dengan Pattern */}
         <View
           style={[styles.saldoCard, isTripCompleted && styles.completedCard]}
         >
@@ -636,6 +799,132 @@ const TripDetailScreen = () => {
               </Text>
             </View>
           </View>
+        </View>
+
+        {/* 📍 Location, Navigation & Details Card */}
+        <View style={styles.detailCard}>
+          <Text style={styles.cardTitle}>📍 Lokasi & Navigasi</Text>
+
+          {/* Load Location */}
+          <TouchableOpacity
+            style={styles.locationItem}
+            onPress={() =>
+              router.push({
+                pathname: "/map-view",
+                params: {
+                  lat: trip.load_latitude,
+                  lng: trip.load_longitude,
+                  title: trip.load_location,
+                  type: "load",
+                },
+              })
+            }
+          >
+            <FontAwesome5 name="arrow-up" size={16} color="#3498db" />
+            <View style={styles.locationText}>
+              <Text style={styles.locationLabel}>Loading Location:</Text>
+              <Text style={styles.locationValue}>{trip.load_location}</Text>
+              <Text style={styles.coordinatesText}>
+                {parseFloat(trip.load_latitude).toFixed(6)},{" "}
+                {parseFloat(trip.load_longitude).toFixed(6)}
+              </Text>
+            </View>
+            <FontAwesome5 name="map-marker-alt" size={16} color="#3498db" />
+          </TouchableOpacity>
+
+          {/* Unload Location */}
+          <TouchableOpacity
+            style={styles.locationItem}
+            onPress={() =>
+              router.push({
+                pathname: "/map-view",
+                params: {
+                  lat: trip.unload_latitude,
+                  lng: trip.unload_longitude,
+                  title: trip.unload_location,
+                  type: "unload",
+                },
+              })
+            }
+          >
+            <FontAwesome5 name="arrow-down" size={16} color="#e74c3c" />
+            <View style={styles.locationText}>
+              <Text style={styles.locationLabel}>Unloading Location:</Text>
+              <Text style={styles.locationValue}>{trip.unload_location}</Text>
+              <Text style={styles.coordinatesText}>
+                {parseFloat(trip.unload_latitude).toFixed(6)},{" "}
+                {parseFloat(trip.unload_longitude).toFixed(6)}
+              </Text>
+            </View>
+            <FontAwesome5 name="map-marker-alt" size={16} color="#e74c3c" />
+          </TouchableOpacity>
+
+          {/* Divider */}
+          <View
+            style={{ height: 1, backgroundColor: "#eee", marginVertical: 16 }}
+          />
+
+          {/* Map Preview Button */}
+          <TouchableOpacity
+            style={styles.mapPreviewButton}
+            onPress={handleOpenMap}
+          >
+            <View style={styles.mapPreviewContent}>
+              <FontAwesome5 name="map" size={32} color="#3b82f6" />
+              <View style={styles.mapPreviewText}>
+                <Text style={styles.mapPreviewTitle}>Lihat Rute</Text>
+                <Text style={styles.mapPreviewSubtitle}>
+                  Lihat lokasi muat dan bongkar
+                </Text>
+              </View>
+              <FontAwesome5 name="chevron-right" size={16} color="#6b7280" />
+            </View>
+          </TouchableOpacity>
+
+          {/* Current Navigation Target */}
+          {getNavigationTarget() && (
+            <View style={styles.navigationTarget}>
+              <View style={styles.navigationHeader}>
+                <FontAwesome5
+                  name={getNavigationIcon()}
+                  size={20}
+                  color={
+                    getNavigationTarget()?.type === "load"
+                      ? "#3498db"
+                      : "#e74c3c"
+                  }
+                />
+                <Text style={styles.navigationTitle}>
+                  Tujuan Berikutnya:{" "}
+                  {getNavigationTarget()?.type === "load"
+                    ? "Loading"
+                    : "Unloading"}
+                </Text>
+              </View>
+              <Text style={styles.navigationAddress}>
+                {getNavigationTarget()?.address}
+              </Text>
+              {/* Navigation Buttons */}
+              <View style={styles.navigationButtons}>
+                <TouchableOpacity
+                  style={[styles.navButton, styles.googleButton]}
+                  onPress={() => handleNavigate("google")}
+                >
+                  <FontAwesome5 name="directions" size={16} color="#fff" />
+                  <Text style={styles.navButtonText}>
+                    {Platform.OS === "ios" ? "Apple Maps" : "Google Maps"}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.navButton, styles.wazeButton]}
+                  onPress={() => handleNavigate("waze")}
+                >
+                  <FontAwesome5 name="route" size={16} color="#fff" />
+                  <Text style={styles.navButtonText}>Waze</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         </View>
 
         {/* RIWAYAT PENGELUARAN */}
@@ -895,6 +1184,22 @@ const TripDetailScreen = () => {
 };
 
 // HELPER FUNCTIONS
+const getStatusColor = (status: string) => {
+  const colorMap: { [key: string]: string } = {
+    assigned: "#6c757d",
+    otw_to_load_location: "#f59e42",
+    at_load_location: "#3498db",
+    otw_to_unload_location: "#e67e22",
+    at_unload_location: "#e74c3c",
+    otw_to_destination: "#ffc107",
+    at_destination: "#17a2b8",
+    otw_to_base: "#fd7e14",
+    completed: "#28a745",
+    cancelled: "#dc3545",
+  };
+  return colorMap[status] || "#6c757d";
+};
+
 const getStatusText = (status: string) => {
   const statusMap = {
     assigned: "Ditugaskan",
@@ -921,7 +1226,6 @@ const getStatusStyle = (status: string) => {
   );
 };
 
-// --- STYLES YANG DIPERLUAS ---
 const styles = StyleSheet.create({
   headerBar: {
     flexDirection: "row",
@@ -934,18 +1238,106 @@ const styles = StyleSheet.create({
     borderBottomColor: "#eee",
     zIndex: 10,
   },
-  backButton: {
-    marginRight: 16,
-    padding: 6,
-    borderRadius: 20,
+  headerContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  customerName: {
+    fontSize: 16,
+    color: "#cbd5e1",
+    fontWeight: "600",
+  },
+  itemName: {
+    fontSize: 15,
+    color: "#fff",
+    fontWeight: "500",
+    marginBottom: 2,
+  },
+  doNumber: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#fff",
+    flex: 1,
+    letterSpacing: 1,
+    marginBottom: 2,
+    marginRight: 8,
+  },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  locationValue: {
+    fontSize: 15,
+    color: "#222",
+    fontWeight: "500",
+    marginBottom: 2,
+  },
+  locationItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+    borderRadius: 8,
+    marginBottom: 8,
+    backgroundColor: "#f9fafb",
+  },
+  locationText: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  locationLabel: {
+    fontSize: 14,
+    color: "#333",
+    fontWeight: "bold",
+    marginBottom: 2,
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#333",
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#fff",
   },
+  headerTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+  },
+  backButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  placeholder: {
+    width: 36,
+  },
+
+  // Update existing headerCard style
   container: { flex: 1, backgroundColor: "#f4f6f8" },
   centered: { flex: 1, justifyContent: "center", alignItems: "center" },
+  headerCard: {
+    backgroundColor: "#2563eb",
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 8,
+    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 8,
+  },
+  headerInfo: {
+    gap: 4,
+  },
   statusActionButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -968,10 +1360,10 @@ const styles = StyleSheet.create({
   },
   saldoCard: {
     backgroundColor: "#3b82f6",
-    padding: 20,
-    margin: 16,
+    marginHorizontal: 16,
+    marginBottom: 8,
     borderRadius: 12,
-    alignItems: "center",
+    padding: 20,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -980,19 +1372,29 @@ const styles = StyleSheet.create({
   },
   saldoTitle: { fontSize: 16, color: "#fff", opacity: 0.8 },
   saldoAmount: {
-    fontSize: 36,
+    fontSize: 32,
     fontWeight: "bold",
     color: "#fff",
-    marginVertical: 5,
+    textAlign: "center",
+    marginBottom: 16,
   },
-  saldoBreakdown: { marginTop: 10, alignItems: "center" },
-  breakdownText: { fontSize: 12, color: "#fff", opacity: 0.8 },
+  saldoBreakdown: { gap: 4 },
+  breakdownText: {
+    fontSize: 14,
+    color: "#e2e8f0",
+    textAlign: "center",
+  },
   detailCard: {
     backgroundColor: "white",
-    padding: 16,
     marginHorizontal: 16,
     marginBottom: 16,
+    padding: 16,
     borderRadius: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   historyCard: {
     backgroundColor: "white",
@@ -1005,7 +1407,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "bold",
     marginBottom: 12,
-    color: "#333",
+    color: "#1f2937",
   },
   detailText: { fontSize: 14, color: "#555", marginBottom: 4 },
   expenseItem: {
@@ -1029,20 +1431,24 @@ const styles = StyleSheet.create({
 
   // STYLES BARU untuk completed trip
   completedCard: {
-    backgroundColor: "#28a745", // Hijau untuk completed
+    backgroundColor: "#10b981",
   },
 
   completedBadge: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 10,
+    justifyContent: "center",
+    marginBottom: 12,
+    gap: 8,
   },
 
   completedText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 16,
-    marginLeft: 8,
+    fontSize: 14,
+    color: "#bfdbfe",
+    textAlign: "center",
+    marginBottom: 8,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
 
   statusContainer: {
@@ -1053,14 +1459,16 @@ const styles = StyleSheet.create({
 
   statusBadge: {
     paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    marginLeft: 12,
   },
 
   statusBadgeText: {
     color: "#fff",
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: "bold",
+    textTransform: "uppercase",
   },
 
   readOnlyIndicator: {
@@ -1092,6 +1500,93 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 16,
     color: "#666",
+  },
+
+  mapPreviewButton: {
+    backgroundColor: "#f8fafc",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  mapPreviewContent: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  mapPreviewText: {
+    flex: 1,
+    marginLeft: 16,
+  },
+  mapPreviewTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#1f2937",
+    marginBottom: 4,
+  },
+  mapPreviewSubtitle: {
+    fontSize: 14,
+    color: "#6b7280",
+  },
+  navigationTarget: {
+    backgroundColor: "#f0f9ff",
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#bae6fd",
+  },
+  navigationHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  navigationTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#1f2937",
+    marginLeft: 12,
+  },
+  navigationAddress: {
+    fontSize: 14,
+    color: "#6b7280",
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  navigationButtons: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  navButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  googleButton: {
+    backgroundColor: "#4285f4",
+  },
+  wazeButton: {
+    backgroundColor: "#33ccff",
+  },
+  navButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "bold",
+    marginLeft: 8,
+  },
+  coordinatesText: {
+    fontSize: 12,
+    color: "#9ca3af",
+    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
+    marginTop: 2,
   },
 
   // FAB styles

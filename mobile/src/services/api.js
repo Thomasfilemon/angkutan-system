@@ -37,13 +37,16 @@ apiClient.interceptors.response.use(
     return response;
   },
   async (error) => {
+    const originalRequest = error.config;
+    const isLoginEndpoint =
+      originalRequest?.url?.includes("/auth/login") ||
+      originalRequest?.url?.includes("/auth/mobile/login");
     // Handle error response
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && !isLoginEndpoint) {
       console.log("Token expired or invalid, logging out...");
 
       // Clear stored auth data
       await AsyncStorage.multiRemove(["token", "user"]);
-
       // Redirect ke login
       router.replace("/(auth)/login");
 
@@ -129,7 +132,6 @@ export const createDriverExpense = async (expenseData) => {
   return apiClient.post("/driver-expenses", formData, {
     headers: {
       "Content-Type": "multipart/form-data",
-      "X-Debug-Info": "trip-expense-submission",
     },
     timeout: 0, // Set timeout to 0 (no timeout) or a very high value for file uploads
   });

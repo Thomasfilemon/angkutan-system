@@ -24,14 +24,39 @@ INSERT INTO driver_profiles (user_id, full_name, phone, address, id_card_number,
 ((SELECT id FROM users WHERE username = 'supir_yoyo'), 'Yoyo Karyo', '08101010101010', 'Jl. Ikan Sebelah no 22', '320994488009921', '5555-3344-123', 'B1', 'busy');
 
 -- 2. VEHICLES WITH DRIVER ASSIGNMENTS
-INSERT INTO vehicles (license_plate, type, capacity, driver_id, stnk_expired_date, tax_due_date, status) VALUES
-('B 1234 ABC', 'Hino Dutro 130 HD', '8000', (SELECT id FROM users WHERE username = 'supir_andi'), '2025-10-20', '2025-10-20', 'in_use'),
-('B 5678 DEF', 'Mitsubishi Fuso Canter', '8250', (SELECT id FROM users WHERE username = 'supir_budi'), '2026-03-15', '2025-03-15', 'in_use'),
-('B 9012 GHI', 'Isuzu Elf NMR 71', '7500', (SELECT id FROM users WHERE username = 'supir_charlie'), '2024-11-30', '2024-11-30', 'in_use'),
-('B 3456 JKL', 'Hino Ranger FG', '12000', (SELECT id FROM users WHERE username = 'supir_dedi'), '2025-12-01', '2025-12-01', 'available'), -- Assign to dedi for completed trip
-('BE 9090 AC', 'Mitsubishi Colt Diesel', '6800', (SELECT id FROM users WHERE username = 'supir_yoyo'), '2026-04-17', '2030-05-11', 'in_use'),
-('B 7890 MNO', 'Mitsubishi Colt Diesel', '7000', (SELECT id FROM users WHERE username = 'supir_eko'), '2026-01-10', '2026-01-10', 'in_use'), -- Assign to eko for trip
-('B 1122 PQR', 'Isuzu Giga', '15000', NULL, '2025-08-20', '2025-08-20', 'available'); -- No driver assigned
+INSERT INTO vehicles (
+  license_plate, type, capacity, driver_id, status,
+  last_service_date, next_service_due,
+  stnk_number, stnk_expired_date, tax_due_date
+) VALUES
+('B 1234 ABC', 'Hino Dutro 130 HD', '8000', (SELECT id FROM users WHERE username = 'supir_andi'), 'in_use',
+  '2024-06-01', '2024-12-01',
+  'STNK-1234-2025', '2025-10-20', '2025-10-20'
+),
+('B 5678 DEF', 'Mitsubishi Fuso Canter', '8250', (SELECT id FROM users WHERE username = 'supir_budi'), 'in_use',
+  '2024-05-15', '2024-11-15',
+  'STNK-5678-2026', '2026-03-15', '2025-03-15'
+),
+('B 9012 GHI', 'Isuzu Elf NMR 71', '7500', (SELECT id FROM users WHERE username = 'supir_charlie'), 'in_use',
+  '2024-04-10', '2024-10-10',
+  'STNK-9012-2024', '2024-11-30', '2024-11-30'
+),
+('B 3456 JKL', 'Hino Ranger FG', '12000', (SELECT id FROM users WHERE username = 'supir_dedi'), 'available',
+  '2024-03-20', '2024-09-20',
+  'STNK-3456-2025', '2025-12-01', '2025-12-01'
+),
+('BE 9090 AC', 'Mitsubishi Colt Diesel', '6800', (SELECT id FROM users WHERE username = 'supir_yoyo'), 'in_use',
+  '2024-02-28', '2024-08-28',
+  'STNK-9090-2026', '2026-04-17', '2030-05-11'
+),
+('B 7890 MNO', 'Mitsubishi Colt Diesel', '7000', (SELECT id FROM users WHERE username = 'supir_eko'), 'in_use',
+  '2024-01-05', '2024-07-05',
+  'STNK-7890-2026', '2026-01-10', '2026-01-10'
+),
+('B 1122 PQR', 'Isuzu Giga', '15000', NULL, 'available',
+  '2024-06-15', '2024-12-15',
+  'STNK-1122-2025', '2025-08-20', '2025-08-20'
+);
 
 -- 3. PURCHASE ORDERS (UPDATED STRUCTURE)
 INSERT INTO purchase_orders (po_number, customer_name, item_name, total_quantity, unit_price, total_amount, load_location, unload_location, order_date, status) VALUES

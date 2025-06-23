@@ -134,12 +134,12 @@ module.exports = (sequelize) => {
       // Add scope to hide ongkosan from mobile API
       scopes: {
         mobile: {
-          attributes: { exclude: ['ongkosan'] }
+          attributes: { exclude: ["ongkosan"] },
         },
         web: {
           // Include all fields for web
-        }
-      }
+        },
+      },
     }
   );
 
@@ -192,8 +192,9 @@ module.exports = (sequelize) => {
       gaji: parseFloat(this.gaji) || 0,
       total_for_driver: this.getTotalDriverPayment(),
       total_amount: parseFloat(this.total_amount) || 0,
-      ongkosan: parseFloat(this.ongkosan) || 0, // NEW: Include ongkosan
-      net_profit: (parseFloat(this.ongkosan) || 0) - this.getTotalDriverPayment(), // NEW: Calculate net profit
+      ongkosan: parseFloat(this.ongkosan) || 0,
+      net_profit:
+        (parseFloat(this.ongkosan) || 0) - this.getTotalDriverPayment(),
     };
   };
 
