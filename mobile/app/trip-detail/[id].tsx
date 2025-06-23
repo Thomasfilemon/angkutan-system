@@ -162,6 +162,7 @@ const TripDetailScreen = () => {
       }
       isLoadingRef.current = false;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   // useFocusEffect dengan proper dependency dan cleanup
@@ -381,7 +382,7 @@ const TripDetailScreen = () => {
         router.replace("/(tabs)");
       }
     } catch (error) {
-      console.log("Back navigation failed, using fallback");
+      console.log("Back navigation failed, using fallback Error: ", error);
       // Ultimate fallback
       router.replace("/(tabs)");
     }
@@ -440,17 +441,9 @@ const TripDetailScreen = () => {
         );
       }
     } catch (error) {
+      console.error("Failed to open navigation app:", error);
       Alert.alert("Error", "Failed to open navigation app");
     }
-  };
-
-  const getNavigationButtonText = () => {
-    const target = getNavigationTarget();
-    if (!target) return "Navigate";
-
-    return target.type === "load"
-      ? "Navigate to Loading"
-      : "Navigate to Unloading";
   };
 
   const getNavigationIcon = () => {
