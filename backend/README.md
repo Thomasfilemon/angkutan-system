@@ -11,17 +11,28 @@ backend/
 ├── package-lock.json
 ├── README.md             # Project documentation
 ├── node_modules/
+├── uploads/
+│   ├── receipts/
+│   ├── surat_jalan/
+│   └── surat-jalan/
 └── src/                  # Source code directory
     ├── server.js         # Main application entry point
     ├── config/           # Configuration files
     │   ├── database.js
     │   └── angkutan-system-d87e3-ef128576fdb9.json  # Firebase credentials
     ├── controllers/      # Business logic handlers
+    │   ├── web/
+    │   │   ├── deliveryOrderController.js
+    │   │   ├── purchaseOrderController.js
+    │   │   ├── serviceController.js
+    │   │   ├── stockController.js
+    │   │   └── webvehicleController.js
     │   ├── auth.controller.js
     │   ├── deliveryOrder.controller.js
     │   ├── driverExpenseController.js
     │   ├── firebase.controller.js
     │   ├── health.controller.js
+    │   ├── loadConfirmation.controller.js
     │   ├── purchaseOrder.controller.js
     │   ├── user.controller.js
     │   └── vehicleController.js
@@ -40,7 +51,10 @@ backend/
     │   ├── driverProfile.model.js
     │   ├── index.js
     │   ├── purchaseOrder.model.js
-    │   ├── Trip.js
+    │   ├── serviceItem.model.js
+    │   ├── stockCategory.model.js
+    │   ├── stockItem.model.js
+    │   ├── stockTransaction.model.js
     │   ├── user.model.js
     │   ├── vehicle.model.js
     │   ├── vehicleService.model.js
@@ -49,12 +63,20 @@ backend/
     ├── routes/           # API route definitions
     │   ├── auth.routes.js
     │   ├── deliveryOrder.routes.js
+    │   ├── driver.routes.js
     │   ├── driverExpense.routes.js
     │   ├── firebase.routes.js
     │   ├── health.routes.js
     │   ├── purchaseOrder.routes.js
     │   ├── user.routes.js
-    │   └── vehicle.routes.js
+    │   ├── vehicle.routes.js
+    │   └── web/
+    │       ├── deliveryOrder.routes.js
+    │       ├── driver.routes.js
+    │       ├── purchaseOrder.routes.js
+    │       ├── service.routes.js
+    │       ├── stock.routes.js    
+    │       └── vehicle.routes.js
     ├── services/         # External service integrations
     │   └── firebase.js
     └── utils/            # Utility functions
@@ -64,10 +86,6 @@ backend/
         ├── runMigrations.js
         ├── runSeeder.js
         └── verifyFirebaseToken.js
-uploads/
-    ├── receipts/
-    ├── surat_jalan/
-    └── surat-jalan/
 ```
 
 ## Environment Variables
