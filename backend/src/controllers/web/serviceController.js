@@ -1,5 +1,5 @@
 // src/controllers/web/serviceController.js
-const { VehicleService, ServiceItem, Vehicle, StockItem, StockTransaction } = require('../../models');
+const { VehicleService, ServiceItem, Vehicle, StockItem, StockTransaction, StockCategory } = require('../../models');
 const { Op } = require('sequelize');
 
 // Get all services
@@ -83,9 +83,28 @@ exports.getServiceById = async (req, res, next) => {
       });
     }
 
+    // Convert to plain object and ensure all fields exist
+    const serviceData = service.toJSON();
+    
+    // Ensure cost fields are numbers, not null/undefined
+    serviceData.labor_cost = parseFloat(serviceData.labor_cost) || 0;
+    serviceData.parts_cost = parseFloat(serviceData.parts_cost) || 0;
+    serviceData.total_cost = serviceData.labor_cost + serviceData.parts_cost;
+    
+    // Ensure serviceItems is an array and clean up any null items
+    serviceData.serviceItems = (serviceData.serviceItems || []).filter(item => item != null);
+    
+    // Validate each service item
+    serviceData.serviceItems = serviceData.serviceItems.map(item => ({
+      ...item,
+      quantity: parseFloat(item.quantity) || 0,
+      unit_price: parseFloat(item.unit_price) || 0,
+      from_stock: Boolean(item.from_stock)
+    }));
+
     res.json({
       success: true,
-      data: service
+      data: serviceData
     });
   } catch (err) {
     next(err);
@@ -257,7 +276,7 @@ exports.getAvailableStockItems = async (req, res, next) => {
         current_stock: { [Op.gt]: 0 }
       },
       include: [{
-        model: StockCategory,
+        model: StockCategory,  // Now this will work because StockCategory is imported
         as: 'category',
         required: false
       }],

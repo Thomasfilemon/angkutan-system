@@ -119,7 +119,11 @@ CREATE TABLE service_items (
   unit_price NUMERIC(15,2) NOT NULL,
   total_price NUMERIC(15,2) GENERATED ALWAYS AS (quantity * unit_price) STORED,
   from_stock BOOLEAN NOT NULL DEFAULT false,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  -- Add constraint to ensure data integrity
+  CONSTRAINT check_stock_consistency CHECK (
+    (from_stock = false) OR (from_stock = true AND stock_item_id IS NOT NULL)
+  )
 );
 
 CREATE TABLE tire_inventory (

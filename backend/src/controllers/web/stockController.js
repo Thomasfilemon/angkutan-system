@@ -95,10 +95,20 @@ const createStockItem = async (req, res, next) => {
 };
 
 // Get stock item by ID
+// In src/controllers/web/stockController.js
 const getStockItemById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const stockItem = await StockItem.findByPk(id, {
+    
+    // Add validation to ensure id is a number
+    if (isNaN(parseInt(id))) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid stock item ID. Must be a number.'
+      });
+    }
+    
+    const stockItem = await StockItem.findByPk(parseInt(id), {
       include: [{
         model: StockCategory,
         as: 'category',
@@ -126,6 +136,7 @@ const getStockItemById = async (req, res, next) => {
     next(err);
   }
 };
+
 
 // Update stock item
 const updateStockItem = async (req, res, next) => {
@@ -230,5 +241,63 @@ module.exports = {
   getStockItemById,
   updateStockItem,
   addStock,
+  getStockCategories
+};
+
+const deleteStockItem = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    
+    // Add validation to ensure id is a number
+    if (isNaN(parseInt(id))) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid stock item ID. Must be a number.'
+      });
+    }
+    
+    const stockItem = await StockItem.findByPk(parseInt(id));
+    
+    if (!stockItem) {
+      return res.status(404).json({
+        success: false,
+        message: 'Stock item not found'
+      });
+    }
+
+    // Check if item is used in any services
+    const { ServiceItem } = require('../../models');
+    const usedInServices = await ServiceItem.count({
+      where: { stock_item_id: id }
+    });
+
+    if (usedInServices > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete stock item. It has been used in ${usedInServices} service(s).`
+      });
+    }
+
+    // Delete the stock item
+    await stockItem.destroy();
+
+    res.json({
+      success: true,
+      message: 'Stock item deleted successfully'
+    });
+  } catch (err) {
+    console.error('Error in deleteStockItem:', err);
+    next(err);
+  }
+};
+
+// Update your module.exports to include the delete function
+module.exports = {
+  getAllStockItems,
+  createStockItem,
+  getStockItemById,
+  updateStockItem,
+  addStock,
+  deleteStockItem, // Add this line
   getStockCategories
 };

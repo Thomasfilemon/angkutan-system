@@ -67,7 +67,7 @@ const ServiceDetailPage = () => {
     if (window.confirm('Are you sure you want to cancel this service? Stock items will be restored.')) {
       try {
         await apiClient.patch(`/services/${service.id}/cancel`);
-        fetchServiceDetail(); // Refresh data
+        fetchServiceDetail();
       } catch (err) {
         alert('Failed to cancel service');
       }
@@ -92,6 +92,11 @@ const ServiceDetailPage = () => {
         {type === 'regular' ? 'Regular Service' : 'With Parts'}
       </span>
     );
+  };
+
+  // TypeScript-safe number formatting function
+  const formatCurrency = (value: number | undefined | null): string => {
+    return (value ?? 0).toLocaleString('id-ID');
   };
 
   if (loading) return <div className="text-center p-8">Loading service details...</div>;
@@ -142,10 +147,10 @@ const ServiceDetailPage = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-600">Kendaraan</label>
                 <p className="text-lg font-semibold text-gray-900">
-                  {service.vehicle.license_plate}
+                  {service.vehicle?.license_plate || 'N/A'}
                 </p>
                 <p className="text-sm text-gray-600">
-                  {service.vehicle.type} - {service.vehicle.capacity} kg
+                  {service.vehicle?.type || 'N/A'} - {service.vehicle?.capacity || 'N/A'} kg
                 </p>
               </div>
               
@@ -201,7 +206,7 @@ const ServiceDetailPage = () => {
           </div>
 
           {/* Service Items */}
-          {service.serviceItems.length > 0 && (
+          {service.serviceItems && service.serviceItems.length > 0 && (
             <div className="bg-white shadow-md rounded-lg p-6">
               <h2 className="text-xl font-semibold text-gray-800 mb-4">Suku Cadang yang Digunakan</h2>
               
@@ -233,10 +238,10 @@ const ServiceDetailPage = () => {
                           {item.quantity} {item.stockItem?.unit || 'pcs'}
                         </td>
                         <td className="py-3 px-4 text-right">
-                          Rp {item.unit_price.toLocaleString('id-ID')}
+                          Rp {formatCurrency(item.unit_price)}
                         </td>
                         <td className="py-3 px-4 text-right font-medium">
-                          Rp {item.total_price.toLocaleString('id-ID')}
+                          Rp {formatCurrency(item.total_price)}
                         </td>
                         <td className="py-3 px-4 text-center">
                           <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
@@ -262,19 +267,25 @@ const ServiceDetailPage = () => {
             <div className="space-y-3">
               <div className="flex justify-between">
                 <span className="text-gray-600">Biaya Jasa:</span>
-                <span className="font-medium">Rp {service.labor_cost.toLocaleString('id-ID')}</span>
+                <span className="font-medium">
+                  Rp {formatCurrency(service.labor_cost)}
+                </span>
               </div>
               
               <div className="flex justify-between">
                 <span className="text-gray-600">Biaya Suku Cadang:</span>
-                <span className="font-medium">Rp {service.parts_cost.toLocaleString('id-ID')}</span>
+                <span className="font-medium">
+                  Rp {formatCurrency(service.parts_cost)}
+                </span>
               </div>
               
               <hr />
               
               <div className="flex justify-between text-lg font-semibold">
                 <span>Total Biaya:</span>
-                <span className="text-blue-600">Rp {service.total_cost.toLocaleString('id-ID')}</span>
+                <span className="text-blue-600">
+                  Rp {formatCurrency(service.total_cost)}
+                </span>
               </div>
             </div>
           </div>
