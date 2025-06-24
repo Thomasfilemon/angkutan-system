@@ -17,6 +17,12 @@ const setupStockItemModel = require("./stockItem.model");
 const setupStockTransactionModel = require("./stockTransaction.model");
 const setupServiceItemModel = require("./serviceItem.model");
 
+const setupTireInventoryModel = require('./tireInventory.model');
+const setupVehicleTireModel = require('./vehicleTire.model');
+const setupTireInspectionModel = require('./tireInspection.model');
+const setupTireInstanceModel = require("./tireInstance.model");
+
+
 // Initialize Sequelize connection using your .env variables
 const sequelize = new Sequelize(
   process.env.DB_NAME,
@@ -56,6 +62,12 @@ db.StockItem = setupStockItemModel(sequelize);
 db.StockTransaction = setupStockTransactionModel(sequelize);
 db.ServiceItem = setupServiceItemModel(sequelize);
 
+db.TireInventory = setupTireInventoryModel(sequelize);
+db.VehicleTire = setupVehicleTireModel(sequelize);
+db.TireInspection = setupTireInspectionModel(sequelize);
+db.TireInstance = setupTireInstanceModel(sequelize);
+
+
 // === Define All Model Associations ===
 const {
   User,
@@ -70,6 +82,10 @@ const {
   StockItem,
   StockTransaction,
   ServiceItem,
+  TireInventory,
+  VehicleTire,
+  TireInspection,
+  TireInstance,
 } = db;
 
 // User <-> Profile Associations (One-to-One)
@@ -185,6 +201,60 @@ StockItem.hasMany(ServiceItem, {
 ServiceItem.belongsTo(StockItem, {
   foreignKey: "stock_item_id",
   as: "stockItem"
+});
+
+Vehicle.hasMany(VehicleTire, {
+  foreignKey: 'vehicle_id',
+  as: 'tires'
+});
+VehicleTire.belongsTo(Vehicle, {
+  foreignKey: 'vehicle_id',
+  as: 'vehicle'
+});
+
+TireInventory.hasMany(VehicleTire, {
+  foreignKey: 'tire_inventory_id',
+  as: 'installedTires'
+});
+VehicleTire.belongsTo(TireInventory, {
+  foreignKey: 'tire_inventory_id',
+  as: 'tireInventory'
+});
+
+VehicleTire.hasMany(TireInspection, {
+  foreignKey: 'vehicle_tire_id',
+  as: 'inspections'
+});
+TireInspection.belongsTo(VehicleTire, {
+  foreignKey: 'vehicle_tire_id',
+  as: 'vehicleTire'
+});
+
+TireInventory.hasMany(TireInstance, {
+  foreignKey: 'tire_inventory_id',
+  as: 'instances'
+});
+TireInstance.belongsTo(TireInventory, {
+  foreignKey: 'tire_inventory_id',
+  as: 'tireInventory'
+});
+
+VehicleTire.belongsTo(TireInstance, {
+  foreignKey: 'tire_instance_id',
+  as: 'tireInstance'
+});
+TireInstance.hasMany(VehicleTire, {
+  foreignKey: 'tire_instance_id',
+  as: 'installations'
+});
+
+TireInspection.belongsTo(TireInstance, {
+  foreignKey: 'tire_instance_id',
+  as: 'tireInstance'
+});
+TireInstance.hasMany(TireInspection, {
+  foreignKey: 'tire_instance_id',
+  as: 'inspections'
 });
 
 module.exports = db;

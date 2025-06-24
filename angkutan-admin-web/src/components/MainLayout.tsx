@@ -12,6 +12,7 @@ const MainLayout = () => {
     if (path === '/') return 'Dashboard';
     if (path.startsWith('/trips')) return 'Manajemen Trips';
     if (path.startsWith('/delivery-orders')) return 'Delivery Orders';
+    if (path.startsWith('/vehicles/tires')) return 'Manajemen Ban'; // NEW
     if (path.startsWith('/vehicles')) return 'Manajemen Kendaraan';
     if (path.startsWith('/drivers')) return 'Manajemen Supir';
     if (path.startsWith('/stock')) return 'Manajemen Stok';
@@ -80,10 +81,21 @@ const MainLayout = () => {
               <Link 
                 to="/vehicles" 
                 className={`block p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink('/vehicles') ? 'bg-gray-700 border-l-4 border-blue-500' : ''
+                  isActiveLink('/vehicles') && !location.pathname.startsWith('/vehicles/tires') ? 'bg-gray-700 border-l-4 border-blue-500' : ''
                 }`}
               >
                 🚛 Manajemen Kendaraan
+              </Link>
+            </li>
+            {/* NEW: Tire Management */}
+            <li className="mb-4">
+              <Link 
+                to="/vehicles/tires" 
+                className={`block p-2 rounded hover:bg-gray-700 ${
+                  isActiveLink('/vehicles/tires') ? 'bg-gray-700 border-l-4 border-blue-500' : ''
+                }`}
+              >
+                🛞 Manajemen Ban
               </Link>
             </li>
             <li className="mb-4">
@@ -121,6 +133,26 @@ const MainLayout = () => {
                 }`}
               >
                 📦 Manajemen Stok
+              </Link>
+            </li>
+            <li className="mb-4">
+              <Link 
+                to="/tire-inventory" 
+                className={`block p-2 rounded hover:bg-gray-700 ${
+                  isActiveLink('/tire-inventory') ? 'bg-gray-700 border-l-4 border-blue-500' : ''
+                }`}
+              >
+                📦 Inventaris Ban
+              </Link>
+            </li>
+            <li className="mb-4">
+              <Link 
+                to="/vehicles/tires/removed" 
+                className={`block p-2 rounded hover:bg-gray-700 ${
+                  isActiveLink('/vehicles/tires/removed') ? 'bg-gray-700 border-l-4 border-blue-500' : ''
+                }`}
+              >
+                🔄 Ban Bekas
               </Link>
             </li>
           </ul>

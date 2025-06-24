@@ -1,4 +1,4 @@
-// src/App.tsx - Updated with all routes
+// src/App.tsx - Updated with tire management routes
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import MainLayout from './components/MainLayout';
@@ -8,6 +8,8 @@ import { useAuth } from './components/AuthContext';
 import VehiclesPage from './pages/Vehicles';
 import VehicleCreatePage from './pages/VehicleCreate';
 import VehicleEditPage from './pages/VehicleEdit';
+import TireManagementPage from './pages/TireManagement';
+import VehicleTireDetailPage from './pages/VehicleTireDetail';
 import DriversPage from './pages/Drivers';
 import DriverCreatePage from './pages/DriverCreate';
 import DriverEditPage from './pages/DriverEdit';
@@ -24,6 +26,11 @@ import ServiceManagementPage from './pages/ServiceManagement';
 import ServiceCreatePage from './pages/ServiceCreate';
 import ServiceDetailPage from './pages/ServiceDetail';
 import ServiceEditPage from './pages/ServiceEdit';
+import TireInventoryPage from './pages/TireInventory';
+import TireInventoryCreatePage from './pages/TireInventoryCreate';
+import TireInventoryEditPage from './pages/TireInventoryEdit';
+import RemovedTiresPage from './pages/RemovedTires';
+
 
 function App() {
   const { token } = useAuth();
@@ -40,6 +47,16 @@ function App() {
           <Route path="vehicles" element={<VehiclesPage />} />
           <Route path="vehicles/create" element={<VehicleCreatePage />} />
           <Route path="vehicles/edit/:id" element={<VehicleEditPage />} />
+          
+          {/* Tire Management Routes */}
+          <Route path="vehicles/tires" element={<TireManagementPage />} />
+          <Route path="vehicles/tires/:vehicleId" element={<VehicleTireDetailPage />} />
+          // Add to your App.tsx routes
+          <Route path="tire-inventory" element={<TireInventoryPage />} />
+          <Route path="tire-inventory/create" element={<TireInventoryCreatePage />} />
+          <Route path="tire-inventory/edit/:id" element={<TireInventoryEditPage />} />
+          <Route path="vehicles/tires/removed" element={<RemovedTiresPage />} />
+
           
           {/* Drivers Routes */}
           <Route path="drivers" element={<DriversPage />} />

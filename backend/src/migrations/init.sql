@@ -36,11 +36,14 @@ CREATE TABLE driver_profiles (
 -- BAGIAN 2: MANAJEMEN ASET & INVENTARIS
 -- =================================================================
 
+-- UPDATED VEHICLES TABLE WITH TIRE CONFIGURATION
 CREATE TABLE vehicles (
   id SERIAL PRIMARY KEY,
   license_plate VARCHAR(20) UNIQUE NOT NULL,
   type VARCHAR(50),
   capacity VARCHAR(10),
+  tire_count INTEGER NOT NULL DEFAULT 6,
+  spare_tire_count INTEGER NOT NULL DEFAULT 2,
   driver_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'available' CHECK(status IN ('available','in_use','maintenance')),
   last_service_date DATE,
@@ -51,7 +54,71 @@ CREATE TABLE vehicles (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- UPDATED STOCK MANAGEMENT TABLES
+-- TIRE MANAGEMENT TABLES (UPDATED WITH INDIVIDUAL TIRE TRACKING)
+CREATE TABLE tire_inventory (
+  id SERIAL PRIMARY KEY,
+  tire_brand VARCHAR(50) NOT NULL,
+  tire_size VARCHAR(20) NOT NULL,
+  tire_type VARCHAR(50),
+  current_stock INTEGER NOT NULL DEFAULT 0,
+  min_stock INTEGER NOT NULL DEFAULT 0,
+  unit_price NUMERIC(15,2) DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- NEW: Individual tire instances for complete tracking
+CREATE TABLE tire_instances (
+  id SERIAL PRIMARY KEY,
+  tire_inventory_id INTEGER REFERENCES tire_inventory(id),
+  tire_serial_number VARCHAR(50) UNIQUE,
+  purchase_date DATE DEFAULT CURRENT_DATE,
+  purchase_price NUMERIC(15,2),
+  total_mileage INTEGER DEFAULT 0,
+  current_tread_depth NUMERIC(4,2) DEFAULT 10.0,
+  condition VARCHAR(20) DEFAULT 'new' CHECK(condition IN ('new','good','fair','poor','damaged','disposed')),
+  status VARCHAR(20) DEFAULT 'in_stock' CHECK(status IN ('in_stock','installed','removed','disposed')),
+  notes TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- UPDATED: Vehicle tires now reference individual tire instances
+CREATE TABLE vehicle_tires (
+  id SERIAL PRIMARY KEY,
+  vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE CASCADE,
+  tire_inventory_id INTEGER REFERENCES tire_inventory(id), -- For backward compatibility
+  tire_instance_id INTEGER REFERENCES tire_instances(id), -- NEW: Reference to specific tire
+  position VARCHAR(20) NOT NULL,
+  install_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  remove_date DATE,
+  mileage_installed INTEGER DEFAULT 0,
+  mileage_removed INTEGER,
+  current_pressure NUMERIC(5,2) DEFAULT 0,
+  recommended_pressure NUMERIC(5,2) DEFAULT 35,
+  tread_depth NUMERIC(4,2) DEFAULT 10.0,
+  temperature NUMERIC(4,1) DEFAULT 25.0,
+  condition VARCHAR(20) NOT NULL DEFAULT 'good' CHECK(condition IN ('good','fair','poor','replace')),
+  status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK(status IN ('active','removed','damaged')),
+  notes TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE tire_inspections (
+  id SERIAL PRIMARY KEY,
+  vehicle_tire_id INTEGER REFERENCES vehicle_tires(id) ON DELETE CASCADE,
+  tire_instance_id INTEGER REFERENCES tire_instances(id), -- NEW: Direct reference to tire instance
+  inspection_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  tread_depth NUMERIC(4,2),
+  air_pressure NUMERIC(5,2),
+  temperature NUMERIC(4,1),
+  condition VARCHAR(20) NOT NULL CHECK(condition IN ('good','fair','poor','replace')),
+  notes TEXT,
+  inspector_name VARCHAR(100),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- STOCK MANAGEMENT TABLES
 CREATE TABLE stock_categories (
   id SERIAL PRIMARY KEY,
   category_name VARCHAR(100) NOT NULL,
@@ -75,7 +142,6 @@ CREATE TABLE stock_items (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Stock transactions for tracking stock movements
 CREATE TABLE stock_transactions (
   id SERIAL PRIMARY KEY,
   item_id INTEGER REFERENCES stock_items(id) ON DELETE CASCADE,
@@ -83,7 +149,7 @@ CREATE TABLE stock_transactions (
   quantity NUMERIC(10,2) NOT NULL,
   unit_price NUMERIC(15,2),
   total_amount NUMERIC(15,2),
-  reference_type VARCHAR(50), -- 'restock', 'service', 'adjustment'
+  reference_type VARCHAR(50),
   reference_id INTEGER,
   supplier VARCHAR(255),
   notes TEXT,
@@ -91,7 +157,7 @@ CREATE TABLE stock_transactions (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- UPDATED VEHICLE SERVICES TABLE
+-- VEHICLE SERVICES TABLE
 CREATE TABLE vehicle_services (
   id SERIAL PRIMARY KEY,
   vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE CASCADE,
@@ -109,7 +175,6 @@ CREATE TABLE vehicle_services (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Service items for tracking parts used in services
 CREATE TABLE service_items (
   id SERIAL PRIMARY KEY,
   service_id INTEGER REFERENCES vehicle_services(id) ON DELETE CASCADE,
@@ -120,21 +185,9 @@ CREATE TABLE service_items (
   total_price NUMERIC(15,2) GENERATED ALWAYS AS (quantity * unit_price) STORED,
   from_stock BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  -- Add constraint to ensure data integrity
   CONSTRAINT check_stock_consistency CHECK (
     (from_stock = false) OR (from_stock = true AND stock_item_id IS NOT NULL)
   )
-);
-
-CREATE TABLE tire_inventory (
-  id SERIAL PRIMARY KEY,
-  tire_brand VARCHAR(50) NOT NULL,
-  tire_size VARCHAR(20) NOT NULL,
-  tire_type VARCHAR(50),
-  current_stock INTEGER NOT NULL DEFAULT 0,
-  min_stock INTEGER NOT NULL DEFAULT 0,
-  unit_price NUMERIC,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- BAGIAN 3: OPERASIONAL INTI (PO & DO)
@@ -279,34 +332,13 @@ CREATE TABLE payment_terms (
   paid_at TIMESTAMP WITH TIME ZONE
 );
 
-CREATE TABLE vehicle_tires (
-  id SERIAL PRIMARY KEY,
-  vehicle_id INTEGER REFERENCES vehicles(id),
-  tire_id INTEGER REFERENCES tire_inventory(id),
-  position VARCHAR(20) NOT NULL,
-  install_date DATE NOT NULL,
-  mileage_installed INTEGER,
-  status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK(status IN ('active','removed','damaged')),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE tire_inspections (
-  id SERIAL PRIMARY KEY,
-  vehicle_tire_id INTEGER REFERENCES vehicle_tires(id),
-  inspection_date DATE NOT NULL,
-  tread_depth NUMERIC(4,2),
-  air_pressure NUMERIC(5,2),
-  condition VARCHAR(20) NOT NULL CHECK(condition IN ('good','fair','poor','replace')),
-  notes TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
 -- BAGIAN 5: INDEKS UNTUK PERFORMA
 -- =================================================================
 
 CREATE INDEX idx_vehicles_tax_due ON vehicles(tax_due_date);
 CREATE INDEX idx_vehicles_stnk_expired ON vehicles(stnk_expired_date);
 CREATE INDEX idx_vehicles_driver_id ON vehicles(driver_id);
+CREATE INDEX idx_vehicles_tire_count ON vehicles(tire_count);
 CREATE INDEX idx_stock_items_category ON stock_items(category_id);
 CREATE INDEX idx_stock_items_low_stock ON stock_items(current_stock, min_stock);
 CREATE INDEX idx_stock_transactions_item ON stock_transactions(item_id);
@@ -315,6 +347,14 @@ CREATE INDEX idx_vehicle_services_vehicle ON vehicle_services(vehicle_id);
 CREATE INDEX idx_vehicle_services_date ON vehicle_services(service_date);
 CREATE INDEX idx_service_items_service ON service_items(service_id);
 CREATE INDEX idx_service_items_stock ON service_items(stock_item_id);
+CREATE INDEX idx_vehicle_tires_vehicle_id ON vehicle_tires(vehicle_id);
+CREATE INDEX idx_vehicle_tires_position ON vehicle_tires(position);
+CREATE INDEX idx_vehicle_tires_instance ON vehicle_tires(tire_instance_id);
+CREATE INDEX idx_tire_instances_inventory ON tire_instances(tire_inventory_id);
+CREATE INDEX idx_tire_instances_status ON tire_instances(status);
+CREATE INDEX idx_tire_instances_serial ON tire_instances(tire_serial_number);
+CREATE INDEX idx_tire_inspections_vehicle_tire_id ON tire_inspections(vehicle_tire_id);
+CREATE INDEX idx_tire_inspections_instance ON tire_inspections(tire_instance_id);
 CREATE INDEX idx_tire_inspections_date ON tire_inspections(inspection_date);
 CREATE INDEX idx_cash_transactions_date ON cash_transactions(transaction_date);
 CREATE INDEX idx_delivery_orders_status ON delivery_orders(payment_status);
