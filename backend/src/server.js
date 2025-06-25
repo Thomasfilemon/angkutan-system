@@ -26,9 +26,33 @@ const webVehicleRoutes = require("./routes/web/vehicle.routes");
 const webDriverRoutes = require("./routes/web/driver.routes");
 const webStockRoutes = require("./routes/web/stock.routes");
 const webServiceRoutes = require("./routes/web/service.routes");
+const cors = require('cors');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+const allowedOrigins = [
+  'http://localhost:3001',
+  'http://localhost:8081',
+];
+
+// app.use(cors({
+//   origin: function (origin, callback) {
+//     // Allow requests with no origin (like mobile apps or curl)
+//     if (!origin) return callback(null, true);
+//     if (allowedOrigins.includes(origin)) {
+//       return callback(null, true);
+//     } else {
+//       return callback(new Error('Not allowed by CORS'));
+//     }
+//   },
+//   credentials: true
+// }));
+
+app.use(cors({
+  origin: "*", // <-- Allow all origins for debugging
+  credentials: true
+}));
 
 // Setup middleware (cors, json)
 setupMiddleware(app);
@@ -69,14 +93,16 @@ app.use("/api/purchase-orders", purchaseOrderRoutes);
 app.use("/api/delivery-orders", deliveryOrderRoutes);
 app.use("/api/driver-expenses", driverExpenseRoutes);
 app.use("/api/drivers", driverRoutes);
-app.use(
-  "/uploads",
-  (req, res, next) => {
-    res.setHeader("ngrok-skip-browser-warning", "true");
-    next();
-  },
-  express.static(path.join(__dirname, "../uploads"))
-);
+// app.use(
+//   "/uploads",
+//   (req, res, next) => {
+//     res.setHeader("ngrok-skip-browser-warning", "true");
+//     next();
+//   },
+//   express.static(path.join(__dirname, "../uploads"))
+// );
+app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
+
 // === New Web Routes (ADDED) ===
 app.use("/api/web/purchase-orders", webPurchaseOrderRoutes);
 app.use("/api/web/delivery-orders", webDeliveryOrderRoutes);

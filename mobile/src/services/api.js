@@ -70,8 +70,7 @@ const appendFileToFormData = async (formData, fieldName, fileData) => {
 
   try {
     if (Platform.OS === "web") {
-      // Untuk web, kita perlu mengambil Blob dari URI
-      // Expo ImagePicker di web mengembalikan URI blob
+      // Web handling
       const response = await fetch(fileData.uri);
       const blob = await response.blob();
       formData.append(
@@ -80,12 +79,19 @@ const appendFileToFormData = async (formData, fieldName, fileData) => {
         fileData.fileName || fileData.name || "file"
       );
     } else {
-      // Untuk mobile (iOS/Android), React Native's FormData polyfill bisa menangani
-      // objek { uri, name, type } secara langsung.
+      // Mobile handling
+      let fileUri = fileData.uri;
+
+      // Get file extension
+      const ext = fileUri.split(".").pop();
+      let mimeType = "image/jpeg"; // default
+      if (ext === "png") mimeType = "image/png";
+      if (ext === "pdf") mimeType = "application/pdf";
+
       formData.append(fieldName, {
-        uri: fileData.uri,
-        name: fileData.fileName || fileData.name || "file",
-        type: fileData.type || "application/octet-stream", // Pastikan type ada
+        uri: fileUri, // <-- always keep file://
+        name: fileData.fileName || `file.${ext}`,
+        type: fileData.mimeType || mimeType,
       });
     }
     console.log(`Successfully appended file '${fieldName}' for ${Platform.OS}`);
@@ -94,7 +100,6 @@ const appendFileToFormData = async (formData, fieldName, fileData) => {
       `Error appending file '${fieldName}' to FormData for ${Platform.OS}:`,
       error
     );
-    // Lempar error agar bisa ditangkap oleh blok try-catch pemanggil
     throw error;
   }
 };
@@ -138,31 +143,40 @@ export const createDriverExpense = async (expenseData) => {
 };
 
 export const confirmLoad = async (doId, loadData) => {
-  // Pastikan async
-  console.log("Calling confirmLoad with:", { doId, loadData });
+  try {
+    const formData = new FormData();
 
-  const formData = new FormData();
+    formData.append(
+      "actual_load_quantity",
+      loadData.actual_load_quantity.toString()
+    );
 
-  formData.append(
-    "actual_load_quantity",
-    loadData.actual_load_quantity.toString()
-  );
+    await appendFileToFormData(
+      formData,
+      "surat_jalan_photo",
+      loadData.surat_jalan_photo
+    );
 
-  // Gunakan fungsi helper untuk surat_jalan_photo
-  await appendFileToFormData(
-    formData,
-    "surat_jalan_photo",
-    loadData.surat_jalan_photo
-  );
+    // Log form data for debugging
+    console.log("FormData contents:");
+    for (const [key, value] of formData.entries()) {
+      console.log(key, value);
+    }
 
-  console.log("FormData for confirmLoad created");
-
-  return apiClient.post(`/delivery-orders/${doId}/confirm-load`, formData, {
-    headers: {
-      "Content-Type": "multipart/form-data",
-    },
-    timeout: 0, // Set timeout to 0 (no timeout) or a very high value for file uploads
-  });
+    return apiClient.post(`/delivery-orders/${doId}/confirm-load`, formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+      timeout: 30000,
+    });
+  } catch (error) {
+    console.error("Error in confirmLoad API call:", {
+      message: error.message,
+      stack: error.stack,
+      response: error.response?.data
+    });
+    throw error;
+  }
 };
 
 export const updateDeliveryStatus = (doId, action) => {

@@ -17,13 +17,18 @@ interface Vehicle {
   id: number;
   license_plate: string;
   type: string;
-  capacity: number;
+  capacity: string; // Changed to string to match web
   status: "available" | "in_use" | "maintenance";
   last_service_date?: string;
   next_service_due?: string;
   stnk_number?: string;
   stnk_expired_date?: string;
   tax_due_date?: string;
+  // NEW: Driver information fields
+  driver_id: number | null;
+  driver_name: string | null;
+  driver_phone: string | null;
+  driver_status: string | null;
 }
 
 interface VehicleService {
@@ -46,11 +51,9 @@ export default function VehicleScreen() {
       setError(null);
       console.log("🔄 Fetching driver's active delivery orders...");
 
-      // ✅ Fix 1: Use /delivery-orders/me endpoint (lebih spesifik untuk driver)
       const ordersResponse = await apiClient.get("/delivery-orders/me");
       console.log("📥 Active orders response:", ordersResponse.data);
 
-      // ✅ Fix 2: Filter active orders di frontend jika backend tidak filter
       const activeOrders = ordersResponse.data.filter((order: any) =>
         [
           "assigned",
@@ -77,14 +80,22 @@ export default function VehicleScreen() {
           return;
         }
 
-        // ✅ Fix 3: Fetch vehicle data with better error handling
         console.log("🔄 Fetching vehicle details...");
         const vehicleResponse = await apiClient.get(`/vehicles/${vehicleId}`);
         console.log("📥 Vehicle data:", vehicleResponse.data);
 
-        setVehicle(vehicleResponse.data);
+        // Updated to match web API response structure
+        const vehicleApiData = vehicleResponse.data.data; // <-- use .data.data
+        const vehicleData = {
+          ...vehicleApiData,
+          driver_id: vehicleApiData.driver_id || null,
+          driver_name: vehicleApiData.driver_name || null,
+          driver_phone: vehicleApiData.driver_phone || null,
+          driver_status: vehicleApiData.driver_status || null,
+        };
+        
+        setVehicle(vehicleData);
 
-        // ✅ Fix 4: Fetch service history with error handling
         try {
           console.log("🔄 Fetching service history...");
           const historyResponse = await apiClient.get(
@@ -94,7 +105,6 @@ export default function VehicleScreen() {
           setServiceHistory(historyResponse.data || []);
         } catch (historyError: any) {
           console.log("⚠️ Service history fetch failed:", historyError.message);
-          // Don't fail the whole component if service history fails
           setServiceHistory([]);
         }
       } else {
@@ -105,7 +115,6 @@ export default function VehicleScreen() {
     } catch (error: any) {
       console.error("💥 Error fetching vehicle info:", error);
 
-      // ✅ Fix 5: Better error messages
       let errorMessage = "Failed to fetch vehicle information";
 
       if (error.response?.status === 401) {
@@ -153,13 +162,20 @@ export default function VehicleScreen() {
     }
   };
 
+  // NEW: Driver status color
+  const getDriverStatusColor = (status: string | null) => {
+    return status === "available" ? "#10b981" : "#f59e0b";
+  };
+
   const formatDate = (dateString?: string) => {
     if (!dateString) return "N/A";
     return new Date(dateString).toLocaleDateString("id-ID");
   };
 
-  const formatCurrency = (amount: number) => {
-    return `Rp ${amount.toLocaleString("id-ID")}`;
+  const formatCurrency = (amount: number | null | undefined) => {
+    // Use 0 as a fallback if amount is undefined or null
+    const validAmount = amount ?? 0;
+    return `Rp ${validAmount.toLocaleString("id-ID")}`;
   };
 
   const isDateNear = (dateString?: string, days: number = 30) => {
@@ -179,7 +195,6 @@ export default function VehicleScreen() {
     return targetDate < today;
   };
 
-  // ✅ Fix 6: Loading state
   if (isLoading) {
     return (
       <View style={styles.emptyState}>
@@ -189,7 +204,6 @@ export default function VehicleScreen() {
     );
   }
 
-  // ✅ Fix 7: Error state
   if (error) {
     return (
       <ScrollView
@@ -208,7 +222,6 @@ export default function VehicleScreen() {
     );
   }
 
-  // ✅ Fix 8: No vehicle state
   if (!vehicle) {
     return (
       <ScrollView
@@ -228,7 +241,6 @@ export default function VehicleScreen() {
     );
   }
 
-  // ✅ Main vehicle display
   return (
     <ScrollView
       style={styles.container}
@@ -247,7 +259,9 @@ export default function VehicleScreen() {
             ]}
           >
             <Text style={styles.statusBadgeText}>
-              {vehicle.status.replace("_", " ").toUpperCase()}
+              {vehicle.status
+                ? vehicle.status.replace("_", " ").toUpperCase()
+                : "UNKNOWN"}
             </Text>
           </View>
         </View>
@@ -258,12 +272,34 @@ export default function VehicleScreen() {
           <View style={styles.vehicleDetails}>
             <Text style={styles.licensePlate}>{vehicle.license_plate}</Text>
             <Text style={styles.vehicleType}>{vehicle.type}</Text>
+            {/* Updated to match web formatting */}
             <Text style={styles.vehicleCapacity}>
-              Capacity: {vehicle.capacity.toLocaleString()} kg
+              Capacity: {vehicle.capacity ? parseInt(vehicle.capacity).toLocaleString('id-ID') : 'N/A'} kg
             </Text>
           </View>
         </View>
       </View>
+
+      {/* NEW: Driver Information Card */}
+      {vehicle.driver_name && (
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Driver Information</Text>
+          </View>
+          <View style={styles.cardContent}>
+            <Text style={styles.driverName}>{vehicle.driver_name}</Text>
+            <Text style={styles.driverPhone}>{vehicle.driver_phone}</Text>
+            <View style={[
+              styles.driverStatusBadge,
+              { backgroundColor: getDriverStatusColor(vehicle.driver_status) }
+            ]}>
+              <Text style={styles.driverStatusText}>
+                {vehicle.driver_status?.toUpperCase() || 'N/A'}
+              </Text>
+            </View>
+          </View>
+        </View>
+      )}
 
       {/* Documents Card */}
       <View style={styles.card}>
@@ -452,6 +488,30 @@ const styles = StyleSheet.create({
   vehicleCapacity: {
     fontSize: 14,
     color: "#9ca3af",
+  },
+  // NEW: Driver information styles
+  driverName: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#1f2937",
+    marginBottom: 4,
+  },
+  driverPhone: {
+    fontSize: 14,
+    color: "#6b7280",
+    marginBottom: 8,
+  },
+  driverStatusBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 4,
+  },
+  driverStatusText: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "500",
   },
   documentItem: {
     flexDirection: "row",

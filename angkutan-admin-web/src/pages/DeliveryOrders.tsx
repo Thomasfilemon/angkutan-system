@@ -3,6 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import apiClient from '../api/axiosConfig';
 
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+
 interface DeliveryOrder {
   id: number;
   do_number: string;
@@ -24,6 +26,7 @@ interface DeliveryOrder {
   purchaseOrder?: {
     po_number: string;
   };
+  surat_jalan_photo_url?: string;
 }
 
 const DeliveryOrdersPage = () => {
@@ -173,6 +176,7 @@ const DeliveryOrdersPage = () => {
               <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Quantity</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Total Amount</th>
+              <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Surat Jalan</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-right text-xs font-semibold text-gray-600 uppercase">Actions</th>
             </tr>
           </thead>
@@ -216,6 +220,20 @@ const DeliveryOrdersPage = () => {
                       Rp {dOrder.financial_summary.total_amount.toLocaleString('id-ID')}
                     </p>
                   </td>
+                  <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
+                    {dOrder.surat_jalan_photo_url ? (
+                      <a 
+                        href={`${BACKEND_URL}/${dOrder.surat_jalan_photo_url}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:underline"
+                      >
+                        View Document
+                      </a>
+                    ) : (
+                      <span className="text-gray-500">Not available</span>
+                    )}
+                  </td>
                   <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm text-right">
                     <Link to={`/delivery-orders/${dOrder.id}`} className="text-indigo-600 hover:text-indigo-900">
                       View Details
@@ -225,7 +243,7 @@ const DeliveryOrdersPage = () => {
               ))
             ) : (
               <tr>
-                <td colSpan={9} className="text-center py-10 text-gray-500">
+                <td colSpan={10} className="text-center py-10 text-gray-500">
                   No delivery orders found.
                 </td>
               </tr>
