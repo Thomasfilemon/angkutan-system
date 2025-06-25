@@ -8,6 +8,7 @@ const setupMiddleware = require("./middlewares/setup.middleware");
 const errorHandler = require("./middlewares/error.middleware");
 const { sequelize } = require("./models");
 const path = require("path");
+const cors = require('cors');
 
 // === Import Existing Routes (MOBILE) ===
 const healthRoutes = require("./routes/health.routes");
@@ -26,35 +27,21 @@ const webVehicleRoutes = require("./routes/web/vehicle.routes");
 const webDriverRoutes = require("./routes/web/driver.routes");
 const webStockRoutes = require("./routes/web/stock.routes");
 const webServiceRoutes = require("./routes/web/service.routes");
-const cors = require('cors');
+const webTireRoutes = require("./routes/web/tire.routes");
+const webCashRoutes = require("./routes/web/cash.routes");
+const webRitaseRoutes = require("./routes/web/ritase.routes");
+const webBukuKasRoutes = require("./routes/web/bukuKas.routes");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-const allowedOrigins = [
-  'http://localhost:3001',
-  'http://localhost:8081',
-];
-
-// app.use(cors({
-//   origin: function (origin, callback) {
-//     // Allow requests with no origin (like mobile apps or curl)
-//     if (!origin) return callback(null, true);
-//     if (allowedOrigins.includes(origin)) {
-//       return callback(null, true);
-//     } else {
-//       return callback(new Error('Not allowed by CORS'));
-//     }
-//   },
-//   credentials: true
-// }));
-
+// CORS: Allow all origins for debugging
 app.use(cors({
-  origin: "*", // <-- Allow all origins for debugging
+  origin: "*",
   credentials: true
 }));
 
-// Setup middleware (cors, json)
+// Setup middleware (cors, json, etc)
 setupMiddleware(app);
 
 // Test database connection
@@ -79,6 +66,10 @@ app.get("/", (req, res) => {
         vehicles: "/api/web/vehicles",
         stock: "/api/web/stock",
         services: "/api/web/services",
+        tires: "/api/web/tires",
+        cash: "/api/web/cash",
+        ritase: "/api/web/ritase",
+        buku_kas: "/api/web/buku-kas",
       },
     },
   });
@@ -93,14 +84,8 @@ app.use("/api/purchase-orders", purchaseOrderRoutes);
 app.use("/api/delivery-orders", deliveryOrderRoutes);
 app.use("/api/driver-expenses", driverExpenseRoutes);
 app.use("/api/drivers", driverRoutes);
-// app.use(
-//   "/uploads",
-//   (req, res, next) => {
-//     res.setHeader("ngrok-skip-browser-warning", "true");
-//     next();
-//   },
-//   express.static(path.join(__dirname, "../uploads"))
-// );
+
+// Static uploads
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 // === New Web Routes (ADDED) ===
@@ -110,6 +95,10 @@ app.use("/api/web/vehicles", webVehicleRoutes);
 app.use("/api/web/drivers", webDriverRoutes);
 app.use("/api/web/stock", webStockRoutes);
 app.use("/api/web/services", webServiceRoutes);
+app.use("/api/web/tires", webTireRoutes);
+app.use("/api/web/cash", webCashRoutes);
+app.use("/api/web/ritase", webRitaseRoutes);
+app.use("/api/web/buku-kas", webBukuKasRoutes);
 
 // Error handling middleware
 app.use(errorHandler);
@@ -121,6 +110,6 @@ app.listen(PORT, "0.0.0.0", () => {
     `📱 Mobile API: /api/purchase-orders, /api/delivery-orders, /api/vehicles`
   );
   console.log(
-    `🌐 Web API: /api/web/purchase-orders, /api/web/delivery-orders, /api/web/vehicles, /api/web/stock, /api/web/services`
+    `🌐 Web API: /api/web/purchase-orders, /api/web/delivery-orders, /api/web/vehicles, /api/web/stock, /api/web/services, /api/web/tires`
   );
 });

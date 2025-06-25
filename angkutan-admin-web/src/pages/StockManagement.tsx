@@ -64,6 +64,19 @@ const StockManagementPage = () => {
     }
   };
 
+  // Add delete function
+  const handleDelete = async (item: StockItem) => {
+    if (window.confirm(`Are you sure you want to delete "${item.item_name}"? This action cannot be undone.`)) {
+      try {
+        await apiClient.delete(`/stock/${item.id}`);
+        fetchStockItems(); // Refresh the list
+      } catch (err: any) {
+        const errorMessage = err.response?.data?.message || 'Failed to delete stock item';
+        alert(errorMessage);
+      }
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     const classes = {
       adequate: 'bg-green-100 text-green-800',
@@ -159,23 +172,31 @@ const StockManagementPage = () => {
                   {getStatusBadge(item.stock_status)}
                 </td>
                 <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm text-right">
-                  <button 
-                    onClick={() => {
-                      setSelectedItem(item);
-                      setRestockData(prev => ({
-                        ...prev,
-                        unit_price: item.unit_price.toString(),
-                        supplier: item.supplier || ''
-                      }));
-                      setShowRestockModal(true);
-                    }}
-                    className="text-blue-600 hover:text-blue-900 mr-4"
-                  >
-                    Restock
-                  </button>
-                  <Link to={`/stock/edit/${item.id}`} className="text-indigo-600 hover:text-indigo-900">
-                    Edit
-                  </Link>
+                  <div className="flex justify-end space-x-2">
+                    <button 
+                      onClick={() => {
+                        setSelectedItem(item);
+                        setRestockData(prev => ({
+                          ...prev,
+                          unit_price: item.unit_price.toString(),
+                          supplier: item.supplier || ''
+                        }));
+                        setShowRestockModal(true);
+                      }}
+                      className="text-blue-600 hover:text-blue-900 text-sm"
+                    >
+                      Restock
+                    </button>
+                    <Link to={`/stock/edit/${item.id}`} className="text-indigo-600 hover:text-indigo-900 text-sm">
+                      Edit
+                    </Link>
+                    <button
+                      onClick={() => handleDelete(item)}
+                      className="text-red-600 hover:text-red-900 text-sm"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -183,7 +204,7 @@ const StockManagementPage = () => {
         </table>
       </div>
 
-      {/* Restock Modal */}
+      {/* Restock Modal - Keep existing modal code */}
       {showRestockModal && selectedItem && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
           <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">

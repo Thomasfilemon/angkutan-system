@@ -1,5 +1,4 @@
 // src/components/VehicleForm.tsx
-
 import React, { useState, useEffect } from 'react';
 import apiClient from '../api/axiosConfig';
 
@@ -11,12 +10,13 @@ interface Driver {
   status: string;
 }
 
-// FIXED: Updated interface to match the actual data structure
 interface VehicleFormData {
   license_plate: string;
   type: string;
   capacity: string;
-  driver_id: number | null; // Changed from string to number | null
+  tire_count: number;        // NEW: Added tire configuration
+  spare_tire_count: number;  // NEW: Added spare tire configuration
+  driver_id: number | null;
   stnk_number: string;
   stnk_expired_date: string;
   tax_due_date: string;
@@ -40,12 +40,13 @@ const VehicleForm: React.FC<VehicleFormProps> = ({
   buttonText = 'Submit',
   isEditMode = false
 }) => {
-  // Internal form state uses string for driver_id to work with select element
   const [formData, setFormData] = useState({
     license_plate: '', 
     type: '', 
     capacity: '', 
-    driver_id: '', // Keep as string for form control
+    tire_count: '6',           // NEW: Default tire count
+    spare_tire_count: '2',     // NEW: Default spare tire count
+    driver_id: '',
     stnk_number: '', 
     stnk_expired_date: '', 
     tax_due_date: '', 
@@ -57,48 +58,29 @@ const VehicleForm: React.FC<VehicleFormProps> = ({
   const [availableDrivers, setAvailableDrivers] = useState<Driver[]>([]);
   const [loadingDrivers, setLoadingDrivers] = useState(false);
 
-  // Fetch available drivers
   useEffect(() => {
-  const fetchDrivers = async () => {
-    try {
-      setLoadingDrivers(true);
-      console.log('🚗 Attempting to fetch drivers from: /vehicles/drivers/available');
-      
-      const response = await apiClient.get('/vehicles/drivers/available');
-      console.log('📡 Raw response:', response);
-      console.log('📊 Response data:', response.data);
-      
-      // FIXED: Handle both response structures
-      let drivers = [];
-      if (response.data && response.data.data) {
-        // Expected structure: { success: true, data: [...] }
-        drivers = response.data.data;
-        console.log('👥 Using response.data.data:', drivers);
-      } else if (Array.isArray(response.data)) {
-        // Current structure: [...]
-        drivers = response.data;
-        console.log('👥 Using response.data directly:', drivers);
-      } else {
-        console.log('❌ Unexpected response structure:', response.data);
+    const fetchDrivers = async () => {
+      try {
+        setLoadingDrivers(true);
+        const response = await apiClient.get('/vehicles/drivers/available');
+        
+        let drivers = [];
+        if (response.data && response.data.data) {
+          drivers = response.data.data;
+        } else if (Array.isArray(response.data)) {
+          drivers = response.data;
+        }
+        
+        setAvailableDrivers(drivers);
+      } catch (err) {
+        console.error('Failed to fetch drivers:', err);
+      } finally {
+        setLoadingDrivers(false);
       }
-      
-      console.log(`✅ Setting ${drivers.length} available drivers:`, drivers);
-      setAvailableDrivers(drivers);
-    } catch (err) {
-      console.error('❌ Failed to fetch drivers:', err);
-      
-      if (err && typeof err === 'object' && 'response' in err) {
-        const axiosError = err as any;
-        console.error('📋 Error response:', axiosError.response?.data);
-        console.error('🔢 Status code:', axiosError.response?.status);
-      }
-    } finally {
-      setLoadingDrivers(false);
-    }
-  };
+    };
 
-  fetchDrivers();
-}, []);
+    fetchDrivers();
+  }, []);
 
   useEffect(() => {
     if (isEditMode && initialData) {
@@ -107,6 +89,8 @@ const VehicleForm: React.FC<VehicleFormProps> = ({
         license_plate: initialData.license_plate || '',
         type: initialData.type || '',
         capacity: String(initialData.capacity || ''),
+        tire_count: String(initialData.tire_count || 6),        // NEW
+        spare_tire_count: String(initialData.spare_tire_count || 2), // NEW
         driver_id: initialData.driver_id ? String(initialData.driver_id) : '',
         stnk_number: initialData.stnk_number || '',
         stnk_expired_date: formatToDateInput(initialData.stnk_expired_date),
@@ -126,12 +110,13 @@ const VehicleForm: React.FC<VehicleFormProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // FIXED: Convert form data to match VehicleFormData interface
     const submitData: VehicleFormData = {
       license_plate: formData.license_plate,
       type: formData.type,
       capacity: formData.capacity,
-      driver_id: formData.driver_id === '' ? null : parseInt(formData.driver_id, 10), // Convert to number | null
+      tire_count: parseInt(formData.tire_count, 10),           // NEW
+      spare_tire_count: parseInt(formData.spare_tire_count, 10), // NEW
+      driver_id: formData.driver_id === '' ? null : parseInt(formData.driver_id, 10),
       stnk_number: formData.stnk_number,
       stnk_expired_date: formData.stnk_expired_date,
       tax_due_date: formData.tax_due_date,
@@ -203,7 +188,6 @@ const VehicleForm: React.FC<VehicleFormProps> = ({
           </select>
         </div>
 
-        {/* Driver Assignment */}
         <div>
           <label htmlFor="driver_id" className="block text-sm font-medium text-gray-700">Supir</label>
           <select 
@@ -223,6 +207,55 @@ const VehicleForm: React.FC<VehicleFormProps> = ({
           </select>
           {loadingDrivers && <p className="text-sm text-gray-500 mt-1">Loading drivers...</p>}
         </div>
+      </div>
+
+      {/* NEW: Tire Configuration Section */}
+      <hr/>
+      <h3 className="text-lg font-medium text-gray-900">Konfigurasi Ban</h3>
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div>
+          <label htmlFor="tire_count" className="block text-sm font-medium text-gray-700">Jumlah Ban Utama</label>
+          <select 
+            name="tire_count" 
+            id="tire_count" 
+            value={formData.tire_count} 
+            onChange={handleChange} 
+            required 
+            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="4">4 Ban (Mobil Kecil)</option>
+            <option value="6">6 Ban (Truck Kecil)</option>
+            <option value="10">10 Ban (Truck Besar)</option>
+            <option value="14">14 Ban (Truck Trailer)</option>
+            <option value="18">18 Ban (Truck Besar)</option>
+          </select>
+        </div>
+        
+        <div>
+          <label htmlFor="spare_tire_count" className="block text-sm font-medium text-gray-700">Jumlah Ban Serep</label>
+          <select 
+            name="spare_tire_count" 
+            id="spare_tire_count" 
+            value={formData.spare_tire_count} 
+            onChange={handleChange} 
+            required 
+            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="0">0 Ban Serep</option>
+            <option value="1">1 Ban Serep</option>
+            <option value="2">2 Ban Serep</option>
+            <option value="3">3 Ban Serep</option>
+            <option value="4">4 Ban Serep</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="bg-blue-50 p-3 rounded-md">
+        <p className="text-sm text-blue-700">
+          <strong>Total Ban:</strong> {parseInt(formData.tire_count) + parseInt(formData.spare_tire_count)} ban 
+          ({formData.tire_count} utama + {formData.spare_tire_count} serep)
+        </p>
       </div>
 
       <hr/>

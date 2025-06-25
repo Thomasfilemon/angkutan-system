@@ -6,14 +6,15 @@ const { verifyToken } = require('../../middlewares/auth.middleware');
 
 stockRouter.use(verifyToken);
 
-// Stock items
+// Categories route MUST come BEFORE the /:id route
+stockRouter.get('/categories', stockController.getStockCategories);
+
+// Stock items routes
 stockRouter.get('/', stockController.getAllStockItems);
 stockRouter.post('/', stockController.createStockItem);
 stockRouter.get('/:id', stockController.getStockItemById);
 stockRouter.put('/:id', stockController.updateStockItem);
+stockRouter.delete('/:id', stockController.deleteStockItem); // Add this line
 stockRouter.post('/:id/add-stock', stockController.addStock);
-
-// Categories
-stockRouter.get('/categories', stockController.getStockCategories);
 
 module.exports = stockRouter;
