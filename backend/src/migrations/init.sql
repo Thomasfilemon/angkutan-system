@@ -310,15 +310,24 @@ CREATE TABLE payment_transactions (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+CREATE TABLE cash_categories (
+  id SERIAL PRIMARY KEY,
+  category_name VARCHAR(100) NOT NULL,
+  category_type VARCHAR(20) NOT NULL CHECK(category_type IN ('income','expense')),
+  description TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 CREATE TABLE cash_transactions (
   id SERIAL PRIMARY KEY,
-  transaction_type VARCHAR(20) NOT NULL CHECK(transaction_type IN ('income','expense')),
-  amount NUMERIC NOT NULL,
+  transaction_type VARCHAR(20) NOT NULL CHECK(transaction_type IN ('debit','kredit')),
+  category_id INTEGER REFERENCES cash_categories(id),
+  amount NUMERIC(15,2) NOT NULL,
   description TEXT NOT NULL,
-  reference_type VARCHAR(50),
-  reference_id INTEGER,
-  transaction_date DATE NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  reference_number VARCHAR(50),
+  transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE TABLE payment_terms (
@@ -356,9 +365,12 @@ CREATE INDEX idx_tire_instances_serial ON tire_instances(tire_serial_number);
 CREATE INDEX idx_tire_inspections_vehicle_tire_id ON tire_inspections(vehicle_tire_id);
 CREATE INDEX idx_tire_inspections_instance ON tire_inspections(tire_instance_id);
 CREATE INDEX idx_tire_inspections_date ON tire_inspections(inspection_date);
-CREATE INDEX idx_cash_transactions_date ON cash_transactions(transaction_date);
 CREATE INDEX idx_delivery_orders_status ON delivery_orders(payment_status);
 CREATE INDEX idx_delivery_orders_po_id ON delivery_orders(purchase_order_id);
 CREATE INDEX idx_delivery_orders_due_date ON delivery_orders(due_date);
+CREATE INDEX idx_cash_transactions_date ON cash_transactions(transaction_date DESC);
+CREATE INDEX idx_cash_transactions_type ON cash_transactions(transaction_type);
+CREATE INDEX idx_cash_transactions_category ON cash_transactions(category_id);
+CREATE INDEX idx_cash_transactions_created_at ON cash_transactions(created_at DESC);
 CREATE UNIQUE INDEX idx_active_delivery_orders_per_driver_id ON delivery_orders(driver_id) WHERE status IN ('assigned', 'otw_to_load_location', 'at_load_location', 'otw_to_unload_location', 'at_unload_location', 'otw_to_base');
 CREATE UNIQUE INDEX idx_active_delivery_orders_per_vehicle ON delivery_orders(vehicle_id) WHERE status IN ('assigned', 'otw_to_load_location', 'at_load_location', 'otw_to_unload_location', 'at_unload_location', 'otw_to_base');

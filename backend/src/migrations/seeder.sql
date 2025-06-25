@@ -346,11 +346,16 @@ INSERT INTO office_expenses (kategori, description, amount, expense_date) VALUES
 INSERT INTO payment_transactions (do_id, payment_type, amount, payment_date, reference_number, notes) VALUES
 ((SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-02'), 'transfer', 6114600, '2024-11-06', 'TRF-20241106-001', 'Pembayaran lunas DO-241005-02');
 
--- 17. CASH TRANSACTIONS
-INSERT INTO cash_transactions (transaction_type, amount, description, reference_type, reference_id, transaction_date) VALUES
-('income', 6114600, 'Pembayaran DO-241005-02', 'delivery_order', (SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-02'), '2024-11-06'),
-('expense', 1500000, 'Pembayaran tagihan listrik kantor', 'office_expense', NULL, '2024-09-25'),
-('expense', 4000000, 'Gaji admin September', 'office_expense', NULL, '2024-09-25');
+--17. Cash_categories
+INSERT INTO cash_categories (category_name, category_type, description) VALUES
+('Setoran Modal', 'income', 'Modal awal atau tambahan modal'),
+('Pendapatan Operasional', 'income', 'Pendapatan dari operasional harian'),
+('Pendapatan Lain-lain', 'income', 'Pendapatan di luar operasional utama'),
+('Biaya Kantor', 'expense', 'Pengeluaran untuk operasional kantor'),
+('Gaji Staf', 'expense', 'Pembayaran gaji karyawan'),
+('Pembelian Aset', 'expense', 'Pembelian kendaraan, peralatan, dll'),
+('Biaya Operasional', 'expense', 'Biaya BBM, maintenance, dll'),
+('Pengeluaran Lain-lain', 'expense', 'Pengeluaran di luar kategori utama');
 
 -- 18. PAYMENT TERMS
 INSERT INTO payment_terms (partner_name, amount_due, due_date, status) VALUES

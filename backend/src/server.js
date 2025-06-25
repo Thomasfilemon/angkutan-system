@@ -27,6 +27,8 @@ const webDriverRoutes = require("./routes/web/driver.routes");
 const webStockRoutes = require("./routes/web/stock.routes");
 const webServiceRoutes = require("./routes/web/service.routes");
 const webTireRoutes = require("./routes/web/tire.routes");
+const webCashRoutes = require("./routes/web/cash.routes");
+
 
 
 const app = express();
@@ -58,6 +60,7 @@ app.get("/", (req, res) => {
         stock: "/api/web/stock",
         services: "/api/web/services",
         tires: "/api/web/tires", // Add this line
+        cash: "/api/web/cash",
       },
     },
   });
@@ -88,6 +91,7 @@ app.use("/api/web/drivers", webDriverRoutes);
 app.use("/api/web/stock", webStockRoutes);
 app.use("/api/web/services", webServiceRoutes);
 app.use("/api/web/tires", webTireRoutes);
+app.use("/api/web/cash", webCashRoutes);
 
 
 // Error handling middleware
@@ -100,6 +104,6 @@ app.listen(PORT, "0.0.0.0", () => {
     `📱 Mobile API: /api/purchase-orders, /api/delivery-orders, /api/vehicles`
   );
   console.log(
-    `🌐 Web API: /api/web/purchase-orders, /api/web/delivery-orders, /api/web/vehicles, /api/web/stock, /api/web/services`
+    `🌐 Web API: /api/web/purchase-orders, /api/web/delivery-orders, /api/web/vehicles, /api/web/stock, /api/web/services, /api/web/tires`
   );
 });

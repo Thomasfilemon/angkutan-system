@@ -30,6 +30,7 @@ import TireInventoryPage from './pages/TireInventory';
 import TireInventoryCreatePage from './pages/TireInventoryCreate';
 import TireInventoryEditPage from './pages/TireInventoryEdit';
 import RemovedTiresPage from './pages/RemovedTires';
+import CashManagementPage from './pages/CashManagement';
 
 
 function App() {
@@ -84,6 +85,8 @@ function App() {
           <Route path="services/create" element={<ServiceCreatePage />} />
           <Route path="services/:id" element={<ServiceDetailPage />} />
           <Route path="services/edit/:id" element={<ServiceEditPage />} />
+
+          <Route path="cash" element={<CashManagementPage />} />
         </Route>
       </Routes>
     </Router>

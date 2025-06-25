@@ -22,6 +22,9 @@ const setupVehicleTireModel = require('./vehicleTire.model');
 const setupTireInspectionModel = require('./tireInspection.model');
 const setupTireInstanceModel = require("./tireInstance.model");
 
+const setupCashCategoryModel = require("./cashCategory.model");
+const setupCashTransactionModel = require("./cashTransaction.model");
+
 
 // Initialize Sequelize connection using your .env variables
 const sequelize = new Sequelize(
@@ -67,6 +70,9 @@ db.VehicleTire = setupVehicleTireModel(sequelize);
 db.TireInspection = setupTireInspectionModel(sequelize);
 db.TireInstance = setupTireInstanceModel(sequelize);
 
+db.CashCategory = setupCashCategoryModel(sequelize);
+db.CashTransaction = setupCashTransactionModel(sequelize);
+
 
 // === Define All Model Associations ===
 const {
@@ -86,6 +92,8 @@ const {
   VehicleTire,
   TireInspection,
   TireInstance,
+  CashCategory,
+  CashTransaction,
 } = db;
 
 // User <-> Profile Associations (One-to-One)
@@ -255,6 +263,16 @@ TireInspection.belongsTo(TireInstance, {
 TireInstance.hasMany(TireInspection, {
   foreignKey: 'tire_instance_id',
   as: 'inspections'
+});
+
+// Cash Management Associations
+CashCategory.hasMany(CashTransaction, {
+  foreignKey: "category_id",
+  as: "transactions"
+});
+CashTransaction.belongsTo(CashCategory, {
+  foreignKey: "category_id",
+  as: "category"
 });
 
 module.exports = db;
