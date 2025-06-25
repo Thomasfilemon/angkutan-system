@@ -81,6 +81,7 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
     console.log(`Found ${purchaseOrders.length} purchase orders`);
 
     // ✅ ENHANCED CALCULATION with proper financial logic
+    // ✅ ENHANCED CALCULATION with ACTUAL PAYMENTS from delivery_order_payments table
     const enrichedPOs = await Promise.all(
       purchaseOrders.map(async (po) => {
         const deliveryOrders = po.deliveryOrders || [];
@@ -92,7 +93,7 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
           `Processing PO ${po.po_number} with ${completedDOs.length} completed DOs`
         );
 
-        // ✅ QUANTITY PROGRESS CALCULATION
+        // ✅ QUANTITY PROGRESS (unchanged)
         const totalQuantity = parseFloat(po.total_quantity) || 0;
         const deliveredQuantity = completedDOs.reduce((sum, do_item) => {
           const quantity = do_item.actual_load_quantity
@@ -108,65 +109,65 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
         const deliveryPercentage =
           totalQuantity > 0 ? (deliveredQuantity / totalQuantity) * 100 : 0;
 
-        // ✅ PROPER FINANCIAL CALCULATION per DO
+        // ✅ FIXED: PROPER FINANCIAL CALCULATION with ACTUAL PAYMENTS
         let totalCalculatedAmount = 0;
         let totalActualPaidAmount = 0;
         let totalPaymentVariance = 0;
 
-        const enrichedDOs = completedDOs.map((do_item) => {
-          // ✅ Calculate CORRECT billable amount: quantity × unit_price
-          const actualQuantity =
-            parseFloat(do_item.actual_load_quantity) ||
-            parseFloat(do_item.minimal_load_quantity) ||
-            0;
-          const unitPrice = parseFloat(po.unit_price) || 0; // Use PO unit price
+        const enrichedDOs = await Promise.all(
+          completedDOs.map(async (do_item) => {
+            // ✅ Calculate CORRECT billable amount
+            const actualQuantity =
+              parseFloat(do_item.actual_load_quantity) ||
+              parseFloat(do_item.minimal_load_quantity) ||
+              0;
+            const unitPrice = parseFloat(po.unit_price) || 0;
+            const calculatedBillableAmount = actualQuantity * unitPrice;
 
-          // Base calculation: quantity (ton) × unit price (Rp/ton)
-          const calculatedBillableAmount = actualQuantity * unitPrice;
+            // ✅ FIXED: Get ACTUAL payment amount from delivery_order_payments table
+            const actualPaidAmount =
+              (await DeliveryOrderPayments.sum("payment_amount", {
+                where: { delivery_order_id: do_item.id },
+              })) || 0;
 
-          // Get actual payment amount (what customer actually paid)
-          const actualPaidAmount =
-            parseFloat(do_item.final_amount) ||
-            parseFloat(do_item.ongkosan) ||
-            0;
+            // Calculate payment variance
+            const paymentVariance = actualPaidAmount - calculatedBillableAmount;
 
-          // Calculate payment variance (positive = overpaid, negative = underpaid)
-          const paymentVariance = actualPaidAmount - calculatedBillableAmount;
+            // Add to totals
+            totalCalculatedAmount += calculatedBillableAmount;
+            totalActualPaidAmount += actualPaidAmount;
+            totalPaymentVariance += paymentVariance;
 
-          // Add to totals
-          totalCalculatedAmount += calculatedBillableAmount;
-          totalActualPaidAmount += actualPaidAmount;
-          totalPaymentVariance += paymentVariance;
+            console.log(`✅ DO ${do_item.do_number}:`, {
+              actualQuantity,
+              unitPrice,
+              calculatedBillableAmount,
+              actualPaidAmount, // This should now be 6,114,600
+              paymentVariance,
+              ongkosan_field: parseFloat(do_item.ongkosan), // For comparison
+            });
 
-          console.log(`DO ${do_item.do_number}:`, {
-            actualQuantity,
-            unitPrice,
-            calculatedBillableAmount,
-            actualPaidAmount,
-            paymentVariance,
-          });
+            return {
+              ...do_item.toJSON(),
+              calculated_billable_amount: calculatedBillableAmount,
+              actual_paid_amount: actualPaidAmount, // ✅ Now from payments table
+              payment_variance: paymentVariance,
+              is_overpaid: paymentVariance > 0,
+              is_underpaid: paymentVariance < 0,
+              payment_status_calculated:
+                actualPaidAmount >= calculatedBillableAmount
+                  ? "lunas"
+                  : actualPaidAmount > 0
+                  ? "deposit"
+                  : "proses_tagihan",
+            };
+          })
+        );
 
-          return {
-            ...do_item.toJSON(),
-            calculated_billable_amount: calculatedBillableAmount,
-            actual_paid_amount: actualPaidAmount,
-            payment_variance: paymentVariance,
-            is_overpaid: paymentVariance > 0,
-            is_underpaid: paymentVariance < 0,
-            payment_status_calculated:
-              actualPaidAmount >= calculatedBillableAmount
-                ? "lunas"
-                : actualPaidAmount > 0
-                ? "deposit"
-                : "proses_tagihan",
-          };
-        });
-
-        // ✅ PAYMENT SUMMARY with CORRECT logic
+        // ✅ PAYMENT SUMMARY with CORRECT logic (unchanged logic, but correct data)
         let aggregatedStatus = "no_completed_do";
 
         if (completedDOs.length > 0) {
-          // Count payment statuses based on ACTUAL payment completion
           const fullyPaidCount = enrichedDOs.filter(
             (do_item) =>
               do_item.actual_paid_amount >= do_item.calculated_billable_amount
@@ -176,11 +177,7 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
               do_item.actual_paid_amount > 0 &&
               do_item.actual_paid_amount < do_item.calculated_billable_amount
           ).length;
-          const unpaidCount = enrichedDOs.filter(
-            (do_item) => do_item.actual_paid_amount === 0
-          ).length;
 
-          // Determine aggregated status
           if (fullyPaidCount === completedDOs.length) {
             aggregatedStatus = "lunas";
           } else if (partialPaidCount > 0 || fullyPaidCount > 0) {
@@ -190,7 +187,6 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
           }
         }
 
-        // ✅ CALCULATE PAYMENT PERCENTAGE (max 100%)
         const effectivePaidAmount = Math.min(
           totalActualPaidAmount,
           totalCalculatedAmount
@@ -204,18 +200,14 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
           total_dos: deliveryOrders.length,
           completed_dos: completedDOs.length,
           aggregated_status: aggregatedStatus,
-
-          // ✅ CORRECTED FINANCIAL FIELDS
-          total_amount: totalCalculatedAmount, // Calculated amount (quantity × unit_price)
-          paid_amount: totalActualPaidAmount, // What customer actually paid
+          total_amount: totalCalculatedAmount,
+          paid_amount: totalActualPaidAmount, // ✅ Now correct: 6,114,600
           remaining_amount: Math.max(
             totalCalculatedAmount - totalActualPaidAmount,
             0
-          ), // Remaining debt
-          payment_variance: totalPaymentVariance, // Overpaid/Underpaid amount
-          payment_percentage: paymentPercentage, // Capped at 100%
-
-          // Status counts
+          ),
+          payment_variance: totalPaymentVariance,
+          payment_percentage: paymentPercentage,
           lunas_count: enrichedDOs.filter(
             (do_item) => do_item.payment_status_calculated === "lunas"
           ).length,
@@ -232,8 +224,8 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
 
         console.log(`✅ PO ${po.po_number} Summary:`, {
           totalCalculatedAmount,
-          totalActualPaidAmount,
-          totalPaymentVariance,
+          totalActualPaidAmount, // Should now be 6,114,600
+          totalPaymentVariance, // Should now be negative (underpaid)
           paymentPercentage: paymentPercentage.toFixed(2),
           aggregatedStatus,
         });
@@ -247,12 +239,12 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
             remaining_quantity: remainingQuantity,
             delivery_percentage: deliveryPercentage,
           },
-          enriched_dos: enrichedDOs, // ✅ Include detailed DO calculations
+          enriched_dos: enrichedDOs,
         };
       })
     );
 
-    // Filter by payment status if requested
+    // Filter by payment status (unchanged)
     let filteredPOs = enrichedPOs;
     if (payment_status && payment_status !== "all") {
       filteredPOs = enrichedPOs.filter(
@@ -275,22 +267,20 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
       proses_pos: enrichedPOs.filter(
         (po) => po.payment_summary.aggregated_status === "proses_tagihan"
       ).length,
-
-      // ✅ CORRECTED DASHBOARD TOTALS
       total_revenue: enrichedPOs.reduce(
-        (sum, po) => sum + po.payment_summary.total_amount, // Calculated amounts
+        (sum, po) => sum + po.payment_summary.total_amount,
         0
       ),
       total_paid: enrichedPOs.reduce(
-        (sum, po) => sum + po.payment_summary.paid_amount, // Actual payments
+        (sum, po) => sum + po.payment_summary.paid_amount, // ✅ Now from actual payments
         0
       ),
       total_remaining: enrichedPOs.reduce(
-        (sum, po) => sum + po.payment_summary.remaining_amount, // Outstanding debt
+        (sum, po) => sum + po.payment_summary.remaining_amount,
         0
       ),
       total_variance: enrichedPOs.reduce(
-        (sum, po) => sum + po.payment_summary.payment_variance, // Total variance
+        (sum, po) => sum + po.payment_summary.payment_variance,
         0
       ),
     };
@@ -310,7 +300,6 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
   } catch (err) {
     console.error("=== ERROR in getPurchaseOrdersWithPaymentStatus ===");
     console.error("Error details:", err);
-    console.error("Stack trace:", err.stack);
     next(err);
   }
 };
@@ -400,14 +389,46 @@ exports.getPurchaseOrderPaymentDetail = async (req, res, next) => {
         ),
 
       total_contract_value: parseFloat(purchaseOrder.total_amount) || 0,
-      total_billable_amount: completedDOs.reduce(
-        (sum, do_item) =>
-          sum +
-          (parseFloat(do_item.final_amount) ||
-            parseFloat(do_item.ongkosan) ||
-            0),
-        0
-      ),
+      total_billable_amount: completedDOs.reduce((sum, do_item) => {
+        // 1. Ambil quantity (kg)
+        let quantityKg = 0;
+        if (do_item.actual_load_quantity) {
+          quantityKg = parseFloat(do_item.actual_load_quantity);
+        } else if (do_item.minimal_load_quantity) {
+          quantityKg = parseFloat(do_item.minimal_load_quantity);
+        }
+        // Jika satuan di DB adalah ton, tambahkan: quantityKg *= 1000;
+
+        // 2. Ambil unit price dari PO
+        const unitPrice = parseFloat(purchaseOrder.unit_price) || 0;
+
+        // 3. Hitung billable dasar
+        let billable = unitPrice * quantityKg;
+
+        // 4. Tambahkan pajak jika ada (misal dari invoices atau field lain)
+        let tax = 0;
+        if (do_item.invoices && do_item.invoices.length > 0) {
+          tax = do_item.invoices.reduce(
+            (taxSum, inv) =>
+              taxSum +
+              (parseFloat(inv.ppn_amount) || 0) +
+              (parseFloat(inv.pph_amount) || 0),
+            0
+          );
+        }
+
+        // 5. Tambahkan biaya tambahan/adjustment jika ada
+        let adjustment = 0;
+        if (do_item.adjustments && do_item.adjustments.length > 0) {
+          adjustment = do_item.adjustments.reduce(
+            (adjSum, adj) => adjSum + (parseFloat(adj.adjustment_amount) || 0),
+            0
+          );
+        }
+
+        // 6. Total billable untuk DO ini
+        return sum + billable + tax + adjustment;
+      }, 0),
       total_paid_amount: 0, // Will be calculated below
       total_remaining_amount: 0, // Will be calculated below
     };

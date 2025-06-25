@@ -428,7 +428,7 @@ const POPaymentDetail: React.FC = () => {
             Total Tagihan
           </h3>
           <p className="text-2xl font-bold text-gray-900">
-            {formatCurrency(financialSummary.total_billable_amount)}
+            {formatCurrency(po.total_amount)}
           </p>
           <p className="text-xs text-gray-500 mt-1">
             From {poData.summary.completed_dos} completed DO
