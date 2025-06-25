@@ -26,6 +26,8 @@ const webVehicleRoutes = require("./routes/web/vehicle.routes");
 const webDriverRoutes = require("./routes/web/driver.routes");
 const webStockRoutes = require("./routes/web/stock.routes");
 const webServiceRoutes = require("./routes/web/service.routes");
+const webRitaseRoutes = require("./routes/web/ritase.routes");
+const webBukuKasRoutes = require("./routes/web/bukuKas.routes");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -55,6 +57,8 @@ app.get("/", (req, res) => {
         vehicles: "/api/web/vehicles",
         stock: "/api/web/stock",
         services: "/api/web/services",
+        ritase: "/api/web/ritase",
+        buku_kas: "/api/web/buku-kas",
       },
     },
   });
@@ -84,6 +88,8 @@ app.use("/api/web/vehicles", webVehicleRoutes);
 app.use("/api/web/drivers", webDriverRoutes);
 app.use("/api/web/stock", webStockRoutes);
 app.use("/api/web/services", webServiceRoutes);
+app.use("/api/web/ritase", webRitaseRoutes);
+app.use("/api/web/buku-kas", webBukuKasRoutes);
 
 // Error handling middleware
 app.use(errorHandler);

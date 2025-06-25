@@ -255,9 +255,95 @@ INSERT INTO tire_inventory (tire_brand, tire_size, tire_type, current_stock, min
 ('Michelin', '295/80 R22.5', 'Radial', 6, 2, 4500000),
 ('GT Radial', '1000 R20', 'Bias', 10, 3, 2100000);
 
--- 14. PAYMENT TRANSACTIONS
-INSERT INTO payment_transactions (do_id, payment_type, amount, payment_date, reference_number, notes) VALUES
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-02'), 'transfer', 6114600, '2024-11-06', 'TRF-20241106-001', 'Pembayaran lunas DO-241005-02');
+-- ✅ 14. DELIVERY ORDER PAYMENTS (Updated table name and structure)
+INSERT INTO delivery_order_payments (
+  delivery_order_id, 
+  payment_reference, 
+  payment_type, 
+  payment_amount, 
+  payment_date, 
+  notes,
+  created_by
+) VALUES
+(
+  (SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-02'), 
+  'TRF-20241106-001',
+  'transfer', 
+  6114600, 
+  '2024-11-06', 
+  'Pembayaran lunas DO-241005-02',
+  (SELECT id FROM users WHERE username = 'admin_user' LIMIT 1)
+);
+
+-- ✅ DELIVERY ORDER INVOICES (New table for invoice management)
+INSERT INTO delivery_order_invoices (
+  delivery_order_id,
+  invoice_number,
+  invoice_date,
+  invoice_amount,
+  due_date,
+  pph_percentage,
+  pph_amount,
+  net_amount,
+  status,
+  notes,
+  created_by
+) VALUES
+(
+  (SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-02'),
+  'INV/2024/11/001',
+  '2024-11-05',
+  6145000,  -- Original amount before PPH
+  '2024-12-05',
+  0.5,      -- 0.5% PPH
+  30725,    -- PPH amount (6145000 * 0.5%)
+  6114275,  -- Net amount after PPH
+  'paid',
+  'Invoice untuk DO-241005-02',
+  (SELECT id FROM users WHERE username = 'admin_user' LIMIT 1)
+);
+
+-- ✅ UPDATE DELIVERY ORDERS untuk payment workflow
+UPDATE delivery_orders 
+SET 
+  payment_status = 'lunas',
+  payment_confirmation_status = 'confirmed',
+  final_amount = ongkosan,
+  payment_confirmation_at = NOW(),
+  payment_confirmed_by = (SELECT id FROM users WHERE username = 'admin_user' LIMIT 1)
+WHERE do_number = 'DO-241005-02';
+
+-- ✅ SAMPLE PRICE ADJUSTMENT (untuk kasus kecelakaan)
+INSERT INTO delivery_order_adjustments (
+  delivery_order_id,
+  adjustment_type,
+  original_amount,
+  adjustment_amount,
+  final_amount,
+  reason,
+  approved_by,
+  created_by
+) VALUES
+(
+  (SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-01'),
+  'incident',
+  5500000,  -- Original ongkosan
+  0,        -- Adjusted to 0 due to accident
+  0,        -- Final amount
+  'Kecelakaan - tumpah di jalan, tidak ada pembayaran',
+  (SELECT id FROM users WHERE username = 'admin_user' LIMIT 1),
+  (SELECT id FROM users WHERE username = 'admin_user' LIMIT 1)
+);
+
+-- Update DO yang kena adjustment
+UPDATE delivery_orders 
+SET 
+  payment_status = 'lunas',  -- Considered paid (0 amount)
+  payment_confirmation_status = 'confirmed',
+  final_amount = 0,
+  payment_notes = 'Kecelakaan - tidak ada tagihan'
+WHERE do_number = 'DO-241005-01';
+
 
 -- 15. CASH TRANSACTIONS
 INSERT INTO cash_transactions (transaction_type, amount, description, reference_type, reference_id, transaction_date) VALUES
@@ -265,7 +351,20 @@ INSERT INTO cash_transactions (transaction_type, amount, description, reference_
 ('expense', 1500000, 'Pembayaran tagihan listrik kantor', 'office_expense', NULL, '2024-09-25'),
 ('expense', 4000000, 'Gaji admin September', 'office_expense', NULL, '2024-09-25');
 
--- 16. PAYMENT TERMS
-INSERT INTO payment_terms (partner_name, amount_due, due_date, status) VALUES
-('PT WIKA BETON', 15856500, '2024-10-28', 'pending'),
-('PT ADHI KARYA', 12090300, '2024-11-05', 'pending');
+-- ✅ 16. DELIVERY ORDER PAYMENT HISTORY (untuk audit trail)
+INSERT INTO delivery_order_payment_history (
+  delivery_order_id,
+  old_status,
+  new_status,
+  change_reason,
+  changed_by,
+  changed_at
+) VALUES
+(
+  (SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-02'),
+  'proses_tagihan',
+  'lunas',
+  'Payment completed via transfer',
+  (SELECT id FROM users WHERE username = 'admin_user' LIMIT 1),
+  NOW()
+);
