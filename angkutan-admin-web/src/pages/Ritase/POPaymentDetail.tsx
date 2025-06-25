@@ -151,6 +151,28 @@ const POPaymentDetail: React.FC = () => {
   ): number => {
     return safeNumber(paidAmount) - billableAmount;
   };
+
+  const calculateDOFinancials = (do_item: any, po: any) => {
+    const quantity = safeNumber(
+      do_item.actual_load_quantity || do_item.minimal_load_quantity
+    );
+    const unitPrice = safeNumber(po.unit_price);
+    const paidAmount = safeNumber(do_item.final_amount || do_item.ongkosan);
+
+    const billableAmount = quantity * unitPrice;
+    const variance = paidAmount - billableAmount;
+
+    return {
+      quantity,
+      unitPrice,
+      billableAmount,
+      paidAmount,
+      variance,
+      isOverpaid: variance > 0,
+      isUnderpaid: variance < 0,
+    };
+  };
+
   const { poId } = useParams<{ poId: string }>();
   const navigate = useNavigate();
 
@@ -785,51 +807,67 @@ const POPaymentDetail: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* ✅ Payment Status with Variance Alert */}
-                    {Math.abs(
-                      (parseFloat(do_item.final_amount) ||
-                        parseFloat(do_item.ongkosan)) -
-                        (parseFloat(do_item.actual_load_quantity) ||
-                          parseFloat(do_item.minimal_load_quantity)) *
-                          parseFloat(po.unit_price)
-                    ) > 1000 && (
-                      <div
-                        className={`border rounded-lg p-3 ${
-                          (parseFloat(do_item.final_amount) ||
-                            parseFloat(do_item.ongkosan)) -
-                            (parseFloat(do_item.actual_load_quantity) ||
-                              parseFloat(do_item.minimal_load_quantity)) *
-                              parseFloat(po.unit_price) >=
-                          0
-                            ? "bg-blue-50 border-blue-200"
-                            : "bg-red-50 border-red-200"
-                        }`}
-                      >
-                        <div className="flex justify-between items-center">
-                          <span
-                            className={`text-sm font-medium ${
-                              (parseFloat(do_item.final_amount) ||
-                                parseFloat(do_item.ongkosan)) -
-                                (parseFloat(do_item.actual_load_quantity) ||
-                                  parseFloat(do_item.minimal_load_quantity)) *
-                                  parseFloat(po.unit_price) >=
-                              0
-                                ? "text-blue-700"
-                                : "text-red-700"
-                            }`}
-                          >
-                            {(parseFloat(do_item.final_amount) ||
-                              parseFloat(do_item.ongkosan)) -
-                              (parseFloat(do_item.actual_load_quantity) ||
-                                parseFloat(do_item.minimal_load_quantity)) *
-                                parseFloat(po.unit_price) >=
-                            0
-                              ? "💰 Customer overpaid - consider refund or credit note"
-                              : "⚠️ Payment incomplete - follow up required"}
-                          </span>
+                    {/* ✅ COMPLETELY REFACTORED - Payment Status with Variance Alert */}
+                    {(() => {
+                      // ✅ Calculate once, use multiple times
+                      const financials = calculateDOFinancials(do_item, po);
+                      const hasSignificantVariance =
+                        Math.abs(financials.variance) > 1000;
+
+                      if (!hasSignificantVariance) return null;
+
+                      return (
+                        <div
+                          className={`border rounded-lg p-3 ${
+                            financials.isOverpaid
+                              ? "bg-blue-50 border-blue-200"
+                              : "bg-red-50 border-red-200"
+                          }`}
+                        >
+                          <div className="flex justify-between items-center">
+                            <span
+                              className={`text-sm font-medium ${
+                                financials.isOverpaid
+                                  ? "text-blue-700"
+                                  : "text-red-700"
+                              }`}
+                            >
+                              {financials.isOverpaid
+                                ? "💰 Customer overpaid - consider refund or credit note"
+                                : "⚠️ Payment incomplete - follow up required"}
+                            </span>
+                            <span
+                              className={`text-sm font-bold ${
+                                financials.isOverpaid
+                                  ? "text-blue-700"
+                                  : "text-red-700"
+                              }`}
+                            >
+                              {financials.variance >= 0 ? "+" : ""}
+                              {formatCurrency(Math.abs(financials.variance))}
+                            </span>
+                          </div>
+
+                          {/* ✅ Additional Details */}
+                          <div className="mt-2 text-xs text-gray-600">
+                            <p>
+                              Calculated:{" "}
+                              {formatCurrency(financials.billableAmount)}
+                            </p>
+                            <p>Paid: {formatCurrency(financials.paidAmount)}</p>
+                            <p>
+                              Variance:{" "}
+                              {(
+                                (Math.abs(financials.variance) /
+                                  financials.billableAmount) *
+                                100
+                              ).toFixed(1)}
+                              %
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
 
                     {/* Quick Payment Summary */}
                     {do_item.payment_details.remaining_amount > 0 && (
