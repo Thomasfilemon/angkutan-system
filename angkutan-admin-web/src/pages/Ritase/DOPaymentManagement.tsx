@@ -167,7 +167,7 @@ const DOPaymentManagement: React.FC = () => {
     searchValue: string,
     replaceValue: string
   ): string => {
-    if (!value) return "";
+    if (typeof value !== "string") return "";
     return value.replace(searchValue, replaceValue);
   };
 
@@ -499,16 +499,15 @@ const DOPaymentManagement: React.FC = () => {
             className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(
               paymentSummary?.confirmation_status || "pending"
             )}`}
-          >
-            {formatStatusText(paymentSummary?.confirmation_status)}
-          </span>
+          />
           <span
             className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(
-              paymentSummary.confirmation_status
+              paymentSummary?.confirmation_status || "unknown"
             )}`}
-          >
-            {paymentSummary.confirmation_status.replace("_", " ").toUpperCase()}
-          </span>
+          />
+          {(paymentSummary?.confirmation_status || "UNKNOWN")
+            .replace("_", " ")
+            .toUpperCase()}
         </div>
       </div>
 

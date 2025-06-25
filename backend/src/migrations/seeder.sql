@@ -308,7 +308,7 @@ UPDATE delivery_orders
 SET 
   payment_status = 'lunas',
   payment_confirmation_status = 'confirmed',
-  final_amount = ongkosan,
+  final_amount = unit_price * actual_load_quantity,  -- Assuming final amount is based on unit price and actual load quantity
   payment_confirmation_at = NOW(),
   payment_confirmed_by = (SELECT id FROM users WHERE username = 'admin_user' LIMIT 1)
 WHERE do_number = 'DO-241005-02';

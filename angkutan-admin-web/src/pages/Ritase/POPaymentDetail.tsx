@@ -157,7 +157,7 @@ const POPaymentDetail: React.FC = () => {
       do_item.actual_load_quantity || do_item.minimal_load_quantity
     );
     const unitPrice = safeNumber(po.unit_price);
-    const paidAmount = safeNumber(do_item.final_amount || do_item.ongkosan);
+    const paidAmount = safeNumber(financialSummary.total_paid_amount);
 
     const billableAmount = quantity * unitPrice;
     const variance = paidAmount - billableAmount;
@@ -428,7 +428,7 @@ const POPaymentDetail: React.FC = () => {
             Total Tagihan
           </h3>
           <p className="text-2xl font-bold text-gray-900">
-            {formatCurrency(po.total_amount)}
+            {formatCurrency(financialSummary.total_billable_amount)}
           </p>
           <p className="text-xs text-gray-500 mt-1">
             From {poData.summary.completed_dos} completed DO
@@ -610,7 +610,7 @@ const POPaymentDetail: React.FC = () => {
                       {/* ✅ Calculated Amount */}
                       <div className="bg-blue-50 p-3 rounded-lg">
                         <h5 className="text-sm font-medium text-blue-800 mb-1">
-                          Calculated Bill
+                          Harga Ritase
                         </h5>
                         <p className="text-sm text-blue-600">
                           {formatQuantity(
@@ -630,14 +630,37 @@ const POPaymentDetail: React.FC = () => {
                         </p>
                       </div>
 
+                      {/* Pajak dan Biaya Lain */}
+                      <div className="bg-yellow-50 p-3 rounded-lg">
+                        <h5 className="text-sm font-medium text-yellow-800 mb-1">
+                          PPH dan Biaya Lainnya
+                        </h5>
+                        <p className="text-sm text-yellow-600">
+                          {formatCurrency(
+                            calculateBillableAmount(
+                              do_item.actual_load_quantity ||
+                                do_item.minimal_load_quantity,
+                              po.unit_price
+                            )
+                          )}{" "}
+                          × 5%
+                        </p>
+                        <p className="text-lg font-bold text-yellow-800">
+                          {formatCurrency(
+                            financialSummary.total_billable_amount
+                          )}
+                        </p>
+                      </div>
+
                       {/* ✅ Actual Payment */}
                       <div className="bg-green-50 p-3 rounded-lg">
                         <h5 className="text-sm font-medium text-green-800 mb-1">
-                          Actual Payment
+                          Pembayaran Aktual
                         </h5>
                         <p className="text-lg font-bold text-green-800">
                           {formatCurrency(
-                            do_item.final_amount || do_item.ongkosan
+                            do_item.payment_details.total_paid ||
+                              do_item.ongkosan
                           )}
                         </p>
                         <p className="text-xs text-green-600">
@@ -649,7 +672,8 @@ const POPaymentDetail: React.FC = () => {
                       <div
                         className={`p-3 rounded-lg ${
                           calculateVariance(
-                            do_item.final_amount || do_item.ongkosan,
+                            do_item.payment_details.total_paid ||
+                              do_item.ongkosan,
                             calculateBillableAmount(
                               do_item.actual_load_quantity ||
                                 do_item.minimal_load_quantity,
@@ -663,7 +687,8 @@ const POPaymentDetail: React.FC = () => {
                         <h5
                           className={`text-sm font-medium mb-1 ${
                             calculateVariance(
-                              do_item.final_amount || do_item.ongkosan,
+                              do_item.payment_details.total_paid ||
+                                do_item.ongkosan,
                               calculateBillableAmount(
                                 do_item.actual_load_quantity ||
                                   do_item.minimal_load_quantity,
@@ -674,12 +699,13 @@ const POPaymentDetail: React.FC = () => {
                               : "text-red-800"
                           }`}
                         >
-                          Variance
+                          Selisih
                         </h5>
                         <p
                           className={`text-lg font-bold ${
                             calculateVariance(
-                              do_item.final_amount || do_item.ongkosan,
+                              do_item.payment_details.total_paid ||
+                                do_item.ongkosan,
                               calculateBillableAmount(
                                 do_item.actual_load_quantity ||
                                   do_item.minimal_load_quantity,
@@ -691,7 +717,8 @@ const POPaymentDetail: React.FC = () => {
                           }`}
                         >
                           {calculateVariance(
-                            do_item.final_amount || do_item.ongkosan,
+                            do_item.payment_details.total_paid ||
+                              do_item.ongkosan,
                             calculateBillableAmount(
                               do_item.actual_load_quantity ||
                                 do_item.minimal_load_quantity,
@@ -703,7 +730,8 @@ const POPaymentDetail: React.FC = () => {
                           {formatCurrency(
                             Math.abs(
                               calculateVariance(
-                                do_item.final_amount || do_item.ongkosan,
+                                do_item.payment_details.total_paid ||
+                                  do_item.ongkosan,
                                 calculateBillableAmount(
                                   do_item.actual_load_quantity ||
                                     do_item.minimal_load_quantity,
@@ -716,7 +744,8 @@ const POPaymentDetail: React.FC = () => {
                         <p
                           className={`text-xs ${
                             calculateVariance(
-                              do_item.final_amount || do_item.ongkosan,
+                              do_item.payment_details.total_paid ||
+                                do_item.ongkosan,
                               calculateBillableAmount(
                                 do_item.actual_load_quantity ||
                                   do_item.minimal_load_quantity,
@@ -728,15 +757,16 @@ const POPaymentDetail: React.FC = () => {
                           }`}
                         >
                           {calculateVariance(
-                            do_item.final_amount || do_item.ongkosan,
+                            do_item.payment_details.total_paid ||
+                              do_item.ongkosan,
                             calculateBillableAmount(
                               do_item.actual_load_quantity ||
                                 do_item.minimal_load_quantity,
                               po.unit_price
                             )
                           ) >= 0
-                            ? "Overpaid"
-                            : "Underpaid"}
+                            ? "Lebih"
+                            : "Kurang"}
                         </p>
                       </div>
                     </div>
@@ -766,7 +796,8 @@ const POPaymentDetail: React.FC = () => {
                         <p className="text-sm text-green-600">
                           Amount:{" "}
                           {formatCurrency(
-                            do_item.final_amount || do_item.ongkosan
+                            do_item.payment_details.total_paid ||
+                              do_item.ongkosan
                           )}
                         </p>
                         <p className="text-xs text-green-500">
@@ -851,12 +882,14 @@ const POPaymentDetail: React.FC = () => {
                           {/* ✅ Additional Details */}
                           <div className="mt-2 text-xs text-gray-600">
                             <p>
-                              Calculated:{" "}
+                              Terhitung:{" "}
                               {formatCurrency(financials.billableAmount)}
                             </p>
-                            <p>Paid: {formatCurrency(financials.paidAmount)}</p>
                             <p>
-                              Variance:{" "}
+                              Dibayar: {formatCurrency(financials.paidAmount)}
+                            </p>
+                            <p>
+                              Selisih:{" "}
                               {(
                                 (Math.abs(financials.variance) /
                                   financials.billableAmount) *

@@ -149,9 +149,9 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
 
             return {
               ...do_item.toJSON(),
-              calculated_billable_amount: calculatedBillableAmount,
-              actual_paid_amount: actualPaidAmount, // ✅ Now from payments table
-              payment_variance: paymentVariance,
+              calculated_billable_amount: calculatedBillableAmount || "",
+              actual_paid_amount: actualPaidAmount || "", // ✅ Now from payments table
+              payment_variance: paymentVariance || "",
               is_overpaid: paymentVariance > 0,
               is_underpaid: paymentVariance < 0,
               payment_status_calculated:
@@ -232,14 +232,14 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
 
         return {
           ...po.toJSON(),
-          payment_summary: paymentSummary,
+          payment_summary: paymentSummary || "",
           quantity_progress: {
-            total_quantity: totalQuantity,
-            delivered_quantity: deliveredQuantity,
-            remaining_quantity: remainingQuantity,
-            delivery_percentage: deliveryPercentage,
+            total_quantity: totalQuantity || "",
+            delivered_quantity: deliveredQuantity || "",
+            remaining_quantity: remainingQuantity || "",
+            delivery_percentage: deliveryPercentage || "",
           },
-          enriched_dos: enrichedDOs,
+          enriched_dos: enrichedDOs || "",
         };
       })
     );
@@ -478,18 +478,18 @@ exports.getPurchaseOrderPaymentDetail = async (req, res, next) => {
         return {
           ...do_item.toJSON(),
           payment_details: {
-            total_invoiced: totalInvoiced,
-            total_paid: totalPaid,
-            remaining_amount: finalAmount - totalPaid,
+            total_invoiced: totalInvoiced || "",
+            total_paid: totalPaid || "",
+            remaining_amount: finalAmount - totalPaid || "",
             payment_percentage:
-              finalAmount > 0 ? (totalPaid / finalAmount) * 100 : 0,
-            payment_count: doPayments.length,
-            invoice_count: doInvoices.length,
+              finalAmount > 0 ? (totalPaid / finalAmount) * 100 : 0 || "",
+            payment_count: doPayments.length || "",
+            invoice_count: doInvoices.length || "",
             last_payment_date:
-              doPayments.length > 0 ? doPayments[0].payment_date : null,
+              doPayments.length > 0 ? doPayments[0].payment_date : null || "",
           },
-          payments: doPayments,
-          invoices: doInvoices,
+          payments: doPayments || "",
+          invoices: doInvoices || "",
         };
       })
     );
