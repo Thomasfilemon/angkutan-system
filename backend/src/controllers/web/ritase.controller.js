@@ -22,6 +22,8 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
       payment_status,
     } = req.query;
 
+    console.log("=== Starting getPurchaseOrdersWithPaymentStatus ===");
+
     // Build date filter
     let dateFilter = {};
     if (start_date && end_date) {
@@ -48,23 +50,25 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
         {
           model: DeliveryOrder,
           as: "deliveryOrders",
-          where: { status: "completed" }, // Only completed DOs for payment processing
-          required: false, // LEFT JOIN to include POs without completed DOs
+          required: false, // LEFT JOIN to include POs without DOs
           include: [
             {
               model: Vehicle,
               as: "vehicle",
               attributes: ["license_plate", "type"],
+              required: false,
             },
             {
               model: User,
               as: "driver",
               attributes: ["username"],
+              required: false,
               include: [
                 {
                   model: DriverProfile,
                   as: "driverProfile",
                   attributes: ["full_name"],
+                  required: false,
                 },
               ],
             },
@@ -74,90 +78,176 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
       order: [["created_at", "DESC"]],
     });
 
-    // Calculate aggregated payment status for each PO
+    console.log(`Found ${purchaseOrders.length} purchase orders`);
+
+    // ✅ ENHANCED CALCULATION with proper financial logic
     const enrichedPOs = await Promise.all(
       purchaseOrders.map(async (po) => {
         const deliveryOrders = po.deliveryOrders || [];
-
-        if (deliveryOrders.length === 0) {
-          return {
-            ...po.toJSON(),
-            payment_summary: {
-              total_dos: 0,
-              completed_dos: 0,
-              aggregated_status: "no_completed_do",
-              total_amount: 0,
-              paid_amount: 0,
-              remaining_amount: 0,
-              payment_percentage: 0,
-            },
-          };
-        }
-
-        // Calculate payment statistics
-        const totalDOs = deliveryOrders.length;
-        const lunasCount = deliveryOrders.filter(
-          (do_item) => do_item.payment_status === "lunas"
-        ).length;
-        const depositCount = deliveryOrders.filter(
-          (do_item) => do_item.payment_status === "deposit"
-        ).length;
-        const awaitingCount = deliveryOrders.filter(
-          (do_item) => do_item.payment_status === "awaiting_confirmation"
-        ).length;
-        const prosesCount = deliveryOrders.filter(
-          (do_item) => do_item.payment_status === "proses_tagihan"
-        ).length;
-
-        // Calculate financial totals
-        const totalAmount = deliveryOrders.reduce(
-          (sum, do_item) =>
-            sum +
-            (parseFloat(do_item.final_amount) ||
-              parseFloat(do_item.ongkosan) ||
-              0),
-          0
+        const completedDOs = deliveryOrders.filter(
+          (do_item) => do_item.status === "completed"
         );
 
-        // Get actual payments
-        const paidAmount =
-          (await DeliveryOrderPayments.sum("payment_amount", {
-            where: {
-              delivery_order_id: {
-                [Op.in]: deliveryOrders.map((do_item) => do_item.id),
-              },
-            },
-          })) || 0;
+        console.log(
+          `Processing PO ${po.po_number} with ${completedDOs.length} completed DOs`
+        );
 
-        const remainingAmount = totalAmount - paidAmount;
-        const paymentPercentage =
-          totalAmount > 0 ? (paidAmount / totalAmount) * 100 : 0;
+        // ✅ QUANTITY PROGRESS CALCULATION
+        const totalQuantity = parseFloat(po.total_quantity) || 0;
+        const deliveredQuantity = completedDOs.reduce((sum, do_item) => {
+          const quantity = do_item.actual_load_quantity
+            ? parseFloat(do_item.actual_load_quantity)
+            : parseFloat(do_item.minimal_load_quantity) || 0;
+          return sum + quantity;
+        }, 0);
 
-        // Determine aggregated payment status
-        let aggregatedStatus = "proses_tagihan";
-        if (lunasCount === totalDOs) {
-          aggregatedStatus = "lunas";
-        } else if (depositCount > 0 || lunasCount > 0) {
-          aggregatedStatus = "deposit";
-        } else if (awaitingCount > 0) {
-          aggregatedStatus = "awaiting_confirmation";
+        const remainingQuantity = Math.max(
+          totalQuantity - deliveredQuantity,
+          0
+        );
+        const deliveryPercentage =
+          totalQuantity > 0 ? (deliveredQuantity / totalQuantity) * 100 : 0;
+
+        // ✅ PROPER FINANCIAL CALCULATION per DO
+        let totalCalculatedAmount = 0;
+        let totalActualPaidAmount = 0;
+        let totalPaymentVariance = 0;
+
+        const enrichedDOs = completedDOs.map((do_item) => {
+          // ✅ Calculate CORRECT billable amount: quantity × unit_price
+          const actualQuantity =
+            parseFloat(do_item.actual_load_quantity) ||
+            parseFloat(do_item.minimal_load_quantity) ||
+            0;
+          const unitPrice = parseFloat(po.unit_price) || 0; // Use PO unit price
+
+          // Base calculation: quantity (ton) × unit price (Rp/ton)
+          const calculatedBillableAmount = actualQuantity * unitPrice;
+
+          // Get actual payment amount (what customer actually paid)
+          const actualPaidAmount =
+            parseFloat(do_item.final_amount) ||
+            parseFloat(do_item.ongkosan) ||
+            0;
+
+          // Calculate payment variance (positive = overpaid, negative = underpaid)
+          const paymentVariance = actualPaidAmount - calculatedBillableAmount;
+
+          // Add to totals
+          totalCalculatedAmount += calculatedBillableAmount;
+          totalActualPaidAmount += actualPaidAmount;
+          totalPaymentVariance += paymentVariance;
+
+          console.log(`DO ${do_item.do_number}:`, {
+            actualQuantity,
+            unitPrice,
+            calculatedBillableAmount,
+            actualPaidAmount,
+            paymentVariance,
+          });
+
+          return {
+            ...do_item.toJSON(),
+            calculated_billable_amount: calculatedBillableAmount,
+            actual_paid_amount: actualPaidAmount,
+            payment_variance: paymentVariance,
+            is_overpaid: paymentVariance > 0,
+            is_underpaid: paymentVariance < 0,
+            payment_status_calculated:
+              actualPaidAmount >= calculatedBillableAmount
+                ? "lunas"
+                : actualPaidAmount > 0
+                ? "deposit"
+                : "proses_tagihan",
+          };
+        });
+
+        // ✅ PAYMENT SUMMARY with CORRECT logic
+        let aggregatedStatus = "no_completed_do";
+
+        if (completedDOs.length > 0) {
+          // Count payment statuses based on ACTUAL payment completion
+          const fullyPaidCount = enrichedDOs.filter(
+            (do_item) =>
+              do_item.actual_paid_amount >= do_item.calculated_billable_amount
+          ).length;
+          const partialPaidCount = enrichedDOs.filter(
+            (do_item) =>
+              do_item.actual_paid_amount > 0 &&
+              do_item.actual_paid_amount < do_item.calculated_billable_amount
+          ).length;
+          const unpaidCount = enrichedDOs.filter(
+            (do_item) => do_item.actual_paid_amount === 0
+          ).length;
+
+          // Determine aggregated status
+          if (fullyPaidCount === completedDOs.length) {
+            aggregatedStatus = "lunas";
+          } else if (partialPaidCount > 0 || fullyPaidCount > 0) {
+            aggregatedStatus = "deposit";
+          } else {
+            aggregatedStatus = "proses_tagihan";
+          }
         }
+
+        // ✅ CALCULATE PAYMENT PERCENTAGE (max 100%)
+        const effectivePaidAmount = Math.min(
+          totalActualPaidAmount,
+          totalCalculatedAmount
+        );
+        const paymentPercentage =
+          totalCalculatedAmount > 0
+            ? (effectivePaidAmount / totalCalculatedAmount) * 100
+            : 0;
+
+        const paymentSummary = {
+          total_dos: deliveryOrders.length,
+          completed_dos: completedDOs.length,
+          aggregated_status: aggregatedStatus,
+
+          // ✅ CORRECTED FINANCIAL FIELDS
+          total_amount: totalCalculatedAmount, // Calculated amount (quantity × unit_price)
+          paid_amount: totalActualPaidAmount, // What customer actually paid
+          remaining_amount: Math.max(
+            totalCalculatedAmount - totalActualPaidAmount,
+            0
+          ), // Remaining debt
+          payment_variance: totalPaymentVariance, // Overpaid/Underpaid amount
+          payment_percentage: paymentPercentage, // Capped at 100%
+
+          // Status counts
+          lunas_count: enrichedDOs.filter(
+            (do_item) => do_item.payment_status_calculated === "lunas"
+          ).length,
+          deposit_count: enrichedDOs.filter(
+            (do_item) => do_item.payment_status_calculated === "deposit"
+          ).length,
+          awaiting_count: completedDOs.filter(
+            (do_item) => do_item.payment_status === "awaiting_confirmation"
+          ).length,
+          proses_count: enrichedDOs.filter(
+            (do_item) => do_item.payment_status_calculated === "proses_tagihan"
+          ).length,
+        };
+
+        console.log(`✅ PO ${po.po_number} Summary:`, {
+          totalCalculatedAmount,
+          totalActualPaidAmount,
+          totalPaymentVariance,
+          paymentPercentage: paymentPercentage.toFixed(2),
+          aggregatedStatus,
+        });
 
         return {
           ...po.toJSON(),
-          payment_summary: {
-            total_dos: totalDOs,
-            completed_dos: totalDOs,
-            aggregated_status: aggregatedStatus,
-            lunas_count: lunasCount,
-            deposit_count: depositCount,
-            awaiting_count: awaitingCount,
-            proses_count: prosesCount,
-            total_amount: totalAmount,
-            paid_amount: paidAmount,
-            remaining_amount: remainingAmount,
-            payment_percentage: paymentPercentage,
+          payment_summary: paymentSummary,
+          quantity_progress: {
+            total_quantity: totalQuantity,
+            delivered_quantity: deliveredQuantity,
+            remaining_quantity: remainingQuantity,
+            delivery_percentage: deliveryPercentage,
           },
+          enriched_dos: enrichedDOs, // ✅ Include detailed DO calculations
         };
       })
     );
@@ -170,7 +260,7 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
       );
     }
 
-    // Calculate dashboard statistics
+    // ✅ DASHBOARD STATISTICS with corrected totals
     const dashboardStats = {
       total_pos: enrichedPOs.length,
       lunas_pos: enrichedPOs.filter(
@@ -185,19 +275,27 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
       proses_pos: enrichedPOs.filter(
         (po) => po.payment_summary.aggregated_status === "proses_tagihan"
       ).length,
+
+      // ✅ CORRECTED DASHBOARD TOTALS
       total_revenue: enrichedPOs.reduce(
-        (sum, po) => sum + po.payment_summary.total_amount,
+        (sum, po) => sum + po.payment_summary.total_amount, // Calculated amounts
         0
       ),
       total_paid: enrichedPOs.reduce(
-        (sum, po) => sum + po.payment_summary.paid_amount,
+        (sum, po) => sum + po.payment_summary.paid_amount, // Actual payments
         0
       ),
       total_remaining: enrichedPOs.reduce(
-        (sum, po) => sum + po.payment_summary.remaining_amount,
+        (sum, po) => sum + po.payment_summary.remaining_amount, // Outstanding debt
+        0
+      ),
+      total_variance: enrichedPOs.reduce(
+        (sum, po) => sum + po.payment_summary.payment_variance, // Total variance
         0
       ),
     };
+
+    console.log("✅ Dashboard Stats:", dashboardStats);
 
     res.json({
       success: true,
@@ -210,6 +308,9 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
       },
     });
   } catch (err) {
+    console.error("=== ERROR in getPurchaseOrdersWithPaymentStatus ===");
+    console.error("Error details:", err);
+    console.error("Stack trace:", err.stack);
     next(err);
   }
 };
@@ -714,25 +815,25 @@ exports.createPriceAdjustment = async (req, res, next) => {
 // ✅ 1. Get ritase dashboard overview (Vehicle-focused)
 exports.getRitaseDashboard = async (req, res, next) => {
   try {
-    const { period = 'month', vehicle_id, start_date, end_date } = req.query;
-    
+    const { period = "month", vehicle_id, start_date, end_date } = req.query;
+
     // Build date filter
     let dateFilter = {};
     if (start_date && end_date) {
       dateFilter = {
         created_at: {
-          [Op.between]: [new Date(start_date), new Date(end_date)]
-        }
+          [Op.between]: [new Date(start_date), new Date(end_date)],
+        },
       };
     } else {
       const now = new Date();
-      if (period === 'week') {
+      if (period === "week") {
         const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
         dateFilter = { created_at: { [Op.gte]: weekAgo } };
-      } else if (period === 'month') {
+      } else if (period === "month") {
         const monthAgo = new Date(now.getFullYear(), now.getMonth(), 1);
         dateFilter = { created_at: { [Op.gte]: monthAgo } };
-      } else if (period === 'year') {
+      } else if (period === "year") {
         const yearAgo = new Date(now.getFullYear(), 0, 1);
         dateFilter = { created_at: { [Op.gte]: yearAgo } };
       }
@@ -750,65 +851,79 @@ exports.getRitaseDashboard = async (req, res, next) => {
       include: [
         {
           model: Vehicle,
-          as: 'vehicle',
-          attributes: ['id', 'license_plate', 'type', 'capacity']
+          as: "vehicle",
+          attributes: ["id", "license_plate", "type", "capacity"],
         },
         {
           model: User,
-          as: 'driver',
-          attributes: ['id', 'username'],
+          as: "driver",
+          attributes: ["id", "username"],
           include: [
-            { 
-              model: DriverProfile, 
-              as: 'driverProfile', 
-              attributes: ['full_name', 'phone'],
-              required: false
-            }
-          ]
-        }
+            {
+              model: DriverProfile,
+              as: "driverProfile",
+              attributes: ["full_name", "phone"],
+              required: false,
+            },
+          ],
+        },
       ],
-      order: [['created_at', 'DESC']]
+      order: [["created_at", "DESC"]],
     });
 
     // Calculate comprehensive statistics
     const stats = await Promise.all([
       // Total trips
       DeliveryOrder.count({ where: whereClause }),
-      
+
       // Completed trips
-      DeliveryOrder.count({ 
-        where: { ...whereClause, status: 'completed' } 
+      DeliveryOrder.count({
+        where: { ...whereClause, status: "completed" },
       }),
-      
+
       // Active trips
-      DeliveryOrder.count({ 
-        where: { 
-          ...whereClause, 
-          status: { [Op.in]: ['assigned', 'otw_to_load_location', 'at_load_location', 'otw_to_unload_location', 'at_unload_location', 'otw_to_base'] }
-        } 
+      DeliveryOrder.count({
+        where: {
+          ...whereClause,
+          status: {
+            [Op.in]: [
+              "assigned",
+              "otw_to_load_location",
+              "at_load_location",
+              "otw_to_unload_location",
+              "at_unload_location",
+              "otw_to_base",
+            ],
+          },
+        },
       }),
-      
+
       // Financial totals
-      DeliveryOrder.sum('ongkosan', { 
-        where: { ...whereClause, payment_status: 'lunas' } 
+      DeliveryOrder.sum("ongkosan", {
+        where: { ...whereClause, payment_status: "lunas" },
       }) || 0,
-      
-      DeliveryOrder.sum('ongkosan', { 
-        where: { ...whereClause, payment_status: 'deposit' } 
+
+      DeliveryOrder.sum("ongkosan", {
+        where: { ...whereClause, payment_status: "deposit" },
       }) || 0,
-      
-      DeliveryOrder.sum('trip_allowance', { where: whereClause }) || 0,
-      DeliveryOrder.sum('gaji', { where: whereClause }) || 0,
+
+      DeliveryOrder.sum("trip_allowance", { where: whereClause }) || 0,
+      DeliveryOrder.sum("gaji", { where: whereClause }) || 0,
     ]);
 
     const [
-      totalTrips, completedTrips, activeTrips, 
-      lunasAmount, depositAmount, totalTripAllowance, totalGaji
+      totalTrips,
+      completedTrips,
+      activeTrips,
+      lunasAmount,
+      depositAmount,
+      totalTripAllowance,
+      totalGaji,
     ] = stats;
 
     // Group by vehicle for performance analysis
     const vehiclePerformance = {};
-    deliveryOrders.forEach(order => {
+    deliveryOrders.forEach((order) => {
       const vehicleId = order.vehicle_id;
       if (!vehiclePerformance[vehicleId]) {
         vehiclePerformance[vehicleId] = {
@@ -821,46 +936,55 @@ exports.getRitaseDashboard = async (req, res, next) => {
           trip_allowance: 0,
           gaji: 0,
           net_profit: 0,
-          orders: []
+          orders: [],
         };
       }
-      
+
       const vehicle = vehiclePerformance[vehicleId];
       vehicle.trips++;
       vehicle.orders.push(order);
-      
-      if (order.status === 'completed') {
+
+      if (order.status === "completed") {
         vehicle.completed_trips++;
       }
-      
-      const ongkosan = parseFloat(order.final_amount) || parseFloat(order.ongkosan) || 0;
+
+      const ongkosan =
+        parseFloat(order.final_amount) || parseFloat(order.ongkosan) || 0;
       const tripAllowance = parseFloat(order.trip_allowance) || 0;
       const gaji = parseFloat(order.gaji) || 0;
-      
+
       vehicle.gross_income += ongkosan;
       vehicle.trip_allowance += tripAllowance;
       vehicle.gaji += gaji;
-      
-      if (order.payment_status === 'lunas') {
+
+      if (order.payment_status === "lunas") {
         vehicle.lunas_income += ongkosan;
-      } else if (order.payment_status === 'deposit') {
+      } else if (order.payment_status === "deposit") {
         vehicle.deposit_income += ongkosan;
       }
-      
-      vehicle.net_profit = vehicle.gross_income - (vehicle.trip_allowance + vehicle.gaji);
+
+      vehicle.net_profit =
+        vehicle.gross_income - (vehicle.trip_allowance + vehicle.gaji);
     });
 
     // Convert to array and sort by gross income
-    const vehicleArray = Object.values(vehiclePerformance)
-      .sort((a, b) => b.gross_income - a.gross_income);
+    const vehicleArray = Object.values(vehiclePerformance).sort(
+      (a, b) => b.gross_income - a.gross_income
+    );
 
     // Calculate payment status summary
     const paymentSummary = {
       lunas: lunasAmount,
       deposit: depositAmount,
       total: lunasAmount + depositAmount,
-      percentage_lunas: lunasAmount + depositAmount > 0 ? (lunasAmount / (lunasAmount + depositAmount)) * 100 : 0,
-      percentage_deposit: lunasAmount + depositAmount > 0 ? (depositAmount / (lunasAmount + depositAmount)) * 100 : 0
+      percentage_lunas:
+        lunasAmount + depositAmount > 0
+          ? (lunasAmount / (lunasAmount + depositAmount)) * 100
+          : 0,
+      percentage_deposit:
+        lunasAmount + depositAmount > 0
+          ? (depositAmount / (lunasAmount + depositAmount)) * 100
+          : 0,
     };
 
     res.json({
@@ -870,19 +994,21 @@ exports.getRitaseDashboard = async (req, res, next) => {
           total_trips: totalTrips,
           completed_trips: completedTrips,
           active_trips: activeTrips,
-          completion_rate: totalTrips > 0 ? (completedTrips / totalTrips) * 100 : 0,
-          total_vehicles: Object.keys(vehiclePerformance).length
+          completion_rate:
+            totalTrips > 0 ? (completedTrips / totalTrips) * 100 : 0,
+          total_vehicles: Object.keys(vehiclePerformance).length,
         },
         financial_summary: {
           gross_income: lunasAmount + depositAmount,
           total_expenses: totalTripAllowance + totalGaji,
-          net_profit: (lunasAmount + depositAmount) - (totalTripAllowance + totalGaji),
-          payment_summary: paymentSummary
+          net_profit:
+            lunasAmount + depositAmount - (totalTripAllowance + totalGaji),
+          payment_summary: paymentSummary,
         },
         vehicle_performance: vehicleArray,
         period: period,
-        date_range: { start_date, end_date }
-      }
+        date_range: { start_date, end_date },
+      },
     });
   } catch (err) {
     next(err);
@@ -893,22 +1019,22 @@ exports.getRitaseDashboard = async (req, res, next) => {
 exports.getVehiclePerformance = async (req, res, next) => {
   try {
     const { vehicle_id } = req.params;
-    const { period = 'month', start_date, end_date } = req.query;
-    
+    const { period = "month", start_date, end_date } = req.query;
+
     // Build date filter
     let dateFilter = {};
     if (start_date && end_date) {
       dateFilter = {
         created_at: {
-          [Op.between]: [new Date(start_date), new Date(end_date)]
-        }
+          [Op.between]: [new Date(start_date), new Date(end_date)],
+        },
       };
     } else {
       const now = new Date();
-      if (period === 'week') {
+      if (period === "week") {
         const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
         dateFilter = { created_at: { [Op.gte]: weekAgo } };
-      } else if (period === 'month') {
+      } else if (period === "month") {
         const monthAgo = new Date(now.getFullYear(), now.getMonth(), 1);
         dateFilter = { created_at: { [Op.gte]: monthAgo } };
       }
@@ -919,24 +1045,24 @@ exports.getVehiclePerformance = async (req, res, next) => {
       include: [
         {
           model: User,
-          as: 'driver',
-          attributes: ['username'],
+          as: "driver",
+          attributes: ["username"],
           include: [
-            { 
-              model: DriverProfile, 
-              as: 'driverProfile', 
-              attributes: ['full_name', 'phone'],
-              required: false
-            }
-          ]
-        }
-      ]
+            {
+              model: DriverProfile,
+              as: "driverProfile",
+              attributes: ["full_name", "phone"],
+              required: false,
+            },
+          ],
+        },
+      ],
     });
 
     if (!vehicle) {
       return res.status(404).json({
         success: false,
-        message: 'Vehicle not found'
+        message: "Vehicle not found",
       });
     }
 
@@ -944,51 +1070,74 @@ exports.getVehiclePerformance = async (req, res, next) => {
     const deliveryOrders = await DeliveryOrder.findAll({
       where: {
         vehicle_id,
-        ...dateFilter
+        ...dateFilter,
       },
       include: [
         {
           model: User,
-          as: 'driver',
-          attributes: ['username'],
+          as: "driver",
+          attributes: ["username"],
           include: [
-            { 
-              model: DriverProfile, 
-              as: 'driverProfile', 
-              attributes: ['full_name'],
-              required: false
-            }
-          ]
-        }
+            {
+              model: DriverProfile,
+              as: "driverProfile",
+              attributes: ["full_name"],
+              required: false,
+            },
+          ],
+        },
       ],
-      order: [['created_at', 'DESC']]
+      order: [["created_at", "DESC"]],
     });
 
     // Calculate detailed performance metrics
     const performance = {
       total_trips: deliveryOrders.length,
-      completed_trips: deliveryOrders.filter(order => order.status === 'completed').length,
-      gross_income: deliveryOrders.reduce((sum, order) => 
-        sum + (parseFloat(order.final_amount) || parseFloat(order.ongkosan) || 0), 0),
-      trip_allowance: deliveryOrders.reduce((sum, order) => 
-        sum + (parseFloat(order.trip_allowance) || 0), 0),
-      gaji: deliveryOrders.reduce((sum, order) => 
-        sum + (parseFloat(order.gaji) || 0), 0),
+      completed_trips: deliveryOrders.filter(
+        (order) => order.status === "completed"
+      ).length,
+      gross_income: deliveryOrders.reduce(
+        (sum, order) =>
+          sum +
+          (parseFloat(order.final_amount) || parseFloat(order.ongkosan) || 0),
+        0
+      ),
+      trip_allowance: deliveryOrders.reduce(
+        (sum, order) => sum + (parseFloat(order.trip_allowance) || 0),
+        0
+      ),
+      gaji: deliveryOrders.reduce(
+        (sum, order) => sum + (parseFloat(order.gaji) || 0),
+        0
+      ),
       lunas_income: deliveryOrders
-        .filter(order => order.payment_status === 'lunas')
-        .reduce((sum, order) => 
-          sum + (parseFloat(order.final_amount) || parseFloat(order.ongkosan) || 0), 0),
+        .filter((order) => order.payment_status === "lunas")
+        .reduce(
+          (sum, order) =>
+            sum +
+            (parseFloat(order.final_amount) || parseFloat(order.ongkosan) || 0),
+          0
+        ),
       deposit_income: deliveryOrders
-        .filter(order => order.payment_status === 'deposit')
-        .reduce((sum, order) => 
-          sum + (parseFloat(order.final_amount) || parseFloat(order.ongkosan) || 0), 0),
+        .filter((order) => order.payment_status === "deposit")
+        .reduce(
+          (sum, order) =>
+            sum +
+            (parseFloat(order.final_amount) || parseFloat(order.ongkosan) || 0),
+          0
+        ),
     };
 
-    performance.net_profit = performance.gross_income - (performance.trip_allowance + performance.gaji);
-    performance.efficiency = performance.total_trips > 0 ? (performance.completed_trips / performance.total_trips) * 100 : 0;
+    performance.net_profit =
+      performance.gross_income -
+      (performance.trip_allowance + performance.gaji);
+    performance.efficiency =
+      performance.total_trips > 0
+        ? (performance.completed_trips / performance.total_trips) * 100
+        : 0;
 
     // Format orders for response
-    const formattedOrders = deliveryOrders.map(order => ({
+    const formattedOrders = deliveryOrders.map((order) => ({
       id: order.id,
       do_number: order.do_number,
       customer_name: order.customer_name,
@@ -996,16 +1145,19 @@ exports.getVehiclePerformance = async (req, res, next) => {
       load_location: order.load_location,
       unload_location: order.unload_location,
       minimal_load_quantity: parseFloat(order.minimal_load_quantity),
-      actual_load_quantity: order.actual_load_quantity ? parseFloat(order.actual_load_quantity) : null,
+      actual_load_quantity: order.actual_load_quantity
+        ? parseFloat(order.actual_load_quantity)
+        : null,
       ongkosan: parseFloat(order.ongkosan) || 0,
-      final_amount: parseFloat(order.final_amount) || parseFloat(order.ongkosan) || 0,
+      final_amount:
+        parseFloat(order.final_amount) || parseFloat(order.ongkosan) || 0,
       trip_allowance: parseFloat(order.trip_allowance) || 0,
       gaji: parseFloat(order.gaji) || 0,
       payment_status: order.payment_status,
       status: order.status,
       created_at: order.created_at,
       completed_at: order.completed_at,
-      driver: order.driver
+      driver: order.driver,
     }));
 
     res.json({
@@ -1016,13 +1168,13 @@ exports.getVehiclePerformance = async (req, res, next) => {
           license_plate: vehicle.license_plate,
           type: vehicle.type,
           capacity: vehicle.capacity,
-          assigned_driver: vehicle.driver
+          assigned_driver: vehicle.driver,
         },
         performance,
         orders: formattedOrders,
         period,
-        date_range: { start_date, end_date }
-      }
+        date_range: { start_date, end_date },
+      },
     });
   } catch (err) {
     next(err);
@@ -1033,11 +1185,15 @@ exports.getVehiclePerformance = async (req, res, next) => {
 exports.updatePaymentStatus = async (req, res, next) => {
   try {
     const { delivery_order_id, payment_status, notes } = req.body;
-    
-    if (!['lunas', 'deposit', 'proses_tagihan', 'awaiting_confirmation'].includes(payment_status)) {
+
+    if (
+      !["lunas", "deposit", "proses_tagihan", "awaiting_confirmation"].includes(
+        payment_status
+      )
+    ) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid payment status'
+        message: "Invalid payment status",
       });
     }
 
@@ -1045,15 +1201,15 @@ exports.updatePaymentStatus = async (req, res, next) => {
     if (!deliveryOrder) {
       return res.status(404).json({
         success: false,
-        message: 'Delivery Order not found'
+        message: "Delivery Order not found",
       });
     }
 
     const oldStatus = deliveryOrder.payment_status;
-    
+
     await deliveryOrder.update({
       payment_status,
-      payment_notes: notes
+      payment_notes: notes,
     });
 
     // Insert payment history for audit trail
@@ -1062,20 +1218,21 @@ exports.updatePaymentStatus = async (req, res, next) => {
         delivery_order_id,
         old_status: oldStatus,
         new_status: payment_status,
-        change_reason: notes || `Manual update from ${oldStatus} to ${payment_status}`,
+        change_reason:
+          notes || `Manual update from ${oldStatus} to ${payment_status}`,
         changed_by: req.user?.id,
-        changed_at: new Date()
+        changed_at: new Date(),
       });
     }
 
     res.json({
       success: true,
-      message: 'Payment status updated successfully',
+      message: "Payment status updated successfully",
       data: {
         delivery_order_id,
         old_status: oldStatus,
-        new_status: payment_status
-      }
+        new_status: payment_status,
+      },
     });
   } catch (err) {
     next(err);
@@ -1085,25 +1242,25 @@ exports.updatePaymentStatus = async (req, res, next) => {
 // ✅ 4. Export Excel report (enhanced version)
 exports.exportRitaseExcel = async (req, res, next) => {
   try {
-    const { period = 'month', vehicle_id, start_date, end_date } = req.query;
-    
+    const { period = "month", vehicle_id, start_date, end_date } = req.query;
+
     // Build date filter
     let dateFilter = {};
     if (start_date && end_date) {
       dateFilter = {
         created_at: {
-          [Op.between]: [new Date(start_date), new Date(end_date)]
-        }
+          [Op.between]: [new Date(start_date), new Date(end_date)],
+        },
       };
     } else {
       const now = new Date();
-      if (period === 'week') {
+      if (period === "week") {
         const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
         dateFilter = { created_at: { [Op.gte]: weekAgo } };
-      } else if (period === 'month') {
+      } else if (period === "month") {
         const monthAgo = new Date(now.getFullYear(), now.getMonth(), 1);
         dateFilter = { created_at: { [Op.gte]: monthAgo } };
-      } else if (period === 'year') {
+      } else if (period === "year") {
         const yearAgo = new Date(now.getFullYear(), 0, 1);
         dateFilter = { created_at: { [Op.gte]: yearAgo } };
       }
@@ -1116,18 +1273,19 @@ exports.exportRitaseExcel = async (req, res, next) => {
     }
 
     // Get financial totals
-    const [lunasAmount, depositAmount, totalUangJalan, totalGaji] = await Promise.all([
-      DeliveryOrder.sum('ongkosan', { 
-        where: { ...whereClause, payment_status: 'lunas' } 
-      }) || 0,
-      
-      DeliveryOrder.sum('ongkosan', { 
-        where: { ...whereClause, payment_status: 'deposit' } 
-      }) || 0,
-      
-      DeliveryOrder.sum('trip_allowance', { where: whereClause }) || 0,
-      DeliveryOrder.sum('gaji', { where: whereClause }) || 0,
-    ]);
+    const [lunasAmount, depositAmount, totalUangJalan, totalGaji] =
+      await Promise.all([
+        DeliveryOrder.sum("ongkosan", {
+          where: { ...whereClause, payment_status: "lunas" },
+        }) || 0,
+
+        DeliveryOrder.sum("ongkosan", {
+          where: { ...whereClause, payment_status: "deposit" },
+        }) || 0,
+
+        DeliveryOrder.sum("trip_allowance", { where: whereClause }) || 0,
+        DeliveryOrder.sum("gaji", { where: whereClause }) || 0,
+      ]);
 
     const totalAmount = lunasAmount + depositAmount;
 
@@ -1137,58 +1295,58 @@ exports.exportRitaseExcel = async (req, res, next) => {
       include: [
         {
           model: Vehicle,
-          as: 'vehicle',
-          attributes: ['id', 'license_plate', 'type', 'capacity']
+          as: "vehicle",
+          attributes: ["id", "license_plate", "type", "capacity"],
         },
         {
           model: User,
-          as: 'driver',
-          attributes: ['id', 'username'],
+          as: "driver",
+          attributes: ["id", "username"],
           include: [
-            { 
-              model: DriverProfile, 
-              as: 'driverProfile', 
-              attributes: ['full_name'],
-              required: false
-            }
-          ]
-        }
+            {
+              model: DriverProfile,
+              as: "driverProfile",
+              attributes: ["full_name"],
+              required: false,
+            },
+          ],
+        },
       ],
-      order: [['created_at', 'DESC']]
+      order: [["created_at", "DESC"]],
     });
 
-    const ExcelJS = require('exceljs');
+    const ExcelJS = require("exceljs");
     const workbook = new ExcelJS.Workbook();
-    
+
     // Create summary sheet (TOTAL)
-    const summarySheet = workbook.addWorksheet('TOTAL');
-    
+    const summarySheet = workbook.addWorksheet("TOTAL");
+
     summarySheet.columns = [
-      { header: 'DESCRIPTION', key: 'label', width: 20 },
-      { header: 'AMOUNT', key: 'amount', width: 25 }
+      { header: "DESCRIPTION", key: "label", width: 20 },
+      { header: "AMOUNT", key: "amount", width: 25 },
     ];
-    
+
     // Add summary data
-    summarySheet.addRow({ 
-      label: 'LUNAS', 
-      amount: `Rp ${lunasAmount.toLocaleString('id-ID')}` 
+    summarySheet.addRow({
+      label: "LUNAS",
+      amount: `Rp ${lunasAmount.toLocaleString("id-ID")}`,
     });
-    summarySheet.addRow({ 
-      label: 'DEPOSIT', 
-      amount: `Rp ${depositAmount.toLocaleString('id-ID')}` 
+    summarySheet.addRow({
+      label: "DEPOSIT",
+      amount: `Rp ${depositAmount.toLocaleString("id-ID")}`,
     });
-    summarySheet.addRow({ 
-      label: 'TOTAL', 
-      amount: `Rp ${totalAmount.toLocaleString('id-ID')}` 
+    summarySheet.addRow({
+      label: "TOTAL",
+      amount: `Rp ${totalAmount.toLocaleString("id-ID")}`,
     });
-    summarySheet.addRow({ label: '', amount: '' }); // Empty row
-    summarySheet.addRow({ 
-      label: 'TOTAL UANG JALAN', 
-      amount: `Rp ${totalUangJalan.toLocaleString('id-ID')}` 
+    summarySheet.addRow({ label: "", amount: "" }); // Empty row
+    summarySheet.addRow({
+      label: "TOTAL UANG JALAN",
+      amount: `Rp ${totalUangJalan.toLocaleString("id-ID")}`,
     });
-    summarySheet.addRow({ 
-      label: 'TOTAL GAJI', 
-      amount: `Rp ${totalGaji.toLocaleString('id-ID')}` 
+    summarySheet.addRow({
+      label: "TOTAL GAJI",
+      amount: `Rp ${totalGaji.toLocaleString("id-ID")}`,
     });
 
     // Style the summary sheet
@@ -1196,24 +1354,24 @@ exports.exportRitaseExcel = async (req, res, next) => {
     summarySheet.getRow(3).font = { bold: true }; // TOTAL row
 
     // Create main report sheet
-    const mainSheet = workbook.addWorksheet('Laporan Ritase');
-    
+    const mainSheet = workbook.addWorksheet("Laporan Ritase");
+
     mainSheet.columns = [
-      { header: 'No', key: 'no', width: 5 },
-      { header: 'DO Number', key: 'do_number', width: 20 },
-      { header: 'Tanggal', key: 'date', width: 12 },
-      { header: 'Customer', key: 'customer', width: 20 },
-      { header: 'Barang', key: 'item', width: 15 },
-      { header: 'Lokasi Muat', key: 'load_location', width: 25 },
-      { header: 'Lokasi Bongkar', key: 'unload_location', width: 25 },
-      { header: 'Kendaraan', key: 'vehicle', width: 15 },
-      { header: 'Driver', key: 'driver', width: 15 },
-      { header: 'Quantity (Ton)', key: 'quantity', width: 12 },
-      { header: 'Ongkosan', key: 'ongkosan', width: 15 },
-      { header: 'Uang Jalan', key: 'uang_jalan', width: 15 },
-      { header: 'Gaji', key: 'gaji', width: 15 },
-      { header: 'Status Bayar', key: 'payment_status', width: 12 },
-      { header: 'Status Trip', key: 'trip_status', width: 15 }
+      { header: "No", key: "no", width: 5 },
+      { header: "DO Number", key: "do_number", width: 20 },
+      { header: "Tanggal", key: "date", width: 12 },
+      { header: "Customer", key: "customer", width: 20 },
+      { header: "Barang", key: "item", width: 15 },
+      { header: "Lokasi Muat", key: "load_location", width: 25 },
+      { header: "Lokasi Bongkar", key: "unload_location", width: 25 },
+      { header: "Kendaraan", key: "vehicle", width: 15 },
+      { header: "Driver", key: "driver", width: 15 },
+      { header: "Quantity (Ton)", key: "quantity", width: 12 },
+      { header: "Ongkosan", key: "ongkosan", width: 15 },
+      { header: "Uang Jalan", key: "uang_jalan", width: 15 },
+      { header: "Gaji", key: "gaji", width: 15 },
+      { header: "Status Bayar", key: "payment_status", width: 12 },
+      { header: "Status Trip", key: "trip_status", width: 15 },
     ];
 
     // Add data rows
@@ -1221,34 +1379,43 @@ exports.exportRitaseExcel = async (req, res, next) => {
       mainSheet.addRow({
         no: index + 1,
         do_number: order.do_number,
-        date: new Date(order.created_at).toLocaleDateString('id-ID'),
+        date: new Date(order.created_at).toLocaleDateString("id-ID"),
         customer: order.customer_name,
         item: order.item_name,
         load_location: order.load_location,
         unload_location: order.unload_location,
-        vehicle: order.vehicle?.license_plate || '-',
-        driver: order.driver?.driverProfile?.full_name || order.driver?.username || '-',
+        vehicle: order.vehicle?.license_plate || "-",
+        driver:
+          order.driver?.driverProfile?.full_name ||
+          order.driver?.username ||
+          "-",
         quantity: order.actual_load_quantity || order.minimal_load_quantity,
-        ongkosan: `Rp ${(parseFloat(order.final_amount) || parseFloat(order.ongkosan) || 0).toLocaleString('id-ID')}`,
-        uang_jalan: `Rp ${(parseFloat(order.trip_allowance) || 0).toLocaleString('id-ID')}`,
-        gaji: `Rp ${(parseFloat(order.gaji) || 0).toLocaleString('id-ID')}`,
+        ongkosan: `Rp ${(
+          parseFloat(order.final_amount) ||
+          parseFloat(order.ongkosan) ||
+          0
+        ).toLocaleString("id-ID")}`,
+        uang_jalan: `Rp ${(
+          parseFloat(order.trip_allowance) || 0
+        ).toLocaleString("id-ID")}`,
+        gaji: `Rp ${(parseFloat(order.gaji) || 0).toLocaleString("id-ID")}`,
         payment_status: order.payment_status.toUpperCase(),
-        trip_status: order.status
+        trip_status: order.status,
       });
     });
 
     // Style the main sheet header
     mainSheet.getRow(1).font = { bold: true };
     mainSheet.getRow(1).fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFE0E0E0' }
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFE0E0E0" },
     };
 
     // Create vehicle-specific sheets
     const vehicleGroups = {};
-    deliveryOrders.forEach(order => {
-      const licensePlate = order.vehicle?.license_plate || 'UNKNOWN';
+    deliveryOrders.forEach((order) => {
+      const licensePlate = order.vehicle?.license_plate || "UNKNOWN";
       if (!vehicleGroups[licensePlate]) {
         vehicleGroups[licensePlate] = [];
       }
@@ -1258,31 +1425,57 @@ exports.exportRitaseExcel = async (req, res, next) => {
     // Create a sheet for each vehicle
     Object.entries(vehicleGroups).forEach(([licensePlate, orders]) => {
       const vehicleSheet = workbook.addWorksheet(licensePlate);
-      
+
       // Calculate vehicle totals
-      const vehicleGrossIncome = orders.reduce((sum, order) => 
-        sum + (parseFloat(order.final_amount) || parseFloat(order.ongkosan) || 0), 0
+      const vehicleGrossIncome = orders.reduce(
+        (sum, order) =>
+          sum +
+          (parseFloat(order.final_amount) || parseFloat(order.ongkosan) || 0),
+        0
       );
-      const vehicleUangJalan = orders.reduce((sum, order) => 
-        sum + (parseFloat(order.trip_allowance) || 0), 0
+      const vehicleUangJalan = orders.reduce(
+        (sum, order) => sum + (parseFloat(order.trip_allowance) || 0),
+        0
       );
-      const vehicleGaji = orders.reduce((sum, order) => 
-        sum + (parseFloat(order.gaji) || 0), 0
+      const vehicleGaji = orders.reduce(
+        (sum, order) => sum + (parseFloat(order.gaji) || 0),
+        0
       );
-      const vehicleProfit = vehicleGrossIncome - (vehicleUangJalan + vehicleGaji);
+      const vehicleProfit =
+        vehicleGrossIncome - (vehicleUangJalan + vehicleGaji);
 
       // Add vehicle summary
-      vehicleSheet.addRow(['RINGKASAN KENDARAAN', licensePlate]);
-      vehicleSheet.addRow(['Gross Income', `Rp ${vehicleGrossIncome.toLocaleString('id-ID')}`]);
-      vehicleSheet.addRow(['Uang Jalan', `Rp ${vehicleUangJalan.toLocaleString('id-ID')}`]);
-      vehicleSheet.addRow(['Gaji', `Rp ${vehicleGaji.toLocaleString('id-ID')}`]);
-      vehicleSheet.addRow(['Profit/Loss', `Rp ${vehicleProfit.toLocaleString('id-ID')}`]);
+      vehicleSheet.addRow(["RINGKASAN KENDARAAN", licensePlate]);
+      vehicleSheet.addRow([
+        "Gross Income",
+        `Rp ${vehicleGrossIncome.toLocaleString("id-ID")}`,
+      ]);
+      vehicleSheet.addRow([
+        "Uang Jalan",
+        `Rp ${vehicleUangJalan.toLocaleString("id-ID")}`,
+      ]);
+      vehicleSheet.addRow([
+        "Gaji",
+        `Rp ${vehicleGaji.toLocaleString("id-ID")}`,
+      ]);
+      vehicleSheet.addRow([
+        "Profit/Loss",
+        `Rp ${vehicleProfit.toLocaleString("id-ID")}`,
+      ]);
       vehicleSheet.addRow([]); // Empty row
 
       // Add headers for trip details
       vehicleSheet.addRow([
-        'No', 'DO Number', 'Tanggal', 'Customer', 'Rute', 
-        'Quantity', 'Ongkosan', 'Uang Jalan', 'Gaji', 'Status Bayar'
+        "No",
+        "DO Number",
+        "Tanggal",
+        "Customer",
+        "Rute",
+        "Quantity",
+        "Ongkosan",
+        "Uang Jalan",
+        "Gaji",
+        "Status Bayar",
       ]);
 
       // Add trip data
@@ -1290,14 +1483,20 @@ exports.exportRitaseExcel = async (req, res, next) => {
         vehicleSheet.addRow([
           index + 1,
           order.do_number,
-          new Date(order.created_at).toLocaleDateString('id-ID'),
+          new Date(order.created_at).toLocaleDateString("id-ID"),
           order.customer_name,
           `${order.load_location} → ${order.unload_location}`,
           order.actual_load_quantity || order.minimal_load_quantity,
-          `Rp ${(parseFloat(order.final_amount) || parseFloat(order.ongkosan) || 0).toLocaleString('id-ID')}`,
-          `Rp ${(parseFloat(order.trip_allowance) || 0).toLocaleString('id-ID')}`,
-          `Rp ${(parseFloat(order.gaji) || 0).toLocaleString('id-ID')}`,
-          order.payment_status.toUpperCase()
+          `Rp ${(
+            parseFloat(order.final_amount) ||
+            parseFloat(order.ongkosan) ||
+            0
+          ).toLocaleString("id-ID")}`,
+          `Rp ${(parseFloat(order.trip_allowance) || 0).toLocaleString(
+            "id-ID"
+          )}`,
+          `Rp ${(parseFloat(order.gaji) || 0).toLocaleString("id-ID")}`,
+          order.payment_status.toUpperCase(),
         ]);
       });
 
@@ -1307,9 +1506,17 @@ exports.exportRitaseExcel = async (req, res, next) => {
     });
 
     // Set response headers for Excel download
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=ritase-report-${period}-${new Date().toISOString().split('T')[0]}.xlsx`);
-    
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=ritase-report-${period}-${
+        new Date().toISOString().split("T")[0]
+      }.xlsx`
+    );
+
     // Write and send the workbook
     await workbook.xlsx.write(res);
     res.end();
@@ -1317,7 +1524,6 @@ exports.exportRitaseExcel = async (req, res, next) => {
     next(err);
   }
 };
-
 
 module.exports = {
   // Existing exports

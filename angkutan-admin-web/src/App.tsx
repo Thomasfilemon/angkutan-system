@@ -30,6 +30,7 @@ import ServiceCreatePage from "./pages/ServiceCreate";
 import ServiceDetailPage from "./pages/ServiceDetail";
 import ServiceEditPage from "./pages/ServiceEdit";
 import RitaseDashboard from "./pages/Ritase/RitaseDashboard";
+import POPaymentDetail from "./pages/Ritase/POPaymentDetail";
 
 function App() {
   const { token } = useAuth();
@@ -50,10 +51,8 @@ function App() {
 
           {/* Ritase dan Buku Kas */}
           <Route path="ritase" element={<RitaseDashboard />} />
-          <Route
-            path="ritase/po/:poId"
-            element={<div>PO Detail Coming Soon</div>}
-          />
+          <Route path="ritase/po/:poId" element={<POPaymentDetail />} />
+
           {/* <Route path="buku-kas" element={<BukuKasDashboard />} /> */}
           {/* <Route path="buku-kas/payments" element={<PaymentTracking />} /> */}
 

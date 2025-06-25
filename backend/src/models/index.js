@@ -16,6 +16,12 @@ const setupStockCategoryModel = require("./stockCategory.model");
 const setupStockItemModel = require("./stockItem.model");
 const setupStockTransactionModel = require("./stockTransaction.model");
 const setupServiceItemModel = require("./serviceItem.model");
+// Create model files for new Ritase tables
+const setupDeliveryOrderPaymentsModel = require("./deliveryOrderPayments.model");
+const setupDeliveryOrderInvoicesModel = require("./deliveryOrderInvoices.model");
+const setupDeliveryOrderAdjustmentsModel = require("./deliveryOrderAdjustments.model");
+const setupDeliveryOrderPaymentHistoryModel = require("./deliveryOrderPaymentHistory.model");
+const setupSystemSettingsModel = require("./systemSettings.model");
 
 // Initialize Sequelize connection using your .env variables
 const sequelize = new Sequelize(
@@ -55,6 +61,13 @@ db.StockCategory = setupStockCategoryModel(sequelize);
 db.StockItem = setupStockItemModel(sequelize);
 db.StockTransaction = setupStockTransactionModel(sequelize);
 db.ServiceItem = setupServiceItemModel(sequelize);
+// WEB: Ritase
+db.DeliveryOrderPayments = setupDeliveryOrderPaymentsModel(sequelize);
+db.DeliveryOrderInvoices = setupDeliveryOrderInvoicesModel(sequelize);
+db.DeliveryOrderAdjustments = setupDeliveryOrderAdjustmentsModel(sequelize);
+db.DeliveryOrderPaymentHistory =
+  setupDeliveryOrderPaymentHistoryModel(sequelize);
+db.SystemSettings = setupSystemSettingsModel(sequelize);
 
 // === Define All Model Associations ===
 const {
@@ -70,6 +83,11 @@ const {
   StockItem,
   StockTransaction,
   ServiceItem,
+  DeliveryOrderPayments,
+  DeliveryOrderInvoices,
+  DeliveryOrderAdjustments,
+  DeliveryOrderPaymentHistory,
+  SystemSettings,
 } = db;
 
 // User <-> Profile Associations (One-to-One)
@@ -101,25 +119,25 @@ Vehicle.hasMany(DeliveryOrder, {
 DeliveryOrder.belongsTo(Vehicle, { foreignKey: "vehicle_id", as: "vehicle" });
 
 // Vehicle <-> Driver (User) Assignments
-User.hasMany(Vehicle, { 
-  foreignKey: "driver_id", 
-  as: "assignedVehicles" 
+User.hasMany(Vehicle, {
+  foreignKey: "driver_id",
+  as: "assignedVehicles",
 });
-Vehicle.belongsTo(User, { 
-  foreignKey: "driver_id", 
-  as: "driver" // Changed from "assignedDriver" to match your controller
+Vehicle.belongsTo(User, {
+  foreignKey: "driver_id",
+  as: "driver", // Changed from "assignedDriver" to match your controller
 });
 
 // Vehicle <-> DriverProfile (through User)
 Vehicle.belongsTo(DriverProfile, {
   foreignKey: "driver_id",
   targetKey: "user_id",
-  as: "driverProfile"
+  as: "driverProfile",
 });
 DriverProfile.hasMany(Vehicle, {
   foreignKey: "driver_id",
   sourceKey: "user_id",
-  as: "assignedVehicles"
+  as: "assignedVehicles",
 });
 
 // Expense-related Associations (One-to-Many)
@@ -148,21 +166,21 @@ DriverExpense.belongsTo(User, { foreignKey: "driver_id", as: "driver" });
 // StockCategory <-> StockItem (One-to-Many)
 StockCategory.hasMany(StockItem, {
   foreignKey: "category_id",
-  as: "items"
+  as: "items",
 });
 StockItem.belongsTo(StockCategory, {
   foreignKey: "category_id",
-  as: "category"
+  as: "category",
 });
 
 // StockItem <-> StockTransaction (One-to-Many)
 StockItem.hasMany(StockTransaction, {
   foreignKey: "item_id",
-  as: "transactions"
+  as: "transactions",
 });
 StockTransaction.belongsTo(StockItem, {
   foreignKey: "item_id",
-  as: "stockItem"
+  as: "stockItem",
 });
 
 // === NEW: Service Management Associations ===
@@ -170,21 +188,94 @@ StockTransaction.belongsTo(StockItem, {
 // VehicleService <-> ServiceItem (One-to-Many)
 VehicleService.hasMany(ServiceItem, {
   foreignKey: "service_id",
-  as: "serviceItems"
+  as: "serviceItems",
 });
 ServiceItem.belongsTo(VehicleService, {
   foreignKey: "service_id",
-  as: "service"
+  as: "service",
 });
 
 // StockItem <-> ServiceItem (Many-to-One, optional)
 StockItem.hasMany(ServiceItem, {
   foreignKey: "stock_item_id",
-  as: "usedInServices"
+  as: "usedInServices",
 });
 ServiceItem.belongsTo(StockItem, {
   foreignKey: "stock_item_id",
-  as: "stockItem"
+  as: "stockItem",
+});
+
+// Payment-related associations
+DeliveryOrder.hasMany(DeliveryOrderPayments, {
+  foreignKey: "delivery_order_id",
+  as: "payments",
+});
+DeliveryOrderPayments.belongsTo(DeliveryOrder, {
+  foreignKey: "delivery_order_id",
+  as: "deliveryOrder",
+});
+
+DeliveryOrder.hasMany(DeliveryOrderInvoices, {
+  foreignKey: "delivery_order_id",
+  as: "invoices",
+});
+DeliveryOrderInvoices.belongsTo(DeliveryOrder, {
+  foreignKey: "delivery_order_id",
+  as: "deliveryOrder",
+});
+
+DeliveryOrder.hasMany(DeliveryOrderAdjustments, {
+  foreignKey: "delivery_order_id",
+  as: "adjustments",
+});
+DeliveryOrderAdjustments.belongsTo(DeliveryOrder, {
+  foreignKey: "delivery_order_id",
+  as: "deliveryOrder",
+});
+
+DeliveryOrder.hasMany(DeliveryOrderPaymentHistory, {
+  foreignKey: "delivery_order_id",
+  as: "paymentHistory",
+});
+DeliveryOrderPaymentHistory.belongsTo(DeliveryOrder, {
+  foreignKey: "delivery_order_id",
+  as: "deliveryOrder",
+});
+
+// Invoice to Payments relationship
+DeliveryOrderInvoices.hasMany(DeliveryOrderPayments, {
+  foreignKey: "invoice_id",
+  as: "payments",
+});
+DeliveryOrderPayments.belongsTo(DeliveryOrderInvoices, {
+  foreignKey: "invoice_id",
+  as: "invoice",
+});
+
+// User relationships for audit fields
+User.hasMany(DeliveryOrderPayments, {
+  foreignKey: "created_by",
+  as: "createdPayments",
+});
+User.hasMany(DeliveryOrderPayments, {
+  foreignKey: "received_by",
+  as: "receivedPayments",
+});
+User.hasMany(DeliveryOrderInvoices, {
+  foreignKey: "created_by",
+  as: "createdInvoices",
+});
+User.hasMany(DeliveryOrderAdjustments, {
+  foreignKey: "created_by",
+  as: "createdAdjustments",
+});
+User.hasMany(DeliveryOrderAdjustments, {
+  foreignKey: "approved_by",
+  as: "approvedAdjustments",
+});
+User.hasMany(SystemSettings, {
+  foreignKey: "updated_by",
+  as: "updatedSettings",
 });
 
 module.exports = db;
