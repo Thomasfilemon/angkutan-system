@@ -1,6 +1,7 @@
 // src/controllers/web/deliveryOrderController.js
 const { DeliveryOrder, PurchaseOrder, Vehicle, DriverProfile, User, sequelize } = require('../../models');
 const { Op } = require('sequelize');
+const { Expo } = require('expo-server-sdk');
 
 // Create delivery order with conflict prevention and ongkosan
 exports.createDeliveryOrder = async (req, res, next) => {
@@ -130,17 +131,39 @@ exports.createDeliveryOrder = async (req, res, next) => {
       status
     }, { transaction });
 
-    // Update vehicle status to in_use
+    // Update vehicle status only (remove DriverProfile status update)
     await Vehicle.update(
       { status: 'in_use' },
       { where: { id: vehicle_id }, transaction }
     );
 
-    // Update driver status to busy
-    await DriverProfile.update(
-      { status: 'busy' },
-      { where: { user_id: driver_id }, transaction }
-    );
+    // === SEND PUSH NOTIFICATION TO DRIVER ===
+    const driverUser = await User.findOne({
+      where: { id: driver_id },
+      attributes: ['username', 'expo_push_token'],
+      transaction
+    });
+
+    const driverProfile = await DriverProfile.findOne({
+      where: { user_id: driver_id },
+      attributes: ['full_name'],
+      transaction
+    });
+    const driverName = driverProfile?.full_name || driverUser.username || 'Driver';
+
+    if (driverUser && driverUser.expo_push_token) {
+      const expo = new Expo();
+      if (Expo.isExpoPushToken(driverUser.expo_push_token)) {
+        const messages = [{
+          to: driverUser.expo_push_token,
+          sound: 'default',
+          title: 'Tugas Pengantaran Baru',
+          body: `Halo ${driverName}, Anda telah ditugaskan untuk DO ${deliveryOrder.do_number}. Silakan cek detail pengantaran di aplikasi.`,
+          data: { do_number: deliveryOrder.do_number }
+        }];
+        await expo.sendPushNotificationsAsync(messages);
+      }
+    }
 
     await transaction.commit();
 
@@ -372,13 +395,6 @@ exports.cancelDeliveryOrder = async (req, res, next) => {
       await Vehicle.update(
         { status: 'available' },
         { where: { id: deliveryOrder.vehicle_id }, transaction }
-      );
-    }
-
-    if (deliveryOrder.driver_id) {
-      await DriverProfile.update(
-        { status: 'available' },
-        { where: { user_id: deliveryOrder.driver_id }, transaction }
       );
     }
 

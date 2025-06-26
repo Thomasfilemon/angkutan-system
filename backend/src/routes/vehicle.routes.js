@@ -1,33 +1,28 @@
-// src/routes/vehicle.routes.js
-
+// src/routes/web/vehicle.routes.js
 const express = require('express');
-const router = express.Router();
+const vehicleRouter = express.Router(); // Changed from 'router' to avoid conflicts
 const vehicleController = require('../controllers/vehicleController');
-const { verifyToken } = require('../middlewares/auth.middleware');
+const { verifyToken, checkRole } = require('../middlewares/auth.middleware');
 
-// All routes are protected
-router.use(verifyToken);
+vehicleRouter.use(verifyToken);
 
-// --- RESTful Routes for Vehicles ---
+// CRITICAL: ALL specific routes MUST come before ANY parameterized routes
+// Static routes (no parameters)
+vehicleRouter.get('/statistics', checkRole(['admin', 'owner', 'driver']), vehicleController.getVehicleStatistics);
+vehicleRouter.get('/drivers/available', checkRole(['admin', 'owner', 'driver']), vehicleController.getAvailableDrivers);
 
-// GET /api/vehicles -> Get all vehicles (with optional filters)
-router.get('/', vehicleController.getAllVehicles);
+// Collection routes (operate on the collection, not individual items)
+vehicleRouter.get('/', checkRole(['admin', 'owner', 'driver']), vehicleController.getAllVehicles);
+vehicleRouter.post('/', checkRole(['admin', 'owner', 'driver']), vehicleController.createVehicle);
 
-// POST /api/vehicles -> Create a new vehicle
-router.post('/', vehicleController.createVehicle);
+// IMPORTANT: All parameterized routes MUST come after static routes
+// Individual resource routes (operate on specific items by ID)
+vehicleRouter.get('/:id', checkRole(['admin', 'owner', 'driver']), vehicleController.getVehicleById);
+vehicleRouter.put('/:id', checkRole(['admin', 'owner', 'driver']), vehicleController.updateVehicle);
+vehicleRouter.delete('/:id', checkRole(['admin', 'owner', 'driver']), vehicleController.deleteVehicle);
 
-// GET /api/vehicles/:id -> Get a single vehicle by ID
-router.get('/:id', vehicleController.getVehicleById);
+// Nested resource routes (specific actions on individual items)
+vehicleRouter.get('/:vehicle_id/history', checkRole(['admin', 'owner', 'driver']), vehicleController.getServiceHistory);
+vehicleRouter.put('/:vehicleId/assign-driver', checkRole(['admin', 'owner', 'driver']), vehicleController.assignDriver);
 
-// PUT /api/vehicles/:id -> Update a vehicle
-router.put('/:id', vehicleController.updateVehicle);
-
-// DELETE /api/vehicles/:id -> Delete a vehicle
-router.delete('/:id', vehicleController.deleteVehicle);
-
-// --- Routes for Service History ---
-
-// GET /api/vehicles/:vehicle_id/history -> Get service history for a specific vehicle
-router.get('/:vehicle_id/history', vehicleController.getServiceHistory);
-
-module.exports = router;
+module.exports = vehicleRouter;

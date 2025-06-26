@@ -102,8 +102,21 @@ exports.confirmLoad = async (req, res, next) => {
         surat_jalan_photo_url: surat_jalan_photo_url,
       },
     });
+
+    console.log("Request body:", req.body);
+    console.log("Uploaded file details:", {
+      originalname: req.file?.originalname,
+      mimetype: req.file?.mimetype,
+      size: req.file?.size,
+      path: req.file?.path
+    });
   } catch (error) {
-    console.error("Error in confirmLoad:", error);
+    console.error("Full error in confirmLoad:", {
+      message: error.message,
+      stack: error.stack,
+      code: error.code,
+      response: error.response?.data
+    });
     next(error);
   }
 };
