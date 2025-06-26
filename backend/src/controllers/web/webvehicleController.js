@@ -1,8 +1,8 @@
 // src/controllers/web/vehicleController.js
-const { Vehicle, User } = require('../../models');
+const { Vehicle, User, VehicleTire, TireInventory } = require('../../models');
 const { Op } = require('sequelize');
 
-// Get all vehicles with driver information
+// Get all vehicles with driver and tire information
 exports.getAllVehicles = async (req, res, next) => {
   try {
     const { status, search, page = 1, limit = 20 } = req.query;
@@ -37,6 +37,20 @@ exports.getAllVehicles = async (req, res, next) => {
             }
           ],
           required: false
+        },
+        {
+          model: VehicleTire,
+          as: 'tires',
+          where: { status: 'active' },
+          required: false,
+          include: [
+            {
+              model: TireInventory,
+              as: 'tireInventory',
+              attributes: ['tire_brand', 'tire_size'],
+              required: false
+            }
+          ]
         }
       ],
       order: [['license_plate', 'ASC']],
@@ -44,14 +58,30 @@ exports.getAllVehicles = async (req, res, next) => {
       offset: offset
     });
 
-    // Enhanced vehicle data with driver information
+    // Enhanced vehicle data with driver and tire information
     const enhancedVehicles = result.rows.map(vehicle => {
       const vehicleData = vehicle.toJSON();
+      
+      // Calculate tire statistics
+      const tires = vehicle.tires || [];
+      const tireStats = {
+        total_installed: tires.length,
+        total_expected: vehicle.tire_count + vehicle.spare_tire_count,
+        needs_attention: tires.filter(t => 
+          t.condition === 'poor' || 
+          t.condition === 'replace' ||
+          t.current_pressure < (t.recommended_pressure * 0.8) ||
+          t.current_pressure > (t.recommended_pressure * 1.2)
+        ).length,
+        good_condition: tires.filter(t => t.condition === 'good').length
+      };
+
       return {
         ...vehicleData,
         driver_name: vehicle.driver?.driverProfile?.full_name || null,
         driver_phone: vehicle.driver?.driverProfile?.phone || null,
-        driver_status: vehicle.driver?.driverProfile?.status || null
+        driver_status: vehicle.driver?.driverProfile?.status || null,
+        tire_stats: tireStats
       };
     });
 
@@ -70,7 +100,7 @@ exports.getAllVehicles = async (req, res, next) => {
   }
 };
 
-// Get vehicle by ID
+// Get vehicle by ID with complete tire information
 exports.getVehicleById = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -90,6 +120,20 @@ exports.getVehicleById = async (req, res, next) => {
             }
           ],
           required: false
+        },
+        {
+          model: VehicleTire,
+          as: 'tires',
+          where: { status: 'active' },
+          required: false,
+          include: [
+            {
+              model: TireInventory,
+              as: 'tireInventory',
+              attributes: ['tire_brand', 'tire_size', 'tire_type'],
+              required: false
+            }
+          ]
         }
       ]
     });
@@ -106,7 +150,8 @@ exports.getVehicleById = async (req, res, next) => {
       ...vehicleData,
       driver_name: vehicle.driver?.driverProfile?.full_name || null,
       driver_phone: vehicle.driver?.driverProfile?.phone || null,
-      driver_status: vehicle.driver?.driverProfile?.status || null
+      driver_status: vehicle.driver?.driverProfile?.status || null,
+      tire_positions: vehicle.getTirePositions ? vehicle.getTirePositions() : []
     };
 
     res.json({
@@ -212,7 +257,6 @@ exports.assignDriver = async (req, res, next) => {
       });
     }
 
-    // Check if driver exists and is available
     if (driver_id) {
       const driver = await User.findOne({
         where: { id: driver_id, role: 'driver' },
@@ -285,7 +329,7 @@ exports.getAvailableDrivers = async (req, res, next) => {
   }
 };
 
-// Get vehicle statistics
+// Get vehicle statistics including tire stats
 exports.getVehicleStatistics = async (req, res, next) => {
   try {
     const totalVehicles = await Vehicle.count();
@@ -293,13 +337,36 @@ exports.getVehicleStatistics = async (req, res, next) => {
     const inUseVehicles = await Vehicle.count({ where: { status: 'in_use' } });
     const maintenanceVehicles = await Vehicle.count({ where: { status: 'maintenance' } });
 
+    // Tire statistics
+    const tiresNeedingAttention = await VehicleTire.count({
+      where: {
+        status: 'active',
+        [Op.or]: [
+          { condition: 'poor' },
+          { condition: 'replace' },
+          { tread_depth: { [Op.lt]: 2.0 } }
+        ]
+      }
+    });
+
+    const totalActiveTires = await VehicleTire.count({
+      where: { status: 'active' }
+    });
+
     res.json({
       success: true,
       data: {
-        total: totalVehicles,
-        available: availableVehicles,
-        in_use: inUseVehicles,
-        maintenance: maintenanceVehicles
+        vehicles: {
+          total: totalVehicles,
+          available: availableVehicles,
+          in_use: inUseVehicles,
+          maintenance: maintenanceVehicles
+        },
+        tires: {
+          total_active: totalActiveTires,
+          needs_attention: tiresNeedingAttention,
+          good_condition: totalActiveTires - tiresNeedingAttention
+        }
       }
     });
   } catch (err) {
@@ -320,8 +387,6 @@ exports.getServiceHistory = async (req, res, next) => {
       });
     }
 
-    // This would require the VehicleService model to be properly set up
-    // For now, return empty array
     res.json({
       success: true,
       data: []

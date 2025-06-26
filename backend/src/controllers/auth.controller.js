@@ -3,28 +3,26 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { User, DriverProfile, AdminProfile, sequelize } = require("../models");
 const { UniqueConstraintError } = require("sequelize");
+const { Expo } = require('expo-server-sdk');
 
 const mobileLogin = async (req, res, next) => {
   try {
-    const { username, password } = req.body;
+    const { username, password, expoPushToken } = req.body;
 
-    // Find the user using Sequelize models, including their associated profile
+    // Find the user with associated profiles
     const user = await User.findOne({
       where: {
         username,
         role: { [Op.in]: ["admin", "driver"] },
       },
       include: [
-        // These 'as' aliases must match the ones defined in your models/index.js associations
         { model: DriverProfile, as: "driverProfile" },
         { model: AdminProfile, as: "adminProfile" },
       ],
     });
 
     if (!user) {
-      return res
-        .status(401)
-        .json({ message: "Invalid credentials or unauthorized role." });
+      return res.status(401).json({ message: "Invalid credentials." });
     }
 
     const validPassword = await bcrypt.compare(password, user.password_hash);
@@ -32,14 +30,19 @@ const mobileLogin = async (req, res, next) => {
       return res.status(401).json({ message: "Invalid credentials." });
     }
 
-    // Create JWT token with a consistent payload
+    // Generate JWT token
     const token = jwt.sign(
       { id: user.id, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: "24h" }
     );
 
-    // Structure the user object for the response, combining profiles for simplicity
+    // Save Expo Push Token to the user table
+    if (expoPushToken && Expo.isExpoPushToken(expoPushToken)) {
+      await user.update({ expo_push_token: expoPushToken });
+    }
+
+    // Prepare response
     const userResponse = user.toJSON();
     userResponse.profile =
       userResponse.driverProfile || userResponse.adminProfile;
@@ -53,7 +56,7 @@ const mobileLogin = async (req, res, next) => {
       user: userResponse,
     });
   } catch (err) {
-    next(err); // Pass all errors to your global error handler
+    next(err);
   }
 };
 

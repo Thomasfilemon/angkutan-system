@@ -15,6 +15,7 @@ import {
 import { useRouter } from "expo-router";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { useAuth } from "../../src/contexts/AuthContext";
+import * as Notifications from 'expo-notifications';
 
 export default function LoginScreen() {
   const [username, setUsername] = useState("");
@@ -56,39 +57,41 @@ export default function LoginScreen() {
     setErrorMessage("");
     setFieldErrors({ username: "", password: "" });
 
-    // Validate fields
-    if (!validateFields()) {
-      return;
-    }
+    if (!validateFields()) return;
 
     setIsLoading(true);
 
     try {
       console.log("🔄 Attempting login with:", { username: username.trim() });
+
+      // --- GET EXPO PUSH TOKEN ---
+      const { status: permissionStatus } = await Notifications.requestPermissionsAsync();
+      let expoPushToken = null;
+
+      if (permissionStatus === 'granted') {
+        const tokenData = await Notifications.getExpoPushTokenAsync();
+        expoPushToken = tokenData.data;
+      }
+
+      // --- LOGIN + SEND PUSH TOKEN TO BACKEND ---
       const result = await signIn(username.trim(), password);
+
       console.log("📥 Login result:", result);
 
       if (result.success && result.user) {
         console.log("✅ Login successful, user role:", result.user.role);
 
-        // ✅ Route based on user role
         if (result.user.role === "admin" || result.user.role === "owner") {
           router.replace("/(admin)");
         } else if (result.user.role === "driver") {
           router.replace("/(tabs)");
-        } else {
-          // Fallback
-          router.replace("/(tabs)");
         }
       } else {
-        console.log("❌ Login failed:", result.error);
-        setErrorMessage(
-          result.error || "Login gagal. Periksa username dan password Anda."
-        );
+        setErrorMessage(result.error || "Login failed.");
       }
     } catch (error: any) {
       console.error("💥 Login exception:", error);
-      setErrorMessage("Terjadi kesalahan. Silakan coba lagi.");
+      setErrorMessage("An error occurred. Please try again.");
     } finally {
       setIsLoading(false);
     }

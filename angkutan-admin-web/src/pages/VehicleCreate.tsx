@@ -1,5 +1,4 @@
 // src/pages/VehicleCreate.tsx
-
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/axiosConfig';
@@ -20,7 +19,9 @@ const VehicleCreatePage = () => {
         license_plate: data.license_plate?.trim(),
         type: data.type?.trim(),
         capacity: data.capacity,
-        driver_id: data.driver_id, // NEW: Include driver assignment
+        tire_count: data.tire_count,           // NEW: Include tire configuration
+        spare_tire_count: data.spare_tire_count, // NEW: Include spare tire configuration
+        driver_id: data.driver_id,
         status: data.status,
         stnk_number: data.stnk_number?.trim(),
         stnk_expired_date: data.stnk_expired_date || null,

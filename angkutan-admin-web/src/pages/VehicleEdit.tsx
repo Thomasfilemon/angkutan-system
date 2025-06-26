@@ -1,5 +1,4 @@
 // src/pages/VehicleEdit.tsx
-
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import apiClient from '../api/axiosConfig';
@@ -18,7 +17,7 @@ const VehicleEditPage = () => {
       try {
         setIsPageLoading(true);
         const response = await apiClient.get(`/vehicles/${id}`);
-        setVehicleData(response.data);
+        setVehicleData(response.data.data || response.data);
       } catch (err) {
         setError('Failed to load vehicle data.');
       } finally {
@@ -32,7 +31,11 @@ const VehicleEditPage = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const payload: any = { ...data };
+      const payload: any = { 
+        ...data,
+        tire_count: data.tire_count,           // NEW: Include tire configuration
+        spare_tire_count: data.spare_tire_count // NEW: Include spare tire configuration
+      };
 
       if (data.capacity === null || data.capacity.trim() === '') {
         payload.capacity = null;
@@ -44,7 +47,6 @@ const VehicleEditPage = () => {
         payload.capacity = numCapacity;
       }
       
-      // Include driver assignment
       payload.driver_id = data.driver_id;
       payload.stnk_expired_date = data.stnk_expired_date || null;
       payload.tax_due_date = data.tax_due_date || null;

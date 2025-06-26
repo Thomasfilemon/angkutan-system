@@ -1,3 +1,4 @@
+// src/models/vehicle.model.js
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
@@ -51,6 +52,37 @@ module.exports = (sequelize) => {
               throw new Error('Capacity cannot exceed 999,999 kg');
             }
           }
+        }
+      }
+    },
+    // NEW: Tire configuration fields
+    tire_count: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 6,
+      validate: {
+        min: {
+          args: [2],
+          msg: 'Vehicle must have at least 2 tires'
+        },
+        max: {
+          args: [18],
+          msg: 'Vehicle cannot have more than 18 tires'
+        }
+      }
+    },
+    spare_tire_count: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 2,
+      validate: {
+        min: {
+          args: [0],
+          msg: 'Spare tire count cannot be negative'
+        },
+        max: {
+          args: [4],
+          msg: 'Vehicle cannot have more than 4 spare tires'
         }
       }
     },
@@ -173,10 +205,6 @@ module.exports = (sequelize) => {
     ],
     hooks: {
       beforeValidate: (vehicle) => {
-        console.log('=== BEFORE VALIDATE HOOK ===');
-        console.log('Original vehicle.capacity:', vehicle.capacity, 'type:', typeof vehicle.capacity);
-        
-        // Handle license plate and STNK formatting
         if (vehicle.license_plate) {
           vehicle.license_plate = vehicle.license_plate.toUpperCase().trim();
         }
@@ -184,24 +212,17 @@ module.exports = (sequelize) => {
           vehicle.stnk_number = vehicle.stnk_number.trim();
         }
         
-        // Handle capacity conversion
         if (vehicle.capacity !== null && vehicle.capacity !== undefined && vehicle.capacity !== '') {
           if (typeof vehicle.capacity === 'string') {
             const trimmed = vehicle.capacity.trim();
-            console.log('Trimmed capacity string:', trimmed);
-            
             if (trimmed === '') {
               vehicle.capacity = null;
             } else {
               const parsed = parseInt(trimmed, 10);
-              console.log('Parsed capacity:', parsed);
               vehicle.capacity = isNaN(parsed) ? null : parsed;
             }
           }
         }
-        
-        console.log('Final vehicle.capacity:', vehicle.capacity, 'type:', typeof vehicle.capacity);
-        console.log('===========================');
       }
     }
   });
@@ -226,46 +247,32 @@ module.exports = (sequelize) => {
     return new Date(this.stnk_expired_date) <= new Date();
   };
 
-  // Class methods
-  Vehicle.findAvailable = function() {
-    return this.findAll({
-      where: { status: 'available' },
-      order: [['license_plate', 'ASC']]
-    });
+  // NEW: Get total tire count including spares
+  Vehicle.prototype.getTotalTireCount = function() {
+    return this.tire_count + this.spare_tire_count;
   };
 
-  Vehicle.findMaintenanceDue = function() {
-    const { Op } = require('sequelize');
-    return this.findAll({
-      where: {
-        next_service_due: {
-          [Op.lte]: new Date()
-        }
-      }
-    });
-  };
-
-  Vehicle.findDocumentExpiring = function(days = 30) {
-    const { Op } = require('sequelize');
-    const futureDate = new Date();
-    futureDate.setDate(futureDate.getDate() + days);
-
-    return this.findAll({
-      where: {
-        [Op.or]: [
-          {
-            stnk_expired_date: {
-              [Op.lte]: futureDate
-            }
-          },
-          {
-            tax_due_date: {
-              [Op.lte]: futureDate
-            }
-          }
-        ]
-      }
-    });
+  // NEW: Get tire positions based on tire count
+  Vehicle.prototype.getTirePositions = function() {
+    const positions = [];
+    
+    // Always have front tires
+    positions.push('FL', 'FR');
+    
+    // Add rear tires based on count
+    const rearTireCount = this.tire_count - 2;
+    const rearAxles = Math.ceil(rearTireCount / 2);
+    
+    for (let axle = 1; axle <= rearAxles; axle++) {
+      positions.push(`RL${axle}`, `RR${axle}`);
+    }
+    
+    // Add spare tires
+    for (let spare = 1; spare <= this.spare_tire_count; spare++) {
+      positions.push(`SPARE${spare}`);
+    }
+    
+    return positions;
   };
 
   return Vehicle;

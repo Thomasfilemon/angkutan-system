@@ -43,6 +43,16 @@ module.exports = (sequelize) => {
         }
       }
     },
+    expo_push_token: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      validate: {
+        is: {
+          args: /^ExponentPushToken\[(.*?)\]$/,
+          msg: 'Invalid Expo push token format'
+        }
+      }
+    },
     created_at: {
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW,

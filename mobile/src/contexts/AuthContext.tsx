@@ -10,6 +10,7 @@ import React, {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import apiClient from "../services/api";
+import * as Notifications from 'expo-notifications';
 
 interface User {
   id: string;
@@ -70,10 +71,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Update signIn function
   const signIn = async (username: string, password: string) => {
     try {
+      // --- GET EXPO PUSH TOKEN ---
+      const { status } = await Notifications.requestPermissionsAsync();
+      let expoPushToken = null;
+
+      if (status === 'granted') {
+        const tokenData = await Notifications.getExpoPushTokenAsync();
+        expoPushToken = tokenData.data;
+      }
+
+      // --- LOGIN + SEND PUSH TOKEN TO BACKEND ---
       const { data } = await apiClient.post("/auth/mobile/login", {
         username,
         password,
+        expoPushToken, // <-- Send token to backend
       });
+
       const { token: newToken, user: userData } = data;
 
       await AsyncStorage.setItem("token", newToken);
@@ -82,7 +95,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setToken(newToken);
       setUser(userData);
 
-      return { success: true, user: userData }; // ✅ Return user data
+      return { success: true, user: userData };
     } catch (err: any) {
       console.error("SignIn error:", err);
 

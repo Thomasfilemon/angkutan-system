@@ -44,10 +44,9 @@ authClient.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-
-    // ✅ ADD: Route /auth/login to /auth/web/login
-    if (config.url === "/auth/login") {
-      config.url = "/auth/web/login";
+    
+    if (config.url === '/auth/login') {
+      config.url = '/auth/web/login';
     }
 
     config.headers["ngrok-skip-browser-warning"] = "true";
@@ -56,14 +55,16 @@ authClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptors
+// ✅ FIX: Keep response interceptor for all EXCEPT cash endpoints
 apiClient.interceptors.response.use(
   (response) => {
-    if (
-      response.data &&
-      response.data.success &&
-      response.data.data !== undefined
-    ) {
+    // Skip interceptor for cash endpoints (they need full response with summary & pagination)
+    if (response.config.url?.includes('/cash/')) {
+      return response; // Return full response for cash
+    }
+    
+    // Apply interceptor for all other endpoints (stock, purchase-orders, etc.)
+    if (response.data && response.data.success && response.data.data !== undefined) {
       return { ...response, data: response.data.data };
     }
     return response;

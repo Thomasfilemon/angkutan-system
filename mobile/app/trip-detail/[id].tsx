@@ -640,7 +640,6 @@ const TripDetailScreen = () => {
     </View>
   );
 
-  // Add these functions before the render
   const handleLoadConfirmation = async (loadData: {
     actual_load_quantity: number;
     surat_jalan_photo: any;
@@ -649,19 +648,39 @@ const TripDetailScreen = () => {
 
     setSubmittingLoad(true);
     try {
+      // Add debug logs
+      console.log("Calling confirmLoad with:", {
+        doId: trip.id,
+        loadData
+      });
+
+      // Add file extension for mobile
+      if (Platform.OS !== "web" && loadData.surat_jalan_photo) {
+        const uri = loadData.surat_jalan_photo.uri;
+        const ext = uri.split(".").pop() || "jpg";
+        loadData.surat_jalan_photo.fileName = `surat_jalan.${ext}`;
+        loadData.surat_jalan_photo.mimeType = `image/${ext === "png" ? "png" : "jpeg"}`;
+      }
+
       await confirmLoad(trip.id, loadData);
       setShowLoadConfirmation(false);
-      await fetchTripDetails(); // Refresh data
+      await fetchTripDetails();
       Alert.alert(
         "Berhasil!",
         "Muatan berhasil dikonfirmasi. Perjalanan ke lokasi bongkar dimulai.",
         [{ text: "OK" }]
       );
     } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error.response?.data?.message || "Gagal mengkonfirmasi muatan"
-      );
+      console.error("Confirm load error:", error);
+      
+      let errorMessage = "Gagal mengkonfirmasi muatan";
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      Alert.alert("Error", errorMessage);
     } finally {
       setSubmittingLoad(false);
     }
