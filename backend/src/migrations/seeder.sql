@@ -293,11 +293,11 @@ INSERT INTO delivery_order_invoices (
   (SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-02'),
   'INV/2024/11/001',
   '2024-11-05',
-  6145000,  -- Original amount before PPH
+  6192000,  -- Original amount before PPH
   '2024-12-05',
   0.5,      -- 0.5% PPH
-  30725,    -- PPH amount (6145000 * 0.5%)
-  6114275,  -- Net amount after PPH
+  30960,    -- PPH amount (6192000 * 0.5%)
+  6222960,  -- Net amount after PPH
   'paid',
   'Invoice untuk DO-241005-02',
   (SELECT id FROM users WHERE username = 'admin_user' LIMIT 1)

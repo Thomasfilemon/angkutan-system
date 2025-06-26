@@ -2,6 +2,7 @@
 const express = require("express");
 const router = express.Router();
 const ritaseController = require("../../controllers/web/ritase.controller");
+const ritaseAnalyticsController = require("../../controllers/web/ritaseAnalytics.controller");
 const { verifyToken, checkRole } = require("../../middlewares/auth.middleware");
 
 router.use(verifyToken);
@@ -72,6 +73,38 @@ router.get(
   "/export",
   checkRole(["admin", "owner"]),
   ritaseController.exportRitaseExcel
+);
+
+// Table Analytics Routes
+// 🎯 COMPREHENSIVE RITASE ANALYTICS ROUTES
+router.get(
+  "/comprehensive",
+  checkRole(["admin", "owner"]),
+  ritaseAnalyticsController.getComprehensiveRitaseTable
+);
+
+router.get(
+  "/dashboard-metrics",
+  checkRole(["admin", "owner"]),
+  ritaseAnalyticsController.getDashboardMetrics
+);
+
+router.get(
+  "/analytics/vehicles",
+  checkRole(["admin", "owner"]),
+  ritaseAnalyticsController.getVehicleAnalytics
+);
+
+router.get(
+  "/export/comprehensive",
+  checkRole(["admin", "owner"]),
+  ritaseAnalyticsController.exportComprehensiveExcel
+);
+
+router.get(
+  "/purchase-orders/:po_id/comprehensive",
+  checkRole(["admin", "owner"]),
+  ritaseAnalyticsController.getPOComprehensiveData
 );
 
 module.exports = router;

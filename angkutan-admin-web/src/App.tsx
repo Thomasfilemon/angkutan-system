@@ -32,6 +32,8 @@ import ServiceEditPage from "./pages/ServiceEdit";
 import RitaseDashboard from "./pages/Ritase/RitaseDashboard";
 import POPaymentDetail from "./pages/Ritase/POPaymentDetail";
 import DOPaymentManagement from "./pages/Ritase/DOPaymentManagement";
+import ComprehensiveRitaseTable from "./pages/Ritase/ComprehensiveRitaseTable";
+import POSpecificRitaseTable from "./pages/Ritase/POSpecificRitaseTable";
 
 function App() {
   const { token } = useAuth();
@@ -52,14 +54,19 @@ function App() {
 
           {/* Ritase dan Buku Kas */}
           <Route path="ritase" element={<RitaseDashboard />} />
+          <Route
+            path="ritase/comprehensive"
+            element={<ComprehensiveRitaseTable />}
+          />
           <Route path="ritase/po/:poId" element={<POPaymentDetail />} />
           <Route
-            path="ritase/do/:doId/payment"
+            path="ritase/po/:poId/table"
+            element={<POSpecificRitaseTable />}
+          />
+          <Route
+            path="ritase/delivery-orders/:doId/payment"
             element={<DOPaymentManagement />}
           />
-
-          {/* <Route path="buku-kas" element={<BukuKasDashboard />} /> */}
-          {/* <Route path="buku-kas/payments" element={<PaymentTracking />} /> */}
 
           {/* Vehicles Routes */}
           <Route path="vehicles" element={<VehiclesPage />} />

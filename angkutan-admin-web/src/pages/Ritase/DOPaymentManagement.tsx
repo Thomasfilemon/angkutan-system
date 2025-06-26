@@ -43,6 +43,7 @@ interface DOPaymentData {
   payment_summary: {
     original_amount: number;
     final_amount: number;
+    calculated_bill: number;
     total_invoiced: number;
     total_paid: number;
     total_pph: number;
@@ -171,10 +172,6 @@ const DOPaymentManagement: React.FC = () => {
     return value.replace(searchValue, replaceValue);
   };
 
-  const formatStatusText = (status: string | null | undefined): string => {
-    if (!status) return "UNKNOWN";
-    return safeReplace(status, "_", " ").toUpperCase();
-  };
   const safeNumber = (value: string | number | null | undefined): number => {
     if (value === null || value === undefined) return 0;
     const num = Number(value);
@@ -497,15 +494,15 @@ const DOPaymentManagement: React.FC = () => {
         <div className="flex items-center space-x-3">
           <span
             className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(
-              paymentSummary?.confirmation_status || "pending"
+              paymentSummary?.payment_status || "pending"
             )}`}
           />
           <span
             className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(
-              paymentSummary?.confirmation_status || "unknown"
+              paymentSummary?.payment_status || "unknown"
             )}`}
           />
-          {(paymentSummary?.confirmation_status || "UNKNOWN")
+          {(paymentSummary?.payment_status || "UNKNOWN")
             .replace("_", " ")
             .toUpperCase()}
         </div>
@@ -561,7 +558,7 @@ const DOPaymentManagement: React.FC = () => {
                   <div className="flex justify-between">
                     <span className="text-purple-100">Calculated Bill:</span>
                     <span className="text-white font-bold">
-                      {formatCurrency(calculatedBillableAmount)}
+                      {formatCurrency(paymentSummary.calculated_bill)}
                     </span>
                   </div>
                   <div className="flex justify-between">

@@ -138,6 +138,11 @@ const POPaymentDetail: React.FC = () => {
     return `${safeNumber(value).toLocaleString("id-ID")} Ton`;
   };
 
+  const safePercentage = (value: any): string => {
+    const num = safeNumber(value);
+    return Math.min(Math.max(num, 0), 100).toFixed(1);
+  };
+
   const calculateBillableAmount = (
     quantity: string | number | null | undefined,
     unitPrice: string | number | null | undefined
@@ -145,11 +150,10 @@ const POPaymentDetail: React.FC = () => {
     return safeNumber(quantity) * safeNumber(unitPrice);
   };
 
-  const calculateVariance = (
-    paidAmount: string | number | null | undefined,
-    billableAmount: number
-  ): number => {
-    return safeNumber(paidAmount) - billableAmount;
+  const calculateVariance = (paid: number, billable: number): number => {
+    const paidAmount = safeNumber(paid);
+    const billableAmount = safeNumber(billable);
+    return paidAmount - billableAmount;
   };
 
   const calculateDOFinancials = (do_item: any, po: any) => {
@@ -308,6 +312,30 @@ const POPaymentDetail: React.FC = () => {
               </svg>
               Back to Dashboard
             </button>
+
+            {/* Separator */}
+            <div className="h-6 w-px bg-white/20"></div>
+
+            <button
+              onClick={() => navigate(`/ritase/po/${po.id}/table`)}
+              className="flex items-center space-x-2 bg-white/15 hover:bg-white/25 px-4 py-2 rounded-lg transition-all duration-200 border border-white/20 hover:border-white/30"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 0V17"
+                />
+              </svg>
+              <span className="text-sm text-white font-medium">Table View</span>
+            </button>
+
             <div className="text-right">
               <span className="text-blue-100 text-sm">Purchase Order</span>
               <h1 className="text-3xl font-bold text-white">{po.po_number}</h1>
@@ -397,7 +425,7 @@ const POPaymentDetail: React.FC = () => {
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-blue-100">Payment Progress</span>
                   <span className="text-white font-bold">
-                    {financialSummary.payment_percentage.toFixed(1)}%
+                    {safePercentage(financialSummary?.payment_percentage)}%
                   </span>
                 </div>
                 <div className="w-full bg-white/20 rounded-full h-3 mb-2">
@@ -412,8 +440,10 @@ const POPaymentDetail: React.FC = () => {
                   ></div>
                 </div>
                 <div className="text-sm text-blue-100">
-                  {formatCurrency(financialSummary.total_paid_amount)} /{" "}
-                  {formatCurrency(financialSummary.total_billable_amount)}
+                  {formatCurrency(
+                    safeNumber(financialSummary?.total_paid_amount)
+                  )}{" "}
+                  / {formatCurrency(financialSummary.total_billable_amount)}
                 </div>
               </div>
             </div>
@@ -440,7 +470,7 @@ const POPaymentDetail: React.FC = () => {
             Sudah Dibayar
           </h3>
           <p className="text-2xl font-bold text-green-600">
-            {formatCurrency(financialSummary.total_paid_amount)}
+            {formatCurrency(safeNumber(financialSummary?.total_paid_amount))}
           </p>
           <p className="text-xs text-gray-500 mt-1">
             {financialSummary.payment_percentage.toFixed(1)}% of total
@@ -643,7 +673,7 @@ const POPaymentDetail: React.FC = () => {
                               po.unit_price
                             )
                           )}{" "}
-                          × 5%
+                          × 0.5%
                         </p>
                         <p className="text-lg font-bold text-yellow-800">
                           {formatCurrency(
@@ -801,8 +831,8 @@ const POPaymentDetail: React.FC = () => {
                           )}
                         </p>
                         <p className="text-xs text-green-500">
-                          {do_item.payment_details.payment_percentage.toFixed(
-                            1
+                          {safePercentage(
+                            do_item.payment_details?.payment_percentage
                           )}
                           % paid
                         </p>

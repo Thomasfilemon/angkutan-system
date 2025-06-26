@@ -9,6 +9,7 @@ const {
   DeliveryOrderInvoices,
   DeliveryOrderAdjustments,
   SystemSettings,
+  DeliveryOrderPaymentHistory, // <-- Add this line
 } = require("../../models");
 const { Op, Sequelize } = require("sequelize");
 
@@ -201,7 +202,7 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
           completed_dos: completedDOs.length,
           aggregated_status: aggregatedStatus,
           total_amount: totalCalculatedAmount,
-          paid_amount: totalActualPaidAmount, // ✅ Now correct: 6,114,600
+          paid_amount: totalActualPaidAmount,
           remaining_amount: Math.max(
             totalCalculatedAmount - totalActualPaidAmount,
             0
@@ -553,6 +554,12 @@ exports.getDeliveryOrderPaymentDetail = async (req, res, next) => {
           order: [["payment_date", "DESC"]],
         },
         {
+          model: DeliveryOrderPaymentHistory,
+          as: "paymentHistory",
+          order: [["changed_at", "DESC"]],
+          limit: 1,
+        },
+        {
           model: DeliveryOrderInvoices,
           as: "invoices",
           order: [["invoice_date", "DESC"]],
@@ -579,11 +586,29 @@ exports.getDeliveryOrderPaymentDetail = async (req, res, next) => {
         message: "Delivery Order must be completed before payment management",
       });
     }
-
     // Calculate payment summary
     const payments = deliveryOrder.payments || [];
     const invoices = deliveryOrder.invoices || [];
     const adjustments = deliveryOrder.adjustments || [];
+    // Get the latest payment status from history
+    const latestPaymentStatus =
+      deliveryOrder.paymentHistory?.[0]?.new_status ||
+      deliveryOrder.payment_status;
+    const actualQuantity =
+      parseFloat(deliveryOrder.actual_load_quantity) ||
+      parseFloat(deliveryOrder.minimal_load_quantity);
+    const unitPrice = parseFloat(deliveryOrder.unit_price);
+    const correctTotalAmount = actualQuantity * unitPrice;
+
+    // Get tax and adjustments
+    const totalAdjustments = adjustments.reduce(
+      (sum, adj) => sum + parseFloat(adj.adjustment_amount),
+      0
+    );
+    const taxAmount = invoices.reduce(
+      (sum, inv) => sum + parseFloat(inv.pph_amount),
+      0
+    );
 
     const paymentSummary = {
       original_amount: parseFloat(deliveryOrder.ongkosan) || 0,
@@ -591,6 +616,8 @@ exports.getDeliveryOrderPaymentDetail = async (req, res, next) => {
         parseFloat(deliveryOrder.final_amount) ||
         parseFloat(deliveryOrder.ongkosan) ||
         0,
+      original_amount: correctTotalAmount,
+      calculated_bill: correctTotalAmount + taxAmount + totalAdjustments,
       total_invoiced: invoices.reduce(
         (sum, inv) => sum + parseFloat(inv.net_amount),
         0
@@ -605,15 +632,15 @@ exports.getDeliveryOrderPaymentDetail = async (req, res, next) => {
       ),
       remaining_amount: 0, // Will be calculated below
       payment_percentage: 0, // Will be calculated below
-      payment_status: deliveryOrder.payment_status,
+      payment_status: latestPaymentStatus, // 👈 USE THE LATEST STATUS
       confirmation_status: deliveryOrder.payment_confirmation_status,
     };
 
     paymentSummary.remaining_amount =
-      paymentSummary.final_amount - paymentSummary.total_paid;
+      paymentSummary.calculated_bill - paymentSummary.total_paid;
     paymentSummary.payment_percentage =
       paymentSummary.final_amount > 0
-        ? (paymentSummary.total_paid / paymentSummary.final_amount) * 100
+        ? (paymentSummary.total_paid / paymentSummary.calculated_bill) * 100
         : 0;
 
     // Get system settings for PPH

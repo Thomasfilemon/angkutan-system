@@ -1,10 +1,10 @@
 // src/pages/Ritase/RitaseDashboard.tsx
 import React, { useState, useCallback, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import apiClient from "../../api/axiosConfig";
 
 const safeNumber = (value: string | number | null | undefined): number => {
-  if (value === null || value === undefined) return 0;
+  if (value === null || value === undefined || isNaN(Number(value))) return 0;
   return Number(value) || 0;
 };
 
@@ -80,6 +80,7 @@ interface DashboardStats {
 }
 
 const RitaseDashboard: React.FC = () => {
+  const navigate = useNavigate();
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [expandedPO, setExpandedPO] = useState<number | null>(null);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(
@@ -228,14 +229,31 @@ const RitaseDashboard: React.FC = () => {
       <div className="bg-white shadow-md rounded-lg p-6">
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              Dashboard Ritase
-            </h1>
+            <h1 className="text-2xl font-bold text-gray-900">Ritase</h1>
             <p className="text-gray-600 mt-1">
               Kelola pembayaran Purchase Order dan Delivery Order
             </p>
           </div>
           <div className="flex space-x-3">
+            <button
+              onClick={() => navigate(`/ritase/comprehensive`)}
+              className="flex items-center space-x-2 bg-gray/15 hover:bg-gray/25 px-4 py-2 rounded-lg transition-all duration-200 border border-gray/20 hover:border-black/30"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 0V17"
+                />
+              </svg>
+              <span className="text-sm text-black font-medium">Table View</span>
+            </button>
             {/* Period Filter */}
             <select
               value={filters.period}
@@ -430,17 +448,17 @@ const RitaseDashboard: React.FC = () => {
                 <div className="flex justify-between text-sm text-gray-600 mb-2">
                   <span>Progress Pembayaran</span>
                   <span>
-                    {Math.min(
-                      dashboardStats.total_revenue > 0
-                        ? (Math.min(
-                            dashboardStats.total_paid,
+                    {dashboardStats?.total_revenue > 0
+                      ? Math.min(
+                          (Math.min(
+                            dashboardStats.total_paid || 0,
                             dashboardStats.total_revenue
                           ) /
                             dashboardStats.total_revenue) *
-                            100
-                        : 0,
-                      100
-                    ).toFixed(1)}
+                            100,
+                          100
+                        ).toFixed(1)
+                      : "0.0"}
                     %
                   </span>
                 </div>
