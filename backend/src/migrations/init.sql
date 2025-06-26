@@ -341,13 +341,6 @@ CREATE TABLE delivery_order_payments (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE cash_categories (
-  id SERIAL PRIMARY KEY,
-  category_name VARCHAR(100) NOT NULL,
-  category_type VARCHAR(20) NOT NULL CHECK(category_type IN ('income','expense')),
-  description TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
 
 CREATE TABLE cash_categories (
   id SERIAL PRIMARY KEY,
@@ -403,28 +396,6 @@ CREATE TABLE delivery_order_payment_history (
   change_reason TEXT,
   changed_by INTEGER REFERENCES users(id),
   changed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE vehicle_tires (
-  id SERIAL PRIMARY KEY,
-  vehicle_id INTEGER REFERENCES vehicles(id),
-  tire_id INTEGER REFERENCES tire_inventory(id),
-  position VARCHAR(20) NOT NULL,
-  install_date DATE NOT NULL,
-  mileage_installed INTEGER,
-  status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK(status IN ('active','removed','damaged')),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE tire_inspections (
-  id SERIAL PRIMARY KEY,
-  vehicle_tire_id INTEGER REFERENCES vehicle_tires(id),
-  inspection_date DATE NOT NULL,
-  tread_depth NUMERIC(4,2),
-  air_pressure NUMERIC(5,2),
-  condition VARCHAR(20) NOT NULL CHECK(condition IN ('good','fair','poor','replace')),
-  notes TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- System settings untuk configurable values
