@@ -9,6 +9,7 @@ interface PODeliveryOrder {
   created_at: string;
   completed_at: string;
   vehicle: {
+    id: number;
     license_plate: string;
     type: string;
   };
@@ -21,6 +22,7 @@ interface PODeliveryOrder {
   item_name: string;
   minimal_load_quantity: number;
   actual_load_quantity: number;
+  unit: string;
   unit_price: number;
   trip_allowance: number;
   gaji: number;
@@ -42,6 +44,7 @@ interface POData {
     customer_name: string;
     item_name: string;
     total_quantity: number;
+    unit: string;
     unit_price: number;
     total_amount: number;
     order_date: string;
@@ -59,6 +62,42 @@ interface POData {
     outstanding_payments: number;
     completion_percentage: number;
     profit_margin: number;
+    unit_analytics: {
+      po_unit: string;
+      po_unit_display: string;
+      pricing_strategy: string;
+      unit_consistency: boolean;
+      mixed_units: string[];
+    };
+    vehicle_analytics: Record<
+      string,
+      {
+        vehicle_info: any;
+        trip_count: number;
+        completed_trips: number;
+        total_quantity: number;
+        total_revenue: number;
+        total_profit: number;
+        avg_profit_margin: number;
+      }
+    >;
+  };
+  metadata: {
+    filters_available: {
+      vehicles: Array<{
+        id: number | null;
+        license_plate: string;
+        type: string;
+        display_name: string;
+      }>;
+      statuses: string[];
+      payment_statuses: string[];
+    };
+    unit_context: {
+      po_unit: string;
+      consistent_units: boolean;
+      pricing_type: string;
+    };
   };
 }
 
@@ -77,12 +116,33 @@ const POSpecificRitaseTable: React.FC = () => {
     endDate: searchParams.get("endDate") || "",
     deliveryStatus: searchParams.get("deliveryStatus") || "all",
     paymentStatus: searchParams.get("paymentStatus") || "all",
+    vehicleId: searchParams.get("vehicleId") || "all",
   });
 
   const [sortConfig, setSortConfig] = useState({
     key: "created_at",
     direction: "desc" as "asc" | "desc",
   });
+
+  // 🎯 NEW: Unit display helper
+  const getUnitDisplay = (unit: string) => {
+    const unitMap = {
+      kilogram: "kg",
+      ton: "ton",
+      kubik: "m³",
+    };
+    return unitMap[unit as keyof typeof unitMap] || unit;
+  };
+
+  // 🎯 NEW: Get PO unit with fallback
+  const getPOUnit = () => {
+    return poData?.purchase_order?.unit || "ton";
+  };
+
+  // 🎯 NEW: Get DO unit with fallback to PO unit
+  const getDOUnit = (order: PODeliveryOrder) => {
+    return order.unit || getPOUnit();
+  };
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("id-ID", {
@@ -108,8 +168,26 @@ const POSpecificRitaseTable: React.FC = () => {
       const response = await apiClient.get(
         `/ritase/purchase-orders/${poId}/comprehensive`
       );
-      setPOData(response.data);
-      setFilteredData(response.data.delivery_orders);
+      const data = response.data.data || response.data;
+
+      // 🎯 NEW: Ensure unit fields exist with fallback
+      if (!data.purchase_order.unit) {
+        console.warn('PO data missing unit field, defaulting to "ton"');
+        data.purchase_order.unit = "ton";
+      }
+
+      // 🎯 NEW: Ensure delivery orders have unit field
+      if (data.delivery_orders) {
+        data.delivery_orders = data.delivery_orders.map(
+          (dOrder: PODeliveryOrder) => ({
+            ...dOrder,
+            unit: dOrder.unit || data.purchase_order.unit || "ton", // Inherit from PO if missing
+          })
+        );
+      }
+
+      setPOData(data);
+      setFilteredData(data.delivery_orders);
     } catch (error) {
       console.error("Error fetching PO data:", error);
     } finally {
@@ -154,6 +232,17 @@ const POSpecificRitaseTable: React.FC = () => {
       );
     }
 
+    // 🎯 FIXED: Vehicle filtering
+    if (filters.vehicleId !== "all") {
+      filtered = filtered.filter((order) => {
+        const vehicleId = order.vehicle?.id?.toString();
+        const licensePlate = order.vehicle?.license_plate;
+        return (
+          vehicleId === filters.vehicleId || licensePlate === filters.vehicleId
+        );
+      });
+    }
+
     // Sorting
     filtered.sort((a, b) => {
       const aVal = a[sortConfig.key as keyof PODeliveryOrder] as any;
@@ -166,7 +255,42 @@ const POSpecificRitaseTable: React.FC = () => {
     });
 
     setFilteredData(filtered);
+
+    // Update URL params
+    const newSearchParams = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value && value !== "all") {
+        newSearchParams.set(key, value);
+      }
+    });
+    setSearchParams(newSearchParams);
   }, [poData, filters, sortConfig]);
+
+  const getAvailableVehicles = () => {
+    if (poData?.metadata?.filters_available?.vehicles) {
+      return poData.metadata.filters_available.vehicles;
+    }
+
+    // Fallback: Extract unique vehicles from delivery orders
+    if (!poData?.delivery_orders) return [];
+
+    const uniqueVehicles = new Map();
+    poData.delivery_orders.forEach((order) => {
+      if (order.vehicle) {
+        const key = order.vehicle.id || order.vehicle.license_plate;
+        if (!uniqueVehicles.has(key)) {
+          uniqueVehicles.set(key, {
+            id: order.vehicle.id,
+            license_plate: order.vehicle.license_plate,
+            type: order.vehicle.type,
+            display_name: `${order.vehicle.license_plate} (${order.vehicle.type})`,
+          });
+        }
+      }
+    });
+
+    return Array.from(uniqueVehicles.values());
+  };
 
   // Status badge styling
   const getDeliveryStatusBadge = (status: string) => {
@@ -241,7 +365,7 @@ const POSpecificRitaseTable: React.FC = () => {
             {/* Navigation */}
             <div className="flex items-center space-x-3">
               <button
-                onClick={() => navigate("/ritase")}
+                onClick={() => navigate("/ritase/comprehensive")}
                 className="flex items-center px-4 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors"
               >
                 <svg
@@ -257,7 +381,7 @@ const POSpecificRitaseTable: React.FC = () => {
                     d="M15 19l-7-7 7-7"
                   />
                 </svg>
-                <span className="text-sm font-medium">Back to Dashboard</span>
+                <span className="text-sm font-medium">Back</span>
               </button>
 
               <div className="h-6 w-px bg-white/20"></div>
@@ -368,6 +492,30 @@ const POSpecificRitaseTable: React.FC = () => {
               />
             </div>
 
+            {/* 🎯 FIXED: Vehicle Filter */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Kendaraan
+              </label>
+              <select
+                value={filters.vehicleId}
+                onChange={(e) =>
+                  setFilters((prev) => ({ ...prev, vehicleId: e.target.value }))
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="all">Semua Kendaraan</option>
+                {getAvailableVehicles().map((vehicle) => (
+                  <option
+                    key={vehicle.id || vehicle.license_plate}
+                    value={vehicle.id || vehicle.license_plate}
+                  >
+                    {vehicle.display_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Status Delivery Order
@@ -457,11 +605,13 @@ const POSpecificRitaseTable: React.FC = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Nama Supir
                   </th>
+                  {/* 🎯 FIXED: Dynamic unit in header */}
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Qty Aktual
+                    Qty Aktual ({getUnitDisplay(getPOUnit())})
                   </th>
+                  {/* 🎯 FIXED: Unit-aware price header */}
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Harga Satuan
+                    Harga Satuan (Rp/{getUnitDisplay(getPOUnit())})
                   </th>
                   <th
                     className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
@@ -493,92 +643,125 @@ const POSpecificRitaseTable: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredData.map((order) => (
-                  <tr key={order.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {order.do_number}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatDate(order.created_at)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatDate(order.completed_at)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {order.vehicle.license_plate}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {order.driver.driverProfile.full_name ||
-                        order.driver.username}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                      {order.calculated.actualQuantity.toFixed(2)} Ton
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                      {formatCurrency(order.unit_price)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-right">
-                      {formatCurrency(order.calculated.grossIncome)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                      {formatCurrency(order.trip_allowance)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                      {formatCurrency(order.gaji)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-right">
-                      <span
-                        className={`${
-                          order.calculated.netProfit >= 0
-                            ? "text-green-600"
-                            : "text-red-600"
-                        }`}
-                      >
-                        {formatCurrency(order.calculated.netProfit)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full border ${getDeliveryStatusBadge(
-                          order.status
-                        )}`}
-                      >
-                        {order.status.replace("_", " ").toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full border ${getPaymentStatusBadge(
-                          order.payment_status
-                        )}`}
-                      >
-                        {order.payment_status.replace("_", " ").toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                      <button
-                        onClick={() =>
-                          navigate(
-                            `/ritase/delivery-orders/${order.id}/payment`
-                          )
-                        }
-                        className="text-blue-600 hover:text-blue-900"
-                      >
-                        Lihat Detail
-                      </button>
-                      {order.payment_status === "proses_tagihan" && (
-                        <button
-                          onClick={() => {
-                            /* Handle payment confirmation */
-                          }}
-                          className="text-green-600 hover:text-green-900"
+                {filteredData.map((order) => {
+                  // 🎯 DEFINE VARIABLES FOR EACH ROW
+                  const doUnit = getDOUnit(order);
+                  const unitDisplay = getUnitDisplay(doUnit);
+
+                  return (
+                    <tr key={order.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {order.do_number}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {formatDate(order.created_at)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {formatDate(order.completed_at)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {order.vehicle.license_plate}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {order.driver.driverProfile.full_name ||
+                          order.driver.username}
+                      </td>
+
+                      {/* 🎯 FIXED: Dynamic unit display */}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                        <div>
+                          <div className="font-medium">
+                            {order.calculated.actualQuantity.toFixed(2)}{" "}
+                            {unitDisplay}
+                          </div>
+                          {/* 🎯 NEW: Unit mismatch warning */}
+                          {doUnit !== getPOUnit() && (
+                            <div className="text-xs text-orange-600">
+                              ⚠️ Unit differs from PO:{" "}
+                              {getUnitDisplay(getPOUnit())}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* 🎯 ENHANCED: Unit-aware price display */}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                        <div>
+                          <div className="font-medium">
+                            {formatCurrency(order.unit_price)}
+                          </div>
+                          {/* 🎯 NEW: Show converted price for ton unit */}
+                          {doUnit === "ton" && (
+                            <div className="text-xs text-gray-500">
+                              ({formatCurrency(order.unit_price * 1000)}/ton)
+                            </div>
+                          )}
+                        </div>
+                      </td>
+
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-right">
+                        {formatCurrency(order.calculated.grossIncome)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                        {formatCurrency(order.trip_allowance)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                        {formatCurrency(order.gaji)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-right">
+                        <span
+                          className={`${
+                            order.calculated.netProfit >= 0
+                              ? "text-green-600"
+                              : "text-red-600"
+                          }`}
                         >
-                          Konfirmasi Bayar
+                          {formatCurrency(order.calculated.netProfit)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full border ${getDeliveryStatusBadge(
+                            order.status
+                          )}`}
+                        >
+                          {order.status.replace("_", " ").toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full border ${getPaymentStatusBadge(
+                            order.payment_status
+                          )}`}
+                        >
+                          {order.payment_status.replace("_", " ").toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                        <button
+                          onClick={() =>
+                            navigate(
+                              `/ritase/delivery-orders/${order.id}/payment`
+                            )
+                          }
+                          className="text-blue-600 hover:text-blue-900"
+                        >
+                          Lihat Detail
                         </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                        {order.payment_status === "proses_tagihan" && (
+                          <button
+                            onClick={() => {
+                              /* Handle payment confirmation */
+                            }}
+                            className="text-green-600 hover:text-green-900"
+                          >
+                            Konfirmasi Bayar
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

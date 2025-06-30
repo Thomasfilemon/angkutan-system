@@ -78,6 +78,14 @@ const ComprehensiveRitaseTable: React.FC = () => {
     value: po.id,
     label: `${po.po_number} - ${po.customer_name}`,
   }));
+  const [vehicles, setVehicles] = useState<any[]>([]);
+  const vehicleOptions = [
+    { value: "all", label: "All Vehicles" },
+    ...vehicles.map((v) => ({
+      value: v.license_plate,
+      label: `${v.license_plate} (${v.type})`,
+    })),
+  ];
 
   // Fetch purchase orders
   useEffect(() => {
@@ -90,6 +98,19 @@ const ComprehensiveRitaseTable: React.FC = () => {
       }
     };
     fetchPurchaseOrders();
+  }, []);
+
+  // Fetch vehicles from API
+  useEffect(() => {
+    const fetchVehicles = async () => {
+      try {
+        const res = await apiClient.get("/vehicles");
+        setVehicles(res.data.records || res.data || []);
+      } catch (err) {
+        console.error("Failed to fetch vehicles:", err);
+      }
+    };
+    fetchVehicles();
   }, []);
 
   // Filters
@@ -135,11 +156,15 @@ const ComprehensiveRitaseTable: React.FC = () => {
     try {
       setLoading(true);
 
+      const vehicleId =
+        filters.vehicle !== "all" ? getVehicleIdByPlate(filters.vehicle) : null;
+
       // Fetch comprehensive table data
       const tableResponse = await apiClient.get("/ritase/comprehensive", {
         params: {
           ...filters,
           page: currentPage,
+          vehicle: vehicleId || "all",
           limit: 50,
           sortBy: sortConfig.key,
           sortOrder: sortConfig.direction.toUpperCase(),
@@ -189,6 +214,11 @@ const ComprehensiveRitaseTable: React.FC = () => {
       config[status as keyof typeof config] ||
       "bg-gray-100 text-gray-800 border-gray-200"
     );
+  };
+
+  const getVehicleIdByPlate = (plate: string) => {
+    const found = vehicles.find((v) => v.license_plate === plate);
+    return found ? found.id : null;
   };
 
   // Sorting handler
@@ -558,16 +588,27 @@ const ComprehensiveRitaseTable: React.FC = () => {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Vehicle
               </label>
-              <select
-                value={filters.vehicle}
-                onChange={(e) =>
-                  setFilters((prev) => ({ ...prev, vehicle: e.target.value }))
+              <Select
+                options={vehicleOptions}
+                value={vehicleOptions.find(
+                  (opt) => opt.value === filters.vehicle
+                )}
+                onChange={(selected) =>
+                  setFilters((prev) => ({
+                    ...prev,
+                    vehicle: selected ? selected.value : "all",
+                  }))
                 }
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="all">All Vehicles</option>
-                {/* TODO: Populate with actual vehicles from API */}
-              </select>
+                isClearable
+                classNamePrefix="react-select"
+                placeholder="Pilih kendaraan..."
+                styles={{
+                  control: (base) => ({
+                    ...base,
+                    minHeight: 40,
+                  }),
+                }}
+              />
             </div>
 
             <div className="flex items-end">

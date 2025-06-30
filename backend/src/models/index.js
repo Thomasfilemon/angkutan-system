@@ -9,6 +9,7 @@ const setupDriverProfileModel = require("./driverProfile.model");
 const setupAdminProfileModel = require("./adminProfile.model");
 const setupPurchaseOrderModel = require("./purchaseOrder.model");
 const setupDeliveryOrderModel = require("./deliveryOrder.model");
+const setupBigDeliveryOrderModel = require("./bigDeliveryOrder.model");
 const setupDriverExpenseModel = require("./driverExpense.model");
 const setupVehicleServiceModel = require("./vehicleService.model");
 // NEW: Stock and Service Management Models
@@ -23,9 +24,9 @@ const setupDeliveryOrderAdjustmentsModel = require("./deliveryOrderAdjustments.m
 const setupDeliveryOrderPaymentHistoryModel = require("./deliveryOrderPaymentHistory.model");
 const setupSystemSettingsModel = require("./systemSettings.model");
 
-const setupTireInventoryModel = require('./tireInventory.model');
-const setupVehicleTireModel = require('./vehicleTire.model');
-const setupTireInspectionModel = require('./tireInspection.model');
+const setupTireInventoryModel = require("./tireInventory.model");
+const setupVehicleTireModel = require("./vehicleTire.model");
+const setupTireInspectionModel = require("./tireInspection.model");
 const setupTireInstanceModel = require("./tireInstance.model");
 
 const setupCashCategoryModel = require("./cashCategory.model");
@@ -73,7 +74,8 @@ db.ServiceItem = setupServiceItemModel(sequelize);
 db.DeliveryOrderPayments = setupDeliveryOrderPaymentsModel(sequelize);
 db.DeliveryOrderInvoices = setupDeliveryOrderInvoicesModel(sequelize);
 db.DeliveryOrderAdjustments = setupDeliveryOrderAdjustmentsModel(sequelize);
-db.DeliveryOrderPaymentHistory = setupDeliveryOrderPaymentHistoryModel(sequelize);
+db.DeliveryOrderPaymentHistory =
+  setupDeliveryOrderPaymentHistoryModel(sequelize);
 db.SystemSettings = setupSystemSettingsModel(sequelize);
 
 db.TireInventory = setupTireInventoryModel(sequelize);
@@ -257,6 +259,26 @@ DeliveryOrderPaymentHistory.belongsTo(DeliveryOrder, {
   as: "deliveryOrder",
 });
 
+// Big DO associations
+BigDeliveryOrder.belongsTo(User, {
+  foreignKey: "driver_id",
+  as: "driver",
+});
+BigDeliveryOrder.belongsTo(Vehicle, {
+  foreignKey: "vehicle_id",
+  as: "vehicle",
+});
+BigDeliveryOrder.hasMany(DeliveryOrder, {
+  foreignKey: "big_delivery_order_id",
+  as: "deliveryOrders",
+});
+
+// Enhanced DO associations
+DeliveryOrder.belongsTo(BigDeliveryOrder, {
+  foreignKey: "big_delivery_order_id",
+  as: "bigDeliveryOrder",
+});
+
 // Invoice to Payments relationship
 DeliveryOrderInvoices.hasMany(DeliveryOrderPayments, {
   foreignKey: "invoice_id",
@@ -295,67 +317,67 @@ User.hasMany(SystemSettings, {
 
 // === Tire Management Associations ===
 Vehicle.hasMany(VehicleTire, {
-  foreignKey: 'vehicle_id',
-  as: 'tires'
+  foreignKey: "vehicle_id",
+  as: "tires",
 });
 VehicleTire.belongsTo(Vehicle, {
-  foreignKey: 'vehicle_id',
-  as: 'vehicle'
+  foreignKey: "vehicle_id",
+  as: "vehicle",
 });
 
 TireInventory.hasMany(VehicleTire, {
-  foreignKey: 'tire_inventory_id',
-  as: 'installedTires'
+  foreignKey: "tire_inventory_id",
+  as: "installedTires",
 });
 VehicleTire.belongsTo(TireInventory, {
-  foreignKey: 'tire_inventory_id',
-  as: 'tireInventory'
+  foreignKey: "tire_inventory_id",
+  as: "tireInventory",
 });
 
 VehicleTire.hasMany(TireInspection, {
-  foreignKey: 'vehicle_tire_id',
-  as: 'inspections'
+  foreignKey: "vehicle_tire_id",
+  as: "inspections",
 });
 TireInspection.belongsTo(VehicleTire, {
-  foreignKey: 'vehicle_tire_id',
-  as: 'vehicleTire'
+  foreignKey: "vehicle_tire_id",
+  as: "vehicleTire",
 });
 
 TireInventory.hasMany(TireInstance, {
-  foreignKey: 'tire_inventory_id',
-  as: 'instances'
+  foreignKey: "tire_inventory_id",
+  as: "instances",
 });
 TireInstance.belongsTo(TireInventory, {
-  foreignKey: 'tire_inventory_id',
-  as: 'tireInventory'
+  foreignKey: "tire_inventory_id",
+  as: "tireInventory",
 });
 
 VehicleTire.belongsTo(TireInstance, {
-  foreignKey: 'tire_instance_id',
-  as: 'tireInstance'
+  foreignKey: "tire_instance_id",
+  as: "tireInstance",
 });
 TireInstance.hasMany(VehicleTire, {
-  foreignKey: 'tire_instance_id',
-  as: 'installations'
+  foreignKey: "tire_instance_id",
+  as: "installations",
 });
 
 TireInspection.belongsTo(TireInstance, {
-  foreignKey: 'tire_instance_id',
-  as: 'tireInstance'
+  foreignKey: "tire_instance_id",
+  as: "tireInstance",
 });
 TireInstance.hasMany(TireInspection, {
-  foreignKey: 'tire_instance_id',
-  as: 'inspections'
+  foreignKey: "tire_instance_id",
+  as: "inspections",
 });
 
 // === Cash Management Associations ===
 CashCategory.hasMany(CashTransaction, {
   foreignKey: "category_id",
-  as: "transactions"
+  as: "transactions",
 });
 CashTransaction.belongsTo(CashCategory, {
   foreignKey: "category_id",
-  as: "category"
+  as: "category",
 });
 
 module.exports = db;

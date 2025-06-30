@@ -200,6 +200,8 @@ CREATE TABLE purchase_orders (
   customer_name VARCHAR(100) NOT NULL,
   item_name VARCHAR(255) NOT NULL,
   total_quantity NUMERIC(10, 2) NOT NULL,
+  unit VARCHAR(10) DEFAULT 'ton' 
+    CHECK (unit IN ('kilogram', 'ton', 'kubik')),
   unit_price NUMERIC(15, 2),
   total_amount NUMERIC(15, 2),
   load_location TEXT,
@@ -227,6 +229,10 @@ CREATE TABLE delivery_orders (
   driver_id INTEGER REFERENCES users(id),
   vehicle_id INTEGER REFERENCES vehicles(id),
   
+  big_delivery_order_id INTEGER REFERENCES big_delivery_orders(id),
+  big_do_creation_session VARCHAR(50),
+  display_order INTEGER DEFAULT 0;
+
   do_number VARCHAR(50) UNIQUE NOT NULL,
   customer_name VARCHAR(100) NOT NULL,
   item_name VARCHAR(100),
@@ -234,6 +240,8 @@ CREATE TABLE delivery_orders (
   minimal_load_quantity NUMERIC(10, 2) DEFAULT 0,
   actual_load_quantity NUMERIC(10, 2),
 
+  unit VARCHAR(10) DEFAULT 'ton' 
+    CHECK (unit IN ('kilogram', 'ton', 'kubik')),
   unit_price NUMERIC,
   total_amount NUMERIC NOT NULL,
   trip_allowance NUMERIC(15, 2) NOT NULL DEFAULT 0,
@@ -272,6 +280,20 @@ CREATE TABLE delivery_orders (
   completed_at TIMESTAMP WITH TIME ZONE,
   payment_confirmation_at TIMESTAMP WITH TIME ZONE,
   payment_confirmed_by INTEGER REFERENCES users(id)
+);
+
+CREATE TABLE big_delivery_orders (
+  id SERIAL PRIMARY KEY,
+  big_do_number VARCHAR(50) UNIQUE, -- BigDO-20250630-001
+  driver_id INTEGER REFERENCES users(id),
+  vehicle_id INTEGER REFERENCES vehicles(id),
+  total_trip_allowance NUMERIC(15,2),
+  total_gaji NUMERIC(15,2),
+  total_ongkosan NUMERIC(15,2),
+  status ENUM('assigned', 'in_progress', 'completed', 'cancelled'),
+  created_at TIMESTAMP,
+  completed_at TIMESTAMP,
+  notes TEXT
 );
 
 -- BAGIAN 4: KEUANGAN & BIAYA
@@ -442,6 +464,8 @@ CREATE INDEX idx_tire_instances_serial ON tire_instances(tire_serial_number);
 CREATE INDEX idx_tire_inspections_vehicle_tire_id ON tire_inspections(vehicle_tire_id);
 CREATE INDEX idx_tire_inspections_instance ON tire_inspections(tire_instance_id);
 CREATE INDEX idx_tire_inspections_date ON tire_inspections(inspection_date);
+CREATE INDEX idx_purchase_orders_unit ON purchase_orders(unit);
+CREATE INDEX idx_delivery_orders_unit ON delivery_orders(unit);
 CREATE INDEX idx_delivery_orders_status ON delivery_orders(payment_status);
 CREATE INDEX idx_delivery_orders_po_id ON delivery_orders(purchase_order_id);
 CREATE INDEX idx_delivery_orders_due_date ON delivery_orders(due_date);

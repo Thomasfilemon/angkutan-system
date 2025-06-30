@@ -84,7 +84,7 @@ function App() {
             path="vehicles/tires/:vehicleId"
             element={<VehicleTireDetailPage />}
           />
-          // Add to your App.tsx routes
+
           <Route path="tire-inventory" element={<TireInventoryPage />} />
           <Route
             path="tire-inventory/create"
@@ -99,6 +99,7 @@ function App() {
           <Route path="drivers" element={<DriversPage />} />
           <Route path="drivers/create" element={<DriverCreatePage />} />
           <Route path="drivers/edit/:id" element={<DriverEditPage />} />
+
           {/* Trips/Purchase Orders Routes */}
           <Route path="trips" element={<TripsPage />} />
           <Route path="trips/create-po" element={<PurchaseOrderCreatePage />} />
@@ -114,6 +115,7 @@ function App() {
             path="delivery-orders/:id"
             element={<DeliveryOrderDetailPage />}
           />
+
           {/* Stock Management Routes */}
           <Route path="stock" element={<StockManagementPage />} />
           <Route path="stock/create" element={<StockCreatePage />} />

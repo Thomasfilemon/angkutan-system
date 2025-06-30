@@ -1,10 +1,11 @@
 // src/components/PurchaseOrderForm.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from "react";
 
 interface PurchaseOrderFormData {
   customer_name: string;
   item_name: string;
   total_quantity: string;
+  unit: string;
   unit_price: string;
   load_location: string;
   unload_location: string;
@@ -23,37 +24,96 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
   initialData = {},
   onSubmit,
   isLoading,
-  buttonText = 'Submit',
-  isEditMode = false
+  buttonText = "Submit",
+  isEditMode = false,
 }) => {
   const [formData, setFormData] = useState<PurchaseOrderFormData>({
-    customer_name: '',
-    item_name: '',
-    total_quantity: '',
-    unit_price: '',
-    load_location: '',
-    unload_location: '',
-    notes: '',
+    customer_name: "",
+    item_name: "",
+    total_quantity: "",
+    unit: "ton",
+    unit_price: "",
+    load_location: "",
+    unload_location: "",
+    notes: "",
   });
+
+  const unitOptions = [
+    { value: "kilogram", label: "Kilogram (kg)", shortLabel: "kg" },
+    { value: "ton", label: "Ton", shortLabel: "ton" },
+    { value: "kubik", label: "Kubik (m³)", shortLabel: "m³" },
+  ];
+
+  const calculateTotal = () => {
+    const quantity = parseFloat(formData.total_quantity) || 0;
+    const price = parseFloat(formData.unit_price) || 0;
+
+    switch (formData.unit) {
+      case "kilogram":
+        return quantity * price;
+      case "ton":
+        return quantity * 1000 * price; // Convert ton to kg
+      case "kubik":
+        return quantity * price; // Direct kubik pricing
+      default:
+        return quantity * price;
+    }
+  };
+
+  // 🎯 NEW: Get current unit display
+  const getCurrentUnitDisplay = () => {
+    const selectedUnit = unitOptions.find((u) => u.value === formData.unit);
+    return selectedUnit?.shortLabel || formData.unit;
+  };
+
+  // 🎯 NEW: Get price conversion display
+  const getPriceConversionDisplay = () => {
+    const price = parseFloat(formData.unit_price) || 0;
+
+    if (formData.unit === "ton" && price > 0) {
+      const pricePerTon = price * 1000;
+      return ` (Rp ${pricePerTon.toLocaleString("id-ID")}/ton)`;
+    }
+    return "";
+  };
+
+  // 🎯 NEW: Get pricing strategy explanation
+  const getPricingExplanation = () => {
+    switch (formData.unit) {
+      case "kilogram":
+        return "Harga per kilogram";
+      case "ton":
+        return "Harga per kilogram (akan dikalikan 1000 untuk perhitungan per ton)";
+      case "kubik":
+        return "Harga per meter kubik";
+      default:
+        return "";
+    }
+  };
 
   // Update form data when initialData changes
   useEffect(() => {
     if (isEditMode && initialData) {
       setFormData({
-        customer_name: initialData.customer_name || '',
-        item_name: initialData.item_name || '',
-        total_quantity: initialData.total_quantity?.toString() || '',
-        unit_price: initialData.unit_price?.toString() || '',
-        load_location: initialData.load_location || '',
-        unload_location: initialData.unload_location || '',
-        notes: initialData.notes || '',
+        customer_name: initialData.customer_name || "",
+        item_name: initialData.item_name || "",
+        unit: initialData.unit || "ton",
+        total_quantity: initialData.total_quantity?.toString() || "",
+        unit_price: initialData.unit_price?.toString() || "",
+        load_location: initialData.load_location || "",
+        unload_location: initialData.unload_location || "",
+        notes: initialData.notes || "",
       });
     }
   }, [initialData, isEditMode]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleChange = (
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+    >
+  ) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -61,19 +121,18 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
     onSubmit(formData);
   };
 
-  // Calculate total amount for display
-  const calculateTotal = () => {
-    const quantity = parseFloat(formData.total_quantity) || 0;
-    const price = parseFloat(formData.unit_price) || 0;
-    return quantity * price;
-  };
-
   return (
-    <form onSubmit={handleSubmit} className="space-y-6 bg-white p-8 rounded-lg shadow-md">
+    <form
+      onSubmit={handleSubmit}
+      className="space-y-6 bg-white p-8 rounded-lg shadow-md"
+    >
       {/* Basic Information */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
-          <label htmlFor="customer_name" className="block text-sm font-medium text-gray-700 mb-2">
+          <label
+            htmlFor="customer_name"
+            className="block text-sm font-medium text-gray-700 mb-2"
+          >
             Customer Name *
           </label>
           <input
@@ -90,7 +149,10 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
         </div>
 
         <div>
-          <label htmlFor="item_name" className="block text-sm font-medium text-gray-700 mb-2">
+          <label
+            htmlFor="item_name"
+            className="block text-sm font-medium text-gray-700 mb-2"
+          >
             Item Name *
           </label>
           <input
@@ -107,11 +169,14 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
         </div>
       </div>
 
-      {/* Quantity and Price */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* 🎯 ENHANCED: Quantity, Unit, and Price */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div>
-          <label htmlFor="total_quantity" className="block text-sm font-medium text-gray-700 mb-2">
-            Total Quantity (ton) *
+          <label
+            htmlFor="total_quantity"
+            className="block text-sm font-medium text-gray-700 mb-2"
+          >
+            Total Quantity ({getCurrentUnitDisplay()}) *
           </label>
           <input
             type="number"
@@ -128,9 +193,46 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
           />
         </div>
 
+        {/* 🎯 NEW: Unit Selector */}
         <div>
-          <label htmlFor="unit_price" className="block text-sm font-medium text-gray-700 mb-2">
-            Unit Price (Rp/ton)
+          <label
+            htmlFor="unit"
+            className="block text-sm font-medium text-gray-700 mb-2"
+          >
+            Unit *
+          </label>
+          <select
+            id="unit"
+            name="unit"
+            value={formData.unit}
+            onChange={handleChange}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            required
+            disabled={isLoading}
+          >
+            {unitOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-gray-500">
+            {getPricingExplanation()}
+          </p>
+        </div>
+
+        {/* 🎯 ENHANCED: Dynamic Unit Price */}
+        <div>
+          <label
+            htmlFor="unit_price"
+            className="block text-sm font-medium text-gray-700 mb-2"
+          >
+            Unit Price (Rp/{getCurrentUnitDisplay()})
+            {getPriceConversionDisplay() && (
+              <span className="text-xs text-gray-500 block">
+                {getPriceConversionDisplay()}
+              </span>
+            )}
           </label>
           <input
             type="number"
@@ -142,33 +244,101 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
             min="0"
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             disabled={isLoading}
-            placeholder="e.g., 155000"
+            placeholder={`e.g., ${
+              formData.unit === "kubik"
+                ? "150000"
+                : formData.unit === "kilogram"
+                ? "10000"
+                : "10000"
+            }`}
           />
+          {formData.unit_price && formData.unit === "ton" && (
+            <div className="mt-1 text-xs text-blue-600">
+              {parseFloat(formData.unit_price) > 0 &&
+                `Rp ${(parseFloat(formData.unit_price) * 1000).toLocaleString(
+                  "id-ID"
+                )}/ton`}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Total Amount Display */}
+      {/* 🎯 ENHANCED: Total Amount Display */}
       {formData.total_quantity && formData.unit_price && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600">Estimated Total Amount:</span>
-            <span className="text-lg font-semibold text-blue-600">
-              Rp {calculateTotal().toLocaleString('id-ID')}
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-sm text-gray-600">
+              Estimated Total Amount:
             </span>
+            <div className="text-right">
+              <span className="text-lg font-semibold text-blue-600">
+                Rp {calculateTotal().toLocaleString("id-ID")}
+              </span>
+            </div>
+          </div>
+
+          {/* 🎯 NEW: Calculation Breakdown */}
+          <div className="text-xs text-gray-500 space-y-1">
+            <div className="flex justify-between">
+              <span>Quantity:</span>
+              <span>
+                {formData.total_quantity} {getCurrentUnitDisplay()}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span>Unit Price:</span>
+              <span>
+                Rp {parseFloat(formData.unit_price).toLocaleString("id-ID")}/
+                {getCurrentUnitDisplay()}
+              </span>
+            </div>
+            {formData.unit === "ton" && (
+              <div className="flex justify-between text-blue-600">
+                <span>Calculation:</span>
+                <span>
+                  {formData.total_quantity} ton × 1000 kg/ton × Rp{" "}
+                  {parseFloat(formData.unit_price).toLocaleString("id-ID")}/kg
+                </span>
+              </div>
+            )}
+            {formData.unit === "kubik" && (
+              <div className="flex justify-between text-green-600">
+                <span>Calculation:</span>
+                <span>
+                  {formData.total_quantity} m³ × Rp{" "}
+                  {parseFloat(formData.unit_price).toLocaleString("id-ID")}/m³
+                </span>
+              </div>
+            )}
+            {formData.unit === "kilogram" && (
+              <div className="flex justify-between text-purple-600">
+                <span>Calculation:</span>
+                <span>
+                  {formData.total_quantity} kg × Rp{" "}
+                  {parseFloat(formData.unit_price).toLocaleString("id-ID")}/kg
+                </span>
+              </div>
+            )}
           </div>
         </div>
       )}
 
       {/* Location Information (Optional) */}
       <div className="space-y-4">
-        <h3 className="text-lg font-semibold text-gray-800">Location Information (Optional)</h3>
+        <h3 className="text-lg font-semibold text-gray-800">
+          Location Information (Optional)
+        </h3>
         <p className="text-sm text-gray-600">
-          You can leave these empty and specify locations when creating delivery orders.
+          You can leave these empty and specify locations when creating delivery
+          orders.
         </p>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label htmlFor="load_location" className="block text-sm font-medium text-gray-700 mb-2">
+            <label
+              htmlFor="load_location"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
               Load Location
             </label>
             <textarea
@@ -184,7 +354,10 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
           </div>
 
           <div>
-            <label htmlFor="unload_location" className="block text-sm font-medium text-gray-700 mb-2">
+            <label
+              htmlFor="unload_location"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
               Unload Location
             </label>
             <textarea
@@ -203,7 +376,10 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
 
       {/* Notes */}
       <div>
-        <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-2">
+        <label
+          htmlFor="notes"
+          className="block text-sm font-medium text-gray-700 mb-2"
+        >
           Notes
         </label>
         <textarea
@@ -225,7 +401,7 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
           disabled={isLoading}
           className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-md disabled:bg-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
-          {isLoading ? 'Saving...' : buttonText}
+          {isLoading ? "Saving..." : buttonText}
         </button>
       </div>
     </form>
