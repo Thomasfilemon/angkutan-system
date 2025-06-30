@@ -19,8 +19,13 @@ module.exports = (sequelize) => {
         comment: "Total kuantitas barang dalam satu PO",
         validate: {
           min: 0.01,
-          isDecimal: true
-        }
+          isDecimal: true,
+        },
+      },
+      unit: {
+        type: DataTypes.ENUM("kilogram", "ton", "kubik"),
+        allowNull: false,
+        defaultValue: "ton",
       },
       unit_price: {
         type: DataTypes.DECIMAL(15, 2),
@@ -28,8 +33,8 @@ module.exports = (sequelize) => {
         comment: "Harga per unit (Rp/ton)",
         validate: {
           min: 0,
-          isDecimal: true
-        }
+          isDecimal: true,
+        },
       },
       total_amount: {
         type: DataTypes.DECIMAL(15, 2),
@@ -37,8 +42,8 @@ module.exports = (sequelize) => {
         comment: "Total nilai PO (auto calculated)",
         validate: {
           min: 0,
-          isDecimal: true
-        }
+          isDecimal: true,
+        },
       },
       // SIMPLIFIED: Remove coordinate fields, only keep location text
       load_location: {
@@ -63,10 +68,10 @@ module.exports = (sequelize) => {
           },
         },
       },
-      order_date: { 
-        type: DataTypes.DATE, 
+      order_date: {
+        type: DataTypes.DATE,
         allowNull: false,
-        defaultValue: DataTypes.NOW
+        defaultValue: DataTypes.NOW,
       },
       status: {
         type: DataTypes.STRING,
@@ -86,10 +91,25 @@ module.exports = (sequelize) => {
         beforeSave: (po) => {
           // Auto-calculate total_amount if unit_price and total_quantity are provided
           if (po.unit_price && po.total_quantity) {
-            po.total_amount = parseFloat(po.unit_price) * parseFloat(po.total_quantity);
+            const quantity = parseFloat(po.total_quantity);
+            const unitPrice = parseFloat(po.unit_price);
+
+            switch (po.unit) {
+              case "kilogram":
+                po.total_amount = quantity * unitPrice;
+                break;
+              case "ton":
+                po.total_amount = quantity * 1000 * unitPrice; // Convert ton to kg
+                break;
+              case "kubik":
+                po.total_amount = quantity * unitPrice; // Direct kubik pricing
+                break;
+              default:
+                po.total_amount = quantity * unitPrice;
+            }
           }
-        }
-      }
+        },
+      },
     }
   );
 
@@ -100,9 +120,47 @@ module.exports = (sequelize) => {
 
   PurchaseOrder.prototype.calculateTotalAmount = function () {
     if (this.unit_price && this.total_quantity) {
-      return parseFloat(this.unit_price) * parseFloat(this.total_quantity);
+      const quantity = parseFloat(this.total_quantity);
+      const unitPrice = parseFloat(this.unit_price);
+
+      switch (this.unit) {
+        case "kilogram":
+          return quantity * unitPrice;
+        case "ton":
+          return quantity * 1000 * unitPrice; // Convert ton to kg
+        case "kubik":
+          return quantity * unitPrice; // Direct kubik pricing
+        default:
+          return quantity * unitPrice;
+      }
     }
     return 0;
+  };
+
+  // 🎯 NEW: Get unit display text
+  PurchaseOrder.prototype.getUnitDisplay = function () {
+    const unitMap = {
+      kilogram: "kg",
+      ton: "ton",
+      kubik: "m³",
+    };
+    return unitMap[this.unit] || this.unit;
+  };
+
+  // 🎯 NEW: Get price with unit display for UI
+  PurchaseOrder.prototype.getPriceDisplay = function () {
+    const unitPrice = parseFloat(this.unit_price) || 0;
+    const unitDisplay = this.getUnitDisplay();
+
+    if (this.unit === "ton") {
+      // Show both per kg and per ton prices
+      const pricePerTon = unitPrice * 1000;
+      return `Rp ${unitPrice.toLocaleString(
+        "id-ID"
+      )}/${unitDisplay} (Rp ${pricePerTon.toLocaleString("id-ID")}/ton)`;
+    }
+
+    return `Rp ${unitPrice.toLocaleString("id-ID")}/${unitDisplay}`;
   };
 
   return PurchaseOrder;

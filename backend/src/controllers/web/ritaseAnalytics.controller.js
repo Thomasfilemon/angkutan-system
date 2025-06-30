@@ -409,14 +409,14 @@ exports.exportComprehensiveExcel = async (req, res, next) => {
 };
 
 /**
- * 🎯 PO-SPECIFIC COMPREHENSIVE DATA
+ * 🎯 PO-SPECIFIC COMPREHENSIVE DATA with Unit Support
  * GET /ritase/purchase-orders/:po_id/comprehensive
  */
 exports.getPOComprehensiveData = async (req, res, next) => {
   try {
     const { po_id } = req.params;
 
-    // Get PO with all related delivery orders
+    // 🎯 ENHANCED: Get PO with unit field included
     const poData = await PurchaseOrder.findByPk(po_id, {
       include: [
         {
@@ -426,17 +426,17 @@ exports.getPOComprehensiveData = async (req, res, next) => {
             {
               model: Vehicle,
               as: "vehicle",
-              attributes: ["license_plate", "type"],
+              attributes: ["id", "license_plate", "type", "capacity"], // 🎯 ADD: id and capacity for filtering
             },
             {
               model: User,
               as: "driver",
-              attributes: ["username"],
+              attributes: ["id", "username"], // 🎯 ADD: id for reference
               include: [
                 {
                   model: DriverProfile,
                   as: "driverProfile",
-                  attributes: ["full_name"],
+                  attributes: ["full_name", "phone"], // 🎯 ADD: phone for contact
                 },
               ],
             },
@@ -455,23 +455,54 @@ exports.getPOComprehensiveData = async (req, res, next) => {
       });
     }
 
-    // Calculate comprehensive metrics for each DO
+    // 🎯 NEW: Unit-aware calculation helper
+    const calculateTotalAmount = (quantity, unitPrice, unit) => {
+      const qty = parseFloat(quantity) || 0;
+      const price = parseFloat(unitPrice) || 0;
+
+      switch (unit) {
+        case "kilogram":
+          return qty * price;
+        case "ton":
+          return qty * 1000 * price; // Convert ton to kg for pricing
+        case "kubik":
+          return qty * price; // Direct kubik pricing
+        default:
+          return qty * price;
+      }
+    };
+
+    // 🎯 ENHANCED: Process DOs with unit-aware calculations
     const processedDOs = poData.deliveryOrders.map((order) => {
       const orderData = order.toJSON();
 
+      // 🎯 NEW: Ensure unit field exists with fallback
+      const orderUnit = orderData.unit || poData.unit || "ton";
+      const poUnit = poData.unit || "ton";
+
       const actualQuantity =
         parseFloat(orderData.actual_load_quantity) ||
-        parseFloat(orderData.minimal_load_quantity);
+        parseFloat(orderData.minimal_load_quantity) ||
+        0;
       const unitPrice = parseFloat(orderData.unit_price) || 0;
-      const grossIncome = actualQuantity * unitPrice;
+
+      // 🎯 ENHANCED: Unit-aware gross income calculation
+      const grossIncome = calculateTotalAmount(
+        actualQuantity,
+        unitPrice,
+        orderUnit
+      );
+
       const operationalCosts =
-        parseFloat(orderData.trip_allowance) + parseFloat(orderData.gaji);
+        (parseFloat(orderData.trip_allowance) || 0) +
+        (parseFloat(orderData.gaji) || 0);
       const netProfit = grossIncome - operationalCosts;
       const profitMargin =
         grossIncome > 0 ? (netProfit / grossIncome) * 100 : 0;
 
       return {
         ...orderData,
+        unit: orderUnit, // 🎯 NEW: Ensure unit is always present
         calculated: {
           actualQuantity,
           grossIncome,
@@ -479,10 +510,24 @@ exports.getPOComprehensiveData = async (req, res, next) => {
           netProfit,
           profitMargin,
         },
+        // 🎯 NEW: Add unit context for frontend
+        unit_info: {
+          unit: orderUnit,
+          po_unit: poUnit,
+          unit_mismatch: orderUnit !== poUnit,
+          unit_display:
+            orderUnit === "kilogram"
+              ? "kg"
+              : orderUnit === "ton"
+              ? "ton"
+              : orderUnit === "kubik"
+              ? "m³"
+              : orderUnit,
+        },
       };
     });
 
-    // Calculate PO summary
+    // 🎯 ENHANCED: Calculate PO summary with unit awareness
     const summary = {
       total_dos: processedDOs.length,
       completed_dos: processedDOs.filter(
@@ -514,23 +559,109 @@ exports.getPOComprehensiveData = async (req, res, next) => {
               processedDOs.length) *
             100
           : 0,
-      profit_margin: 0, // Calculate overall margin
+      profit_margin: 0,
+
+      // 🎯 NEW: Unit-based analytics
+      unit_analytics: {
+        po_unit: poData.unit || "ton",
+        po_unit_display:
+          poData.unit === "kilogram"
+            ? "kg"
+            : poData.unit === "ton"
+            ? "ton"
+            : poData.unit === "kubik"
+            ? "m³"
+            : poData.unit || "ton",
+        pricing_strategy:
+          poData.unit === "kubik"
+            ? "Volume-based pricing"
+            : "Weight-based pricing",
+        unit_consistency: processedDOs.every(
+          (order) => (order.unit || poData.unit) === poData.unit
+        ),
+        mixed_units: [
+          ...new Set(processedDOs.map((order) => order.unit || poData.unit)),
+        ],
+      },
+
+      // 🎯 NEW: Vehicle analytics for filtering
+      vehicle_analytics: processedDOs.reduce((acc, order) => {
+        const vehicleKey = order.vehicle?.license_plate || "unknown";
+
+        if (!acc[vehicleKey]) {
+          acc[vehicleKey] = {
+            vehicle_info: order.vehicle,
+            trip_count: 0,
+            completed_trips: 0,
+            total_quantity: 0,
+            total_revenue: 0,
+            total_profit: 0,
+            avg_profit_margin: 0,
+          };
+        }
+
+        acc[vehicleKey].trip_count++;
+        if (order.status === "completed") {
+          acc[vehicleKey].completed_trips++;
+        }
+        acc[vehicleKey].total_quantity += order.calculated.actualQuantity;
+        acc[vehicleKey].total_revenue += order.calculated.grossIncome;
+        acc[vehicleKey].total_profit += order.calculated.netProfit;
+
+        return acc;
+      }, {}),
     };
 
+    // Calculate overall profit margin
     summary.profit_margin =
       summary.total_revenue > 0
         ? (summary.total_net_profit / summary.total_revenue) * 100
         : 0;
 
+    // Calculate average profit margin per vehicle
+    Object.values(summary.vehicle_analytics).forEach((vehicle) => {
+      vehicle.avg_profit_margin =
+        vehicle.total_revenue > 0
+          ? (vehicle.total_profit / vehicle.total_revenue) * 100
+          : 0;
+    });
+
+    // 🎯 ENHANCED: Response with unit and vehicle context
     res.json({
       success: true,
       data: {
-        purchase_order: poData,
+        purchase_order: {
+          ...poData.toJSON(),
+          unit: poData.unit || "ton", // 🎯 ENSURE: Unit is always present
+        },
         delivery_orders: processedDOs,
         summary,
+        // 🎯 NEW: Additional metadata for frontend
+        metadata: {
+          filters_available: {
+            vehicles: Object.values(summary.vehicle_analytics).map((v) => ({
+              id: v.vehicle_info?.id || null,
+              license_plate: v.vehicle_info?.license_plate || "unknown",
+              type: v.vehicle_info?.type || "unknown",
+              display_name: v.vehicle_info
+                ? `${v.vehicle_info.license_plate} (${v.vehicle_info.type})`
+                : "Unknown Vehicle",
+            })),
+            statuses: [...new Set(processedDOs.map((order) => order.status))],
+            payment_statuses: [
+              ...new Set(processedDOs.map((order) => order.payment_status)),
+            ],
+          },
+          unit_context: {
+            po_unit: poData.unit || "ton",
+            consistent_units: summary.unit_analytics.unit_consistency,
+            pricing_type: summary.unit_analytics.pricing_strategy,
+          },
+        },
       },
     });
   } catch (err) {
+    console.error("Error in getPOComprehensiveData:", err);
     next(err);
   }
 };

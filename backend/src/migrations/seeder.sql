@@ -366,7 +366,7 @@ INSERT INTO delivery_order_payments (
   6114600, 
   '2024-11-06', 
   'Pembayaran lunas DO-241005-02',
-  (SELECT id FROM users WHERE username = 'admin_user' LIMIT 1)
+  (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
 );
 
 -- ✅ DELIVERY ORDER INVOICES (New table for invoice management)
@@ -394,7 +394,7 @@ INSERT INTO delivery_order_invoices (
   6222960,  -- Net amount after PPH
   'paid',
   'Invoice untuk DO-241005-02',
-  (SELECT id FROM users WHERE username = 'admin_user' LIMIT 1)
+  (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
 );
 
 -- ✅ UPDATE DELIVERY ORDERS untuk payment workflow
@@ -404,7 +404,7 @@ SET
   payment_confirmation_status = 'confirmed',
   final_amount = unit_price * actual_load_quantity,  -- Assuming final amount is based on unit price and actual load quantity
   payment_confirmation_at = NOW(),
-  payment_confirmed_by = (SELECT id FROM users WHERE username = 'admin_user' LIMIT 1)
+  payment_confirmed_by = (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
 WHERE do_number = 'DO-241005-02';
 
 -- ✅ SAMPLE PRICE ADJUSTMENT (untuk kasus kecelakaan)
@@ -425,8 +425,8 @@ INSERT INTO delivery_order_adjustments (
   0,        -- Adjusted to 0 due to accident
   0,        -- Final amount
   'Kecelakaan - tumpah di jalan, tidak ada pembayaran',
-  (SELECT id FROM users WHERE username = 'admin_user' LIMIT 1),
-  (SELECT id FROM users WHERE username = 'admin_user' LIMIT 1)
+  (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1),
+  (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
 );
 
 -- Update DO yang kena adjustment
@@ -464,6 +464,269 @@ INSERT INTO delivery_order_payment_history (
   'proses_tagihan',
   'lunas',
   'Payment completed via transfer',
-  (SELECT id FROM users WHERE username = 'admin_user' LIMIT 1),
+  (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1),
   NOW()
 );
+
+-- ===============================================
+-- 🎯 NEW SEEDER: PO + 2 Completed DOs (June 2025)
+-- Unit: kubik (volume-based pricing)
+-- Driver: Dedi (supir_dedi)
+-- ===============================================
+
+-- 🏗️ NEW PURCHASE ORDER (Unit: kubik)
+INSERT INTO purchase_orders (
+  po_number, 
+  customer_name, 
+  item_name, 
+  total_quantity, 
+  unit, 
+  unit_price, 
+  total_amount, 
+  load_location, 
+  unload_location, 
+  order_date, 
+  status,
+  notes
+) VALUES (
+  'PO/JAYA/06/2025-04', 
+  'PT JAYA KONSTRUKSI', 
+  'Pasir Urug', 
+  120.00, 
+  'kubik', 
+  185000, -- Rp 185,000 per m³
+  22200000, -- 120 m³ × Rp 185,000/m³ = Rp 22,200,000
+  'Quarry Sukabumi, Jawa Barat',
+  'Proyek Perumahan Serpong, Tangerang Selatan',
+  '2025-06-01',
+  'completed', -- Status completed karena semua DO selesai
+  'Pasir urug untuk proyek perumahan fase 2'
+);
+
+-- 🚛 DELIVERY ORDER 1 (Completed: 10 Juni 2025)
+INSERT INTO delivery_orders (
+  purchase_order_id, 
+  driver_id, 
+  vehicle_id, 
+  do_number, 
+  customer_name, 
+  item_name, 
+  minimal_load_quantity, 
+  actual_load_quantity, 
+  unit,
+  unit_price, 
+  total_amount,
+  payment_status, 
+  due_date, 
+  load_location, 
+  load_latitude, 
+  load_longitude, 
+  unload_location, 
+  unload_latitude, 
+  unload_longitude, 
+  status, 
+  departed_to_load_location_at, 
+  arrived_at_load_location_at, 
+  departed_from_load_location_at, 
+  arrived_at_unload_location_at, 
+  departed_from_unload_location_at, 
+  completed_at, 
+  trip_allowance, 
+  gaji, 
+  ongkosan,
+  surat_jalan_photo_url,
+  payment_confirmation_status,
+  created_at
+) VALUES (
+  (SELECT id FROM purchase_orders WHERE po_number = 'PO/JAYA/06/2025-04'),
+  (SELECT id FROM users WHERE username = 'supir_dedi'),
+  (SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL'),
+  'DO-250610-01',
+  'PT JAYA KONSTRUKSI',
+  'Pasir Urug',
+  55.00, -- Target: 55 m³
+  56.25, -- Actual: 56.25 m³ (slight excess)
+  'kubik',
+  185000, -- Rp 185,000 per m³
+  10406250, -- 56.25 m³ × Rp 185,000/m³ = Rp 10,406,250
+  'lunas',
+  '2025-07-10',
+  'Quarry Sukabumi, Jawa Barat',
+  -6.9175, 106.9270, -- Sukabumi coordinates
+  'Proyek Perumahan Serpong, Tangerang Selatan',
+  -6.2615, 106.6900, -- Serpong coordinates
+  'completed',
+  '2025-06-10 06:00:00+07', -- Berangkat pagi
+  '2025-06-10 09:30:00+07', -- Sampai lokasi muat
+  '2025-06-10 11:00:00+07', -- Selesai muat
+  '2025-06-10 14:30:00+07', -- Sampai lokasi bongkar
+  '2025-06-10 16:00:00+07', -- Selesai bongkar
+  '2025-06-10 18:00:00+07', -- Selesai trip
+  2200000, -- Uang jalan Rp 2,200,000
+  600000,  -- Gaji Rp 600,000
+  7606250, -- Ongkosan: 10,406,250 - 2,200,000 - 600,000 = 7,606,250
+  'uploads/surat_jalan/DO-250610-01-surat-jalan.jpg',
+  'confirmed',
+  '2025-06-09 15:00:00+07' -- DO dibuat sehari sebelumnya
+),
+
+-- 🚛 DELIVERY ORDER 2 (Completed: 30 Juni 2025)
+(
+  (SELECT id FROM purchase_orders WHERE po_number = 'PO/JAYA/06/2025-04'),
+  (SELECT id FROM users WHERE username = 'supir_dedi'),
+  (SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL'),
+  'DO-250630-02',
+  'PT JAYA KONSTRUKSI',
+  'Pasir Urug',
+  65.00, -- Target: 65 m³ (sisa dari PO)
+  64.80, -- Actual: 64.80 m³ (slight shortage)
+  'kubik',
+  185000, -- Rp 185,000 per m³
+  11988000, -- 64.80 m³ × Rp 185,000/m³ = Rp 11,988,000
+  'lunas',
+  '2025-07-30',
+  'Quarry Sukabumi, Jawa Barat',
+  -6.9175, 106.9270, -- Sukabumi coordinates
+  'Proyek Perumahan Serpong, Tangerang Selatan',
+  -6.2615, 106.6900, -- Serpong coordinates
+  'completed',
+  '2025-06-30 05:30:00+07', -- Berangkat lebih pagi
+  '2025-06-30 09:00:00+07', -- Sampai lokasi muat
+  '2025-06-30 10:30:00+07', -- Selesai muat
+  '2025-06-30 14:00:00+07', -- Sampai lokasi bongkar
+  '2025-06-30 15:30:00+07', -- Selesai bongkar
+  '2025-06-30 17:30:00+07', -- Selesai trip
+  2300000, -- Uang jalan Rp 2,300,000 (sedikit lebih mahal)
+  650000,  -- Gaji Rp 650,000
+  9038000, -- Ongkosan: 11,988,000 - 2,300,000 - 650,000 = 9,038,000
+  'uploads/surat_jalan/DO-250630-02-surat-jalan.jpg',
+  'confirmed',
+  '2025-06-29 16:00:00+07' -- DO dibuat sehari sebelumnya
+);
+
+-- 💰 DRIVER EXPENSES untuk kedua DO
+INSERT INTO driver_expenses (delivery_order_id, driver_id, jenis, amount, notes) VALUES
+-- Expenses untuk DO-250610-01
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250610-01'), 
+ (SELECT id FROM users WHERE username = 'supir_dedi'), 
+ 'bbm', 850000, 'Solar + Pertamax untuk perjalanan Sukabumi-Serpong'),
+
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250610-01'), 
+ (SELECT id FROM users WHERE username = 'supir_dedi'), 
+ 'makan', 125000, 'Makan siang + minum di rest area'),
+
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250610-01'), 
+ (SELECT id FROM users WHERE username = 'supir_dedi'), 
+ 'tol', 75000, 'Tol Jagorawi + Serpong'),
+
+-- Expenses untuk DO-250630-02
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250630-02'), 
+ (SELECT id FROM users WHERE username = 'supir_dedi'), 
+ 'bbm', 900000, 'Solar + Pertamax untuk perjalanan kedua'),
+
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250630-02'), 
+ (SELECT id FROM users WHERE username = 'supir_dedi'), 
+ 'makan', 140000, 'Makan siang + snack di perjalanan'),
+
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250630-02'), 
+ (SELECT id FROM users WHERE username = 'supir_dedi'), 
+ 'tol', 80000, 'Tol Jagorawi + Serpong (tarif naik)'),
+
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250630-02'), 
+ (SELECT id FROM users WHERE username = 'supir_dedi'), 
+ 'parkir', 25000, 'Parkir di lokasi proyek');
+
+-- 🧾 SAMPLE INVOICE DATA (opsional, untuk testing payment system)
+INSERT INTO delivery_order_invoices (
+  delivery_order_id,
+  invoice_number,
+  invoice_date,
+  invoice_amount,
+  due_date,
+  pph_percentage,
+  pph_amount,
+  net_amount,
+  status,
+  notes,
+  created_by
+) VALUES
+-- Invoice untuk DO-250610-01
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250610-01'),
+ 'INV/2025/06/010',
+ '2025-06-11',
+ 10406250, -- Gross amount
+ '2025-07-11',
+ 0.50, -- PPh 0.5%
+ 52031.25, -- PPh amount: 10,406,250 × 0.5%
+ 10458281.25, -- Net: 10,406,250 + 52,031.25
+ 'paid',
+ 'Invoice untuk pengiriman pasir urug batch 1',
+ (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
+ ),
+
+-- Invoice untuk DO-250630-02
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250630-02'),
+ 'INV/2025/06/030',
+ '2025-07-01',
+ 11988000, -- Gross amount
+ '2025-07-31',
+ 0.50, -- PPh 0.5%
+ 59940, -- PPh amount: 11,988,000 × 0.5%
+ 12047940, -- Net: 11,988,000 + 59,940
+ 'paid',
+ 'Invoice untuk pengiriman pasir urug batch 2',
+ (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
+ );
+
+-- 💸 SAMPLE PAYMENT DATA
+INSERT INTO delivery_order_payments (
+  delivery_order_id,
+  invoice_id,
+  payment_reference,
+  payment_type,
+  payment_amount,
+  payment_date,
+  notes
+) VALUES
+-- Payment untuk DO-250610-01
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250610-01'),
+ (SELECT id FROM delivery_order_invoices WHERE invoice_number = 'INV/2025/06/010'),
+ 'TRF-20250615-001',
+ 'transfer',
+ 10458281.25,
+ '2025-06-15',
+ 'Pembayaran lunas DO-250610-01 via transfer BCA'),
+
+-- Payment untuk DO-250630-02
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250630-02'),
+ (SELECT id FROM delivery_order_invoices WHERE invoice_number = 'INV/2025/06/030'),
+ 'TRF-20250705-002',
+ 'transfer',
+ 12047940,
+ '2025-07-05',
+ 'Pembayaran lunas DO-250630-02 via transfer BCA');
+
+-- 📊 PAYMENT HISTORY untuk tracking status changes
+INSERT INTO delivery_order_payment_history (
+  delivery_order_id,
+  old_status,
+  new_status,
+  change_reason,
+  changed_by,
+  changed_at
+) VALUES
+-- History untuk DO-250610-01
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250610-01'),
+ 'proses_tagihan',
+ 'lunas',
+ 'Payment completed via transfer TRF-20250615-001',
+ (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1),
+ '2025-06-15 14:30:00+07'),
+
+-- History untuk DO-250630-02
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250630-02'),
+ 'proses_tagihan',
+ 'lunas',
+ 'Payment completed via transfer TRF-20250705-002',
+ (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1),
+ '2025-07-05 16:45:00+07');

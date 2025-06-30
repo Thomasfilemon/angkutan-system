@@ -1,57 +1,69 @@
 // src/controllers/web/purchaseOrderController.js
-const { PurchaseOrder, DeliveryOrder, Vehicle, DriverProfile, User } = require('../../models');
-const { Op } = require('sequelize');
+const {
+  PurchaseOrder,
+  DeliveryOrder,
+  Vehicle,
+  DriverProfile,
+  User,
+} = require("../../models");
+const { Op } = require("sequelize");
 
 // Get all POs with enhanced web features
 exports.getAllPurchaseOrders = async (req, res, next) => {
   try {
     const { status, page = 1, limit = 10, search } = req.query;
     const offset = (page - 1) * limit;
-    
+
     // ✅ FIXED: Remove TypeScript type annotation
     let whereClause = {};
-    
+
     if (status) {
       whereClause.status = status;
     }
-    
+
     if (search) {
       whereClause[Op.or] = [
         { po_number: { [Op.iLike]: `%${search}%` } },
         { customer_name: { [Op.iLike]: `%${search}%` } },
-        { item_name: { [Op.iLike]: `%${search}%` } }
+        { item_name: { [Op.iLike]: `%${search}%` } },
       ];
     }
 
-    const { count, rows: purchaseOrders } = await PurchaseOrder.findAndCountAll({
-      where: whereClause,
-      include: [
-        {
-          model: DeliveryOrder,
-          as: 'deliveryOrders',
-          attributes: ['id', 'do_number', 'status', 'actual_load_quantity'],
-          required: false
-        }
-      ],
-      order: [['created_at', 'DESC']],
-      limit: parseInt(limit),
-      offset: offset
-    });
+    const { count, rows: purchaseOrders } = await PurchaseOrder.findAndCountAll(
+      {
+        where: whereClause,
+        include: [
+          {
+            model: DeliveryOrder,
+            as: "deliveryOrders",
+            attributes: ["id", "do_number", "status", "actual_load_quantity"],
+            required: false,
+          },
+        ],
+        order: [["created_at", "DESC"]],
+        limit: parseInt(limit),
+        offset: offset,
+      }
+    );
 
     // Calculate remaining quantities and delivery stats
     const enhancedPOs = await Promise.all(
       purchaseOrders.map(async (po) => {
-        const totalDelivered = await DeliveryOrder.sum('actual_load_quantity', {
-          where: {
-            purchase_order_id: po.id,
-            status: 'completed',
-            actual_load_quantity: { [Op.ne]: null }
-          }
-        }) || 0;
+        const totalDelivered =
+          (await DeliveryOrder.sum("actual_load_quantity", {
+            where: {
+              purchase_order_id: po.id,
+              status: "completed",
+              actual_load_quantity: { [Op.ne]: null },
+            },
+          })) || 0;
 
-        const remainingQuantity = parseFloat(po.total_quantity) - totalDelivered;
+        const remainingQuantity =
+          parseFloat(po.total_quantity) - totalDelivered;
         const deliveryCount = po.deliveryOrders?.length || 0;
-        const completedDeliveries = po.deliveryOrders?.filter(d => d.status === 'completed').length || 0;
+        const completedDeliveries =
+          po.deliveryOrders?.filter((d) => d.status === "completed").length ||
+          0;
 
         return {
           ...po.toJSON(),
@@ -60,9 +72,12 @@ exports.getAllPurchaseOrders = async (req, res, next) => {
           delivery_progress: {
             total_deliveries: deliveryCount,
             completed_deliveries: completedDeliveries,
-            percentage: po.total_quantity > 0 ? (totalDelivered / parseFloat(po.total_quantity)) * 100 : 0
+            percentage:
+              po.total_quantity > 0
+                ? (totalDelivered / parseFloat(po.total_quantity)) * 100
+                : 0,
           },
-          can_create_do: remainingQuantity > 0 && po.status !== 'cancelled'
+          can_create_do: remainingQuantity > 0 && po.status !== "cancelled",
         };
       })
     );
@@ -70,9 +85,11 @@ exports.getAllPurchaseOrders = async (req, res, next) => {
     // Calculate summary stats
     const stats = {
       total: count,
-      active: enhancedPOs.filter(po => ['confirmed', 'partial'].includes(po.status)).length,
-      completed: enhancedPOs.filter(po => po.status === 'completed').length,
-      cancelled: enhancedPOs.filter(po => po.status === 'cancelled').length
+      active: enhancedPOs.filter((po) =>
+        ["confirmed", "partial"].includes(po.status)
+      ).length,
+      completed: enhancedPOs.filter((po) => po.status === "completed").length,
+      cancelled: enhancedPOs.filter((po) => po.status === "cancelled").length,
     };
 
     res.json({
@@ -82,9 +99,9 @@ exports.getAllPurchaseOrders = async (req, res, next) => {
         total: count,
         page: parseInt(page),
         limit: parseInt(limit),
-        totalPages: Math.ceil(count / limit)
+        totalPages: Math.ceil(count / limit),
       },
-      stats
+      stats,
     });
   } catch (err) {
     next(err);
@@ -95,42 +112,51 @@ exports.getAllPurchaseOrders = async (req, res, next) => {
 exports.getPurchaseOrderById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    
+
     const po = await PurchaseOrder.findByPk(id, {
       include: [
         {
           model: DeliveryOrder,
-          as: 'deliveryOrders',
+          as: "deliveryOrders",
           include: [
-            { 
-              model: User, 
-              as: 'driver', 
-              attributes: ['username'],
+            {
+              model: User,
+              as: "driver",
+              attributes: ["username"],
               include: [
-                { model: DriverProfile, as: 'driverProfile', attributes: ['full_name', 'phone'] }
-              ]
+                {
+                  model: DriverProfile,
+                  as: "driverProfile",
+                  attributes: ["full_name", "phone"],
+                },
+              ],
             },
-            { model: Vehicle, as: 'vehicle', attributes: ['license_plate', 'type'] }
-          ]
-        }
-      ]
+            {
+              model: Vehicle,
+              as: "vehicle",
+              attributes: ["license_plate", "type"],
+            },
+          ],
+        },
+      ],
     });
 
     if (!po) {
       return res.status(404).json({
         success: false,
-        message: 'Purchase Order not found'
+        message: "Purchase Order not found",
       });
     }
 
     // Calculate delivery statistics
-    const totalDelivered = await DeliveryOrder.sum('actual_load_quantity', {
-      where: {
-        purchase_order_id: id,
-        status: 'completed',
-        actual_load_quantity: { [Op.ne]: null }
-      }
-    }) || 0;
+    const totalDelivered =
+      (await DeliveryOrder.sum("actual_load_quantity", {
+        where: {
+          purchase_order_id: id,
+          status: "completed",
+          actual_load_quantity: { [Op.ne]: null },
+        },
+      })) || 0;
 
     const remainingQuantity = parseFloat(po.total_quantity) - totalDelivered;
 
@@ -141,10 +167,13 @@ exports.getPurchaseOrderById = async (req, res, next) => {
         delivered_quantity: totalDelivered,
         remaining_quantity: remainingQuantity,
         delivery_progress: {
-          percentage: po.total_quantity > 0 ? (totalDelivered / parseFloat(po.total_quantity)) * 100 : 0,
-          is_complete: remainingQuantity <= 0
-        }
-      }
+          percentage:
+            po.total_quantity > 0
+              ? (totalDelivered / parseFloat(po.total_quantity)) * 100
+              : 0,
+          is_complete: remainingQuantity <= 0,
+        },
+      },
     });
   } catch (err) {
     next(err);
@@ -158,6 +187,7 @@ exports.createPurchaseOrder = async (req, res, next) => {
       customer_name,
       item_name,
       total_quantity,
+      unit,
       unit_price,
       load_location,
       unload_location,
@@ -165,27 +195,50 @@ exports.createPurchaseOrder = async (req, res, next) => {
       load_longitude,
       unload_latitude,
       unload_longitude,
-      notes
+      notes,
     } = req.body;
+
+    const calculateTotalAmount = (quantity, unit, unitPrice) => {
+      const qty = parseFloat(quantity) || 0;
+      const price = parseFloat(unitPrice) || 0;
+
+      switch (unit) {
+        case "kilogram":
+          return qty * price;
+        case "ton":
+          return qty * 1000 * price; // Convert ton to kg for pricing
+        case "kubik":
+          return qty * price; // Direct kubik pricing
+        default:
+          return qty * price;
+      }
+    };
 
     // Generate PO number
     const poCount = await PurchaseOrder.count({
       where: {
         created_at: {
-          [Op.gte]: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-        }
-      }
+          [Op.gte]: new Date(
+            new Date().getFullYear(),
+            new Date().getMonth(),
+            1
+          ),
+        },
+      },
     });
-    
-    const poNumber = `PO-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(poCount + 1).padStart(4, '0')}`;
+
+    const poNumber = `PO-${new Date().getFullYear()}${String(
+      new Date().getMonth() + 1
+    ).padStart(2, "0")}-${String(poCount + 1).padStart(4, "0")}`;
 
     const newPO = await PurchaseOrder.create({
       po_number: poNumber,
       customer_name,
       item_name,
       total_quantity,
+      unit,
       unit_price: unit_price || 0,
-      total_amount: parseFloat(total_quantity) * (parseFloat(unit_price) || 0),
+      total_amount: calculateTotalAmount(total_quantity, unit, unit_price),
       load_location,
       unload_location,
       load_latitude,
@@ -193,21 +246,25 @@ exports.createPurchaseOrder = async (req, res, next) => {
       unload_latitude,
       unload_longitude,
       notes,
-      status: 'confirmed'
+      status: "confirmed",
     });
 
     res.status(201).json({
       success: true,
-      message: 'Purchase Order created successfully',
-      data: newPO
+      message: "Purchase Order created successfully",
+      data: {
+        ...newPO.toJSON(),
+        unit_display: newPO.getUnitDisplay(),
+        price_display: newPO.getPriceDisplay(),
+      },
     });
   } catch (err) {
-    if (err.name === 'SequelizeValidationError') {
-      const messages = err.errors.map(e => e.message);
+    if (err.name === "SequelizeValidationError") {
+      const messages = err.errors.map((e) => e.message);
       return res.status(400).json({
         success: false,
-        message: 'Validation failed',
-        errors: messages
+        message: "Validation failed",
+        errors: messages,
       });
     }
     next(err);
@@ -219,28 +276,28 @@ exports.updatePurchaseOrder = async (req, res, next) => {
   try {
     const { id } = req.params;
     const po = await PurchaseOrder.findByPk(id);
-    
+
     if (!po) {
       return res.status(404).json({
         success: false,
-        message: 'Purchase Order not found'
+        message: "Purchase Order not found",
       });
     }
 
     const updatedPO = await po.update(req.body);
-    
+
     res.json({
       success: true,
-      message: 'Purchase Order updated successfully',
-      data: updatedPO
+      message: "Purchase Order updated successfully",
+      data: updatedPO,
     });
   } catch (err) {
-    if (err.name === 'SequelizeValidationError') {
-      const messages = err.errors.map(e => e.message);
+    if (err.name === "SequelizeValidationError") {
+      const messages = err.errors.map((e) => e.message);
       return res.status(400).json({
         success: false,
-        message: 'Validation failed',
-        errors: messages
+        message: "Validation failed",
+        errors: messages,
       });
     }
     next(err);
@@ -252,11 +309,11 @@ exports.deletePurchaseOrder = async (req, res, next) => {
   try {
     const { id } = req.params;
     const po = await PurchaseOrder.findByPk(id);
-    
+
     if (!po) {
       return res.status(404).json({
         success: false,
-        message: 'Purchase Order not found'
+        message: "Purchase Order not found",
       });
     }
 
@@ -265,24 +322,30 @@ exports.deletePurchaseOrder = async (req, res, next) => {
       where: {
         purchase_order_id: id,
         status: {
-          [Op.in]: ['assigned', 'otw_to_load_location', 'at_load_location', 
-                   'otw_to_unload_location', 'at_unload_location', 'otw_to_base']
-        }
-      }
+          [Op.in]: [
+            "assigned",
+            "otw_to_load_location",
+            "at_load_location",
+            "otw_to_unload_location",
+            "at_unload_location",
+            "otw_to_base",
+          ],
+        },
+      },
     });
 
     if (activeDeliveries > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete PO with active delivery orders'
+        message: "Cannot delete PO with active delivery orders",
       });
     }
 
     await po.destroy();
-    
+
     res.json({
       success: true,
-      message: 'Purchase Order deleted successfully'
+      message: "Purchase Order deleted successfully",
     });
   } catch (err) {
     next(err);
@@ -293,30 +356,31 @@ exports.deletePurchaseOrder = async (req, res, next) => {
 exports.getPoDetailsForNewDo = async (req, res, next) => {
   try {
     const { id } = req.params;
-    
+
     const po = await PurchaseOrder.findByPk(id);
     if (!po) {
       return res.status(404).json({
         success: false,
-        message: 'Purchase Order not found'
+        message: "Purchase Order not found",
       });
     }
 
     // Calculate delivered quantity
-    const totalDelivered = await DeliveryOrder.sum('actual_load_quantity', {
-      where: {
-        purchase_order_id: id,
-        status: 'completed',
-        actual_load_quantity: { [Op.ne]: null }
-      }
-    }) || 0;
+    const totalDelivered =
+      (await DeliveryOrder.sum("actual_load_quantity", {
+        where: {
+          purchase_order_id: id,
+          status: "completed",
+          actual_load_quantity: { [Op.ne]: null },
+        },
+      })) || 0;
 
     const remainingQuantity = parseFloat(po.total_quantity) - totalDelivered;
 
     if (remainingQuantity <= 0) {
       return res.status(400).json({
         success: false,
-        message: 'No remaining quantity available for delivery'
+        message: "No remaining quantity available for delivery",
       });
     }
 
@@ -324,12 +388,18 @@ exports.getPoDetailsForNewDo = async (req, res, next) => {
     const doCount = await DeliveryOrder.count({
       where: {
         created_at: {
-          [Op.gte]: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-        }
-      }
+          [Op.gte]: new Date(
+            new Date().getFullYear(),
+            new Date().getMonth(),
+            1
+          ),
+        },
+      },
     });
-    
-    const generatedDoNumber = `DO-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(doCount + 1).padStart(4, '0')}`;
+
+    const generatedDoNumber = `DO-${new Date().getFullYear()}${String(
+      new Date().getMonth() + 1
+    ).padStart(2, "0")}-${String(doCount + 1).padStart(4, "0")}`;
 
     res.json({
       success: true,
@@ -342,14 +412,14 @@ exports.getPoDetailsForNewDo = async (req, res, next) => {
         delivered_quantity: totalDelivered,
         remaining_quantity: remainingQuantity,
         generated_do_number: generatedDoNumber,
-        load_location: po.load_location || '',
-        unload_location: po.unload_location || '',
+        load_location: po.load_location || "",
+        unload_location: po.unload_location || "",
         load_latitude: po.load_latitude,
         load_longitude: po.load_longitude,
         unload_latitude: po.unload_latitude,
         unload_longitude: po.unload_longitude,
-        has_location_data: !!(po.load_location && po.unload_location)
-      }
+        has_location_data: !!(po.load_location && po.unload_location),
+      },
     });
   } catch (err) {
     next(err);
@@ -379,39 +449,40 @@ exports.createDeliveryOrderFromPO = async (req, res, next) => {
     if (!po) {
       return res.status(404).json({
         success: false,
-        message: 'Purchase Order not found'
+        message: "Purchase Order not found",
       });
     }
 
-    if (po.status === 'completed' || po.status === 'cancelled') {
+    if (po.status === "completed" || po.status === "cancelled") {
       return res.status(400).json({
         success: false,
-        message: 'Cannot create DO from completed or cancelled Purchase Order'
+        message: "Cannot create DO from completed or cancelled Purchase Order",
       });
     }
 
     // Check remaining quantity
-    const totalDelivered = await DeliveryOrder.sum('actual_load_quantity', {
-      where: {
-        purchase_order_id: id,
-        status: 'completed',
-        actual_load_quantity: { [Op.ne]: null }
-      }
-    }) || 0;
+    const totalDelivered =
+      (await DeliveryOrder.sum("actual_load_quantity", {
+        where: {
+          purchase_order_id: id,
+          status: "completed",
+          actual_load_quantity: { [Op.ne]: null },
+        },
+      })) || 0;
 
     const remainingQuantity = parseFloat(po.total_quantity) - totalDelivered;
-    
+
     if (remainingQuantity <= 0) {
       return res.status(400).json({
         success: false,
-        message: 'No remaining quantity in this Purchase Order'
+        message: "No remaining quantity in this Purchase Order",
       });
     }
 
     if (parseFloat(minimal_load_quantity) > remainingQuantity) {
       return res.status(400).json({
         success: false,
-        message: `Minimal load quantity (${minimal_load_quantity}) exceeds remaining PO quantity (${remainingQuantity})`
+        message: `Minimal load quantity (${minimal_load_quantity}) exceeds remaining PO quantity (${remainingQuantity})`,
       });
     }
 
@@ -420,16 +491,22 @@ exports.createDeliveryOrderFromPO = async (req, res, next) => {
       where: {
         driver_id,
         status: {
-          [Op.in]: ['assigned', 'otw_to_load_location', 'at_load_location', 
-                   'otw_to_unload_location', 'at_unload_location', 'otw_to_base']
-        }
-      }
+          [Op.in]: [
+            "assigned",
+            "otw_to_load_location",
+            "at_load_location",
+            "otw_to_unload_location",
+            "at_unload_location",
+            "otw_to_base",
+          ],
+        },
+      },
     });
 
     if (activeDriverTrip) {
       return res.status(400).json({
         success: false,
-        message: 'Driver is currently assigned to another active trip'
+        message: "Driver is currently assigned to another active trip",
       });
     }
 
@@ -438,16 +515,22 @@ exports.createDeliveryOrderFromPO = async (req, res, next) => {
       where: {
         vehicle_id,
         status: {
-          [Op.in]: ['assigned', 'otw_to_load_location', 'at_load_location', 
-                   'otw_to_unload_location', 'at_unload_location', 'otw_to_base']
-        }
-      }
+          [Op.in]: [
+            "assigned",
+            "otw_to_load_location",
+            "at_load_location",
+            "otw_to_unload_location",
+            "at_unload_location",
+            "otw_to_base",
+          ],
+        },
+      },
     });
 
     if (activeVehicleTrip) {
       return res.status(400).json({
         success: false,
-        message: 'Vehicle is currently assigned to another active trip'
+        message: "Vehicle is currently assigned to another active trip",
       });
     }
 
@@ -455,12 +538,18 @@ exports.createDeliveryOrderFromPO = async (req, res, next) => {
     const doCount = await DeliveryOrder.count({
       where: {
         created_at: {
-          [Op.gte]: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-        }
-      }
+          [Op.gte]: new Date(
+            new Date().getFullYear(),
+            new Date().getMonth(),
+            1
+          ),
+        },
+      },
     });
-    
-    const doNumber = `DO-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(doCount + 1).padStart(4, '0')}`;
+
+    const doNumber = `DO-${new Date().getFullYear()}${String(
+      new Date().getMonth() + 1
+    ).padStart(2, "0")}-${String(doCount + 1).padStart(4, "0")}`;
 
     // Create Delivery Order
     const newDO = await DeliveryOrder.create({
@@ -472,7 +561,8 @@ exports.createDeliveryOrderFromPO = async (req, res, next) => {
       item_name: po.item_name,
       minimal_load_quantity,
       unit_price: po.unit_price || 0,
-      total_amount: parseFloat(minimal_load_quantity) * (parseFloat(po.unit_price) || 0),
+      total_amount:
+        parseFloat(minimal_load_quantity) * (parseFloat(po.unit_price) || 0),
       trip_allowance,
       gaji,
       load_location: load_location || po.load_location,
@@ -481,38 +571,35 @@ exports.createDeliveryOrderFromPO = async (req, res, next) => {
       load_longitude: load_longitude || po.load_longitude,
       unload_latitude: unload_latitude || po.unload_latitude,
       unload_longitude: unload_longitude || po.unload_longitude,
-      payment_status: 'proses_tagihan',
-      status: 'assigned'
+      payment_status: "proses_tagihan",
+      status: "assigned",
     });
 
     // Update driver and vehicle status
     await DriverProfile.update(
-      { status: 'busy' },
+      { status: "busy" },
       { where: { user_id: driver_id } }
     );
-    
-    await Vehicle.update(
-      { status: 'in_use' },
-      { where: { id: vehicle_id } }
-    );
+
+    await Vehicle.update({ status: "in_use" }, { where: { id: vehicle_id } });
 
     // Update PO status to partial if not already
-    if (po.status === 'confirmed') {
-      await po.update({ status: 'partial' });
+    if (po.status === "confirmed") {
+      await po.update({ status: "partial" });
     }
 
     res.status(201).json({
       success: true,
-      message: 'Delivery Order created successfully from Purchase Order',
+      message: "Delivery Order created successfully from Purchase Order",
       data: {
         ...newDO.toJSON(),
         financial_summary: newDO.getFinancialSummary(),
-        remaining_po_quantity: remainingQuantity - parseFloat(minimal_load_quantity)
-      }
+        remaining_po_quantity:
+          remainingQuantity - parseFloat(minimal_load_quantity),
+      },
     });
-
   } catch (err) {
-    console.error('Error creating DO from PO:', err);
+    console.error("Error creating DO from PO:", err);
     next(err);
   }
 };
@@ -523,45 +610,53 @@ exports.getAvailablePOsForDelivery = async (req, res, next) => {
     const availablePOs = await PurchaseOrder.findAll({
       where: {
         status: {
-          [Op.in]: ['confirmed', 'partial']
-        }
+          [Op.in]: ["confirmed", "partial"],
+        },
       },
       attributes: [
-        'id', 'po_number', 'customer_name', 'item_name', 'total_quantity',
-        'load_location', 'unload_location', 'created_at'
+        "id",
+        "po_number",
+        "customer_name",
+        "item_name",
+        "total_quantity",
+        "load_location",
+        "unload_location",
+        "created_at",
       ],
-      order: [['created_at', 'DESC']]
+      order: [["created_at", "DESC"]],
     });
 
     // Calculate remaining quantity for each PO
     const posWithRemaining = await Promise.all(
       availablePOs.map(async (po) => {
-        const totalDelivered = await DeliveryOrder.sum('actual_load_quantity', {
-          where: {
-            purchase_order_id: po.id,
-            status: 'completed',
-            actual_load_quantity: { [Op.ne]: null }
-          }
-        }) || 0;
+        const totalDelivered =
+          (await DeliveryOrder.sum("actual_load_quantity", {
+            where: {
+              purchase_order_id: po.id,
+              status: "completed",
+              actual_load_quantity: { [Op.ne]: null },
+            },
+          })) || 0;
 
-        const remainingQuantity = parseFloat(po.total_quantity) - totalDelivered;
+        const remainingQuantity =
+          parseFloat(po.total_quantity) - totalDelivered;
 
         return {
           ...po.toJSON(),
           delivered_quantity: totalDelivered,
           remaining_quantity: remainingQuantity,
-          can_create_do: remainingQuantity > 0
+          can_create_do: remainingQuantity > 0,
         };
       })
     );
 
     // Filter only POs that can create DO
-    const filteredPOs = posWithRemaining.filter(po => po.can_create_do);
+    const filteredPOs = posWithRemaining.filter((po) => po.can_create_do);
 
     res.json({
       success: true,
       data: filteredPOs,
-      total: filteredPOs.length
+      total: filteredPOs.length,
     });
   } catch (err) {
     next(err);

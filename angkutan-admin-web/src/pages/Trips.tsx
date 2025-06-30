@@ -1,7 +1,7 @@
 // src/pages/Trips.tsx
-import React, { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
-import apiClient from '../api/axiosConfig';
+import React, { useState, useEffect, useCallback } from "react";
+import { Link } from "react-router-dom";
+import apiClient from "../api/axiosConfig";
 
 interface PurchaseOrder {
   id: number;
@@ -9,10 +9,13 @@ interface PurchaseOrder {
   customer_name: string;
   item_name: string;
   total_quantity: number;
+  unit: string; // 🎯 NEW: Add unit field
+  unit_price?: number; // 🎯 NEW: Add unit price
+  total_amount?: number; // 🎯 NEW: Add total amount
   delivered_quantity: number;
   remaining_quantity: number;
   created_at: string;
-  status: 'confirmed' | 'partial' | 'completed' | 'cancelled';
+  status: "confirmed" | "partial" | "completed" | "cancelled";
   load_location: string;
   unload_location: string;
   delivery_progress: {
@@ -27,26 +30,49 @@ const TripsPage = () => {
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [stats, setStats] = useState({
     total: 0,
     active: 0,
     completed: 0,
-    cancelled: 0
+    cancelled: 0,
   });
+
+  // 🎯 NEW: Unit display helper
+  const getUnitDisplay = (unit: string) => {
+    const unitMap = {
+      kilogram: "kg",
+      ton: "ton",
+      kubik: "m³",
+    };
+    return unitMap[unit as keyof typeof unitMap] || unit;
+  };
+
+  // 🎯 NEW: Currency formatter
+  const formatCurrency = (amount: number) => {
+    return `Rp ${amount.toLocaleString("de-DE")}`;
+  };
 
   const fetchPurchaseOrders = useCallback(async () => {
     try {
       setLoading(true);
-      const params = statusFilter !== 'all' ? `?status=${statusFilter}` : '';
+      const params = statusFilter !== "all" ? `?status=${statusFilter}` : "";
       const response = await apiClient.get(`/purchase-orders${params}`);
-      
-      setPurchaseOrders(response.data || []);
+
+      // 🎯 NEW: Ensure unit field exists with fallback
+      const processedOrders = (response.data || []).map(
+        (po: PurchaseOrder) => ({
+          ...po,
+          unit: po.unit || "ton", // Fallback for existing data
+        })
+      );
+
+      setPurchaseOrders(processedOrders);
       if (response.data.stats) {
         setStats(response.data.stats);
       }
     } catch (err) {
-      setError('Failed to fetch purchase orders.');
+      setError("Failed to fetch purchase orders.");
       console.error(err);
     } finally {
       setLoading(false);
@@ -59,26 +85,38 @@ const TripsPage = () => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'confirmed': return 'bg-blue-100 text-blue-800';
-      case 'partial': return 'bg-yellow-100 text-yellow-800';
-      case 'completed': return 'bg-green-100 text-green-800';
-      case 'cancelled': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
+      case "confirmed":
+        return "bg-blue-100 text-blue-800";
+      case "partial":
+        return "bg-yellow-100 text-yellow-800";
+      case "completed":
+        return "bg-green-100 text-green-800";
+      case "cancelled":
+        return "bg-red-100 text-red-800";
+      default:
+        return "bg-gray-100 text-gray-800";
     }
   };
 
   const getStatusText = (status: string) => {
     switch (status) {
-      case 'confirmed': return 'Confirmed';
-      case 'partial': return 'Partial';
-      case 'completed': return 'Completed';
-      case 'cancelled': return 'Cancelled';
-      default: return status;
+      case "confirmed":
+        return "Confirmed";
+      case "partial":
+        return "Partial";
+      case "completed":
+        return "Completed";
+      case "cancelled":
+        return "Cancelled";
+      default:
+        return status;
     }
   };
 
-  if (loading) return <div className="text-center p-8">Loading purchase orders...</div>;
-  if (error) return <div className="bg-red-100 text-red-700 p-4 rounded">{error}</div>;
+  if (loading)
+    return <div className="text-center p-8">Loading purchase orders...</div>;
+  if (error)
+    return <div className="bg-red-100 text-red-700 p-4 rounded">{error}</div>;
 
   return (
     <div>
@@ -91,7 +129,7 @@ const TripsPage = () => {
         </Link>
       </div>
 
-      {/* Statistics Cards */}
+      {/* 🎯 ENHANCED: Statistics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-white p-4 rounded-lg shadow">
           <h3 className="text-lg font-semibold text-gray-700">Total POs</h3>
@@ -113,11 +151,13 @@ const TripsPage = () => {
 
       {/* Status Filter */}
       <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Status:</label>
-        <select 
-          value={statusFilter} 
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Filter by Status:
+        </label>
+        <select
+          value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="border border-gray-300 rounded-md px-3 py-2"
+          className="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="all">All Status</option>
           <option value="confirmed">Confirmed</option>
@@ -127,110 +167,314 @@ const TripsPage = () => {
         </select>
       </div>
 
-      {/* Purchase Orders List */}
+      {/* 🎯 ENHANCED: Purchase Orders List with Unit Support */}
       <div className="space-y-4">
-        {purchaseOrders.map((po) => (
-          <div key={po.id} className="bg-white shadow-md rounded-lg p-6 border-l-4 border-blue-500">
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <h3 className="text-xl font-semibold text-gray-800">{po.po_number}</h3>
-                <p className="text-gray-600">{po.customer_name}</p>
-              </div>
-              <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(po.status)}`}>
-                {getStatusText(po.status)}
-              </span>
-            </div>
+        {purchaseOrders.map((po) => {
+          const unitDisplay = getUnitDisplay(po.unit);
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-              <div>
-                <p className="text-sm text-gray-500">Item</p>
-                <p className="font-medium">{po.item_name}</p>
+          return (
+            <div
+              key={po.id}
+              className="bg-white shadow-md rounded-lg p-6 border-l-4 border-blue-500 hover:shadow-lg transition-shadow duration-200"
+            >
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="text-xl font-semibold text-gray-800">
+                    {po.po_number}
+                  </h3>
+                  <p className="text-gray-600">{po.customer_name}</p>
+                </div>
+                <div className="flex items-center space-x-3">
+                  {/* 🎯 NEW: Unit Badge */}
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                    {unitDisplay}
+                  </span>
+                  <span
+                    className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(
+                      po.status
+                    )}`}
+                  >
+                    {getStatusText(po.status)}
+                  </span>
+                </div>
               </div>
-              <div>
-                <p className="text-sm text-gray-500">Total Quantity</p>
-                <p className="font-medium">{po.total_quantity.toLocaleString('id-ID')} ton</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">Created Date</p>
-                <p className="font-medium">{new Date(po.created_at).toLocaleDateString('id-ID')}</p>
-              </div>
-            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              <div>
-                <p className="text-sm text-gray-500">Load Location</p>
-                <p className="text-sm">{po.load_location}</p>
+              {/* 🎯 ENHANCED: Info Grid with Unit and Financial Info */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                <div>
+                  <p className="text-sm text-gray-500">Item</p>
+                  <p className="font-medium">{po.item_name}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Total Quantity</p>
+                  <p className="font-medium">
+                    {po.total_quantity.toLocaleString("id-ID")} {unitDisplay}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Unit Price</p>
+                  {po.unit_price ? (
+                    <div>
+                      <p className="font-medium text-blue-600">
+                        {formatCurrency(po.unit_price)}/{unitDisplay}
+                      </p>
+                      {po.unit === "ton" && (
+                        <p className="text-xs text-gray-500">
+                          ({formatCurrency(po.unit_price * 1000)}/ton)
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-gray-400 text-sm">Not set</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Total Amount</p>
+                  {po.total_amount ? (
+                    <p className="font-semibold text-green-600">
+                      {formatCurrency(po.total_amount)}
+                    </p>
+                  ) : (
+                    <p className="text-gray-400 text-sm">Not calculated</p>
+                  )}
+                </div>
               </div>
-              <div>
-                <p className="text-sm text-gray-500">Unload Location</p>
-                <p className="text-sm">{po.unload_location}</p>
-              </div>
-            </div>
 
-            {/* Progress Bar */}
-            <div className="mb-4">
-              <div className="flex justify-between text-sm text-gray-600 mb-1">
-                <span>Delivery Progress: {po.delivered_quantity.toLocaleString('id-ID')} / {po.total_quantity.toLocaleString('id-ID')} ton</span>
-                <span>{Math.round(po.delivery_progress.percentage)}%</span>
+              {/* Location Information */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <p className="text-sm text-gray-500">Load Location</p>
+                  <p className="text-sm">
+                    {po.load_location || "Not specified"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Unload Location</p>
+                  <p className="text-sm">
+                    {po.unload_location || "Not specified"}
+                  </p>
+                </div>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div 
-                  className="bg-blue-600 h-2 rounded-full" 
-                  style={{ width: `${Math.min(po.delivery_progress.percentage, 100)}%` }}
-                ></div>
-              </div>
-              <div className="flex justify-between text-xs text-gray-500 mt-1">
-                <span>Deliveries: {po.delivery_progress.completed_deliveries} / {po.delivery_progress.total_deliveries}</span>
-                <span>Remaining: {po.remaining_quantity.toLocaleString('id-ID')} ton</span>
-              </div>
-            </div>
 
-            {/* Action Buttons */}
-            <div className="flex flex-wrap gap-3">
-              <Link to={`/trips/po/${po.id}`}>
-                <button className="bg-gray-500 hover:bg-gray-700 text-white px-4 py-2 rounded text-sm">
-                  📋 View Details
-                </button>
-              </Link>
-              
-              {po.can_create_do && (
-                <Link to={`/trips/po/${po.id}/create-do`}>
-                  <button className="bg-green-500 hover:bg-green-700 text-white px-4 py-2 rounded text-sm">
-                    ➕ Create Delivery Order
+              {/* 🎯 ENHANCED: Progress Bar with Unit-aware Display */}
+              <div className="mb-4">
+                <div className="flex justify-between items-center text-sm text-gray-600 mb-2">
+                  <span>
+                    Delivery Progress:{" "}
+                    {po.delivered_quantity.toLocaleString("id-ID")} /{" "}
+                    {po.total_quantity.toLocaleString("id-ID")} {unitDisplay}
+                  </span>
+                  <span className="font-medium">
+                    {Math.round(po.delivery_progress.percentage)}%
+                    {po.delivery_progress.percentage > 100 &&
+                      " (Over-delivered)"}
+                  </span>
+                </div>
+
+                {/* Enhanced Progress Bar */}
+                <div className="w-full bg-gray-200 rounded-full h-2.5">
+                  <div
+                    className={`h-2.5 rounded-full transition-all duration-500 ${
+                      po.delivery_progress.percentage > 100
+                        ? "bg-gradient-to-r from-green-500 to-blue-500"
+                        : po.delivery_progress.percentage === 100
+                        ? "bg-green-500"
+                        : "bg-blue-600"
+                    }`}
+                    style={{
+                      width: `${Math.min(
+                        po.delivery_progress.percentage,
+                        100
+                      )}%`,
+                    }}
+                  ></div>
+                </div>
+
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>
+                    Deliveries: {po.delivery_progress.completed_deliveries} /{" "}
+                    {po.delivery_progress.total_deliveries}
+                  </span>
+                  <span>
+                    {po.remaining_quantity >= 0
+                      ? `Remaining: ${po.remaining_quantity.toLocaleString(
+                          "id-ID"
+                        )} ${unitDisplay}`
+                      : `Excess: +${Math.abs(
+                          po.remaining_quantity
+                        ).toLocaleString("id-ID")} ${unitDisplay}`}
+                  </span>
+                </div>
+
+                {/* Progress Status */}
+                {po.delivery_progress.percentage > 100 && (
+                  <div className="mt-2 text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                    ✨ Over-delivered by{" "}
+                    {(po.delivery_progress.percentage - 100).toFixed(1)}%
+                  </div>
+                )}
+              </div>
+
+              {/* 🎯 ENHANCED: Action Buttons with Better Spacing */}
+              <div className="flex flex-wrap gap-2">
+                <Link to={`/trips/po/${po.id}`}>
+                  <button className="inline-flex items-center px-3 py-2 bg-gray-500 hover:bg-gray-700 text-white rounded text-sm transition-colors">
+                    <svg
+                      className="w-4 h-4 mr-1"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                      />
+                    </svg>
+                    View Details
                   </button>
                 </Link>
-              )}
-              
-              <Link to={`/delivery-orders?po_id=${po.id}`}>
-                <button className="bg-blue-500 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm">
-                  🚚 View Delivery Orders ({po.delivery_progress.total_deliveries})
-                </button>
-              </Link>
-              
-              {po.status !== 'completed' && po.status !== 'cancelled' && (
-                <Link to={`/trips/po/${po.id}/edit`}>
-                  <button className="bg-orange-500 hover:bg-orange-700 text-white px-4 py-2 rounded text-sm">
-                    ✏️ Edit PO
+
+                {po.can_create_do && (
+                  <Link to={`/trips/po/${po.id}/create-do`}>
+                    <button className="inline-flex items-center px-3 py-2 bg-green-500 hover:bg-green-700 text-white rounded text-sm transition-colors">
+                      <svg
+                        className="w-4 h-4 mr-1"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                        />
+                      </svg>
+                      Create Delivery Order
+                    </button>
+                  </Link>
+                )}
+
+                <Link to={`/delivery-orders?po_id=${po.id}`}>
+                  <button className="inline-flex items-center px-3 py-2 bg-blue-500 hover:bg-blue-700 text-white rounded text-sm transition-colors">
+                    <svg
+                      className="w-4 h-4 mr-1"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                      />
+                    </svg>
+                    View DOs ({po.delivery_progress.total_deliveries})
                   </button>
                 </Link>
-              )}
+
+                {/* 🎯 NEW: Table View Button */}
+                <Link to={`/ritase/po/${po.id}/table`}>
+                  <button className="inline-flex items-center px-3 py-2 bg-purple-500 hover:bg-purple-700 text-white rounded text-sm transition-colors">
+                    <svg
+                      className="w-4 h-4 mr-1"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 6h16M4 10h16M4 14h16M4 18h16"
+                      />
+                    </svg>
+                    Table View
+                  </button>
+                </Link>
+
+                {po.status !== "completed" && po.status !== "cancelled" && (
+                  <Link to={`/trips/po/${po.id}/edit`}>
+                    <button className="inline-flex items-center px-3 py-2 bg-orange-500 hover:bg-orange-700 text-white rounded text-sm transition-colors">
+                      <svg
+                        className="w-4 h-4 mr-1"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                        />
+                      </svg>
+                      Edit PO
+                    </button>
+                  </Link>
+                )}
+              </div>
+
+              {/* 🎯 NEW: Unit Type Indicator */}
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                <div className="flex items-center justify-between text-xs text-gray-500">
+                  <span>
+                    Created:{" "}
+                    {new Date(po.created_at).toLocaleDateString("id-ID")}
+                  </span>
+                  <span className="flex items-center">
+                    <span className="mr-1">
+                      {po.unit === "kubik"
+                        ? "📦 Volume-based"
+                        : "⚖️ Weight-based"}
+                    </span>
+                    | {unitDisplay} pricing
+                  </span>
+                </div>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
+      {/* 🎯 ENHANCED: Empty State */}
       {purchaseOrders.length === 0 && (
-        <div className="text-center py-10 text-gray-500">
-          <div className="mb-4">
-            <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        <div className="text-center py-16 text-gray-500">
+          <div className="mb-6">
+            <svg
+              className="mx-auto h-16 w-16 text-gray-300"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={1}
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              />
             </svg>
           </div>
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No Purchase Orders</h3>
-          <p className="text-gray-500 mb-4">Get started by creating your first purchase order.</p>
+          <h3 className="text-xl font-medium text-gray-900 mb-2">
+            No Purchase Orders Found
+          </h3>
+          <p className="text-gray-500 mb-6 max-w-md mx-auto">
+            {statusFilter !== "all"
+              ? `No purchase orders with status "${statusFilter}". Try adjusting your filter.`
+              : "Get started by creating your first purchase order with flexible unit pricing (kg, ton, or m³)."}
+          </p>
           <Link to="/trips/create-po">
-            <button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
-              Create Purchase Order
+            <button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-colors">
+              Create Your First Purchase Order
             </button>
           </Link>
         </div>

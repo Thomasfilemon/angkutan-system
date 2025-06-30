@@ -1,8 +1,8 @@
 // src/pages/DriverCreate.tsx
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import apiClient from '../api/axiosConfig';
-import DriverForm from '../components/DriverForm';
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import apiClient from "../api/axiosConfig";
+import DriverForm from "../components/DriverForm";
 
 const DriverCreatePage = () => {
   const [isLoading, setIsLoading] = useState(false);
@@ -11,10 +11,12 @@ const DriverCreatePage = () => {
   const handleCreate = async (data: any) => {
     setIsLoading(true);
     try {
-      await apiClient.post('/drivers', data);
-      navigate('/drivers');
+      await apiClient.post("/drivers", data);
+      navigate("/drivers");
     } catch (err) {
-      alert('Failed to create driver.');
+      // Error handling with user feedback
+      alert("Failed to create driver");
+      console.error("Error creating driver:", err);
       setIsLoading(false);
     }
   };
