@@ -1,7 +1,8 @@
 // src/routes/web/vehicle.routes.js
 const express = require('express');
 const vehicleRouter = express.Router();
-const vehicleController = require('../../controllers/web/webvehicleController');
+// FIX: Changed to point to the correct vehicleController as requested.
+const vehicleController = require('../../controllers/vehicleController');
 const { verifyToken, checkRole } = require('../../middlewares/auth.middleware');
 
 vehicleRouter.use(verifyToken);
@@ -20,10 +21,10 @@ vehicleRouter.get('/:id', checkRole(['admin', 'owner']), vehicleController.getVe
 vehicleRouter.put('/:id', checkRole(['admin', 'owner']), vehicleController.updateVehicle);
 vehicleRouter.delete('/:id', checkRole(['admin', 'owner']), vehicleController.deleteVehicle);
 
-// FIX: Standardized on PATCH and the ':id' parameter for assigning a driver.
+// Standardized on PATCH and the ':id' parameter for assigning a driver.
 vehicleRouter.patch('/:id/assign-driver', checkRole(['admin', 'owner']), vehicleController.assignDriver);
 
-// FIX: Standardized nested resource routes to also use ':id'.
+// Standardized nested resource routes to also use ':id'.
 vehicleRouter.get('/:id/history', checkRole(['admin', 'owner']), vehicleController.getServiceHistory);
 // vehicleRouter.get('/:id/services', checkRole(['admin', 'owner']), vehicleController.getVehicleServices);
 

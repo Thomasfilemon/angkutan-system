@@ -32,10 +32,25 @@ const AssignDriverModal: React.FC<Props> = ({ isOpen, onClose, vehicle, onSucces
       const fetchAvailableDrivers = async () => {
         try {
           setLoading(true);
-          // Fetch only available drivers from the API
-          const response = await apiClient.get('/drivers?status=available');
-          setAvailableDrivers(response.data.data || []);
           setError(null);
+
+          const response = await apiClient.get('/vehicles/drivers/available');
+
+          // ✅ FIX: The log confirms the server is sending a raw array.
+          // This code now handles that directly.
+          if (Array.isArray(response.data)) {
+            const formattedDrivers = response.data.map((apiDriver: any) => ({
+              id: apiDriver.id,
+              name: apiDriver.full_name, // Map API field to component field
+              status: apiDriver.status,
+            }));
+            setAvailableDrivers(formattedDrivers);
+          } else {
+            // This else block will likely not be hit, but it's good practice
+            console.warn("Received unexpected non-array data for available drivers:", response.data);
+            setAvailableDrivers([]);
+          }
+
         } catch (err) {
           setError('Failed to fetch available drivers.');
           console.error(err);
@@ -43,8 +58,8 @@ const AssignDriverModal: React.FC<Props> = ({ isOpen, onClose, vehicle, onSucces
           setLoading(false);
         }
       };
+
       fetchAvailableDrivers();
-      // Reset selection when modal opens
       setSelectedDriver(''); 
     }
   }, [isOpen, vehicle]);
@@ -58,11 +73,14 @@ const AssignDriverModal: React.FC<Props> = ({ isOpen, onClose, vehicle, onSucces
     }
     try {
       setLoading(true);
-      await apiClient.patch(`/vehicles/${vehicle.id}/assign-driver`, { driverId: selectedDriver });
+      // ✅ FIX 2: Use the correct payload key 'driver_id' that the backend expects.
+      // The path '/vehicles/...' is correct with your baseURL.
+      await apiClient.patch(`/vehicles/${vehicle.id}/assign-driver`, { driver_id: selectedDriver });
       onSuccess();
       onClose();
-    } catch (err) {
-      alert('Failed to assign driver.');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.message || 'Failed to assign driver.';
+      alert(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -72,18 +90,19 @@ const AssignDriverModal: React.FC<Props> = ({ isOpen, onClose, vehicle, onSucces
     if (window.confirm('Are you sure you want to remove the driver from this vehicle?')) {
       try {
         setLoading(true);
-        await apiClient.patch(`/vehicles/${vehicle.id}/assign-driver`, { driverId: null });
+        // ✅ FIX 2: Use the correct payload key 'driver_id'.
+        await apiClient.patch(`/vehicles/${vehicle.id}/assign-driver`, { driver_id: null });
         onSuccess();
         onClose();
-      } catch (err) {
-        alert('Failed to remove driver.');
+      } catch (err: any) {
+        const errorMessage = err.response?.data?.message || 'Failed to remove driver.';
+        alert(errorMessage);
       } finally {
         setLoading(false);
       }
     }
   };
 
-  // Prevent removing driver if vehicle is in use
   const canRemoveDriver = vehicle.status !== 'in_use' && vehicle.driver_name;
 
   return (
@@ -101,7 +120,7 @@ const AssignDriverModal: React.FC<Props> = ({ isOpen, onClose, vehicle, onSucces
                 disabled={!canRemoveDriver || loading}
                 className="bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-3 rounded text-sm disabled:bg-gray-400"
               >
-                Remove Driver
+                Remove
               </button>
             </div>
           ) : (
@@ -126,7 +145,7 @@ const AssignDriverModal: React.FC<Props> = ({ isOpen, onClose, vehicle, onSucces
                     value={selectedDriver}
                     onChange={(e) => setSelectedDriver(e.target.value)}
                     className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
-                    disabled={loading}
+                    disabled={loading || availableDrivers.length === 0}
                 >
                     <option value="">-- Select an available driver --</option>
                     {availableDrivers.map((driver) => (
