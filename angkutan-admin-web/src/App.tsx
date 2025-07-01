@@ -39,6 +39,7 @@ import TireInventoryEditPage from "./pages/TireInventoryEdit";
 import RemovedTiresPage from "./pages/RemovedTires";
 import CashManagementPage from "./pages/CashManagement";
 import StockHistoryPage from './pages/StockHistory'; 
+import VehicleServiceHistory from './pages/VehicleServiceHistory'; // <-- Import baru
 
 import ComprehensiveRitaseTable from "./pages/Ritase/ComprehensiveRitaseTable";
 import POSpecificRitaseTable from "./pages/Ritase/POSpecificRitaseTable";
@@ -127,6 +128,7 @@ function App() {
           {/* ========================= */}
 
           {/* Service Management Routes */}
+          <Route path="vehicles/:id/services" element={<VehicleServiceHistory />} />
           <Route path="services" element={<ServiceManagementPage />} />
           <Route path="services/create" element={<ServiceCreatePage />} />
           <Route path="services/:id" element={<ServiceDetailPage />} />

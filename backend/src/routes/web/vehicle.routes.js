@@ -1,28 +1,31 @@
 // src/routes/web/vehicle.routes.js
 const express = require('express');
-const vehicleRouter = express.Router(); // Changed from 'router' to avoid conflicts
+const vehicleRouter = express.Router();
 const vehicleController = require('../../controllers/web/webvehicleController');
 const { verifyToken, checkRole } = require('../../middlewares/auth.middleware');
 
 vehicleRouter.use(verifyToken);
 
-// CRITICAL: ALL specific routes MUST come before ANY parameterized routes
-// Static routes (no parameters)
+// --- Static and Collection Routes ---
+// Routes that don't depend on a specific vehicle ID
 vehicleRouter.get('/statistics', checkRole(['admin', 'owner']), vehicleController.getVehicleStatistics);
 vehicleRouter.get('/drivers/available', checkRole(['admin', 'owner']), vehicleController.getAvailableDrivers);
-
-// Collection routes (operate on the collection, not individual items)
 vehicleRouter.get('/', checkRole(['admin', 'owner']), vehicleController.getAllVehicles);
 vehicleRouter.post('/', checkRole(['admin', 'owner']), vehicleController.createVehicle);
 
-// IMPORTANT: All parameterized routes MUST come after static routes
-// Individual resource routes (operate on specific items by ID)
+
+// --- Parameterized Routes for a Single Vehicle ---
+// All routes operating on a specific vehicle should use the same ':id' parameter for consistency.
 vehicleRouter.get('/:id', checkRole(['admin', 'owner']), vehicleController.getVehicleById);
 vehicleRouter.put('/:id', checkRole(['admin', 'owner']), vehicleController.updateVehicle);
 vehicleRouter.delete('/:id', checkRole(['admin', 'owner']), vehicleController.deleteVehicle);
 
-// Nested resource routes (specific actions on individual items)
-vehicleRouter.get('/:vehicle_id/history', checkRole(['admin', 'owner']), vehicleController.getServiceHistory);
-vehicleRouter.put('/:vehicleId/assign-driver', checkRole(['admin', 'owner']), vehicleController.assignDriver);
+// FIX: Standardized on PATCH and the ':id' parameter for assigning a driver.
+vehicleRouter.patch('/:id/assign-driver', checkRole(['admin', 'owner']), vehicleController.assignDriver);
+
+// FIX: Standardized nested resource routes to also use ':id'.
+vehicleRouter.get('/:id/history', checkRole(['admin', 'owner']), vehicleController.getServiceHistory);
+// vehicleRouter.get('/:id/services', checkRole(['admin', 'owner']), vehicleController.getVehicleServices);
+
 
 module.exports = vehicleRouter;
