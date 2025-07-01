@@ -6,7 +6,8 @@ const { Op } = require('sequelize');
 // Get all stock items
 const getAllStockItems = async (req, res, next) => {
   try {
-    const { category_id, low_stock, search, page = 1, limit = 20 } = req.query;
+    // Tambahkan startDate dan endDate dari query
+    const { category_id, low_stock, search, page = 1, limit = 10, startDate, endDate } = req.query;
     const offset = (page - 1) * limit;
     
     let whereClause = {};
@@ -19,30 +20,29 @@ const getAllStockItems = async (req, res, next) => {
       whereClause[Op.or] = [
         { item_name: { [Op.iLike]: `%${search}%` } },
         { item_code: { [Op.iLike]: `%${search}%` } },
-        { supplier: { [Op.iLike]: `%${search}%` } }
       ];
     }
+    
+    // === LOGIKA BARU UNTUK FILTER TANGGAL ===
+    if (startDate && endDate) {
+        whereClause.created_at = {
+            [Op.between]: [new Date(startDate), new Date(endDate)],
+        };
+    }
+    // =====================================
 
     if (low_stock === 'true') {
-      whereClause[Op.and] = [
-        whereClause,
-        { current_stock: { [Op.lte]: { [Op.col]: 'min_stock' } } }
-      ];
+        whereClause.current_stock = { [Op.lte]: db.sequelize.col('min_stock') };
     }
 
     const result = await StockItem.findAndCountAll({
       where: whereClause,
-      include: [{
-        model: StockCategory,
-        as: 'category',
-        required: false
-      }],
-      order: [['item_name', 'ASC']],
+      include: [{ model: StockCategory, as: 'category', required: false }],
+      order: [['created_at', 'DESC']], // Urutkan dari yang terbaru
       limit: parseInt(limit),
       offset: offset
     });
 
-    // Enhance with computed data
     const enhancedItems = result.rows.map(item => {
       const itemData = item.toJSON();
       return {
@@ -53,17 +53,17 @@ const getAllStockItems = async (req, res, next) => {
                      parseFloat(item.current_stock) <= parseFloat(item.min_stock) ? 'low_stock' : 'adequate'
       };
     });
-
+    
+    // Kirim kembali data beserta informasi pagination
     res.json({
-      success: true,
-      data: enhancedItems,
-      pagination: {
-        total: result.count,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(result.count / limit)
-      }
+        data: enhancedItems,
+        pagination: {
+            totalItems: result.count,
+            totalPages: Math.ceil(result.count / limit),
+            currentPage: parseInt(page),
+        }
     });
+
   } catch (err) {
     console.error('Error in getAllStockItems:', err);
     next(err);
@@ -331,6 +331,50 @@ const adjustStock = async (req, res) => {
   }
 };
 
+const getStockItemHistory = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    // Ambil parameter query untuk filter dan pagination
+    const { search, page = 1, limit = 10, startDate, endDate } = req.query;
+    const offset = (page - 1) * limit;
+
+    let whereClause = {
+      item_id: id, // Tetap filter berdasarkan ID item
+    };
+
+    // Tambahkan filter pencarian di kolom 'notes'
+    if (search) {
+      whereClause.notes = { [Op.iLike]: `%${search}%` };
+    }
+
+    // Tambahkan filter rentang tanggal
+    if (startDate && endDate) {
+      whereClause.transaction_date = {
+        [Op.between]: [new Date(startDate), new Date(endDate)],
+      };
+    }
+
+    const result = await StockTransaction.findAndCountAll({
+      where: whereClause,
+      order: [['transaction_date', 'DESC'], ['created_at', 'DESC']],
+      limit: parseInt(limit),
+      offset: offset,
+    });
+
+    res.status(200).json({
+      data: result.rows,
+      pagination: {
+        totalItems: result.count,
+        totalPages: Math.ceil(result.count / limit),
+        currentPage: parseInt(page),
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching stock history:', error);
+    next(error);
+  }
+};
+
 // Update your module.exports to include the delete function
 module.exports = {
   getAllStockItems,
@@ -340,5 +384,6 @@ module.exports = {
   addStock,
   deleteStockItem, // Add this line
   getStockCategories,
-  adjustStock // <-- Pastikan fungsi baru diekspor
+  adjustStock,
+  getStockItemHistory // <-- Pastikan fungsi baru diekspor
 };

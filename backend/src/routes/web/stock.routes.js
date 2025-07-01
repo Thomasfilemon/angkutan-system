@@ -18,6 +18,7 @@ stockRouter.get('/:id', stockController.getStockItemById);
 stockRouter.put('/:id', stockController.updateStockItem);
 stockRouter.delete('/:id', stockController.deleteStockItem); // Add this line
 stockRouter.post('/:id/add-stock', stockController.addStock);
+stockRouter.get('/:id/history', stockController.getStockItemHistory);
 
 
 module.exports = stockRouter;

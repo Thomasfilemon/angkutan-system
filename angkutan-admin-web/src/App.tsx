@@ -1,4 +1,3 @@
-// src/App.tsx - Updated with tire management routes
 import React from "react";
 import {
   BrowserRouter as Router,
@@ -39,6 +38,7 @@ import TireInventoryCreatePage from "./pages/TireInventoryCreate";
 import TireInventoryEditPage from "./pages/TireInventoryEdit";
 import RemovedTiresPage from "./pages/RemovedTires";
 import CashManagementPage from "./pages/CashManagement";
+import StockHistoryPage from './pages/StockHistory'; 
 
 import ComprehensiveRitaseTable from "./pages/Ritase/ComprehensiveRitaseTable";
 import POSpecificRitaseTable from "./pages/Ritase/POSpecificRitaseTable";
@@ -120,6 +120,12 @@ function App() {
           <Route path="stock" element={<StockManagementPage />} />
           <Route path="stock/create" element={<StockCreatePage />} />
           <Route path="stock/edit/:id" element={<StockCreatePage />} />
+          
+          {/* === PERBAIKAN DI SINI === */}
+          {/* Path dibuat relatif dengan menghapus '/' di awal */}
+          <Route path="stock/history/:id" element={<StockHistoryPage />} /> 
+          {/* ========================= */}
+
           {/* Service Management Routes */}
           <Route path="services" element={<ServiceManagementPage />} />
           <Route path="services/create" element={<ServiceCreatePage />} />
