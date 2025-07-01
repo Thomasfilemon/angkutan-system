@@ -258,6 +258,8 @@ const StockCreatePage = () => {
               <option value="Set">Set</option>
               <option value="Botol">Botol</option>
               <option value="Dus">Dus</option>
+              <option value="Batang">Batang</option>
+              <option value="Lembar">Lembar</option>
             </select>
             {errors.unit && (
               <p className="text-red-500 text-xs italic mt-1">{errors.unit}</p>

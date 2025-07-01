@@ -1,6 +1,6 @@
 // src/controllers/web/stockController.js
 const db = require('../../models');
-const { StockItem, StockCategory, StockTransaction } = db;
+const { StockItem, StockCategory, StockTransaction, ServiceItem, sequelize } = db;
 const { Op } = require('sequelize');
 
 // Get all stock items
@@ -291,6 +291,46 @@ const deleteStockItem = async (req, res, next) => {
   }
 };
 
+const adjustStock = async (req, res) => {
+  const { itemId, quantity, notes } = req.body;
+
+  if (!itemId || quantity === undefined) {
+    return res.status(400).json({ message: 'Item ID dan kuantitas diperlukan.' });
+  }
+
+  const t = await sequelize.transaction();
+
+  try {
+    const item = await StockItem.findByPk(itemId, { transaction: t });
+    if (!item) {
+      await t.rollback();
+      return res.status(404).json({ message: 'Item stok tidak ditemukan.' });
+    }
+
+    // Buat transaksi stok dengan tipe 'adjustment'
+    await StockTransaction.create({
+      item_id: itemId,
+      transaction_type: 'adjustment',
+      quantity: quantity, // quantity bisa positif (menambah) atau negatif (mengurangi)
+      notes: notes,
+      // unit_price dan total_amount bisa dikosongkan untuk adjustment
+    }, { transaction: t });
+
+    // Update kuantitas saat ini di tabel stock_items
+    const newStock = parseFloat(item.current_stock) + parseFloat(quantity);
+    item.current_stock = newStock;
+    await item.save({ transaction: t });
+
+    await t.commit();
+    res.status(200).json({ message: 'Stok berhasil disesuaikan.', data: item });
+
+  } catch (error) {
+    await t.rollback();
+    console.error('Error saat penyesuaian stok:', error);
+    res.status(500).json({ message: 'Terjadi kesalahan pada server.', error: error.message });
+  }
+};
+
 // Update your module.exports to include the delete function
 module.exports = {
   getAllStockItems,
@@ -299,5 +339,6 @@ module.exports = {
   updateStockItem,
   addStock,
   deleteStockItem, // Add this line
-  getStockCategories
+  getStockCategories,
+  adjustStock // <-- Pastikan fungsi baru diekspor
 };

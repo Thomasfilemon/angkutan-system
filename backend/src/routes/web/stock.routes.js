@@ -12,9 +12,12 @@ stockRouter.get('/categories', stockController.getStockCategories);
 // Stock items routes
 stockRouter.get('/', stockController.getAllStockItems);
 stockRouter.post('/', stockController.createStockItem);
+stockRouter.post('/adjust', stockController.adjustStock);
+
 stockRouter.get('/:id', stockController.getStockItemById);
 stockRouter.put('/:id', stockController.updateStockItem);
 stockRouter.delete('/:id', stockController.deleteStockItem); // Add this line
 stockRouter.post('/:id/add-stock', stockController.addStock);
+
 
 module.exports = stockRouter;

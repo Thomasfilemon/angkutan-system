@@ -1,8 +1,9 @@
-// src/pages/StockManagement.tsx
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import apiClient from '../api/axiosConfig';
+import apiClient from '../api/axiosConfig'; // Menggunakan nama apiClient sesuai kode Anda
+import StockAdjustmentModal from '../components/StockAdjustmentModal'; // <-- PASTIKAN PATH INI BENAR
 
+// Interface untuk tipe data item stok
 interface StockItem {
   id: number;
   item_code: string;
@@ -21,6 +22,7 @@ interface StockItem {
 }
 
 const StockManagementPage = () => {
+  // State yang sudah ada
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -33,10 +35,16 @@ const StockManagementPage = () => {
     notes: ''
   });
 
+  // === STATE BARU UNTUK ADJUSTMENT MODAL ===
+  const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
+  const [selectedStockItem, setSelectedStockItem] = useState<StockItem | null>(null);
+  // ==========================================
+
   const fetchStockItems = async () => {
     try {
       setLoading(true);
-      const response = await apiClient.get('/stock');
+      // Anda menggunakan '/stock', pastikan ini endpoint yang benar
+      const response = await apiClient.get('/stock'); 
       setStockItems(response.data);
     } catch (err) {
       setError('Failed to fetch stock items');
@@ -55,7 +63,7 @@ const StockManagementPage = () => {
     if (!selectedItem) return;
 
     try {
-      await apiClient.post(`/stock/${selectedItem.id}/add-stock`, restockData);
+      await apiClient.post(`/web/stock/${selectedItem.id}/add-stock`, restockData);
       setShowRestockModal(false);
       setRestockData({ quantity: '', unit_price: '', supplier: '', notes: '' });
       fetchStockItems();
@@ -64,18 +72,31 @@ const StockManagementPage = () => {
     }
   };
 
-  // Add delete function
   const handleDelete = async (item: StockItem) => {
     if (window.confirm(`Are you sure you want to delete "${item.item_name}"? This action cannot be undone.`)) {
       try {
-        await apiClient.delete(`/stock/${item.id}`);
-        fetchStockItems(); // Refresh the list
+        await apiClient.delete(`/web/stock/${item.id}`);
+        fetchStockItems();
       } catch (err: any) {
         const errorMessage = err.response?.data?.message || 'Failed to delete stock item';
         alert(errorMessage);
       }
     }
   };
+
+  // === FUNGSI BARU UNTUK ADJUSTMENT MODAL ===
+  const handleAdjustmentClick = (item: StockItem) => {
+      setSelectedStockItem(item);
+      setIsAdjustmentModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+      setIsAdjustmentModalOpen(false);
+      setSelectedStockItem(null);
+      // Refresh data tabel setelah modal ditutup untuk melihat perubahan
+      fetchStockItems(); 
+  };
+  // ==========================================
 
   const getStatusBadge = (status: string) => {
     const classes = {
@@ -85,9 +106,9 @@ const StockManagementPage = () => {
     };
     
     const labels = {
-      adequate: 'Adequate',
-      low_stock: 'Low Stock',
-      out_of_stock: 'Out of Stock'
+      adequate: 'Cukup',
+      low_stock: 'Stok Rendah',
+      out_of_stock: 'Habis'
     };
 
     return (
@@ -101,7 +122,7 @@ const StockManagementPage = () => {
   if (error) return <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">{error}</div>;
 
   return (
-    <div>
+    <div className="p-6 bg-gray-50 min-h-screen">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-gray-800">Manajemen Stok</h1>
         <div className="space-x-2">
@@ -172,21 +193,25 @@ const StockManagementPage = () => {
                   {getStatusBadge(item.stock_status)}
                 </td>
                 <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm text-right">
-                  <div className="flex justify-end space-x-2">
+                  <div className="flex justify-end items-center space-x-3">
                     <button 
                       onClick={() => {
                         setSelectedItem(item);
-                        setRestockData(prev => ({
-                          ...prev,
-                          unit_price: item.unit_price.toString(),
-                          supplier: item.supplier || ''
-                        }));
+                        setRestockData(prev => ({ ...prev, unit_price: item.unit_price.toString(), supplier: item.supplier || '' }));
                         setShowRestockModal(true);
                       }}
                       className="text-blue-600 hover:text-blue-900 text-sm"
                     >
                       Restock
                     </button>
+                    {/* === TOMBOL ADJUSTMENT DENGAN FUNGSI YANG BENAR === */}
+                    <button
+                      onClick={() => handleAdjustmentClick(item)}
+                      className="text-yellow-600 hover:text-yellow-900 text-sm"
+                    >
+                      Adjustment
+                    </button>
+                    {/* ============================================ */}
                     <Link to={`/stock/edit/${item.id}`} className="text-indigo-600 hover:text-indigo-900 text-sm">
                       Edit
                     </Link>
@@ -204,18 +229,26 @@ const StockManagementPage = () => {
         </table>
       </div>
 
-      {/* Restock Modal - Keep existing modal code */}
+      {/* === RENDER MODAL ADJUSTMENT DI SINI === */}
+      {isAdjustmentModalOpen && selectedStockItem && (
+        <StockAdjustmentModal
+          isOpen={isAdjustmentModalOpen}
+          onClose={handleCloseModal}
+          item={selectedStockItem}
+        />
+      )}
+      {/* ====================================== */}
+
+      {/* Modal Restock yang sudah ada */}
       {showRestockModal && selectedItem && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-40">
           <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
             <h3 className="text-lg font-bold text-gray-900 mb-4">
               Restock: {selectedItem.item_name}
             </h3>
             <form onSubmit={handleRestock}>
               <div className="mb-4">
-                <label className="block text-gray-700 text-sm font-bold mb-2">
-                  Quantity
-                </label>
+                <label className="block text-gray-700 text-sm font-bold mb-2">Quantity</label>
                 <input
                   type="number"
                   step="0.01"
@@ -226,9 +259,7 @@ const StockManagementPage = () => {
                 />
               </div>
               <div className="mb-4">
-                <label className="block text-gray-700 text-sm font-bold mb-2">
-                  Unit Price
-                </label>
+                <label className="block text-gray-700 text-sm font-bold mb-2">Unit Price</label>
                 <input
                   type="number"
                   step="0.01"
@@ -239,9 +270,7 @@ const StockManagementPage = () => {
                 />
               </div>
               <div className="mb-4">
-                <label className="block text-gray-700 text-sm font-bold mb-2">
-                  Supplier
-                </label>
+                <label className="block text-gray-700 text-sm font-bold mb-2">Supplier</label>
                 <input
                   type="text"
                   value={restockData.supplier}
@@ -250,9 +279,7 @@ const StockManagementPage = () => {
                 />
               </div>
               <div className="mb-6">
-                <label className="block text-gray-700 text-sm font-bold mb-2">
-                  Notes
-                </label>
+                <label className="block text-gray-700 text-sm font-bold mb-2">Notes</label>
                 <textarea
                   value={restockData.notes}
                   onChange={(e) => setRestockData(prev => ({ ...prev, notes: e.target.value }))}

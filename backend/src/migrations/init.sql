@@ -223,6 +223,20 @@ CREATE TYPE delivery_status AS ENUM (
     'cancelled'
 );
 
+CREATE TABLE big_delivery_orders (
+  id SERIAL PRIMARY KEY,
+  big_do_number VARCHAR(50) UNIQUE, -- BigDO-20250630-001
+  driver_id INTEGER REFERENCES users(id),
+  vehicle_id INTEGER REFERENCES vehicles(id),
+  total_trip_allowance NUMERIC(15,2),
+  total_gaji NUMERIC(15,2),
+  total_ongkosan NUMERIC(15,2),
+  status VARCHAR(20) CHECK(status IN ('assigned', 'in_progress', 'completed', 'cancelled')), -- <-- Apply this correction
+  created_at TIMESTAMP,
+  completed_at TIMESTAMP,
+  notes TEXT
+);
+
 CREATE TABLE delivery_orders (
   id SERIAL PRIMARY KEY,
   purchase_order_id INTEGER REFERENCES purchase_orders(id) ON DELETE SET NULL,
@@ -231,7 +245,7 @@ CREATE TABLE delivery_orders (
   
   big_delivery_order_id INTEGER REFERENCES big_delivery_orders(id),
   big_do_creation_session VARCHAR(50),
-  display_order INTEGER DEFAULT 0;
+  display_order INTEGER DEFAULT 0,
 
   do_number VARCHAR(50) UNIQUE NOT NULL,
   customer_name VARCHAR(100) NOT NULL,
@@ -282,19 +296,7 @@ CREATE TABLE delivery_orders (
   payment_confirmed_by INTEGER REFERENCES users(id)
 );
 
-CREATE TABLE big_delivery_orders (
-  id SERIAL PRIMARY KEY,
-  big_do_number VARCHAR(50) UNIQUE, -- BigDO-20250630-001
-  driver_id INTEGER REFERENCES users(id),
-  vehicle_id INTEGER REFERENCES vehicles(id),
-  total_trip_allowance NUMERIC(15,2),
-  total_gaji NUMERIC(15,2),
-  total_ongkosan NUMERIC(15,2),
-  status ENUM('assigned', 'in_progress', 'completed', 'cancelled'),
-  created_at TIMESTAMP,
-  completed_at TIMESTAMP,
-  notes TEXT
-);
+
 
 -- BAGIAN 4: KEUANGAN & BIAYA
 -- =================================================================

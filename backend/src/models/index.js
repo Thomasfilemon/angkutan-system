@@ -63,6 +63,7 @@ db.DriverProfile = setupDriverProfileModel(sequelize);
 db.AdminProfile = setupAdminProfileModel(sequelize);
 db.PurchaseOrder = setupPurchaseOrderModel(sequelize);
 db.DeliveryOrder = setupDeliveryOrderModel(sequelize);
+db.BigDeliveryOrder = setupBigDeliveryOrderModel(sequelize); // <-- ADD THIS LINE
 db.DriverExpense = setupDriverExpenseModel(sequelize);
 db.VehicleService = setupVehicleServiceModel(sequelize);
 // NEW: Stock and Service Management Models
@@ -93,6 +94,7 @@ const {
   AdminProfile,
   PurchaseOrder,
   DeliveryOrder,
+  BigDeliveryOrder, // <-- ADD THIS LINE
   Vehicle,
   DriverExpense,
   VehicleService,
