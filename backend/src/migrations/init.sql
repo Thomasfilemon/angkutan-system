@@ -252,7 +252,6 @@ CREATE TABLE delivery_orders (
   big_do_creation_session VARCHAR(50),
   is_big_do_candidate BOOLEAN NOT NULL DEFAULT FALSE,
   display_order INTEGER DEFAULT 0,
-  is_big_do_candidate BOOLEAN NOT NULL DEFAULT false,
 
   do_number VARCHAR(50) UNIQUE NOT NULL,
   customer_name VARCHAR(100) NOT NULL,
