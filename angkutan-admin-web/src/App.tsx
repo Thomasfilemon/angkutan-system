@@ -13,7 +13,6 @@ import VehiclesPage from "./pages/Vehicles";
 import VehicleCreatePage from "./pages/VehicleCreate";
 import VehicleEditPage from "./pages/VehicleEdit";
 import TireManagementPage from "./pages/TireManagement";
-import VehicleTireDetailPage from "./pages/VehicleTireDetail";
 import DriversPage from "./pages/Drivers";
 import DriverCreatePage from "./pages/DriverCreate";
 import DriverEditPage from "./pages/DriverEdit";
@@ -81,10 +80,7 @@ function App() {
           <Route path="vehicles/edit/:id" element={<VehicleEditPage />} />
           {/* Tire Management Routes */}
           <Route path="vehicles/tires" element={<TireManagementPage />} />
-          <Route
-            path="vehicles/tires/:vehicleId"
-            element={<VehicleTireDetailPage />}
-          />
+
 
           <Route path="tire-inventory" element={<TireInventoryPage />} />
           <Route
