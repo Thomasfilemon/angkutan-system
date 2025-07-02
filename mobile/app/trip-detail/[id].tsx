@@ -225,9 +225,8 @@ const TripDetailScreen = () => {
 
       // Launch image library dengan konfigurasi yang lebih robust
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
+        mediaTypes: "images",
+        allowsEditing: false,
         quality: 0.8,
         base64: false,
       });
@@ -275,8 +274,7 @@ const TripDetailScreen = () => {
 
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ["images"],
-        allowsEditing: true,
-        aspect: [4, 3],
+        allowsEditing: false,
         quality: 0.8,
         base64: false,
       });
@@ -653,14 +651,6 @@ const TripDetailScreen = () => {
         doId: trip.id,
         loadData
       });
-
-      // Add file extension for mobile
-      if (Platform.OS !== "web" && loadData.surat_jalan_photo) {
-        const uri = loadData.surat_jalan_photo.uri;
-        const ext = uri.split(".").pop() || "jpg";
-        loadData.surat_jalan_photo.fileName = `surat_jalan.${ext}`;
-        loadData.surat_jalan_photo.mimeType = `image/${ext === "png" ? "png" : "jpeg"}`;
-      }
 
       await confirmLoad(trip.id, loadData);
       setShowLoadConfirmation(false);

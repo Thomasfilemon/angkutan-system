@@ -111,7 +111,7 @@ module.exports = (sequelize) => {
 
       // === DOCUMENT FIELD ===
       surat_jalan_photo_url: {
-        type: DataTypes.STRING(255),
+        type: DataTypes.ARRAY(DataTypes.TEXT),
         allowNull: true,
         comment: "Photo surat jalan yang diambil driver di lokasi muat",
       },

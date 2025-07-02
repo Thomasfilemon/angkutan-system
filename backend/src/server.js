@@ -8,13 +8,14 @@ const setupMiddleware = require("./middlewares/setup.middleware");
 const errorHandler = require("./middlewares/error.middleware");
 const { sequelize } = require("./models");
 const path = require("path");
-const cors = require('cors');
+const cors = require("cors");
 
 // === Import Existing Routes (MOBILE) ===
 const healthRoutes = require("./routes/health.routes");
 const authRoutes = require("./routes/auth.routes");
 const purchaseOrderRoutes = require("./routes/purchaseOrder.routes");
 const deliveryOrderRoutes = require("./routes/deliveryOrder.routes");
+const bigDeliveryOrderRoutes = require("./routes/bigDeliveryOrder.routes");
 const userRoutes = require("./routes/user.routes");
 const driverExpenseRoutes = require("./routes/driverExpense.routes");
 const vehicleRoutes = require("./routes/vehicle.routes");
@@ -23,6 +24,7 @@ const driverRoutes = require("./routes/driver.routes");
 // === Import Web Routes (NEW) ===
 const webPurchaseOrderRoutes = require("./routes/web/purchaseOrder.routes");
 const webDeliveryOrderRoutes = require("./routes/web/deliveryOrder.routes");
+const webBigDeliveryOrderRoutes = require("./routes/web/bigDeliveryOrder.routes");
 const webVehicleRoutes = require("./routes/web/vehicle.routes");
 const webDriverRoutes = require("./routes/web/driver.routes");
 const webStockRoutes = require("./routes/web/stock.routes");
@@ -36,10 +38,12 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // CORS: Allow all origins for debugging
-app.use(cors({
-  origin: "*",
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: "*",
+    credentials: true,
+  })
+);
 
 // Setup middleware (cors, json, etc)
 setupMiddleware(app);
@@ -63,6 +67,7 @@ app.get("/", (req, res) => {
       web: {
         purchase_orders: "/api/web/purchase-orders",
         delivery_orders: "/api/web/delivery-orders",
+        big_delivery_orders: "/api/web/big-delivery-orders",
         vehicles: "/api/web/vehicles",
         stock: "/api/web/stock",
         services: "/api/web/services",
@@ -82,6 +87,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/vehicles", vehicleRoutes);
 app.use("/api/purchase-orders", purchaseOrderRoutes);
 app.use("/api/delivery-orders", deliveryOrderRoutes);
+app.use("/api/big-delivery-orders", bigDeliveryOrderRoutes);
 app.use("/api/driver-expenses", driverExpenseRoutes);
 app.use("/api/drivers", driverRoutes);
 
