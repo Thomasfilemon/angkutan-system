@@ -45,8 +45,8 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // Batasi ukuran file 5MB
-  fileFilter: fileFilter,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: fileFilter, // (optional, if you want to use your filter)
 });
 
 // === SETUP MULTER UNTUK SURAT JALAN PHOTOS (DRIVER) ===
@@ -120,7 +120,7 @@ router.patch(
 router.post(
   "/:id/confirm-load",
   checkRole(["driver"]),
-  suratJalanUpload.single("surat_jalan_photo"),
+  suratJalanUpload.array("surat_jalan_photo", 10), // <-- Accept multiple files
   loadConfirmationController.confirmLoad
 );
 

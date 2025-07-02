@@ -565,7 +565,7 @@ INSERT INTO delivery_orders (
   2200000, -- Uang jalan Rp 2,200,000
   600000,  -- Gaji Rp 600,000
   7606250, -- Ongkosan: 10,406,250 - 2,200,000 - 600,000 = 7,606,250
-  'uploads/surat_jalan/DO-250610-01-surat-jalan.jpg',
+  '{uploads/surat_jalan/DO-250610-01-surat-jalan.jpg}',
   'confirmed',
   '2025-06-09 15:00:00+07' -- DO dibuat sehari sebelumnya
 ),
@@ -599,7 +599,7 @@ INSERT INTO delivery_orders (
   2300000, -- Uang jalan Rp 2,300,000 (sedikit lebih mahal)
   650000,  -- Gaji Rp 650,000
   9038000, -- Ongkosan: 11,988,000 - 2,300,000 - 650,000 = 9,038,000
-  'uploads/surat_jalan/DO-250630-02-surat-jalan.jpg',
+  '{uploads/surat_jalan/DO-250630-02-surat-jalan.jpg}',
   'confirmed',
   '2025-06-29 16:00:00+07' -- DO dibuat sehari sebelumnya
 );

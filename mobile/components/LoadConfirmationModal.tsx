@@ -35,7 +35,7 @@ const LoadConfirmationModal: React.FC<LoadConfirmationModalProps> = ({
   isLoading,
 }) => {
   const [actualQuantity, setActualQuantity] = useState("");
-  const [suratJalanPhoto, setSuratJalanPhoto] = useState<any>(null);
+  const [suratJalanPhotos, setSuratJalanPhotos] = useState<any[]>([]);
 
   const handleImagePicker = () => {
     if (Platform.OS === "web") {
@@ -46,11 +46,13 @@ const LoadConfirmationModal: React.FC<LoadConfirmationModalProps> = ({
         const target = e.target as HTMLInputElement;
         if (target.files && target.files[0]) {
           const file = target.files[0];
-          setSuratJalanPhoto({
-            uri: URL.createObjectURL(file),
-            name: file.name,
-            type: file.type,
-          });
+          setSuratJalanPhotos([
+            {
+              uri: URL.createObjectURL(file),
+              name: file.name,
+              type: file.type,
+            },
+          ]);
         }
       };
       input.click();
@@ -77,12 +79,11 @@ const LoadConfirmationModal: React.FC<LoadConfirmationModalProps> = ({
 
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
-        aspect: [4, 3],
         quality: 0.8,
       });
 
       if (!result.canceled && result.assets?.[0]) {
-        setSuratJalanPhoto(result.assets[0]);
+        setSuratJalanPhotos([result.assets[0]]);
       }
     } catch (error) {
       Alert.alert("Error", "Failed to take picture");
@@ -91,8 +92,7 @@ const LoadConfirmationModal: React.FC<LoadConfirmationModalProps> = ({
 
   const pickFromGallery = async () => {
     try {
-      const permission =
-        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
         Alert.alert("Error", "Permission to access gallery was denied");
         return;
@@ -101,12 +101,11 @@ const LoadConfirmationModal: React.FC<LoadConfirmationModalProps> = ({
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        aspect: [4, 3],
         quality: 0.8,
       });
 
       if (!result.canceled && result.assets?.[0]) {
-        setSuratJalanPhoto(result.assets[0]);
+        setSuratJalanPhotos((prev) => [...prev, result.assets[0]]);
       }
     } catch (error) {
       Alert.alert("Error", "Failed to pick image");
@@ -129,20 +128,22 @@ const LoadConfirmationModal: React.FC<LoadConfirmationModalProps> = ({
       return;
     }
 
-    if (!suratJalanPhoto) {
-      Alert.alert("Error", "Foto surat jalan harus diambil");
+    if (suratJalanPhotos.length === 0) {
+      Alert.alert("Error", "Minimal 1 foto surat jalan harus diambil");
       return;
     }
 
+    console.log("Photos to upload:", suratJalanPhotos);
+
     onConfirm({
       actual_load_quantity: quantity,
-      surat_jalan_photo: suratJalanPhoto,
+      surat_jalan_photo: suratJalanPhotos, // <-- send as array
     });
   };
 
   const resetForm = () => {
     setActualQuantity("");
-    setSuratJalanPhoto(null);
+    setSuratJalanPhotos([]);
   };
 
   return (
@@ -189,24 +190,34 @@ const LoadConfirmationModal: React.FC<LoadConfirmationModalProps> = ({
 
           <View style={styles.photoSection}>
             <Text style={styles.label}>Foto Surat Jalan *</Text>
-            {suratJalanPhoto ? (
-              <View style={styles.photoPreview}>
-                <FontAwesome5 name="check-circle" size={24} color="#27ae60" />
-                <Text style={styles.photoSuccessText}>
-                  Foto surat jalan berhasil diambil
-                </Text>
+            {suratJalanPhotos.length > 0 ? (
+              <View>
+                {suratJalanPhotos.map((photo, idx) => (
+                  <View key={idx} style={styles.photoPreview}>
+                    <Text>Foto {idx + 1}</Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setSuratJalanPhotos(
+                          suratJalanPhotos.filter((_, i) => i !== idx)
+                        );
+                      }}
+                    >
+                      <Text style={{ color: "red" }}>Hapus</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
                 <TouchableOpacity
                   style={styles.changePhotoButton}
-                  onPress={handleImagePicker}
+                  onPress={pickFromGallery}
                   disabled={isLoading}
                 >
-                  <Text style={styles.changePhotoText}>Ganti Foto</Text>
+                  <Text style={styles.changePhotoText}>Tambah Foto</Text>
                 </TouchableOpacity>
               </View>
             ) : (
               <TouchableOpacity
                 style={styles.photoButton}
-                onPress={handleImagePicker}
+                onPress={pickFromGallery}
                 disabled={isLoading}
               >
                 <FontAwesome5 name="camera" size={24} color="#3498db" />
@@ -232,11 +243,11 @@ const LoadConfirmationModal: React.FC<LoadConfirmationModalProps> = ({
           <TouchableOpacity
             style={[
               styles.confirmButton,
-              (!actualQuantity || !suratJalanPhoto || isLoading) &&
+              (!actualQuantity || suratJalanPhotos.length === 0 || isLoading) &&
                 styles.disabledButton,
             ]}
             onPress={handleConfirm}
-            disabled={!actualQuantity || !suratJalanPhoto || isLoading}
+            disabled={!actualQuantity || suratJalanPhotos.length === 0 || isLoading}
           >
             {isLoading ? (
               <ActivityIndicator color="#fff" />

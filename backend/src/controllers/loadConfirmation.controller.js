@@ -27,11 +27,24 @@ exports.confirmLoad = async (req, res, next) => {
       });
     }
 
-    if (!req.file) {
+    // Accept both single and multiple file upload
+    let suratJalanFile = req.file;
+    const suratJalanFiles = req.files; // This will be an array
+
+    if (!suratJalanFile && suratJalanFiles && suratJalanFiles.length > 0) {
+      suratJalanFile = suratJalanFiles[0];
+    }
+
+    if (!suratJalanFile) {
       return res.status(400).json({
         message: "Foto surat jalan harus diupload.",
       });
     }
+
+    // Process file upload
+    const surat_jalan_photo_url = suratJalanFiles.map((f) =>
+      f.path.replace(/\\/g, "/")
+    );
 
     // Cari delivery order
     const deliveryOrder = await DeliveryOrder.findOne({
@@ -65,13 +78,10 @@ exports.confirmLoad = async (req, res, next) => {
       });
     }
 
-    // Process file upload
-    const surat_jalan_photo_url = req.file.path.replace(/\\/g, "/");
-
     // Update delivery order
     await deliveryOrder.update({
       actual_load_quantity: actualQuantity,
-      surat_jalan_photo_url,
+      surat_jalan_photo_url, // now always an array
       status: "otw_to_unload_location",
       departed_from_load_location_at: new Date(),
     });
@@ -108,14 +118,14 @@ exports.confirmLoad = async (req, res, next) => {
       originalname: req.file?.originalname,
       mimetype: req.file?.mimetype,
       size: req.file?.size,
-      path: req.file?.path
+      path: req.file?.path,
     });
   } catch (error) {
     console.error("Full error in confirmLoad:", {
       message: error.message,
       stack: error.stack,
       code: error.code,
-      response: error.response?.data
+      response: error.response?.data,
     });
     next(error);
   }

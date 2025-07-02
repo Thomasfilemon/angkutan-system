@@ -246,6 +246,7 @@ CREATE TABLE delivery_orders (
   big_delivery_order_id INTEGER REFERENCES big_delivery_orders(id),
   big_do_creation_session VARCHAR(50),
   display_order INTEGER DEFAULT 0,
+  is_big_do_candidate BOOLEAN NOT NULL DEFAULT false,
 
   do_number VARCHAR(50) UNIQUE NOT NULL,
   customer_name VARCHAR(100) NOT NULL,
@@ -270,7 +271,7 @@ CREATE TABLE delivery_orders (
   unload_latitude DECIMAL(10, 8),
   unload_longitude DECIMAL(11, 8),
   
-  surat_jalan_photo_url VARCHAR(255),
+  surat_jalan_photo_url TEXT[],
 
   payment_status VARCHAR(30) NOT NULL DEFAULT 'proses_tagihan' 
     CHECK(payment_status IN ('awaiting_confirmation','lunas','deposit','proses_tagihan')),

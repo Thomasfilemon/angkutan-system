@@ -5,7 +5,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import { router } from "expo-router";
 
-const API_BASE_URL = "https://33cc-182-3-101-247.ngrok-free.app/api";
+const API_BASE_URL = "https://50c5-180-242-72-12.ngrok-free.app/api";
 
 // Create a dedicated axios instance
 const apiClient = axios.create({
@@ -66,41 +66,42 @@ apiClient.interceptors.response.use(
 const appendFileToFormData = async (formData, fieldName, fileData) => {
   if (!fileData) return;
 
-  console.log(`Attempting to append file '${fieldName}':`, fileData);
+  let fileUri = fileData.uri;
+  let ext = "jpg";
 
-  try {
-    if (Platform.OS === "web") {
-      // Web handling
-      const response = await fetch(fileData.uri);
-      const blob = await response.blob();
-      formData.append(
-        fieldName,
-        blob,
-        fileData.fileName || fileData.name || "file"
-      );
-    } else {
-      // Mobile handling
-      let fileUri = fileData.uri;
+  // Defensive: prefer fileName extension if available
+  if (
+    fileData.fileName &&
+    typeof fileData.fileName === "string" &&
+    fileData.fileName.includes(".")
+  ) {
+    ext = fileData.fileName.split(".").pop();
+  } else if (fileUri && typeof fileUri === "string" && fileUri.includes(".")) {
+    ext = fileUri.split(".").pop();
+  }
 
-      // Get file extension
-      const ext = fileUri.split(".").pop();
-      let mimeType = "image/jpeg"; // default
-      if (ext === "png") mimeType = "image/png";
-      if (ext === "pdf") mimeType = "application/pdf";
+  let mimeType = fileData.mimeType || "image/jpeg";
+  if (ext === "png") mimeType = "image/png";
+  if (ext === "pdf") mimeType = "application/pdf";
 
-      formData.append(fieldName, {
-        uri: fileUri, // <-- always keep file://
-        name: fileData.fileName || `file.${ext}`,
-        type: fileData.mimeType || mimeType,
-      });
-    }
-    console.log(`Successfully appended file '${fieldName}' for ${Platform.OS}`);
-  } catch (error) {
-    console.error(
-      `Error appending file '${fieldName}' to FormData for ${Platform.OS}:`,
-      error
+  if (Platform.OS === "web") {
+    const response = await fetch(fileUri);
+    const blob = await response.blob();
+    formData.append(
+      fieldName,
+      blob,
+      fileData.fileName || fileData.name || `file.${ext}`
     );
-    throw error;
+  } else {
+    if (!fileUri) {
+      console.warn("No fileUri for fileData:", fileData);
+      return;
+    }
+    formData.append(fieldName, {
+      uri: fileUri,
+      name: fileData.fileName || `file.${ext}`,
+      type: mimeType,
+    });
   }
 };
 
@@ -151,11 +152,37 @@ export const confirmLoad = async (doId, loadData) => {
       loadData.actual_load_quantity.toString()
     );
 
-    await appendFileToFormData(
-      formData,
-      "surat_jalan_photo",
-      loadData.surat_jalan_photo
-    );
+    if (Array.isArray(loadData.surat_jalan_photo)) {
+      for (let i = 0; i < loadData.surat_jalan_photo.length; i++) {
+        const photo = loadData.surat_jalan_photo[i];
+        if (photo && photo.uri) {
+          const ext = photo.uri.split(".").pop() || "jpg";
+          await appendFileToFormData(
+            formData,
+            "surat_jalan_photo",
+            {
+              ...photo,
+              fileName: photo.fileName || `surat_jalan_${i}.${ext}`,
+              mimeType: photo.mimeType || "image/jpeg",
+            }
+          );
+        } else {
+          console.warn("Skipping photo without uri:", photo);
+        }
+      }
+    } else if (loadData.surat_jalan_photo && loadData.surat_jalan_photo.uri) {
+      const photo = loadData.surat_jalan_photo;
+      const ext = photo.uri.split(".").pop() || "jpg";
+      await appendFileToFormData(
+        formData,
+        "surat_jalan_photo",
+        {
+          ...photo,
+          fileName: photo.fileName || `surat_jalan.${ext}`,
+          mimeType: photo.mimeType || "image/jpeg",
+        }
+      );
+    }
 
     // Log form data for debugging
     console.log("FormData contents:");
@@ -173,7 +200,7 @@ export const confirmLoad = async (doId, loadData) => {
     console.error("Error in confirmLoad API call:", {
       message: error.message,
       stack: error.stack,
-      response: error.response?.data
+      response: error.response?.data,
     });
     throw error;
   }
