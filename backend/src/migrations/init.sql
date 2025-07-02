@@ -21,6 +21,7 @@ CREATE TABLE admin_profiles (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+CREATE TYPE driver_status AS ENUM ('available', 'busy', 'in_big_do_creation');
 CREATE TABLE driver_profiles (
   id SERIAL PRIMARY KEY,
   user_id INTEGER UNIQUE REFERENCES users(id) ON DELETE CASCADE,
@@ -30,13 +31,13 @@ CREATE TABLE driver_profiles (
   id_card_number VARCHAR(50) UNIQUE NOT NULL,
   sim_number VARCHAR(50) UNIQUE,
   license_type VARCHAR(10),
-  status VARCHAR(20) NOT NULL DEFAULT 'available' CHECK(status IN ('available','busy')),
+  status driver_status NOT NULL DEFAULT 'available', -- 🎯 FIXED: Use ENUM
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- BAGIAN 2: MANAJEMEN ASET & INVENTARIS
 -- =================================================================
-
+CREATE TYPE vehicle_status AS ENUM ('available', 'in_use', 'maintenance', 'in_big_do_creation');
 -- UPDATED VEHICLES TABLE WITH TIRE CONFIGURATION
 CREATE TABLE vehicles (
   id SERIAL PRIMARY KEY,
@@ -46,7 +47,7 @@ CREATE TABLE vehicles (
   tire_count INTEGER NOT NULL DEFAULT 6,
   spare_tire_count INTEGER NOT NULL DEFAULT 2,
   driver_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  status VARCHAR(20) NOT NULL DEFAULT 'available' CHECK(status IN ('available','in_use','maintenance')),
+  status vehicle_status NOT NULL DEFAULT 'available', -- 🎯 FIXED: Use ENUM
   last_service_date DATE,
   next_service_due DATE,
   stnk_number VARCHAR(50) UNIQUE,
@@ -220,9 +221,11 @@ CREATE TYPE delivery_status AS ENUM (
     'at_unload_location',
     'otw_to_base',
     'completed',
+    'pending_big_do',
     'cancelled'
 );
 
+CREATE TYPE big_do_status AS ENUM ('assigned', 'in_progress', 'completed', 'cancelled');
 CREATE TABLE big_delivery_orders (
   id SERIAL PRIMARY KEY,
   big_do_number VARCHAR(50) UNIQUE, -- BigDO-20250630-001
@@ -231,10 +234,12 @@ CREATE TABLE big_delivery_orders (
   total_trip_allowance NUMERIC(15,2),
   total_gaji NUMERIC(15,2),
   total_ongkosan NUMERIC(15,2),
-  status VARCHAR(20) CHECK(status IN ('assigned', 'in_progress', 'completed', 'cancelled')), -- <-- Apply this correction
+  status big_do_status NOT NULL DEFAULT 'assigned',
   created_at TIMESTAMP,
+  started_at TIMESTAMP WITH TIME ZONE,
   completed_at TIMESTAMP,
-  notes TEXT
+  notes TEXT,
+  cancellation_reason TEXT
 );
 
 CREATE TABLE delivery_orders (
@@ -245,6 +250,7 @@ CREATE TABLE delivery_orders (
   
   big_delivery_order_id INTEGER REFERENCES big_delivery_orders(id),
   big_do_creation_session VARCHAR(50),
+  is_big_do_candidate BOOLEAN NOT NULL DEFAULT FALSE,
   display_order INTEGER DEFAULT 0,
 
   do_number VARCHAR(50) UNIQUE NOT NULL,
@@ -471,6 +477,10 @@ CREATE INDEX idx_delivery_orders_unit ON delivery_orders(unit);
 CREATE INDEX idx_delivery_orders_status ON delivery_orders(payment_status);
 CREATE INDEX idx_delivery_orders_po_id ON delivery_orders(purchase_order_id);
 CREATE INDEX idx_delivery_orders_due_date ON delivery_orders(due_date);
+CREATE INDEX idx_big_delivery_orders_status ON big_delivery_orders(status);
+CREATE INDEX idx_big_delivery_orders_driver ON big_delivery_orders(driver_id);
+CREATE INDEX idx_big_delivery_orders_vehicle ON big_delivery_orders(vehicle_id);
+CREATE INDEX idx_big_delivery_orders_created_at ON big_delivery_orders(created_at);
 CREATE INDEX idx_cash_transactions_date ON cash_transactions(transaction_date DESC);
 CREATE INDEX idx_cash_transactions_type ON cash_transactions(transaction_type);
 CREATE INDEX idx_cash_transactions_category ON cash_transactions(category_id);
@@ -483,6 +493,9 @@ CREATE INDEX idx_delivery_order_invoices_due_date ON delivery_order_invoices(due
 CREATE INDEX idx_delivery_order_payments_do_id ON delivery_order_payments(delivery_order_id);
 CREATE INDEX idx_delivery_order_payments_date ON delivery_order_payments(payment_date);
 CREATE INDEX idx_delivery_order_payments_type ON delivery_order_payments(payment_type);
+CREATE INDEX idx_delivery_orders_big_do_id ON delivery_orders(big_delivery_order_id);
+CREATE INDEX idx_delivery_orders_big_do_session ON delivery_orders(big_do_creation_session);
+CREATE INDEX idx_delivery_orders_big_do_candidate ON delivery_orders(is_big_do_candidate);
 CREATE INDEX idx_do_payment_history_do_id ON delivery_order_payment_history(delivery_order_id);
 CREATE INDEX idx_do_payment_history_date ON delivery_order_payment_history(changed_at);
 CREATE INDEX idx_do_adjustments_do_id ON delivery_order_adjustments(delivery_order_id);

@@ -24,6 +24,7 @@ import PurchaseOrderEditPage from "./pages/PurchaseOrderEdit";
 import CreateDeliveryFromPO from "./pages/CreateDeliveryFromPO";
 import DeliveryOrdersPage from "./pages/DeliveryOrders";
 import DeliveryOrderDetailPage from "./pages/DeliveryOrderDetail";
+import CreateBigDOPage from "./pages/CreateBigDOPage";
 import StockManagementPage from "./pages/StockManagement";
 import StockCreatePage from "./pages/StockCreate";
 import ServiceManagementPage from "./pages/ServiceManagement";
@@ -38,8 +39,8 @@ import TireInventoryCreatePage from "./pages/TireInventoryCreate";
 import TireInventoryEditPage from "./pages/TireInventoryEdit";
 import RemovedTiresPage from "./pages/RemovedTires";
 import CashManagementPage from "./pages/CashManagement";
-import StockHistoryPage from './pages/StockHistory'; 
-import VehicleServiceHistory from './pages/VehicleServiceHistory'; // <-- Import baru
+import StockHistoryPage from "./pages/StockHistory";
+import VehicleServiceHistory from "./pages/VehicleServiceHistory"; // <-- Import baru
 
 import ComprehensiveRitaseTable from "./pages/Ritase/ComprehensiveRitaseTable";
 import POSpecificRitaseTable from "./pages/Ritase/POSpecificRitaseTable";
@@ -116,19 +117,26 @@ function App() {
             path="delivery-orders/:id"
             element={<DeliveryOrderDetailPage />}
           />
+          <Route
+            path="delivery-orders/create-big-do"
+            element={<CreateBigDOPage />}
+          />
 
           {/* Stock Management Routes */}
           <Route path="stock" element={<StockManagementPage />} />
           <Route path="stock/create" element={<StockCreatePage />} />
           <Route path="stock/edit/:id" element={<StockCreatePage />} />
-          
+
           {/* === PERBAIKAN DI SINI === */}
           {/* Path dibuat relatif dengan menghapus '/' di awal */}
-          <Route path="stock/history/:id" element={<StockHistoryPage />} /> 
+          <Route path="stock/history/:id" element={<StockHistoryPage />} />
           {/* ========================= */}
 
           {/* Service Management Routes */}
-          <Route path="vehicles/:id/services" element={<VehicleServiceHistory />} />
+          <Route
+            path="vehicles/:id/services"
+            element={<VehicleServiceHistory />}
+          />
           <Route path="services" element={<ServiceManagementPage />} />
           <Route path="services/create" element={<ServiceCreatePage />} />
           <Route path="services/:id" element={<ServiceDetailPage />} />

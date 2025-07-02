@@ -17,6 +17,24 @@ interface DeliveryOrderDetail {
   load_location: string;
   unload_location: string;
   surat_jalan_photo_url?: string;
+  big_delivery_order_id?: number;
+  big_do_creation_session?: string;
+  is_big_do_candidate?: boolean;
+  big_do_context: {
+    type: "completed_big_do" | "in_session" | "standalone";
+    message: string;
+  };
+  big_do_info?: {
+    big_do_number: string;
+    big_do_status: string;
+    sibling_dos: any[];
+    total_dos_in_big_do: number;
+  };
+  session_info?: {
+    session_id: string;
+    can_add_more: boolean;
+    can_finalize: boolean;
+  };
   driver: {
     username: string;
     driverProfile: {
@@ -64,6 +82,7 @@ const DeliveryOrderDetailPage = () => {
     useState<DeliveryOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [bigDOLoading, setBigDOLoading] = useState(false);
 
   // 🎯 NEW: Unit display helper
   const getUnitDisplay = (unit: string) => {
@@ -124,6 +143,31 @@ const DeliveryOrderDetailPage = () => {
     }
   }, [id]);
 
+  const handleMakeThisBig = async () => {
+    try {
+      setBigDOLoading(true);
+      const response = await apiClient.post(
+        "/delivery-orders/initialize-big-do",
+        {
+          first_do_id: deliveryOrder?.id,
+        }
+      );
+
+      const sessionData = response.data.data;
+
+      // Redirect to Big DO creation page with session
+      navigate(
+        `/delivery-orders/create-big-do?session=${sessionData.session_id}&driver_id=${sessionData.driver_id}&vehicle_id=${sessionData.vehicle_id}`
+      );
+    } catch (err: any) {
+      alert(
+        err.response?.data?.message || "Failed to initialize Big DO creation"
+      );
+    } finally {
+      setBigDOLoading(false);
+    }
+  };
+
   const handleCancel = async () => {
     if (
       !deliveryOrder ||
@@ -168,6 +212,8 @@ const DeliveryOrderDetailPage = () => {
         return "bg-green-100 text-green-800";
       case "cancelled":
         return "bg-red-100 text-red-800";
+      case "pending_big_do":
+        return "bg-purple-100 text-purple-800";
       default:
         return "bg-gray-100 text-gray-800";
     }
@@ -270,127 +316,238 @@ const DeliveryOrderDetailPage = () => {
                 )}
             </div>
           </div>
-        </div>
+          {/* 🎯 NEW: Big DO Action Section */}
+          {deliveryOrder.big_do_context.type === "standalone" &&
+            deliveryOrder.status === "assigned" && (
+              <div className="lg:col-span-3 mt-6">
+                <div className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg p-6">
+                  <div className="flex items-start space-x-4">
+                    <div className="flex-shrink-0">
+                      <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full flex items-center justify-center">
+                        <svg
+                          className="w-6 h-6 text-white"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M13 10V3L4 14h7v7l9-11h-7z"
+                          />
+                        </svg>
+                      </div>
+                    </div>
 
-        {/* 🎯 ENHANCED: Quantity Information with Unit Support */}
-        <div className="bg-white shadow-md rounded-lg p-6">
-          <h2 className="text-xl font-semibold mb-4">Quantity Information</h2>
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm text-gray-600">Target Quantity</label>
-              <p className="font-medium text-lg">
-                {deliveryOrder.minimal_load_quantity.toLocaleString("id-ID")}{" "}
-                {unitDisplay}
-              </p>
-            </div>
-            {deliveryOrder.actual_load_quantity && (
-              <div>
-                <label className="text-sm text-gray-600">Actual Quantity</label>
-                <p className="font-medium text-green-600 text-lg">
-                  {deliveryOrder.actual_load_quantity.toLocaleString("id-ID")}{" "}
-                  {unitDisplay}
-                </p>
-                <div className="mt-2">
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className="bg-green-600 h-2 rounded-full"
-                      style={{
-                        width: `${Math.min(
-                          (deliveryOrder.actual_load_quantity /
-                            deliveryOrder.minimal_load_quantity) *
-                            100,
-                          100
-                        )}%`,
-                      }}
-                    ></div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-purple-900 mb-2">
+                        🚛 Create Big Delivery Order
+                      </h3>
+                      <p className="text-purple-700 text-sm mb-4">
+                        Optimize logistics by grouping this DO with others for
+                        the same driver/vehicle. Create multiple deliveries in a
+                        single optimized trip to save costs and improve
+                        efficiency.
+                      </p>
+
+                      <div className="bg-white/50 rounded-lg p-3 mb-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-4 h-4 bg-green-100 rounded-full flex items-center justify-center">
+                              <svg
+                                className="w-2.5 h-2.5 text-green-600"
+                                fill="currentColor"
+                                viewBox="0 0 20 20"
+                              >
+                                <path
+                                  fillRule="evenodd"
+                                  d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                  clipRule="evenodd"
+                                />
+                              </svg>
+                            </div>
+                            <span className="text-green-700">
+                              Same driver gets multiple DOs
+                            </span>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <div className="w-4 h-4 bg-blue-100 rounded-full flex items-center justify-center">
+                              <svg
+                                className="w-2.5 h-2.5 text-blue-600"
+                                fill="currentColor"
+                                viewBox="0 0 20 20"
+                              >
+                                <path
+                                  fillRule="evenodd"
+                                  d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                  clipRule="evenodd"
+                                />
+                              </svg>
+                            </div>
+                            <span className="text-blue-700">
+                              Optimized route planning
+                            </span>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <div className="w-4 h-4 bg-purple-100 rounded-full flex items-center justify-center">
+                              <svg
+                                className="w-2.5 h-2.5 text-purple-600"
+                                fill="currentColor"
+                                viewBox="0 0 20 20"
+                              >
+                                <path
+                                  fillRule="evenodd"
+                                  d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                  clipRule="evenodd"
+                                />
+                              </svg>
+                            </div>
+                            <span className="text-purple-700">
+                              Single trip allowance
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-4">
+                        <button
+                          onClick={handleMakeThisBig}
+                          disabled={bigDOLoading}
+                          className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-500 text-white px-6 py-3 rounded-lg font-medium transition-all duration-200 transform hover:scale-105 disabled:transform-none flex items-center space-x-2"
+                        >
+                          {bigDOLoading ? (
+                            <>
+                              <svg
+                                className="animate-spin w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                              >
+                                <circle
+                                  className="opacity-25"
+                                  cx="12"
+                                  cy="12"
+                                  r="10"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                ></circle>
+                                <path
+                                  className="opacity-75"
+                                  fill="currentColor"
+                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                ></path>
+                              </svg>
+                              <span>Creating Session...</span>
+                            </>
+                          ) : (
+                            <>
+                              <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M13 10V3L4 14h7v7l9-11h-7z"
+                                />
+                              </svg>
+                              <span>🚛 Make This Big!</span>
+                            </>
+                          )}
+                        </button>
+
+                        <div className="text-xs text-gray-600">
+                          <div className="font-medium">Current Assignment:</div>
+                          <div>
+                            Driver:{" "}
+                            {deliveryOrder.driver.driverProfile.full_name}
+                          </div>
+                          <div>
+                            Vehicle: {deliveryOrder.vehicle.license_plate} (
+                            {deliveryOrder.vehicle.type})
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {Math.round(
-                      (deliveryOrder.actual_load_quantity /
-                        deliveryOrder.minimal_load_quantity) *
-                        100
-                    )}
-                    % of target
-                  </p>
-                </div>
-
-                {/* 🎯 NEW: Quantity comparison */}
-                <div className="mt-3 text-xs">
-                  {deliveryOrder.actual_load_quantity >
-                  deliveryOrder.minimal_load_quantity ? (
-                    <p className="text-green-600">
-                      ✅ Excess:{" "}
-                      {(
-                        deliveryOrder.actual_load_quantity -
-                        deliveryOrder.minimal_load_quantity
-                      ).toLocaleString("id-ID")}{" "}
-                      {unitDisplay}
-                    </p>
-                  ) : deliveryOrder.actual_load_quantity <
-                    deliveryOrder.minimal_load_quantity ? (
-                    <p className="text-orange-600">
-                      ⚠️ Shortage:{" "}
-                      {(
-                        deliveryOrder.minimal_load_quantity -
-                        deliveryOrder.actual_load_quantity
-                      ).toLocaleString("id-ID")}{" "}
-                      {unitDisplay}
-                    </p>
-                  ) : (
-                    <p className="text-green-600">✅ Perfect match</p>
-                  )}
                 </div>
               </div>
             )}
 
-            {/* 🎯 NEW: Unit-specific capacity info */}
-            <div className="mt-4 pt-4 border-t border-gray-200">
-              <div className="bg-gray-50 p-3 rounded-lg">
-                <h4 className="text-sm font-semibold text-gray-700 mb-2">
-                  Unit Information
-                </h4>
-                <div className="grid grid-cols-1 gap-2 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Measurement:</span>
-                    <span className="font-medium">{unitDisplay}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Type:</span>
-                    <span className="font-medium">
-                      {deliveryOrder.unit === "kubik" ? "Volume" : "Weight"}
-                    </span>
+          {/* 🎯 NEW: Big DO Session Status */}
+          {deliveryOrder.big_do_context.type === "in_session" &&
+            deliveryOrder.session_info && (
+              <div className="lg:col-span-3 mt-6">
+                <div className="bg-gradient-to-r from-orange-50 to-red-50 border border-orange-200 rounded-lg p-6">
+                  <h3 className="text-lg font-semibold text-orange-900 mb-2">
+                    🏗️ Big DO Creation In Progress
+                  </h3>
+                  <p className="text-orange-700 text-sm mb-4">
+                    This DO is part of an ongoing Big DO creation session. You
+                    can add more DOs with the same driver/vehicle or finalize
+                    the Big DO.
+                  </p>
+
+                  <div className="flex items-center space-x-4">
+                    <button
+                      onClick={() =>
+                        navigate(
+                          `/delivery-orders/create-big-do?session=${deliveryOrder.session_info?.session_id}`
+                        )
+                      }
+                      className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+                    >
+                      Continue Big DO Creation →
+                    </button>
+
+                    <div className="text-xs text-orange-600">
+                      Session ID: {deliveryOrder.session_info.session_id}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
+            )}
 
-        {/* Driver & Vehicle Information */}
-        <div className="bg-white shadow-md rounded-lg p-6">
-          <h2 className="text-xl font-semibold mb-4">Driver & Vehicle</h2>
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm text-gray-600">Driver</label>
-              <p className="font-medium">
-                {deliveryOrder.driver.driverProfile.full_name}
-              </p>
-              <p className="text-sm text-gray-500">
-                {deliveryOrder.driver.driverProfile.phone}
-              </p>
-            </div>
-            <div>
-              <label className="text-sm text-gray-600">Vehicle</label>
-              <p className="font-medium">
-                {deliveryOrder.vehicle.license_plate}
-              </p>
-              <p className="text-sm text-gray-500">
-                {deliveryOrder.vehicle.type}
-                {deliveryOrder.vehicle.capacity &&
-                  ` (${deliveryOrder.vehicle.capacity} kg)`}
-              </p>
-            </div>
-          </div>
+          {/* 🎯 NEW: Big DO Member Status */}
+          {deliveryOrder.big_do_context.type === "completed_big_do" &&
+            deliveryOrder.big_do_info && (
+              <div className="lg:col-span-3 mt-6">
+                <div className="bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-lg p-6">
+                  <h3 className="text-lg font-semibold text-green-900 mb-2">
+                    🚛 Part of Big Delivery Order
+                  </h3>
+                  <p className="text-green-700 text-sm mb-4">
+                    This DO is part of Big DO:{" "}
+                    <strong>{deliveryOrder.big_do_info.big_do_number}</strong>(
+                    {deliveryOrder.big_do_info.total_dos_in_big_do} total
+                    deliveries)
+                  </p>
+
+                  <div className="flex items-center space-x-4">
+                    <button
+                      onClick={() =>
+                        navigate(
+                          `/big-delivery-orders/${deliveryOrder.big_delivery_order_id}`
+                        )
+                      }
+                      className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+                    >
+                      View Big DO Details →
+                    </button>
+
+                    {deliveryOrder.big_do_info.sibling_dos.length > 0 && (
+                      <div className="text-xs text-green-600">
+                        Sibling DOs:{" "}
+                        {deliveryOrder.big_do_info.sibling_dos.length}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
         </div>
 
         {/* 🎯 ENHANCED: Financial Information with Unit-aware Calculations */}
@@ -535,6 +692,127 @@ const DeliveryOrderDetailPage = () => {
                 ? "Volume-based pricing"
                 : "Weight-based pricing"}
               )
+            </div>
+          </div>
+        </div>
+
+        {/* 🎯 ENHANCED: Quantity Information with Unit Support */}
+        <div className="bg-white shadow-md rounded-lg p-6">
+          <h2 className="text-xl font-semibold mb-4">Quantity Information</h2>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm text-gray-600">Target Quantity</label>
+              <p className="font-medium text-lg">
+                {deliveryOrder.minimal_load_quantity.toLocaleString("id-ID")}{" "}
+                {unitDisplay}
+              </p>
+            </div>
+            {deliveryOrder.actual_load_quantity && (
+              <div>
+                <label className="text-sm text-gray-600">Actual Quantity</label>
+                <p className="font-medium text-green-600 text-lg">
+                  {deliveryOrder.actual_load_quantity.toLocaleString("id-ID")}{" "}
+                  {unitDisplay}
+                </p>
+                <div className="mt-2">
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                      className="bg-green-600 h-2 rounded-full"
+                      style={{
+                        width: `${Math.min(
+                          (deliveryOrder.actual_load_quantity /
+                            deliveryOrder.minimal_load_quantity) *
+                            100,
+                          100
+                        )}%`,
+                      }}
+                    ></div>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {Math.round(
+                      (deliveryOrder.actual_load_quantity /
+                        deliveryOrder.minimal_load_quantity) *
+                        100
+                    )}
+                    % of target
+                  </p>
+                </div>
+
+                {/* 🎯 NEW: Quantity comparison */}
+                <div className="mt-3 text-xs">
+                  {deliveryOrder.actual_load_quantity >
+                  deliveryOrder.minimal_load_quantity ? (
+                    <p className="text-green-600">
+                      ✅ Excess:{" "}
+                      {(
+                        deliveryOrder.actual_load_quantity -
+                        deliveryOrder.minimal_load_quantity
+                      ).toLocaleString("id-ID")}{" "}
+                      {unitDisplay}
+                    </p>
+                  ) : deliveryOrder.actual_load_quantity <
+                    deliveryOrder.minimal_load_quantity ? (
+                    <p className="text-orange-600">
+                      ⚠️ Shortage:{" "}
+                      {(
+                        deliveryOrder.minimal_load_quantity -
+                        deliveryOrder.actual_load_quantity
+                      ).toLocaleString("id-ID")}{" "}
+                      {unitDisplay}
+                    </p>
+                  ) : (
+                    <p className="text-green-600">✅ Perfect match</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 🎯 NEW: Unit-specific capacity info */}
+            <div className="mt-4 pt-4 border-t border-gray-200">
+              <div className="bg-gray-50 p-3 rounded-lg">
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">
+                  Unit Information
+                </h4>
+                <div className="grid grid-cols-1 gap-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Measurement:</span>
+                    <span className="font-medium">{unitDisplay}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Type:</span>
+                    <span className="font-medium">
+                      {deliveryOrder.unit === "kubik" ? "Volume" : "Weight"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Driver & Vehicle Information */}
+        <div className="bg-white shadow-md rounded-lg p-6">
+          <h2 className="text-xl font-semibold mb-4">Driver & Vehicle</h2>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm text-gray-600">Driver</label>
+              <p className="font-medium">
+                {deliveryOrder.driver.driverProfile.full_name}
+              </p>
+              <p className="text-sm text-gray-500">
+                {deliveryOrder.driver.driverProfile.phone}
+              </p>
+            </div>
+            <div>
+              <label className="text-sm text-gray-600">Vehicle</label>
+              <p className="font-medium">
+                {deliveryOrder.vehicle.license_plate}
+              </p>
+              <p className="text-sm text-gray-500">
+                {deliveryOrder.vehicle.type}
+                {deliveryOrder.vehicle.capacity &&
+                  ` (${deliveryOrder.vehicle.capacity} kg)`}
+              </p>
             </div>
           </div>
         </div>
