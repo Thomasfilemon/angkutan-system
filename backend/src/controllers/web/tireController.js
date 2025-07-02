@@ -2,94 +2,6 @@
 const { Vehicle, VehicleTire, TireInventory, TireInspection, TireInstance } = require('../../models');
 const { Op } = require('sequelize');
 
-// Get tire status for a specific vehicle
-exports.getVehicleTireStatus = async (req, res, next) => {
-  try {
-    const { vehicleId } = req.params;
-    
-    const vehicle = await Vehicle.findByPk(vehicleId, {
-      include: [
-        {
-          model: VehicleTire,
-          as: 'tires',
-          include: [
-            {
-              model: TireInventory,
-              as: 'tireInventory',
-              required: false
-            }
-          ],
-          where: { status: 'active' },
-          required: false
-        }
-      ]
-    });
-
-    if (!vehicle) {
-      return res.status(404).json({
-        success: false,
-        message: 'Vehicle not found'
-      });
-    }
-
-    // Get expected tire positions
-    const expectedPositions = vehicle.getTirePositions();
-    
-    // Create tire status map
-    const tireStatusMap = {};
-    
-    // Initialize all positions
-    expectedPositions.forEach(position => {
-      tireStatusMap[position] = {
-        position,
-        installed: false,
-        tire: null
-      };
-    });
-    
-    // Fill in actual tire data
-    vehicle.tires.forEach(tire => {
-      if (tireStatusMap[tire.position]) {
-        tireStatusMap[tire.position] = {
-          position: tire.position,
-          installed: true,
-          tire: {
-            id: tire.id,
-            current_pressure: tire.current_pressure,
-            recommended_pressure: tire.recommended_pressure,
-            temperature: tire.temperature,
-            tread_depth: tire.tread_depth,
-            condition: tire.condition,
-            install_date: tire.install_date,
-            brand: tire.tireInventory?.tire_brand || 'Unknown',
-            size: tire.tireInventory?.tire_size || 'Unknown',
-            isPressureLow: tire.isPressureLow(),
-            isPressureHigh: tire.isPressureHigh(),
-            isTemperatureHigh: tire.isTemperatureHigh(),
-            needsReplacement: tire.needsReplacement()
-          }
-        };
-      }
-    });
-
-    res.json({
-      success: true,
-      data: {
-        vehicle: {
-          id: vehicle.id,
-          license_plate: vehicle.license_plate,
-          type: vehicle.type,
-          tire_count: vehicle.tire_count,
-          spare_tire_count: vehicle.spare_tire_count
-        },
-        tires: Object.values(tireStatusMap)
-      }
-    });
-  } catch (err) {
-    next(err);
-  }
-};
-
 // Update tire data (pressure, temperature, etc.)
 exports.updateTireData = async (req, res, next) => {
   try {
@@ -737,6 +649,15 @@ exports.getVehicleTireStatus = async (req, res, next) => {
     }
 
     const expectedPositions = vehicle.getTirePositions();
+
+    console.log('=== BACKEND DEBUG ===');
+    console.log('Vehicle ID:', vehicleId);
+    console.log('Tire Count:', vehicle.tire_count);
+    console.log('Spare Count:', vehicle.spare_tire_count);
+    console.log('Generated Positions:', expectedPositions);
+    console.log('Active Tires Count:', vehicle.tires?.length || 0);
+    console.log('===================');
+
     const tireStatusMap = {};
     
     expectedPositions.forEach(position => {
@@ -776,18 +697,24 @@ exports.getVehicleTireStatus = async (req, res, next) => {
       }
     });
 
+    const responseData = {
+      vehicle: {
+        id: vehicle.id,
+        license_plate: vehicle.license_plate,
+        type: vehicle.type,
+        tire_count: vehicle.tire_count,
+        spare_tire_count: vehicle.spare_tire_count,
+        tire_positions: expectedPositions // ADD this for frontend debugging
+      },
+      tires: Object.values(tireStatusMap)
+    };
+
+    // DEBUG: Log final response
+    console.log('Final Response Tires:', responseData.tires.map(t => t.position));
+    
     res.json({
       success: true,
-      data: {
-        vehicle: {
-          id: vehicle.id,
-          license_plate: vehicle.license_plate,
-          type: vehicle.type,
-          tire_count: vehicle.tire_count,
-          spare_tire_count: vehicle.spare_tire_count
-        },
-        tires: Object.values(tireStatusMap)
-      }
+      data: responseData
     });
   } catch (err) {
     next(err);

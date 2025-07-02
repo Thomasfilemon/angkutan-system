@@ -52,7 +52,9 @@ CREATE TABLE vehicles (
   stnk_number VARCHAR(50) UNIQUE,
   stnk_expired_date DATE,
   tax_due_date DATE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  current_mileage INTEGER DEFAULT 0,        -- ✅ Add this
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()  -- ✅ Add this
 );
 
 -- TIRE MANAGEMENT TABLES (UPDATED WITH INDIVIDUAL TIRE TRACKING)
