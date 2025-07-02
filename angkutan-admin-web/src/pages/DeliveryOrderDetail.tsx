@@ -1,6 +1,7 @@
 // src/pages/DeliveryOrderDetail.tsx
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import toast from "react-hot-toast";
 import apiClient from "../api/axiosConfig";
 
 interface DeliveryOrderDetail {
@@ -146,6 +147,11 @@ const DeliveryOrderDetailPage = () => {
   const handleMakeThisBig = async () => {
     try {
       setBigDOLoading(true);
+      console.log(
+        "🚀 Initializing Big DO for delivery order:",
+        deliveryOrder?.id
+      );
+
       const response = await apiClient.post(
         "/delivery-orders/initialize-big-do",
         {
@@ -153,16 +159,63 @@ const DeliveryOrderDetailPage = () => {
         }
       );
 
+      // 🎯 DEBUG: Log the full response structure
+      console.log("✅ Big DO initialization response:", response);
+      console.log("📦 Response data:", response.data);
+      console.log("🎯 Session data:", response.data.data);
+
       const sessionData = response.data.data;
 
-      // Redirect to Big DO creation page with session
-      navigate(
-        `/delivery-orders/create-big-do?session=${sessionData.session_id}&driver_id=${sessionData.driver_id}&vehicle_id=${sessionData.vehicle_id}`
-      );
+      // 🎯 VALIDATE: Check if required data exists
+      if (!sessionData) {
+        throw new Error("No session data received from server");
+      }
+
+      if (!sessionData.session_id) {
+        throw new Error("Session ID missing from response");
+      }
+
+      if (!sessionData.driver_id || !sessionData.vehicle_id) {
+        throw new Error("Driver ID or Vehicle ID missing from response");
+      }
+
+      console.log("🎯 Navigation data:", {
+        session_id: sessionData.session_id,
+        driver_id: sessionData.driver_id,
+        vehicle_id: sessionData.vehicle_id,
+      });
+
+      // 🎯 MODERN TOAST: Replace alert with toast
+      toast.success("Big DO session initialized successfully!", {
+        icon: "🚛",
+        duration: 3000,
+      });
+
+      // 🎯 ENHANCED NAVIGATION: With error handling
+      const navigationUrl = `/delivery-orders/create-big-do?session=${sessionData.session_id}&driver_id=${sessionData.driver_id}&vehicle_id=${sessionData.vehicle_id}`;
+      console.log("🧭 Navigating to:", navigationUrl);
+
+      navigate(navigationUrl);
     } catch (err: any) {
-      alert(
-        err.response?.data?.message || "Failed to initialize Big DO creation"
-      );
+      console.error("❌ Big DO initialization error:", err);
+      console.error("❌ Error response:", err.response);
+
+      // 🎯 MODERN TOAST: Replace alert with toast
+      const errorMessage =
+        err.response?.data?.message ||
+        err.message ||
+        "Failed to initialize Big DO creation";
+
+      toast.error(errorMessage, {
+        icon: "❌",
+        duration: 5000,
+        style: {
+          borderRadius: "10px",
+          background: "#fef2f2",
+          color: "#dc2626",
+          border: "1px solid #fecaca",
+        },
+      });
     } finally {
       setBigDOLoading(false);
     }

@@ -582,16 +582,31 @@ const CreateBigDOPage = () => {
 
   // 🎯 ENHANCED: Modern validation with toast
   const handleFinalizeBigDO = async () => {
-    // Validation with beautiful toasts
+    // ✅ ONLY validate during finalization, not page render
     if (!sessionData || sessionData.delivery_orders.length < 2) {
-      toast.error("Big DO requires at least 2 delivery orders", {
-        icon: "📦",
-        style: {
-          borderRadius: "10px",
-          background: "#fef2f2",
-          color: "#dc2626",
-        },
-      });
+      toast.error(
+        "Big DO requires at least 2 delivery orders. Please add more DOs first.",
+        {
+          icon: "📦",
+          duration: 5000,
+          style: {
+            borderRadius: "10px",
+            background: "#fef2f2",
+            color: "#dc2626",
+          },
+        }
+      );
+
+      // 🎯 Focus on add button instead of blocking
+      const addButton = document.querySelector("[data-add-do-button]");
+      if (addButton) {
+        addButton.scrollIntoView({ behavior: "smooth" });
+      }
+      return;
+    }
+
+    if (!formData.trip_allowance) {
+      toast.error("Please enter trip allowance before creating Big DO");
       return;
     }
 
@@ -764,7 +779,18 @@ const CreateBigDOPage = () => {
     );
   }
 
-  if (!sessionData) return null;
+  if (!sessionData) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white p-8 rounded-lg shadow-md text-center">
+          <h2 className="text-2xl font-bold text-yellow-600 mb-4">
+            Loading Session...
+          </h2>
+          <p className="text-gray-600">Initializing Big DO session...</p>
+        </div>
+      </div>
+    );
+  }
 
   const activeDO = sessionData.delivery_orders.find(
     (dOrder) => dOrder.id === activeId
@@ -784,6 +810,15 @@ const CreateBigDOPage = () => {
                 Optimize logistics by grouping multiple deliveries into a single
                 trip
               </p>
+              {/* 🎯 NEW: Show current status */}
+              {sessionData.delivery_orders.length === 1 && (
+                <div className="mt-3 bg-yellow-500/20 border border-yellow-300 rounded-lg p-3">
+                  <p className="text-yellow-100 text-sm">
+                    ⚠️ You need at least 2 DOs to create a Big DO. Add more DOs
+                    below!
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="text-right text-white">
@@ -792,14 +827,26 @@ const CreateBigDOPage = () => {
             </div>
           </div>
 
-          {/* Session Summary Cards */}
+          {/* Session Summary Cards - Update to show current status */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-white/10 rounded-lg p-4">
+            <div
+              className={`rounded-lg p-4 ${
+                sessionData.session_totals.total_dos >= 2
+                  ? "bg-white/10"
+                  : "bg-yellow-500/20 border border-yellow-400"
+              }`}
+            >
               <div className="text-white">
                 <div className="text-2xl font-bold">
                   {sessionData.session_totals.total_dos}
+                  {sessionData.session_totals.total_dos >= 2 && (
+                    <span className="text-green-300 ml-1">✓</span>
+                  )}
                 </div>
-                <div className="text-purple-100 text-sm">Delivery Orders</div>
+                <div className="text-purple-100 text-sm">
+                  Delivery Orders{" "}
+                  {sessionData.session_totals.total_dos < 2 && "(Need 2+)"}
+                </div>
               </div>
             </div>
             <div className="bg-white/10 rounded-lg p-4">
@@ -892,6 +939,11 @@ const CreateBigDOPage = () => {
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-semibold text-gray-900">
                 Delivery Orders ({sessionData.delivery_orders.length})
+                {sessionData.delivery_orders.length < 2 && (
+                  <span className="text-sm text-yellow-600 ml-2">
+                    ⚠️ Need {2 - sessionData.delivery_orders.length} more
+                  </span>
+                )}
               </h3>
               <div className="flex items-center space-x-2 text-sm text-gray-500">
                 <svg
@@ -929,7 +981,7 @@ const CreateBigDOPage = () => {
                     dOrder={dOrder}
                     index={index}
                     onRemove={handleRemoveDO}
-                    canRemove={sessionData.delivery_orders.length > 2}
+                    canRemove={sessionData.delivery_orders.length > 1}
                     formatCurrency={formatCurrency}
                   />
                 ))}
@@ -943,14 +995,27 @@ const CreateBigDOPage = () => {
               </DragOverlay>
             </DndContext>
 
-            {/* Add More Button */}
-            <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-gray-400 hover:bg-gray-50 transition-colors">
+            {/* 🎯 ENHANCED: Add More Button with better messaging */}
+            <div
+              className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
+                sessionData.delivery_orders.length < 2
+                  ? "border-yellow-400 bg-yellow-50 hover:border-yellow-500"
+                  : "border-gray-300 hover:border-gray-400 hover:bg-gray-50"
+              }`}
+            >
               <button
+                data-add-do-button // 🎯 ADD: For scroll targeting
                 onClick={handleAddAnotherDO}
                 disabled={addingDO}
                 className="inline-flex items-center space-x-3 text-gray-600 hover:text-gray-800 disabled:opacity-50"
               >
-                <div className="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center">
+                <div
+                  className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                    sessionData.delivery_orders.length < 2
+                      ? "bg-yellow-100 text-yellow-600"
+                      : "bg-green-100 text-green-600"
+                  }`}
+                >
                   <svg
                     className="w-6 h-6"
                     fill="none"
@@ -967,12 +1032,19 @@ const CreateBigDOPage = () => {
                 </div>
                 <div className="text-left">
                   <div className="font-medium text-lg">
-                    Add Another Delivery Order
+                    {sessionData.delivery_orders.length < 2
+                      ? "⚠️ Add Another Delivery Order (Required)"
+                      : "Add Another Delivery Order"}
                   </div>
                   <div className="text-sm text-gray-500">
                     Same driver: {sessionData.driver_info} | Same vehicle:{" "}
                     {sessionData.vehicle_info}
                   </div>
+                  {sessionData.delivery_orders.length < 2 && (
+                    <div className="text-xs text-yellow-600 mt-1">
+                      You need at least 2 DOs to create a Big DO
+                    </div>
+                  )}
                 </div>
               </button>
             </div>
@@ -1099,25 +1171,12 @@ const CreateBigDOPage = () => {
             </div>
           </div>
 
-          {/* 🎯 ENHANCED: Action Buttons */}
+          {/* Action Buttons */}
           <div className="flex flex-col sm:flex-row justify-between items-center space-y-4 sm:space-y-0 sm:space-x-4 mt-8">
             <button
               onClick={handleCancelSession}
               className="w-full sm:w-auto px-6 py-3 border-2 border-red-300 text-red-700 rounded-lg hover:bg-red-50 hover:border-red-400 font-medium transition-all duration-200 flex items-center justify-center space-x-2"
             >
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                />
-              </svg>
               <span>🗑️ Cancel Session</span>
             </button>
 
@@ -1125,11 +1184,7 @@ const CreateBigDOPage = () => {
               <button
                 onClick={() => {
                   toast.success(
-                    "Session saved! You can return to continue later.",
-                    {
-                      icon: "💾",
-                      duration: 3000,
-                    }
+                    "Session saved! You can return to continue later."
                   );
                   navigate("/delivery-orders");
                 }}
@@ -1142,11 +1197,19 @@ const CreateBigDOPage = () => {
                 onClick={handleFinalizeBigDO}
                 disabled={
                   creating ||
-                  !sessionData ||
                   sessionData.delivery_orders.length < 2 ||
                   !formData.trip_allowance
                 }
-                className="w-full sm:w-auto px-8 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-500 text-white rounded-lg font-semibold transition-all duration-200 transform hover:scale-105 disabled:transform-none disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                className={`w-full sm:w-auto px-8 py-3 rounded-lg font-semibold transition-all duration-200 flex items-center justify-center space-x-2 ${
+                  sessionData.delivery_orders.length < 2
+                    ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                    : "bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white transform hover:scale-105"
+                } ${creating ? "animate-pulse" : ""}`}
+                title={
+                  sessionData.delivery_orders.length < 2
+                    ? `Need ${2 - sessionData.delivery_orders.length} more DOs`
+                    : ""
+                }
               >
                 {creating ? (
                   <>
@@ -1187,8 +1250,11 @@ const CreateBigDOPage = () => {
                       />
                     </svg>
                     <span>
-                      🚛 Create Big DO (
-                      {sessionData?.delivery_orders.length || 0} DOs)
+                      {sessionData.delivery_orders.length < 2
+                        ? `🚛 Need ${
+                            2 - sessionData.delivery_orders.length
+                          } More DOs`
+                        : `🚛 Create Big DO (${sessionData.delivery_orders.length} DOs)`}
                     </span>
                   </>
                 )}

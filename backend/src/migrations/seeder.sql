@@ -16,12 +16,12 @@ INSERT INTO admin_profiles (user_id, full_name, phone, email) VALUES
 ((SELECT id FROM users WHERE username = 'admin_satu'), 'Admin Satu', '081234567890', 'admin1@perusahaan.com');
 
 INSERT INTO driver_profiles (user_id, full_name, phone, address, id_card_number, sim_number, license_type, status) VALUES
-((SELECT id FROM users WHERE username = 'supir_andi'), 'Andi Setiawan', '081111111111', 'Jl. Merdeka 1', '3201111111110001', '1111-1111-111111', 'B2 Umum', 'busy'),
-((SELECT id FROM users WHERE username = 'supir_budi'), 'Budi Santoso', '082222222222', 'Jl. Kemerdekaan 2', '3201222222220002', '2222-2222-222222', 'B2 Umum', 'busy'),
-((SELECT id FROM users WHERE username = 'supir_charlie'), 'Charlie Wijaya', '083333333333', 'Jl. Persatuan 3', '3201333333330003', '3333-3333-333333', 'B1', 'busy'),
+((SELECT id FROM users WHERE username = 'supir_andi'), 'Andi Setiawan', '081111111111', 'Jl. Merdeka 1', '3201111111110001', '1111-1111-111111', 'B2 Umum', 'available'),
+((SELECT id FROM users WHERE username = 'supir_budi'), 'Budi Santoso', '082222222222', 'Jl. Kemerdekaan 2', '3201222222220002', '2222-2222-222222', 'B2 Umum', 'available'),
+((SELECT id FROM users WHERE username = 'supir_charlie'), 'Charlie Wijaya', '083333333333', 'Jl. Persatuan 3', '3201333333330003', '3333-3333-333333', 'B1', 'available'),
 ((SELECT id FROM users WHERE username = 'supir_dedi'), 'Dedi Gunawan', '084444444444', 'Jl. Pahlawan 4', '3201444444440004', '4444-4444-444444', 'B1', 'available'),
-((SELECT id FROM users WHERE username = 'supir_eko'), 'Eko Prasetyo', '085555555555', 'Jl. Kemakmuran 5', '3201555555550005', '5555-5555-555555', 'B2 Umum', 'busy'),
-((SELECT id FROM users WHERE username = 'supir_yoyo'), 'Yoyo Karyo', '08101010101010', 'Jl. Ikan Sebelah no 22', '320994488009921', '5555-3344-123', 'B1', 'busy');
+((SELECT id FROM users WHERE username = 'supir_eko'), 'Eko Prasetyo', '085555555555', 'Jl. Kemakmuran 5', '3201555555550005', '5555-5555-555555', 'B2 Umum', 'available'),
+((SELECT id FROM users WHERE username = 'supir_yoyo'), 'Yoyo Karyo', '08101010101010', 'Jl. Ikan Sebelah no 22', '320994488009921', '5555-3344-123', 'B1', 'available');
 
 -- 2. STOCK CATEGORIES
 INSERT INTO stock_categories (category_name, description) VALUES
@@ -112,15 +112,15 @@ INSERT INTO vehicles (
   last_service_date, next_service_due,
   stnk_number, stnk_expired_date, tax_due_date
 ) VALUES
-('B 1234 ABC', 'Hino Dutro 130 HD', '8000', 6, 2, (SELECT id FROM users WHERE username = 'supir_andi'), 'in_use',
+('B 1234 ABC', 'Hino Dutro 130 HD', '8000', 6, 2, (SELECT id FROM users WHERE username = 'supir_andi'), 'available',
   '2024-06-01', '2024-12-01',
   'STNK-1234-2025', '2025-10-20', '2025-10-20'
 ),
-('B 5678 DEF', 'Mitsubishi Fuso Canter', '8250', 6, 2, (SELECT id FROM users WHERE username = 'supir_budi'), 'in_use',
+('B 5678 DEF', 'Mitsubishi Fuso Canter', '8250', 6, 2, (SELECT id FROM users WHERE username = 'supir_budi'), 'available',
   '2024-05-15', '2024-11-15',
   'STNK-5678-2026', '2026-03-15', '2025-03-15'
 ),
-('B 9012 GHI', 'Isuzu Elf NMR 71', '7500', 6, 1, (SELECT id FROM users WHERE username = 'supir_charlie'), 'in_use',
+('B 9012 GHI', 'Isuzu Elf NMR 71', '7500', 6, 1, (SELECT id FROM users WHERE username = 'supir_charlie'), 'available',
   '2024-04-10', '2024-10-10',
   'STNK-9012-2024', '2024-11-30', '2024-11-30'
 ),
@@ -128,11 +128,11 @@ INSERT INTO vehicles (
   '2024-03-20', '2024-09-20',
   'STNK-3456-2025', '2025-12-01', '2025-12-01'
 ),
-('BE 9090 AC', 'Mitsubishi Colt Diesel', '6800', 6, 2, (SELECT id FROM users WHERE username = 'supir_yoyo'), 'in_use',
+('BE 9090 AC', 'Mitsubishi Colt Diesel', '6800', 6, 2, (SELECT id FROM users WHERE username = 'supir_yoyo'), 'available',
   '2024-02-28', '2024-08-28',
   'STNK-9090-2026', '2026-04-17', '2030-05-11'
 ),
-('B 7890 MNO', 'Mitsubishi Colt Diesel', '7000', 6, 2, (SELECT id FROM users WHERE username = 'supir_eko'), 'in_use',
+('B 7890 MNO', 'Mitsubishi Colt Diesel', '7000', 6, 2, (SELECT id FROM users WHERE username = 'supir_eko'), 'available',
   '2024-01-05', '2024-07-05',
   'STNK-7890-2026', '2026-01-10', '2026-01-10'
 ),
@@ -181,96 +181,6 @@ INSERT INTO tire_inspections (vehicle_tire_id, tire_instance_id, inspection_date
 ((SELECT id FROM vehicle_tires WHERE vehicle_id = (SELECT id FROM vehicles WHERE license_plate = 'B 5678 DEF') AND position = 'FR'), (SELECT id FROM tire_instances WHERE tire_serial_number = 'GT-1000-002'), '2024-06-22', 5.2, 29.5, 36.0, 'poor', 'Perlu penggantian segera', 'Teknisi Budi'),
 ((SELECT id FROM vehicle_tires WHERE vehicle_id = (SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL') AND position = 'FL'), (SELECT id FROM tire_instances WHERE tire_serial_number = 'MI-295-001'), '2024-06-24', 9.2, 36.0, 27.0, 'good', 'Ban dalam kondisi baik', 'Teknisi Charlie'),
 ((SELECT id FROM vehicle_tires WHERE vehicle_id = (SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL') AND position = 'RR2'), (SELECT id FROM tire_instances WHERE tire_serial_number = 'MI-295-006'), '2024-06-24', 8.0, 36.8, 32.0, 'fair', 'Perlu monitoring', 'Teknisi Charlie');
-
-
--- 8. PURCHASE ORDERS
-INSERT INTO purchase_orders (po_number, customer_name, item_name, total_quantity, unit_price, total_amount, load_location, unload_location, order_date, status) VALUES
-('PO/WIKA/09/2024-01', 'PT WIKA BETON', 'Abu Batu', 200.00, 155000, 31000000, 'Quarry Jonggol, Bogor', 'Proyek Tol Cibitung, Bekasi', '2024-09-28', 'partial'),
-('PO/ADHI/10/2024-02', 'PT ADHI KARYA', 'Pasir dan Batu Split', 500.00, 160000, 80000000, 'Quarry Cibinong, Bogor', 'Proyek Tol Cimanggis, Depok', '2024-10-05', 'partial'),
-('PO/WIJAYA/11/2024-03', 'PT WIJAYA KARYA', 'Batu Split 1-2', 300.00, 165000, 49500000, NULL, NULL, '2024-11-01', 'confirmed');
-
--- 9. DELIVERY ORDERS
-INSERT INTO delivery_orders (
-  purchase_order_id, driver_id, vehicle_id, do_number, customer_name, item_name, minimal_load_quantity, actual_load_quantity, unit_price, total_amount,
-  payment_status, due_date, load_location, load_latitude, load_longitude, unload_location, unload_latitude, unload_longitude, status, 
-  departed_to_load_location_at, arrived_at_load_location_at, departed_from_load_location_at, arrived_at_unload_location_at, departed_from_unload_location_at, completed_at, 
-  trip_allowance, gaji, ongkosan
-)
-VALUES
--- DO 1: assigned (supir_andi, B 1234 ABC)
-((SELECT id FROM purchase_orders WHERE po_number = 'PO/WIKA/09/2024-01'), 
- (SELECT id FROM users WHERE username = 'supir_andi'), 
- (SELECT id FROM vehicles WHERE license_plate = 'B 1234 ABC'), 
- 'DO-240928-01', 'PT WIKA BETON', 'Abu Batu', 34, 34.05, 155000, 5277750, 
- 'proses_tagihan', '2024-10-28', 
- 'Quarry Jonggol, Bogor', -6.4925, 106.8467, 'Proyek Tol Cibitung, Bekasi', -6.2615, 107.0012,
- 'assigned', NULL, NULL, NULL, NULL, NULL, NULL, 
- 1700000, 500000, 3077750),
-
--- DO 2: otw_to_load_location (supir_budi, B 5678 DEF)
-((SELECT id FROM purchase_orders WHERE po_number = 'PO/WIKA/09/2024-01'), 
- (SELECT id FROM users WHERE username = 'supir_budi'), 
- (SELECT id FROM vehicles WHERE license_plate = 'B 5678 DEF'), 
- 'DO-240928-02', 'PT WIKA BETON', 'Abu Batu', 34, 34.72, 155000, 5381600, 
- 'proses_tagihan', '2024-10-28', 
- 'Quarry Jonggol, Bogor', -6.4925, 106.8467, 'Proyek Tol Cibitung, Bekasi', -6.2615, 107.0012,
- 'otw_to_load_location', '2024-06-16 08:00:00', NULL, NULL, NULL, NULL, NULL, 
- 1800000, 500000, 3081600),
-
--- DO 3: at_unload_location (supir_charlie, B 9012 GHI)
-((SELECT id FROM purchase_orders WHERE po_number = 'PO/WIKA/09/2024-01'), 
- (SELECT id FROM users WHERE username = 'supir_charlie'), 
- (SELECT id FROM vehicles WHERE license_plate = 'B 9012 GHI'), 
- 'DO-240928-03', 'PT WIKA BETON', 'Split 1-2', 33, 33.53, 155000, 5197150, 
- 'deposit', '2024-10-28', 
- 'Quarry Jonggol, Bogor', -6.4925, 106.8467, 'Proyek Tol Cibitung, Bekasi', -6.2615, 107.0012,
- 'at_unload_location', '2024-06-16 07:00:00', '2024-06-16 10:00:00', '2024-06-16 12:00:00', '2024-06-16 16:00:00', NULL, NULL, 
- 1750000, 500000, 2947150),
-
--- DO 4: otw_to_base (supir_yoyo, BE 9090 AC)
-((SELECT id FROM purchase_orders WHERE po_number = 'PO/ADHI/10/2024-02'), 
- (SELECT id FROM users WHERE username = 'supir_yoyo'), 
- (SELECT id FROM vehicles WHERE license_plate = 'BE 9090 AC'), 
- 'DO-241005-01', 'PT ADHI KARYA', 'Pasir', 40.00, 40.15, 160000, 6424000, 
- 'proses_tagihan', '2024-11-05', 
- 'Quarry Cibinong, Bogor', -6.4925, 106.8467, 'Proyek Tol Cimanggis, Depok', -6.2615, 107.0012,
- 'otw_to_base', '2024-06-15 09:00:00', '2024-06-15 12:00:00', '2024-06-15 13:00:00', '2024-06-15 17:00:00', '2024-06-15 18:00:00', NULL, 
- 2000000, 500000, 3924000),
-
--- DO 5: completed (supir_dedi, B 3456 JKL)
-((SELECT id FROM purchase_orders WHERE po_number = 'PO/ADHI/10/2024-02'), 
- (SELECT id FROM users WHERE username = 'supir_dedi'), 
- (SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL'), 
- 'DO-241005-02', 'PT ADHI KARYA', 'Batu Split', 38.00, 38.70, 158000, 6114600, 
- 'lunas', '2024-11-06', 
- 'Quarry Cibinong, Bogor', -6.4925, 106.8467, 'Proyek Tol Cimanggis, Depok', -6.2615, 107.0012,
- 'completed', '2024-06-14 08:00:00', '2024-06-14 11:00:00', '2024-06-14 12:00:00', '2024-06-14 15:00:00', '2024-06-14 18:30:00', '2024-06-14 20:00:00', 
- 2100000, 500000, 3514600),
-
--- DO 6: assigned (supir_eko, B 7890 MNO)
-((SELECT id FROM purchase_orders WHERE po_number = 'PO/ADHI/10/2024-02'), 
- (SELECT id FROM users WHERE username = 'supir_eko'), 
- (SELECT id FROM vehicles WHERE license_plate = 'B 7890 MNO'), 
- 'DO-241005-03', 'PT ADHI KARYA', 'Sirtu', 36.00, 36.10, 157000, 5665700, 
- 'proses_tagihan', '2024-11-07', 
- 'Quarry Cibinong, Bogor', -6.4925, 106.8467, 'Proyek Tol Cimanggis, Depok', -6.2615, 107.0012,
- 'assigned', NULL, NULL, NULL, NULL, NULL, NULL, 
- 1900000, 500000, 3265700);
-
--- 10. DRIVER EXPENSES
-INSERT INTO driver_expenses (delivery_order_id, driver_id, jenis, amount, notes) VALUES
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-240928-01'), (SELECT id FROM users WHERE username = 'supir_andi'), 'bbm', 500000, 'Pengisian Solar Awal'),
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-240928-01'), (SELECT id FROM users WHERE username = 'supir_andi'), 'makan', 100000, 'Makan di Rest Area'),
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-240928-02'), (SELECT id FROM users WHERE username = 'supir_budi'), 'bbm', 600000, 'Pengisian Solar'),
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-240928-02'), (SELECT id FROM users WHERE username = 'supir_budi'), 'makan', 120000, 'Makan di Warung'),
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-240928-03'), (SELECT id FROM users WHERE username = 'supir_charlie'), 'bbm', 550000, 'Pengisian Solar'),
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-240928-03'), (SELECT id FROM users WHERE username = 'supir_charlie'), 'makan', 90000, 'Makan di Rest Area'),
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-01'), (SELECT id FROM users WHERE username = 'supir_yoyo'), 'bbm', 700000, 'Pengisian Solar'),
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-01'), (SELECT id FROM users WHERE username = 'supir_yoyo'), 'makan', 110000, 'Makan di Warung'),
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-02'), (SELECT id FROM users WHERE username = 'supir_dedi'), 'bbm', 800000, 'Pengisian Solar'),
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-02'), (SELECT id FROM users WHERE username = 'supir_dedi'), 'makan', 95000, 'Makan di Warung'),
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-03'), (SELECT id FROM users WHERE username = 'supir_eko'), 'bbm', 600000, 'Pengisian Solar'),
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-03'), (SELECT id FROM users WHERE username = 'supir_eko'), 'makan', 105000, 'Makan di Rest Area');
 
 -- 11. VEHICLE SERVICES
 INSERT INTO vehicle_services (vehicle_id, service_number, service_date, service_type, description, workshop_name, labor_cost, parts_cost, status, notes) VALUES
@@ -330,11 +240,6 @@ INSERT INTO stock_transactions (item_id, transaction_type, quantity, unit_price,
 ((SELECT id FROM stock_items WHERE item_code = 'BRK-001'), 'out', 1.00, 850000, 850000, 'service', (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20241201-001'), 'Digunakan untuk servis BE 9090 AC', '2024-12-01'),
 ((SELECT id FROM stock_items WHERE item_code = 'BRK-002'), 'out', 1.00, 125000, 125000, 'service', (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20241201-001'), 'Digunakan untuk servis BE 9090 AC', '2024-12-01');
 
--- 14. ACCOUNTING RITASE
-INSERT INTO accounting_ritase (delivery_order_id, ritase, tarif, total) VALUES
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-240928-01'), 1, 2000000, 2000000),
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-02'), 1, 2100000, 2100000);
-
 -- 15. OFFICE EXPENSES
 INSERT INTO office_expenses (kategori, description, amount, expense_date) VALUES
 ('Listrik & Internet', 'Pembayaran Tagihan Listrik Kantor Bulan September', 1500000, '2024-09-25'),
@@ -349,96 +254,6 @@ INSERT INTO tire_inventory (tire_brand, tire_size, tire_type, current_stock, min
 ('Michelin', '295/80 R22.5', 'Radial', 6, 2, 4500000),
 ('GT Radial', '1000 R20', 'Bias', 10, 3, 2100000);
 
--- ✅ 14. DELIVERY ORDER PAYMENTS (Updated table name and structure)
-INSERT INTO delivery_order_payments (
-  delivery_order_id, 
-  payment_reference, 
-  payment_type, 
-  payment_amount, 
-  payment_date, 
-  notes,
-  created_by
-) VALUES
-(
-  (SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-02'), 
-  'TRF-20241106-001',
-  'transfer', 
-  6114600, 
-  '2024-11-06', 
-  'Pembayaran lunas DO-241005-02',
-  (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
-);
-
--- ✅ DELIVERY ORDER INVOICES (New table for invoice management)
-INSERT INTO delivery_order_invoices (
-  delivery_order_id,
-  invoice_number,
-  invoice_date,
-  invoice_amount,
-  due_date,
-  pph_percentage,
-  pph_amount,
-  net_amount,
-  status,
-  notes,
-  created_by
-) VALUES
-(
-  (SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-02'),
-  'INV/2024/11/001',
-  '2024-11-05',
-  6192000,  -- Original amount before PPH
-  '2024-12-05',
-  0.5,      -- 0.5% PPH
-  30960,    -- PPH amount (6192000 * 0.5%)
-  6222960,  -- Net amount after PPH
-  'paid',
-  'Invoice untuk DO-241005-02',
-  (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
-);
-
--- ✅ UPDATE DELIVERY ORDERS untuk payment workflow
-UPDATE delivery_orders 
-SET 
-  payment_status = 'lunas',
-  payment_confirmation_status = 'confirmed',
-  final_amount = unit_price * actual_load_quantity,  -- Assuming final amount is based on unit price and actual load quantity
-  payment_confirmation_at = NOW(),
-  payment_confirmed_by = (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
-WHERE do_number = 'DO-241005-02';
-
--- ✅ SAMPLE PRICE ADJUSTMENT (untuk kasus kecelakaan)
-INSERT INTO delivery_order_adjustments (
-  delivery_order_id,
-  adjustment_type,
-  original_amount,
-  adjustment_amount,
-  final_amount,
-  reason,
-  approved_by,
-  created_by
-) VALUES
-(
-  (SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-01'),
-  'incident',
-  5500000,  -- Original ongkosan
-  0,        -- Adjusted to 0 due to accident
-  0,        -- Final amount
-  'Kecelakaan - tumpah di jalan, tidak ada pembayaran',
-  (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1),
-  (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
-);
-
--- Update DO yang kena adjustment
-UPDATE delivery_orders 
-SET 
-  payment_status = 'lunas',  -- Considered paid (0 amount)
-  payment_confirmation_status = 'confirmed',
-  final_amount = 0,
-  payment_notes = 'Kecelakaan - tidak ada tagihan'
-WHERE do_number = 'DO-241005-01';
-
-
 --17. Cash_categories
 INSERT INTO cash_categories (category_name, category_type, description) VALUES
 ('Setoran Modal', 'income', 'Modal awal atau tambahan modal'),
@@ -449,24 +264,6 @@ INSERT INTO cash_categories (category_name, category_type, description) VALUES
 ('Pembelian Aset', 'expense', 'Pembelian kendaraan, peralatan, dll'),
 ('Biaya Operasional', 'expense', 'Biaya BBM, maintenance, dll'),
 ('Pengeluaran Lain-lain', 'expense', 'Pengeluaran di luar kategori utama');
-
--- ✅ 16. DELIVERY ORDER PAYMENT HISTORY (untuk audit trail)
-INSERT INTO delivery_order_payment_history (
-  delivery_order_id,
-  old_status,
-  new_status,
-  change_reason,
-  changed_by,
-  changed_at
-) VALUES
-(
-  (SELECT id FROM delivery_orders WHERE do_number = 'DO-241005-02'),
-  'proses_tagihan',
-  'lunas',
-  'Payment completed via transfer',
-  (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1),
-  NOW()
-);
 
 -- ===============================================
 -- 🎯 NEW SEEDER: PO + 2 Completed DOs (June 2025)
