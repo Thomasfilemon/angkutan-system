@@ -13,12 +13,12 @@ const MainLayout = () => {
     if (path === "/") return "Dashboard";
     if (path.startsWith("/trips")) return "Manajemen Trips";
     if (path.startsWith("/delivery-orders")) return "Delivery Orders";
-    if (path.startsWith('/vehicles/tires')) return 'Manajemen Ban';
+    if (path.startsWith("/vehicles/tires")) return "Manajemen Ban";
     if (path.startsWith("/vehicles")) return "Manajemen Kendaraan";
     if (path.startsWith("/drivers")) return "Manajemen Supir";
     if (path.startsWith("/stock")) return "Manajemen Stok";
     if (path.startsWith("/services")) return "Riwayat Servis";
-    if (path.startsWith('/cash')) return 'Buku Kas'; // NEW
+    if (path.startsWith("/cash")) return "Buku Kas"; // NEW
     if (path.startsWith("/ritase")) return "Dashboard Ritase";
     if (path.startsWith("/buku-kas")) return "Buku Kas";
     return "Dashboard";
@@ -37,24 +37,52 @@ const MainLayout = () => {
   return (
     <div className="flex h-screen bg-gray-100 font-sans">
       {/* Sidebar */}
-      <aside className={`${sidebarMinimized ? 'w-16' : 'w-64'} flex-shrink-0 bg-gray-800 text-white p-4 flex flex-col transition-all duration-300 ease-in-out`}>
+      <aside
+        className={`${
+          sidebarMinimized ? "w-16" : "w-64"
+        } flex-shrink-0 bg-gray-800 text-white p-4 flex flex-col transition-all duration-300 ease-in-out`}
+      >
         {/* Header with toggle button */}
         <div className="flex items-center justify-between mb-8">
-          <h1 className={`text-2xl font-bold ${sidebarMinimized ? 'hidden' : 'block'}`}>
+          <h1
+            className={`text-2xl font-bold ${
+              sidebarMinimized ? "hidden" : "block"
+            }`}
+          >
             Angkutan Sys
           </h1>
           <button
             onClick={toggleSidebar}
             className="p-2 rounded hover:bg-gray-700 focus:outline-none"
-            title={sidebarMinimized ? 'Expand sidebar' : 'Minimize sidebar'}
+            title={sidebarMinimized ? "Expand sidebar" : "Minimize sidebar"}
           >
             {sidebarMinimized ? (
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 5l7 7-7 7"
+                />
               </svg>
             ) : (
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 19l-7-7 7-7"
+                />
               </svg>
             )}
           </button>
@@ -74,7 +102,9 @@ const MainLayout = () => {
                 title="Dashboard"
               >
                 <span className="text-xl mr-3">📊</span>
-                <span className={`${sidebarMinimized ? 'hidden' : 'block'}`}>Dashboard</span>
+                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
+                  Dashboard
+                </span>
               </Link>
             </li>
 
@@ -86,9 +116,9 @@ const MainLayout = () => {
             </li>
             <li className="mb-4">
               <Link
-                to="/ritase"
+                to="/ritase/comprehensive"
                 className={`block p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink("/ritase")
+                  isActiveLink("/ritase/comprehensive")
                     ? "bg-gray-700 border-l-4 border-blue-500"
                     : ""
                 }`}
@@ -121,7 +151,9 @@ const MainLayout = () => {
                 title="Purchase Orders"
               >
                 <span className="text-xl mr-3">📋</span>
-                <span className={`${sidebarMinimized ? 'hidden' : 'block'}`}>Purchase Orders</span>
+                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
+                  Purchase Orders
+                </span>
               </Link>
             </li>
             <li className="mb-4">
@@ -135,7 +167,9 @@ const MainLayout = () => {
                 title="Delivery Orders"
               >
                 <span className="text-xl mr-3">🚚</span>
-                <span className={`${sidebarMinimized ? 'hidden' : 'block'}`}>Delivery Orders</span>
+                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
+                  Delivery Orders
+                </span>
               </Link>
             </li>
 
@@ -151,26 +185,33 @@ const MainLayout = () => {
               <Link
                 to="/vehicles"
                 className={`flex items-center p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink("/vehicles")
-                    && !location.pathname.startsWith('/vehicles/tires') ? "bg-gray-700 border-l-4 border-blue-500"
+                  isActiveLink("/vehicles") &&
+                  !location.pathname.startsWith("/vehicles/tires")
+                    ? "bg-gray-700 border-l-4 border-blue-500"
                     : ""
                 }`}
                 title="Manajemen Kendaraan"
               >
                 <span className="text-xl mr-3">🚛</span>
-                <span className={`${sidebarMinimized ? 'hidden' : 'block'}`}>Manajemen Kendaraan</span>
+                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
+                  Manajemen Kendaraan
+                </span>
               </Link>
             </li>
             <li className="mb-4">
-              <Link 
-                to="/vehicles/tires" 
+              <Link
+                to="/vehicles/tires"
                 className={`flex items-center p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink('/vehicles/tires') ? 'bg-gray-700 border-l-4 border-blue-500' : ''
+                  isActiveLink("/vehicles/tires")
+                    ? "bg-gray-700 border-l-4 border-blue-500"
+                    : ""
                 }`}
                 title="Manajemen Ban"
               >
                 <span className="text-xl mr-3">🛞</span>
-                <span className={`${sidebarMinimized ? 'hidden' : 'block'}`}>Manajemen Ban</span>
+                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
+                  Manajemen Ban
+                </span>
               </Link>
             </li>
             <li className="mb-4">
@@ -184,7 +225,9 @@ const MainLayout = () => {
                 title="Manajemen Supir"
               >
                 <span className="text-xl mr-3">👨‍💼</span>
-                <span className={`${sidebarMinimized ? 'hidden' : 'block'}`}>Manajemen Supir</span>
+                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
+                  Manajemen Supir
+                </span>
               </Link>
             </li>
             <li className="mb-4">
@@ -198,7 +241,9 @@ const MainLayout = () => {
                 title="Riwayat Servis"
               >
                 <span className="text-xl mr-3">🔧</span>
-                <span className={`${sidebarMinimized ? 'hidden' : 'block'}`}>Riwayat Servis</span>
+                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
+                  Riwayat Servis
+                </span>
               </Link>
             </li>
 
@@ -221,31 +266,41 @@ const MainLayout = () => {
                 title="Manajemen Stok"
               >
                 <span className="text-xl mr-3">📦</span>
-                <span className={`${sidebarMinimized ? 'hidden' : 'block'}`}>Manajemen Stok</span>
+                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
+                  Manajemen Stok
+                </span>
               </Link>
             </li>
             <li className="mb-4">
-              <Link 
-                to="/tire-inventory" 
+              <Link
+                to="/tire-inventory"
                 className={`flex items-center p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink('/tire-inventory') ? 'bg-gray-700 border-l-4 border-blue-500' : ''
+                  isActiveLink("/tire-inventory")
+                    ? "bg-gray-700 border-l-4 border-blue-500"
+                    : ""
                 }`}
                 title="Inventaris Ban"
               >
                 <span className="text-xl mr-3">🛞</span>
-                <span className={`${sidebarMinimized ? 'hidden' : 'block'}`}>Inventaris Ban</span>
+                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
+                  Inventaris Ban
+                </span>
               </Link>
             </li>
             <li className="mb-4">
-              <Link 
-                to="/vehicles/tires/removed" 
+              <Link
+                to="/vehicles/tires/removed"
                 className={`flex items-center p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink('/vehicles/tires/removed') ? 'bg-gray-700 border-l-4 border-blue-500' : ''
+                  isActiveLink("/vehicles/tires/removed")
+                    ? "bg-gray-700 border-l-4 border-blue-500"
+                    : ""
                 }`}
                 title="Ban Bekas"
               >
                 <span className="text-xl mr-3">🔄</span>
-                <span className={`${sidebarMinimized ? 'hidden' : 'block'}`}>Ban Bekas</span>
+                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
+                  Ban Bekas
+                </span>
               </Link>
             </li>
 
@@ -258,23 +313,31 @@ const MainLayout = () => {
               </li>
             )}
             <li className="mb-4">
-              <Link 
-                to="/cash" 
+              <Link
+                to="/cash"
                 className={`flex items-center p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink('/cash') ? 'bg-gray-700 border-l-4 border-blue-500' : ''
+                  isActiveLink("/cash")
+                    ? "bg-gray-700 border-l-4 border-blue-500"
+                    : ""
                 }`}
                 title="Buku Kas"
               >
                 <span className="text-xl mr-3">💰</span>
-                <span className={`${sidebarMinimized ? 'hidden' : 'block'}`}>Buku Kas</span>
+                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
+                  Buku Kas
+                </span>
               </Link>
             </li>
           </ul>
         </nav>
 
         {/* Footer */}
-        <div className={`text-sm text-gray-400 mt-4 ${sidebarMinimized ? 'text-center' : ''}`}>
-          <p className={`${sidebarMinimized ? 'hidden' : 'block'}`}>v1.0.0</p>
+        <div
+          className={`text-sm text-gray-400 mt-4 ${
+            sidebarMinimized ? "text-center" : ""
+          }`}
+        >
+          <p className={`${sidebarMinimized ? "hidden" : "block"}`}>v1.0.0</p>
           {sidebarMinimized && <p className="text-xs">v1.0</p>}
         </div>
       </aside>
@@ -285,13 +348,18 @@ const MainLayout = () => {
           <h2 className="text-xl font-semibold">{getPageTitle()}</h2>
           <div className="flex items-center">
             <span className="mr-4 hidden sm:inline">
-              Welcome, <strong className="font-semibold">{user?.username || 'User'}</strong>
+              Welcome,{" "}
+              <strong className="font-semibold">
+                {user?.username || "User"}
+              </strong>
             </span>
             <span className="mr-4 sm:hidden">
-              <strong className="font-semibold">{user?.username || 'User'}</strong>
+              <strong className="font-semibold">
+                {user?.username || "User"}
+              </strong>
             </span>
-            <button 
-              onClick={logout} 
+            <button
+              onClick={logout}
               className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition-colors duration-200"
             >
               Logout

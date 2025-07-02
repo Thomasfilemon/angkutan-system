@@ -416,6 +416,7 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
       limit = 10,
       search,
       po_id,
+      big_do_filter,
     } = req.query;
     const offset = (page - 1) * limit;
 
