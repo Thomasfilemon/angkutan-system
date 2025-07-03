@@ -12,6 +12,7 @@ interface DOPaymentData {
     minimal_load_quantity: number;
     actual_load_quantity?: number;
     unit_price: number;
+    unit: string;
     total_amount: number;
     trip_allowance: number;
     gaji: number;
@@ -157,12 +158,6 @@ const DOPaymentManagement: React.FC = () => {
     reason: "",
   });
 
-  // Helper functions
-  // ✅ SAFE STRING HELPERS (Add these)
-  const safeString = (value: string | null | undefined): string => {
-    return value || "";
-  };
-
   const safeReplace = (
     value: string | null | undefined,
     searchValue: string,
@@ -190,11 +185,55 @@ const DOPaymentManagement: React.FC = () => {
     return `${safeNumber(value).toLocaleString("id-ID")} Ton`;
   };
 
-  const calculateBillableAmount = (
+  const calculateUnitAwareAmount = (
     quantity: number,
+    unit: string,
     unitPrice: number
   ): number => {
-    return quantity * unitPrice;
+    switch (unit) {
+      case "kilogram":
+        return quantity * unitPrice;
+      case "ton":
+        return quantity * 1000 * unitPrice; // Convert ton to kg
+      case "kubik":
+        return quantity * unitPrice; // Direct volume pricing
+      default:
+        throw new Error(`Unknown unit: ${unit}`);
+    }
+  };
+
+  // ✅ Fixed: Dynamic unit formatting
+  const formatQuantityWithUnit = (
+    value: string | number | null | undefined,
+    unit: string
+  ): string => {
+    const num = safeNumber(value);
+    switch (unit) {
+      case "kilogram":
+        return `${num.toLocaleString("id-ID")} Kg`;
+      case "ton":
+        return `${num.toLocaleString("id-ID")} Ton`;
+      case "kubik":
+        return `${num.toLocaleString("id-ID")} m³`;
+      default:
+        return `${num.toLocaleString("id-ID")} ${unit}`;
+    }
+  };
+
+  // ✅ Fixed: Dynamic unit price formatting
+  const formatUnitPrice = (price: number, unit: string): string => {
+    switch (unit) {
+      case "ton":
+        return `${formatCurrency(price)}/kg (${formatCurrency(
+          price * 1000
+        )}/ton)`;
+      case "kilogram":
+        return `${formatCurrency(price)}/kg`;
+      case "kubik":
+        return `${formatCurrency(price)}/m³`;
+      default:
+        return `${formatCurrency(price)}/${unit}`;
+    }
   };
 
   const calculatePPH = (amount: number, percentage: number): number => {
@@ -223,11 +262,19 @@ const DOPaymentManagement: React.FC = () => {
       // Initialize form with calculated values
       if (response.data.delivery_order) {
         const do_item = response.data.delivery_order;
-        const calculatedAmount = calculateBillableAmount(
-          safeNumber(
-            do_item.actual_load_quantity || do_item.minimal_load_quantity
-          ),
-          safeNumber(do_item.purchaseOrder?.unit_price || do_item.unit_price)
+        const quantity = safeNumber(
+          do_item.actual_load_quantity || do_item.minimal_load_quantity
+        );
+        const unitPrice = safeNumber(
+          do_item.purchaseOrder?.unit_price || do_item.unit_price
+        );
+        const unit = do_item.unit || "ton"; // Get the unit from DO data
+
+        // 🔥 Use unit-aware calculation instead of buggy one
+        const calculatedAmount = calculateUnitAwareAmount(
+          quantity,
+          unit,
+          unitPrice
         );
 
         setNewInvoice((prev) => ({
@@ -259,15 +306,20 @@ const DOPaymentManagement: React.FC = () => {
 
     try {
       setSubmitting(true);
-      const calculatedAmount = calculateBillableAmount(
-        safeNumber(
-          doData.delivery_order.actual_load_quantity ||
-            doData.delivery_order.minimal_load_quantity
-        ),
-        safeNumber(
-          doData.delivery_order.purchaseOrder?.unit_price ||
-            doData.delivery_order.unit_price
-        )
+      const do_item = doData.delivery_order;
+      const quantity = safeNumber(
+        do_item.actual_load_quantity || do_item.minimal_load_quantity
+      );
+      const unitPrice = safeNumber(
+        do_item.purchaseOrder?.unit_price || do_item.unit_price
+      );
+      const unit = do_item.unit || "ton"; // Get the unit from DO data
+
+      // 🔥 Use unit-aware calculation instead of buggy one
+      const calculatedAmount = calculateUnitAwareAmount(
+        quantity,
+        unit,
+        unitPrice
       );
 
       await apiClient.post(`/ritase/delivery-orders/${doId}/confirm`, {
@@ -365,17 +417,37 @@ const DOPaymentManagement: React.FC = () => {
     }
   };
 
+  const getStatusText = (status: string) => {
+    const statusMap = {
+      awaiting_confirmation: "AWAITING CONFIRMATION",
+      confirmed: "CONFIRMED",
+      lunas: "LUNAS",
+      deposit: "DEPOSIT",
+      proses_tagihan: "PROSES TAGIHAN",
+      partial: "PARTIAL",
+      unpaid: "BELUM LUNAS",
+      overpaid: "OVERPAID",
+    };
+    return (
+      statusMap[status as keyof typeof statusMap] ||
+      status.replace("_", " ").toUpperCase()
+    );
+  };
+
   const getStatusColor = (status: string) => {
     const colors = {
-      awaiting_confirmation: "bg-yellow-100 text-yellow-800 border-yellow-200",
-      confirmed: "bg-blue-100 text-blue-800 border-blue-200",
-      lunas: "bg-green-100 text-green-800 border-green-200",
-      deposit: "bg-orange-100 text-orange-800 border-orange-200",
-      proses_tagihan: "bg-gray-100 text-gray-800 border-gray-200",
+      awaiting_confirmation: "bg-yellow-100 text-yellow-800 border-yellow-300",
+      confirmed: "bg-blue-100 text-blue-800 border-blue-300",
+      lunas: "bg-green-100 text-green-800 border-green-300",
+      deposit: "bg-orange-100 text-orange-800 border-orange-300",
+      proses_tagihan: "bg-purple-100 text-purple-800 border-purple-300",
+      partial: "bg-amber-100 text-amber-800 border-amber-300",
+      unpaid: "bg-red-100 text-red-800 border-red-300",
+      overpaid: "bg-cyan-100 text-cyan-800 border-cyan-300",
     };
     return (
       colors[status as keyof typeof colors] ||
-      "bg-gray-100 text-gray-800 border-gray-200"
+      "bg-gray-100 text-gray-800 border-gray-300"
     );
   };
 
@@ -448,11 +520,15 @@ const DOPaymentManagement: React.FC = () => {
   const unitPrice = safeNumber(
     do_item.purchaseOrder?.unit_price || do_item.unit_price
   );
-  const calculatedBillableAmount = calculateBillableAmount(
+  const unit = do_item.unit || "ton"; // Fallback to ton
+
+  const calculatedBillableAmount = calculateUnitAwareAmount(
     billableQuantity,
+    unit,
     unitPrice
   );
-  const paymentVariance = paymentSummary.total_paid - calculatedBillableAmount;
+  const paymentVariance =
+    paymentSummary.total_paid - paymentSummary.calculated_bill;
   const isOverpaid = paymentVariance > 0;
   const isUnderpaid = paymentVariance < 0;
 
@@ -494,17 +570,11 @@ const DOPaymentManagement: React.FC = () => {
         <div className="flex items-center space-x-3">
           <span
             className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(
-              paymentSummary?.payment_status || "pending"
-            )}`}
-          />
-          <span
-            className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(
               paymentSummary?.payment_status || "unknown"
             )}`}
-          />
-          {(paymentSummary?.payment_status || "UNKNOWN")
-            .replace("_", " ")
-            .toUpperCase()}
+          >
+            {getStatusText(paymentSummary?.payment_status || "unknown")}
+          </span>
         </div>
       </div>
 
@@ -535,13 +605,13 @@ const DOPaymentManagement: React.FC = () => {
                   <div className="flex justify-between text-sm">
                     <span className="text-purple-100">Quantity:</span>
                     <span className="text-white font-medium">
-                      {formatQuantity(billableQuantity)}
+                      {formatQuantityWithUnit(billableQuantity, unit)}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-purple-100">Unit Price:</span>
                     <span className="text-white font-medium">
-                      {formatCurrency(unitPrice)}/ton
+                      {formatUnitPrice(unitPrice, unit)}
                     </span>
                   </div>
                 </div>
@@ -598,7 +668,7 @@ const DOPaymentManagement: React.FC = () => {
               </div>
             </div>
 
-            {/* Payment Progress */}
+            {/* ✅ ENHANCED: Better progress bar with proper colors */}
             <div className="space-y-4">
               <div>
                 <h3 className="text-xl font-semibold text-white mb-2">
@@ -614,18 +684,56 @@ const DOPaymentManagement: React.FC = () => {
                       %
                     </span>
                   </div>
-                  <div className="w-full bg-white/20 rounded-full h-4 mb-3">
+
+                  {/* 🔥 Enhanced Progress Bar */}
+                  <div className="w-full bg-white/20 rounded-full h-4 mb-3 overflow-hidden">
                     <div
-                      className="bg-white h-4 rounded-full transition-all duration-500"
+                      className={`h-4 rounded-full transition-all duration-500 ${
+                        paymentSummary.payment_percentage >= 100
+                          ? "bg-green-400"
+                          : paymentSummary.payment_percentage > 0
+                          ? "bg-blue-400"
+                          : "bg-gray-400"
+                      }`}
                       style={{
                         width: `${Math.min(
-                          paymentSummary.payment_percentage,
+                          Math.max(paymentSummary.payment_percentage, 0),
                           100
                         )}%`,
                       }}
                     ></div>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
+
+                  {/* Payment Status Indicator */}
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center space-x-2">
+                      <div
+                        className={`w-2 h-2 rounded-full ${
+                          paymentSummary.remaining_amount === 0
+                            ? "bg-green-400"
+                            : paymentSummary.remaining_amount < 0
+                            ? "bg-blue-400"
+                            : "bg-yellow-400"
+                        }`}
+                      ></div>
+                      <span className="text-purple-100">
+                        {paymentSummary.remaining_amount === 0
+                          ? "Fully Paid"
+                          : paymentSummary.remaining_amount < 0
+                          ? "Overpaid"
+                          : "Pending"}
+                      </span>
+                    </div>
+                    <span className="text-white font-medium">
+                      {paymentSummary.remaining_amount === 0
+                        ? "✅"
+                        : paymentSummary.remaining_amount < 0
+                        ? "💰"
+                        : "⏳"}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs mt-3">
                     <div>
                       <span className="text-purple-100">Invoices:</span>
                       <div className="text-white font-medium">
@@ -989,8 +1097,8 @@ const DOPaymentManagement: React.FC = () => {
                           <span className="text-gray-600">
                             PPH ({invoice.pph_percentage}%):
                           </span>
-                          <span className="font-medium text-red-600">
-                            -{formatCurrency(invoice.pph_amount)}
+                          <span className="font-medium text-gray-600">
+                            {formatCurrency(invoice.pph_amount)}
                           </span>
                         </div>
                         <div className="flex justify-between font-semibold border-t pt-2">

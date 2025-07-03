@@ -119,6 +119,22 @@ exports.getComprehensiveRitaseTable = async (req, res, next) => {
         offset,
       });
 
+    const calculateUnitAwareTotal = (actualQuantity, unitPrice, unit) => {
+      const quantity = parseFloat(actualQuantity) || 0;
+      const price = parseFloat(unitPrice) || 0;
+
+      switch (unit) {
+        case "kilogram":
+          return quantity * price;
+        case "ton":
+          return quantity * 1000 * price; // 🎯 FIXED: Convert ton to kg
+        case "kubik":
+          return quantity * price; // Direct kubik pricing
+        default:
+          return quantity * price;
+      }
+    };
+
     // 🔥 EXCEL-STYLE CALCULATIONS FOR EACH TRIP
     const processedData = deliveryOrders.map((order) => {
       const orderData = order.toJSON();
@@ -128,7 +144,12 @@ exports.getComprehensiveRitaseTable = async (req, res, next) => {
         parseFloat(orderData.actual_load_quantity) ||
         parseFloat(orderData.minimal_load_quantity);
       const unitPrice = parseFloat(orderData.unit_price) || 0;
-      const grossIncome = actualQuantity * unitPrice;
+
+      const grossIncome = calculateUnitAwareTotal(
+        actualQuantity,
+        unitPrice,
+        orderData.unit || "ton"
+      );
 
       const uangJalan = parseFloat(orderData.trip_allowance) || 0;
       const gaji = parseFloat(orderData.gaji) || 0;
@@ -151,10 +172,27 @@ exports.getComprehensiveRitaseTable = async (req, res, next) => {
       const outstanding = totalInvoiced - totalPaid;
 
       // Efficiency metrics
-      const costPerTon =
+      const costPerUnit =
         actualQuantity > 0 ? operationalCosts / actualQuantity : 0;
-      const revenuePerTon =
+      const revenuePerUnit =
         actualQuantity > 0 ? grossIncome / actualQuantity : 0;
+
+      const unitDisplay = getUnitDisplay(orderData.unit || "ton");
+      const unitContext = {
+        unit: orderData.unit || "ton",
+        unit_display: unitDisplay,
+        pricing_per_unit: `Rp ${unitPrice.toLocaleString(
+          "id-ID"
+        )}/${unitDisplay}`,
+        total_calculation:
+          orderData.unit === "ton"
+            ? `${actualQuantity} ton × 1000 × Rp ${unitPrice.toLocaleString(
+                "id-ID"
+              )}/kg`
+            : `${actualQuantity} ${unitDisplay} × Rp ${unitPrice.toLocaleString(
+                "id-ID"
+              )}/${unitDisplay}`,
+      };
 
       // Route efficiency (basic)
       const route = `${orderData.load_location} → ${orderData.unload_location}`;
@@ -178,13 +216,14 @@ exports.getComprehensiveRitaseTable = async (req, res, next) => {
           operationalCosts,
           netProfit,
           profitMargin,
-          costPerTon,
-          revenuePerTon,
+          costPerUnit,
+          revenuePerUnit,
           totalPaid,
           totalInvoiced,
           outstanding,
           paymentDays,
           route,
+          unit_context: unitContext,
           efficiency: {
             quantityEfficiency:
               (actualQuantity / parseFloat(orderData.minimal_load_quantity)) *
@@ -227,6 +266,15 @@ exports.getComprehensiveRitaseTable = async (req, res, next) => {
   }
 };
 
+const getUnitDisplay = (unit) => {
+  const unitMap = {
+    kilogram: "kg",
+    ton: "ton",
+    kubik: "m³",
+  };
+  return unitMap[unit] || unit;
+};
+
 /**
  * 📊 DASHBOARD METRICS - Financial Overview Cards
  * GET /ritase/dashboard-metrics?startDate=2024-01-01&endDate=2024-12-31
@@ -252,6 +300,29 @@ exports.getDashboardMetrics = async (req, res, next) => {
       ],
     });
 
+    // 🎯 NEW: Unit-aware calculation function
+    const calculateUnitAwareTotal = (actualQuantity, unitPrice, unit) => {
+      const quantity = parseFloat(actualQuantity) || 0;
+      const price = parseFloat(unitPrice) || 0;
+
+      switch (unit) {
+        case "kilogram":
+          return quantity * price;
+        case "ton":
+          return quantity * 1000 * price; // 🎯 FIXED: Convert ton to kg
+        case "kubik":
+          return quantity * price; // Direct kubik pricing
+        default:
+          return quantity * price;
+      }
+    };
+
+    // 🎯 NEW: Unit analytics tracking
+    const unitAnalytics = {
+      unit_distribution: { kilogram: 0, ton: 0, kubik: 0 },
+      total_quantity_by_unit: { kilogram: 0, ton: 0, kubik: 0 },
+    };
+
     // Calculate aggregated metrics
     let totalRevenue = 0;
     let totalOperationalCosts = 0;
@@ -265,7 +336,14 @@ exports.getDashboardMetrics = async (req, res, next) => {
         parseFloat(order.actual_load_quantity) ||
         parseFloat(order.minimal_load_quantity);
       const unitPrice = parseFloat(order.unit_price) || 0;
-      const grossIncome = actualQuantity * unitPrice;
+      const unit = order.unit || "ton"; // Default to ton if unit missing
+
+      // 🎯 FIXED: Use unit-aware calculation
+      const grossIncome = calculateUnitAwareTotal(
+        actualQuantity,
+        unitPrice,
+        unit
+      );
 
       const operationalCosts =
         parseFloat(order.trip_allowance) + parseFloat(order.gaji);
@@ -275,13 +353,19 @@ exports.getDashboardMetrics = async (req, res, next) => {
       totalOperationalCosts += operationalCosts;
       totalNetProfit += netProfit;
 
+      // 🎯 NEW: Track unit analytics
+      if (unitAnalytics.unit_distribution[unit] !== undefined) {
+        unitAnalytics.unit_distribution[unit]++;
+        unitAnalytics.total_quantity_by_unit[unit] += actualQuantity;
+      }
+
       // Payment data
       const orderPaid = order.payments.reduce(
-        (sum, p) => sum + parseFloat(p.payment_amount),
+        (sum, p) => sum + parseFloat(p.payment_amount || 0),
         0
       );
       const orderInvoiced = order.invoices.reduce(
-        (sum, i) => sum + parseFloat(i.net_amount),
+        (sum, i) => sum + parseFloat(i.net_amount || 0),
         0
       );
 
@@ -301,6 +385,7 @@ exports.getDashboardMetrics = async (req, res, next) => {
     });
     const totalVehicleCount = await Vehicle.count();
 
+    // 🎯 NEW: Enhanced response with unit analytics
     res.json({
       success: true,
       data: {
@@ -320,10 +405,28 @@ exports.getDashboardMetrics = async (req, res, next) => {
           totalVehicles: totalVehicleCount,
           completionRate: 100, // Calculate based on assigned vs completed
         },
+        // 🎯 NEW: Unit analytics
+        unit_analytics: unitAnalytics,
         period: {
           startDate,
           endDate,
           generatedAt: new Date(),
+          calculation_method: "unit_aware", // 🎯 NEW: Indicate calculation method
+        },
+        // 🎯 NEW: Summary stats
+        summary: {
+          revenue_per_trip:
+            completedTrips > 0 ? totalRevenue / completedTrips : 0,
+          cost_per_trip:
+            completedTrips > 0 ? totalOperationalCosts / completedTrips : 0,
+          profit_per_trip:
+            completedTrips > 0 ? totalNetProfit / completedTrips : 0,
+          total_trips_by_unit: {
+            weight_based:
+              unitAnalytics.unit_distribution.kilogram +
+              unitAnalytics.unit_distribution.ton,
+            volume_based: unitAnalytics.unit_distribution.kubik,
+          },
         },
       },
     });

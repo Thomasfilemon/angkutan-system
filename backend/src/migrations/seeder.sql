@@ -627,7 +627,7 @@ INSERT INTO delivery_orders (
   494550000, -- Ongkosan: 497,750,000 - 2,500,000 - 700,000 = 494,550,000
   'uploads/surat_jalan/DO-250610-01-surat-jalan.jpg',
   'confirmed',
-  '2025-29-09 15:00:00+07' -- DO dibuat sehari sebelumnya
+  '2025-01-09 15:00:00+07' -- DO dibuat sehari sebelumnya
 ),
 
 -- 🚛 DELIVERY ORDER 2 (Completed: 30 Juni 2025)
