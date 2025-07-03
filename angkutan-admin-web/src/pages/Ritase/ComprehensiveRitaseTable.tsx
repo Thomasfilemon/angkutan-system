@@ -1,9 +1,12 @@
 // src/pages/Ritase/ComprehensiveRitaseTable.tsx
-import React, { useState, useEffect, useRef } from "react";
+// 🎯 ENHANCED: Unit-aware comprehensive ritase table
+
+import React, { useState, useEffect } from "react";
 import Select from "react-select";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import apiClient from "../../api/axiosConfig";
 
+// 🎯 ENHANCED: Add unit field to interface
 interface ComprehensiveRitaseData {
   id: number;
   do_number: string;
@@ -24,6 +27,7 @@ interface ComprehensiveRitaseData {
   item_name: string;
   minimal_load_quantity: number;
   actual_load_quantity: number;
+  unit: string; // 🎯 NEW: Unit field
   unit_price: number;
   trip_allowance: number;
   gaji: number;
@@ -40,6 +44,13 @@ interface ComprehensiveRitaseData {
     outstanding: number;
     paymentDays: number;
     route: string;
+  };
+  // 🎯 NEW: Unit context for enhanced display
+  unit_info?: {
+    unit: string;
+    unit_display: string;
+    pricing_strategy: string;
+    unit_mismatch?: boolean;
   };
 }
 
@@ -58,6 +69,36 @@ interface DashboardMetrics {
     completedTrips: number;
     activeVehicles: number;
     totalVehicles: number;
+    completionRate: number;
+  };
+  // 🎯 ENHANCED: Now required instead of optional
+  unit_analytics: {
+    unit_distribution: {
+      kilogram: number;
+      ton: number;
+      kubik: number;
+    };
+    total_quantity_by_unit: {
+      kilogram: number;
+      ton: number;
+      kubik: number;
+    };
+  };
+  // 🎯 NEW: Additional fields
+  summary?: {
+    revenue_per_trip: number;
+    cost_per_trip: number;
+    profit_per_trip: number;
+    total_trips_by_unit: {
+      weight_based: number;
+      volume_based: number;
+    };
+  };
+  period?: {
+    startDate: string;
+    endDate: string;
+    generatedAt: string;
+    calculation_method: string;
   };
 }
 
@@ -87,7 +128,82 @@ const ComprehensiveRitaseTable: React.FC = () => {
     })),
   ];
 
-  // Fetch purchase orders
+  // 🎯 NEW: Unit helper functions
+  const getUnitDisplay = (unit: string) => {
+    const unitMap = {
+      kilogram: "kg",
+      ton: "ton",
+      kubik: "m³",
+    };
+    return unitMap[unit as keyof typeof unitMap] || unit;
+  };
+
+  // 🎯 NEW: Get pricing context based on unit
+  const getPricingContext = (unit: string, unitPrice: number) => {
+    const unitDisplay = getUnitDisplay(unit);
+
+    switch (unit) {
+      case "kilogram":
+        return {
+          display: `Rp ${unitPrice.toLocaleString("id-ID")}/kg`,
+          per_ton_equivalent: `(Rp ${(unitPrice * 1000).toLocaleString(
+            "id-ID"
+          )}/ton)`,
+          pricing_type: "Weight-based",
+        };
+      case "ton":
+        return {
+          display: `Rp ${unitPrice.toLocaleString("id-ID")}/ton`,
+          per_kg_equivalent: `(Rp ${(unitPrice / 1000).toLocaleString(
+            "id-ID"
+          )}/kg)`,
+          pricing_type: "Weight-based",
+        };
+      case "kubik":
+        return {
+          display: `Rp ${unitPrice.toLocaleString("id-ID")}/m³`,
+          per_ton_equivalent: null,
+          pricing_type: "Volume-based",
+        };
+      default:
+        return {
+          display: `Rp ${unitPrice.toLocaleString("id-ID")}/${unitDisplay}`,
+          per_ton_equivalent: null,
+          pricing_type: "Unknown",
+        };
+    }
+  };
+
+  // 🎯 NEW: Get unit-aware quantity display
+  const getQuantityDisplay = (record: ComprehensiveRitaseData) => {
+    const unitDisplay = getUnitDisplay(record.unit);
+    const quantity = record.calculated.actualQuantity;
+
+    return {
+      main: `${quantity.toFixed(2)} ${unitDisplay}`,
+      conversion:
+        record.unit === "kilogram"
+          ? `(${(quantity / 1000).toFixed(3)} ton)`
+          : record.unit === "ton"
+          ? `(${(quantity * 1000).toLocaleString("id-ID")} kg)`
+          : null,
+    };
+  };
+
+  // 🎯 NEW: Enhanced currency formatter with dots
+  const formatCurrency = (amount: number) => {
+    return `Rp ${parseFloat(String(amount)).toLocaleString("id-ID")}`;
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString("id-ID", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  };
+
+  // Existing useEffect functions remain the same...
   useEffect(() => {
     const fetchPurchaseOrders = async () => {
       try {
@@ -100,7 +216,6 @@ const ComprehensiveRitaseTable: React.FC = () => {
     fetchPurchaseOrders();
   }, []);
 
-  // Fetch vehicles from API
   useEffect(() => {
     const fetchVehicles = async () => {
       try {
@@ -113,7 +228,7 @@ const ComprehensiveRitaseTable: React.FC = () => {
     fetchVehicles();
   }, []);
 
-  // Filters
+  // Filters - add unit filter
   const [filters, setFilters] = useState({
     startDate:
       searchParams.get("startDate") ||
@@ -127,6 +242,7 @@ const ComprehensiveRitaseTable: React.FC = () => {
     driver: searchParams.get("driver") || "all",
     status: searchParams.get("status") || "all",
     paymentStatus: searchParams.get("paymentStatus") || "all",
+    unit: searchParams.get("unit") || "all", // 🎯 NEW: Unit filter
   });
 
   // Sorting
@@ -135,23 +251,7 @@ const ComprehensiveRitaseTable: React.FC = () => {
     direction: "desc" as "asc" | "desc",
   });
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("id-ID", {
-      style: "currency",
-      currency: "IDR",
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("id-ID", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
-  };
-
-  // Fetch data
+  // 🎯 ENHANCED: Fetch data with unit context
   const fetchData = async () => {
     try {
       setLoading(true);
@@ -179,8 +279,24 @@ const ComprehensiveRitaseTable: React.FC = () => {
         },
       });
 
-      setData(tableResponse.data.records);
-      setTotalPages(tableResponse.data.pagination.totalPages);
+      // 🎯 ENHANCED: Process data to ensure unit field exists
+      const processedData = (tableResponse.data.records || []).map(
+        (record: any) => ({
+          ...record,
+          unit: record.unit || "ton", // Default to ton if unit missing
+          unit_info: {
+            unit: record.unit || "ton",
+            unit_display: getUnitDisplay(record.unit || "ton"),
+            pricing_strategy:
+              record.unit === "kubik"
+                ? "Volume-based pricing"
+                : "Weight-based pricing",
+          },
+        })
+      );
+
+      setData(processedData);
+      setTotalPages(tableResponse.data.pagination?.totalPages || 1);
       setMetrics(metricsResponse.data);
     } catch (error) {
       console.error("Error fetching ritase data:", error);
@@ -262,7 +378,7 @@ const ComprehensiveRitaseTable: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
+      {/* Header - same as before */}
       <div className="bg-gradient-to-r from-blue-600 to-purple-600 shadow-xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex justify-between items-center mb-6">
@@ -312,7 +428,6 @@ const ComprehensiveRitaseTable: React.FC = () => {
               </button>
 
               <div className="relative min-w-[260px]">
-                {/* See Table Mode Data for a Specific Selected PO */}
                 <label htmlFor="po-table-select" className="sr-only">
                   Pilih PO untuk Table View
                 </label>
@@ -345,9 +460,9 @@ const ComprehensiveRitaseTable: React.FC = () => {
                     }),
                     placeholder: (base) => ({
                       ...base,
-                      color: "#e5e7eb", // 🎯 CHANGE: Much lighter gray
-                      fontWeight: "500", // 🎯 ADD: Make it bolder
-                      opacity: 0.9, // 🎯 ADD: Slight transparency
+                      color: "#e5e7eb",
+                      fontWeight: "500",
+                      opacity: 0.9,
                     }),
                   }}
                   theme={(theme) => ({
@@ -377,142 +492,232 @@ const ComprehensiveRitaseTable: React.FC = () => {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Financial Dashboard Cards - Replicating TOTAL sheet */}
+        {/* 🎯 ENHANCED: Financial Dashboard Cards with Unit Analytics */}
         {metrics && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
-                    <svg
-                      className="w-4 h-4 text-green-600"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"
-                      />
-                    </svg>
+          <>
+            {/* Main Financial Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                      <svg
+                        className="w-4 h-4 text-green-600"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"
+                        />
+                      </svg>
+                    </div>
+                  </div>
+                  <div className="ml-5 w-0 flex-1">
+                    <dl>
+                      <dt className="text-sm font-medium text-gray-500 truncate">
+                        Total Revenue
+                      </dt>
+                      <dd className="text-lg font-medium text-gray-900">
+                        {formatCurrency(metrics.financial.totalRevenue)}
+                      </dd>
+                      {/* 🎯 NEW: Revenue per trip indicator */}
+                      {metrics.summary && (
+                        <dd className="text-xs text-gray-500">
+                          Avg:{" "}
+                          {formatCurrency(metrics.summary.revenue_per_trip)}
+                          /trip
+                        </dd>
+                      )}
+                    </dl>
                   </div>
                 </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">
-                      Total Revenue
-                    </dt>
-                    <dd className="text-lg font-medium text-gray-900">
-                      {formatCurrency(metrics.financial.totalRevenue)}
-                    </dd>
-                  </dl>
+              </div>
+
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                      <svg
+                        className="w-4 h-4 text-blue-600"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
+                        />
+                      </svg>
+                    </div>
+                  </div>
+                  <div className="ml-5 w-0 flex-1">
+                    <dl>
+                      <dt className="text-sm font-medium text-gray-500 truncate">
+                        Net Profit
+                      </dt>
+                      <dd className="text-lg font-medium text-gray-900">
+                        {formatCurrency(metrics.financial.totalNetProfit)}
+                      </dd>
+                      {/* 🎯 NEW: Profit margin indicator */}
+                      <dd className="text-xs text-gray-500">
+                        Margin: {metrics.financial.profitMargin.toFixed(1)}%
+                      </dd>
+                    </dl>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <div className="w-8 h-8 bg-yellow-100 rounded-lg flex items-center justify-center">
+                      <svg
+                        className="w-4 h-4 text-yellow-600"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                    </div>
+                  </div>
+                  <div className="ml-5 w-0 flex-1">
+                    <dl>
+                      <dt className="text-sm font-medium text-gray-500 truncate">
+                        Outstanding
+                      </dt>
+                      <dd className="text-lg font-medium text-gray-900">
+                        {formatCurrency(metrics.financial.outstandingAmount)}
+                      </dd>
+                      {/* 🎯 NEW: Outstanding percentage */}
+                      <dd className="text-xs text-gray-500">
+                        {metrics.financial.totalInvoiced > 0
+                          ? `${(
+                              (metrics.financial.outstandingAmount /
+                                metrics.financial.totalInvoiced) *
+                              100
+                            ).toFixed(1)}% unpaid`
+                          : "No invoices"}
+                      </dd>
+                    </dl>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
+                      <svg
+                        className="w-4 h-4 text-purple-600"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v4"
+                        />
+                      </svg>
+                    </div>
+                  </div>
+                  <div className="ml-5 w-0 flex-1">
+                    <dl>
+                      <dt className="text-sm font-medium text-gray-500 truncate">
+                        Completed Trips
+                      </dt>
+                      <dd className="text-lg font-medium text-gray-900">
+                        {metrics.operational.completedTrips}
+                      </dd>
+                      {/* 🎯 NEW: Unit breakdown */}
+                      <dd className="text-xs text-gray-500">
+                        {metrics.summary?.total_trips_by_unit.weight_based || 0}{" "}
+                        weight,{" "}
+                        {metrics.summary?.total_trips_by_unit.volume_based || 0}{" "}
+                        volume
+                      </dd>
+                    </dl>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                    <svg
-                      className="w-4 h-4 text-blue-600"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
-                      />
-                    </svg>
+            {/* 🎯 ENHANCED: Unit Distribution Summary */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Unit Distribution & Analytics
+                </h3>
+                {metrics.period?.calculation_method && (
+                  <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
+                    ✓ Unit-aware calculations
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <div className="text-sm text-blue-600 font-medium">
+                    Weight-based (kg)
+                  </div>
+                  <div className="text-2xl font-bold text-blue-900">
+                    {metrics.unit_analytics.unit_distribution.kilogram}
+                  </div>
+                  <div className="text-xs text-blue-600">
+                    {metrics.unit_analytics.total_quantity_by_unit.kilogram.toLocaleString(
+                      "id-ID"
+                    )}{" "}
+                    kg total
                   </div>
                 </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">
-                      Net Profit
-                    </dt>
-                    <dd className="text-lg font-medium text-gray-900">
-                      {formatCurrency(metrics.financial.totalNetProfit)}
-                    </dd>
-                  </dl>
+                <div className="bg-green-50 p-4 rounded-lg">
+                  <div className="text-sm text-green-600 font-medium">
+                    Weight-based (ton)
+                  </div>
+                  <div className="text-2xl font-bold text-green-900">
+                    {metrics.unit_analytics.unit_distribution.ton}
+                  </div>
+                  <div className="text-xs text-green-600">
+                    {metrics.unit_analytics.total_quantity_by_unit.ton.toLocaleString(
+                      "id-ID"
+                    )}{" "}
+                    ton total
+                  </div>
+                </div>
+                <div className="bg-purple-50 p-4 rounded-lg">
+                  <div className="text-sm text-purple-600 font-medium">
+                    Volume-based (m³)
+                  </div>
+                  <div className="text-2xl font-bold text-purple-900">
+                    {metrics.unit_analytics.unit_distribution.kubik}
+                  </div>
+                  <div className="text-xs text-purple-600">
+                    {metrics.unit_analytics.total_quantity_by_unit.kubik.toLocaleString(
+                      "id-ID"
+                    )}{" "}
+                    m³ total
+                  </div>
                 </div>
               </div>
             </div>
-
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <div className="w-8 h-8 bg-yellow-100 rounded-lg flex items-center justify-center">
-                    <svg
-                      className="w-4 h-4 text-yellow-600"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
-                  </div>
-                </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">
-                      Outstanding
-                    </dt>
-                    <dd className="text-lg font-medium text-gray-900">
-                      {formatCurrency(metrics.financial.outstandingAmount)}
-                    </dd>
-                  </dl>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
-                    <svg
-                      className="w-4 h-4 text-purple-600"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v4"
-                      />
-                    </svg>
-                  </div>
-                </div>
-                <div className="ml-5 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">
-                      Completed Trips
-                    </dt>
-                    <dd className="text-lg font-medium text-gray-900">
-                      {metrics.operational.completedTrips}
-                    </dd>
-                  </dl>
-                </div>
-              </div>
-            </div>
-          </div>
+          </>
         )}
 
-        {/* Filters - Smart Controls */}
+        {/* 🎯 ENHANCED: Filters with Unit Filter */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Start Date
@@ -539,6 +744,25 @@ const ComprehensiveRitaseTable: React.FC = () => {
                 }
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
               />
+            </div>
+
+            {/* 🎯 NEW: Unit Filter */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Unit Type
+              </label>
+              <select
+                value={filters.unit}
+                onChange={(e) =>
+                  setFilters((prev) => ({ ...prev, unit: e.target.value }))
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="all">All Units</option>
+                <option value="kilogram">Kilogram (kg)</option>
+                <option value="ton">Ton</option>
+                <option value="kubik">Kubik (m³)</option>
+              </select>
             </div>
 
             <div>
@@ -624,6 +848,7 @@ const ComprehensiveRitaseTable: React.FC = () => {
                     driver: "all",
                     status: "all",
                     paymentStatus: "all",
+                    unit: "all", // 🎯 NEW: Reset unit filter
                   })
                 }
                 className="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
@@ -634,7 +859,7 @@ const ComprehensiveRitaseTable: React.FC = () => {
           </div>
         </div>
 
-        {/* Main Data Table - Replicating Dumptruck sheet */}
+        {/* 🎯 ENHANCED: Main Data Table with Unit-aware columns */}
         <div className="bg-white shadow-xl rounded-lg overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
             <div className="flex justify-between items-center">
@@ -647,6 +872,12 @@ const ComprehensiveRitaseTable: React.FC = () => {
                   {metrics
                     ? formatCurrency(metrics.financial.totalRevenue)
                     : "..."}
+                  {/* 🎯 NEW: Unit context in description */}
+                  {filters.unit !== "all" && (
+                    <span className="ml-2 text-blue-600">
+                      • Filtered by: {getUnitDisplay(filters.unit)}
+                    </span>
+                  )}
                 </p>
               </div>
             </div>
@@ -656,7 +887,6 @@ const ComprehensiveRitaseTable: React.FC = () => {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  {/* Replicating your Excel columns exactly */}
                   <th
                     className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                     onClick={() => handleSort("vehicle.license_plate")}
@@ -681,11 +911,18 @@ const ComprehensiveRitaseTable: React.FC = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Nama Barang
                   </th>
+                  {/* 🎯 ENHANCED: Unit-aware column headers */}
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Qty
+                    Qty & Unit
+                    <div className="text-xs normal-case text-gray-400 font-normal">
+                      Actual quantity with unit
+                    </div>
                   </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Price
+                    Unit Price
+                    <div className="text-xs normal-case text-gray-400 font-normal">
+                      Price per unit
+                    </div>
                   </th>
                   <th
                     className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
@@ -714,83 +951,151 @@ const ComprehensiveRitaseTable: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {data.map((record) => (
-                  <tr key={record.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {record.vehicle.license_plate}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {record.driver.driverProfile.full_name ||
-                        record.driver.username}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatDate(record.created_at)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {record.completed_at
-                        ? formatDate(record.completed_at)
-                        : "-"}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">
-                      {record.calculated.route}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {record.item_name}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                      {record.calculated.actualQuantity.toFixed(2)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                      {formatCurrency(record.unit_price)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-right">
-                      {formatCurrency(record.calculated.grossIncome)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                      {formatCurrency(record.trip_allowance)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                      {formatCurrency(record.gaji)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-right">
-                      <span
-                        className={`${
-                          record.calculated.netProfit >= 0
-                            ? "text-green-600"
-                            : "text-red-600"
-                        }`}
-                      >
-                        {formatCurrency(record.calculated.netProfit)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full border ${getStatusBadge(
-                          record.payment_status
-                        )}`}
-                      >
-                        {record.payment_status.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <button
-                        onClick={() =>
-                          navigate(
-                            `/ritase/delivery-orders/${record.id}/payment`
-                          )
-                        }
-                        className="text-blue-600 hover:text-blue-900"
-                      >
-                        Details
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {data.map((record) => {
+                  // 🎯 CALCULATE: Unit-aware display data
+                  const quantityDisplay = getQuantityDisplay(record);
+                  const pricingContext = getPricingContext(
+                    record.unit,
+                    record.unit_price
+                  );
+
+                  return (
+                    <tr key={record.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {record.vehicle.license_plate}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {record.driver.driverProfile.full_name ||
+                          record.driver.username}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {formatDate(record.created_at)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {record.completed_at
+                          ? formatDate(record.completed_at)
+                          : "-"}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">
+                        {record.calculated.route}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {record.item_name}
+                      </td>
+
+                      {/* 🎯 ENHANCED: Unit-aware quantity display */}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                        <div>
+                          <div className="font-medium text-gray-900">
+                            {quantityDisplay.main}
+                          </div>
+                          {quantityDisplay.conversion && (
+                            <div className="text-xs text-gray-500">
+                              {quantityDisplay.conversion}
+                            </div>
+                          )}
+                          {/* Unit type indicator */}
+                          <div
+                            className={`text-xs px-2 py-1 rounded-full mt-1 inline-block ${
+                              record.unit === "kubik"
+                                ? "bg-purple-100 text-purple-700"
+                                : "bg-blue-100 text-blue-700"
+                            }`}
+                          >
+                            {pricingContext.pricing_type}
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* 🎯 ENHANCED: Unit-aware price display */}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                        <div>
+                          <div className="font-medium text-gray-900">
+                            {pricingContext.display}
+                          </div>
+                          {pricingContext.per_ton_equivalent && (
+                            <div className="text-xs text-gray-500">
+                              {pricingContext.per_ton_equivalent}
+                            </div>
+                          )}
+                          {pricingContext.per_kg_equivalent && (
+                            <div className="text-xs text-gray-500">
+                              {pricingContext.per_kg_equivalent}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-right">
+                        {formatCurrency(record.calculated.grossIncome)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                        {formatCurrency(record.trip_allowance)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                        {formatCurrency(record.gaji)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-right">
+                        <span
+                          className={`${
+                            record.calculated.netProfit >= 0
+                              ? "text-green-600"
+                              : "text-red-600"
+                          }`}
+                        >
+                          {formatCurrency(record.calculated.netProfit)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full border ${getStatusBadge(
+                            record.payment_status
+                          )}`}
+                        >
+                          {record.payment_status.toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <button
+                          onClick={() =>
+                            navigate(
+                              `/ritase/delivery-orders/${record.id}/payment`
+                            )
+                          }
+                          className="text-blue-600 hover:text-blue-900"
+                        >
+                          Details
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
 
-          {/* Pagination */}
+          {/* 🎯 NEW: Unit Information Footer */}
+          {data.length > 0 && (
+            <div className="px-6 py-3 bg-gray-50 border-t border-gray-200">
+              <div className="flex items-center justify-between text-sm text-gray-600">
+                <div>
+                  <span className="font-medium">Data includes:</span>
+                  <span className="ml-2">
+                    {data.filter((d) => d.unit === "kilogram").length} kg-based,{" "}
+                    {data.filter((d) => d.unit === "ton").length} ton-based,{" "}
+                    {data.filter((d) => d.unit === "kubik").length} volume-based
+                    entries
+                  </span>
+                </div>
+                <div>
+                  <span className="font-medium">Total Records:</span>
+                  <span className="ml-2">{data.length}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Pagination - remains the same */}
           {totalPages > 1 && (
             <div className="bg-white px-4 py-3 border-t border-gray-200 sm:px-6">
               <div className="flex items-center justify-between">

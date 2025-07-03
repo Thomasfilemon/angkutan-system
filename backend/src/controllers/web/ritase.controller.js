@@ -598,7 +598,26 @@ exports.getDeliveryOrderPaymentDetail = async (req, res, next) => {
       parseFloat(deliveryOrder.actual_load_quantity) ||
       parseFloat(deliveryOrder.minimal_load_quantity);
     const unitPrice = parseFloat(deliveryOrder.unit_price);
-    const correctTotalAmount = actualQuantity * unitPrice;
+    const unit = deliveryOrder.unit;
+
+    const calculateUnitAwareAmount = (quantity, unit, unitPrice) => {
+      switch (unit) {
+        case "kilogram":
+          return quantity * unitPrice;
+        case "ton":
+          return quantity * 1000 * unitPrice; // Convert ton to kg
+        case "kubik":
+          return quantity * unitPrice; // Direct volume pricing
+        default:
+          throw new Error(`Unknown unit: ${unit}`);
+      }
+    };
+
+    const correctTotalAmount = calculateUnitAwareAmount(
+      actualQuantity,
+      unit,
+      unitPrice
+    );
 
     // Get tax and adjustments
     const totalAdjustments = adjustments.reduce(
@@ -611,13 +630,12 @@ exports.getDeliveryOrderPaymentDetail = async (req, res, next) => {
     );
 
     const paymentSummary = {
-      original_amount: parseFloat(deliveryOrder.ongkosan) || 0,
+      original_amount: correctTotalAmount,
       final_amount:
         parseFloat(deliveryOrder.final_amount) ||
         parseFloat(deliveryOrder.ongkosan) ||
-        0,
-      original_amount: correctTotalAmount,
-      calculated_bill: correctTotalAmount + taxAmount + totalAdjustments,
+        correctTotalAmount,
+      calculated_bill: correctTotalAmount + taxAmount + totalAdjustments, // ✅ Fixed!
       total_invoiced: invoices.reduce(
         (sum, inv) => sum + parseFloat(inv.net_amount),
         0
@@ -626,10 +644,7 @@ exports.getDeliveryOrderPaymentDetail = async (req, res, next) => {
         (sum, pay) => sum + parseFloat(pay.payment_amount),
         0
       ),
-      total_pph: invoices.reduce(
-        (sum, inv) => sum + parseFloat(inv.pph_amount),
-        0
-      ),
+      total_pph: taxAmount,
       remaining_amount: 0, // Will be calculated below
       payment_percentage: 0, // Will be calculated below
       payment_status: latestPaymentStatus, // 👈 USE THE LATEST STATUS
@@ -638,8 +653,9 @@ exports.getDeliveryOrderPaymentDetail = async (req, res, next) => {
 
     paymentSummary.remaining_amount =
       paymentSummary.calculated_bill - paymentSummary.total_paid;
+
     paymentSummary.payment_percentage =
-      paymentSummary.final_amount > 0
+      paymentSummary.calculated_bill > 0
         ? (paymentSummary.total_paid / paymentSummary.calculated_bill) * 100
         : 0;
 

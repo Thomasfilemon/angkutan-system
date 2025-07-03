@@ -108,16 +108,3 @@ router.get(
 );
 
 module.exports = router;
-
-// GET /api/web/ritase/purchase-orders           // List PO with payment status
-// GET /api/web/ritase/purchase-orders/:po_id    // PO detail + DO list
-// GET /api/web/ritase/delivery-orders/:do_id/payment // DO payment management
-
-// POST /api/web/ritase/delivery-orders/:do_id/confirm     // Confirm DO for payment
-// POST /api/web/ritase/delivery-orders/:do_id/invoice     // Create invoice
-// POST /api/web/ritase/delivery-orders/:do_id/payment     // Record payment
-// POST /api/web/ritase/delivery-orders/:do_id/adjustment  // Price adjustment
-
-// GET /api/web/ritase                           // Vehicle dashboard
-// GET /api/web/ritase/vehicles/:vehicle_id      // Vehicle performance
-// GET /api/web/ritase/export                    // Excel export
