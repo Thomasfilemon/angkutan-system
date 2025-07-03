@@ -38,6 +38,7 @@ interface TireData {
   isPressureHigh?: boolean;
   isTemperatureHigh?: boolean;
   needsReplacement?: boolean;
+  updated_at: string;
 }
 
 
@@ -473,6 +474,7 @@ const TireManagementPage = () => {
           <div>Tekanan: {tire.current_pressure} PSI</div>
           <div>Tapak: {tire.tread_depth} mm</div>
           <div>Kondisi: {tire.condition}</div>
+          <div>Terakhir Update: {tire.updated_at ? new Date(tire.updated_at).toLocaleString('id-ID') : '-'}</div>
         </div>
         <button 
           onClick={() => handleRemoveTire(tire)} 

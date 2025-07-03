@@ -4,41 +4,34 @@ const tireRouter = express.Router();
 const tireController = require('../../controllers/web/tireController');
 const { verifyToken, checkRole } = require('../../middlewares/auth.middleware');
 
-tireRouter.use(verifyToken);
+tireRouter.use(verifyToken, checkRole(['admin', 'owner']));
 
-// Get all vehicles for tire management
-tireRouter.get('/vehicles', checkRole(['admin', 'owner']), tireController.getVehiclesForTireManagement);
+// --- Vehicle & Tire Status ---
+tireRouter.get('/vehicles', tireController.getVehiclesForTireManagement);
+tireRouter.get('/vehicles/:vehicleId/status', tireController.getVehicleTireStatus);
 
-// Get tire status for specific vehicle
-tireRouter.get('/vehicles/:vehicleId/status', checkRole(['admin', 'owner']), tireController.getVehicleTireStatus);
+// --- Tire Installation / Removal ---
+// REMOVED: Old install route is deprecated. Use install-instance instead.
+// tireRouter.post('/vehicles/:vehicleId/install', tireController.installTire); 
+tireRouter.post('/vehicles/:vehicleId/install-instance', tireController.installTireInstance);
+tireRouter.delete('/tires/:tireId', tireController.removeTire); // tireId here is vehicle_tires.id
 
-// Install new tire
-tireRouter.post('/vehicles/:vehicleId/install', checkRole(['admin', 'owner']), tireController.installTire);
+// --- Tire Data & Inspection ---
+tireRouter.put('/tires/:tireId', tireController.updateTireData); // tireId here is vehicle_tires.id
+tireRouter.get('/tires/:tireId/inspections', tireController.getTireInspectionHistory);
 
-// Update tire data
-tireRouter.post('/tire-inventory', checkRole(['admin', 'owner']), tireController.createTireInventory);
-tireRouter.put('/tires/:tireId', checkRole(['admin', 'owner']), tireController.updateTireData);
+// --- Tire Inventory Management (Brands/Types) ---
+tireRouter.post('/tire-inventory', tireController.createTireInventory);
+tireRouter.get('/tire-inventory/all', tireController.getAllTireInventory);
+tireRouter.get('/tire-inventory/:id', tireController.getTireInventoryById);
+tireRouter.put('/tire-inventory/:id', tireController.updateTireInventory);
+tireRouter.delete('/tire-inventory/:id', tireController.deleteTireInventory);
+tireRouter.get('/tire-inventory', tireController.getTireInventory); // Get inventory with stock > 0
 
-// Remove tire
-tireRouter.delete('/tires/:tireId', checkRole(['admin', 'owner']), tireController.removeTire);
-
-// Get all tire inventory
-tireRouter.get('/tire-inventory/all', checkRole(['admin', 'owner']), tireController.getAllTireInventory);
-
-// Delete tire inventory
-tireRouter.delete('/tire-inventory/:id', checkRole(['admin', 'owner']), tireController.deleteTireInventory);
-
-tireRouter.get('/tire-inventory/:id', checkRole(['admin', 'owner']), tireController.getTireInventoryById);
-tireRouter.get('/tire-inventory', checkRole(['admin', 'owner']), tireController.getTireInventory);
-tireRouter.put('/tire-inventory/:id', checkRole(['admin', 'owner']), tireController.updateTireInventory);
-
-// Get tire inspection history
-tireRouter.get('/tires/:tireId/inspections', checkRole(['admin', 'owner']), tireController.getTireInspectionHistory);
-
-tireRouter.post('/tire-instances', checkRole(['admin', 'owner']), tireController.createTireInstances);
-tireRouter.get('/tire-instances/available', checkRole(['admin', 'owner']), tireController.getAvailableTireInstances);
-tireRouter.post('/vehicles/:vehicleId/install-instance', checkRole(['admin', 'owner']), tireController.installTireInstance);
-tireRouter.get('/tire-instances/:instanceId/history', checkRole(['admin', 'owner']), tireController.getTireInstanceHistory);
-tireRouter.get('/tire-instances/removed', checkRole(['admin', 'owner']), tireController.getRemovedTireInstances);
+// --- Tire Instance Management (Individual Tires) ---
+tireRouter.post('/tire-instances', tireController.createTireInstances);
+tireRouter.get('/tire-instances/available', tireController.getAvailableTireInstances);
+tireRouter.get('/tire-instances/removed', tireController.getRemovedTireInstances);
+tireRouter.get('/tire-instances/:instanceId/history', tireController.getTireInstanceHistory);
 
 module.exports = tireRouter;

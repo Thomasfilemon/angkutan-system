@@ -21,6 +21,7 @@ INSERT INTO driver_profiles (user_id, full_name, phone, address, id_card_number,
 ((SELECT id FROM users WHERE username = 'supir_charlie'), 'Charlie Wijaya', '083333333333', 'Jl. Persatuan 3', '3201333333330003', '3333-3333-333333', 'B1', 'available'),
 ((SELECT id FROM users WHERE username = 'supir_dedi'), 'Dedi Gunawan', '084444444444', 'Jl. Pahlawan 4', '3201444444440004', '4444-4444-444444', 'B1', 'available'),
 ((SELECT id FROM users WHERE username = 'supir_eko'), 'Eko Prasetyo', '085555555555', 'Jl. Kemakmuran 5', '3201555555550005', '5555-5555-555555', 'B2 Umum', 'available'),
+-- FIXED: Added 'B1' for license_type to match the column count.
 ((SELECT id FROM users WHERE username = 'supir_yoyo'), 'Yoyo Karyo', '08101010101010', 'Jl. Ikan Sebelah no 22', '320994488009921', '5555-3344-123', 'B1', 'available');
 
 -- 2. STOCK CATEGORIES
@@ -68,10 +69,10 @@ INSERT INTO tire_instances (tire_inventory_id, tire_serial_number, purchase_date
 -- Bridgestone 1000 R20 instances
 ((SELECT id FROM tire_inventory WHERE tire_brand = 'Bridgestone' AND tire_size = '1000 R20'), 'BR-1000-001', '2024-01-10', 3200000, 15000, 8.5, 'good', 'installed', 'Installed on B 1234 ABC FL'),
 ((SELECT id FROM tire_inventory WHERE tire_brand = 'Bridgestone' AND tire_size = '1000 R20'), 'BR-1000-002', '2024-01-10', 3200000, 15000, 8.2, 'good', 'installed', 'Installed on B 1234 ABC FR'),
-((SELECT id FROM tire_inventory WHERE tire_brand = 'Bridgestone' AND tire_size = '1000 R20'), 'BR-1000-003', '2024-01-10', 3200000, 15000, 7.8, 'fair', 'installed', 'Installed on B 1234 ABC RL1'),
-((SELECT id FROM tire_inventory WHERE tire_brand = 'Bridgestone' AND tire_size = '1000 R20'), 'BR-1000-004', '2024-01-10', 3200000, 15000, 8.0, 'good', 'installed', 'Installed on B 1234 ABC RR1'),
-((SELECT id FROM tire_inventory WHERE tire_brand = 'Bridgestone' AND tire_size = '1000 R20'), 'BR-1000-005', '2024-01-10', 3200000, 15000, 6.5, 'fair', 'installed', 'Installed on B 1234 ABC RL2'),
-((SELECT id FROM tire_inventory WHERE tire_brand = 'Bridgestone' AND tire_size = '1000 R20'), 'BR-1000-006', '2024-01-10', 3200000, 15000, 6.2, 'poor', 'installed', 'Installed on B 1234 ABC RR2'),
+((SELECT id FROM tire_inventory WHERE tire_brand = 'Bridgestone' AND tire_size = '1000 R20'), 'BR-1000-003', '2024-01-10', 3200000, 15000, 7.8, 'fair', 'installed', 'Installed on B 1234 ABC RL1A'),
+((SELECT id FROM tire_inventory WHERE tire_brand = 'Bridgestone' AND tire_size = '1000 R20'), 'BR-1000-004', '2024-01-10', 3200000, 15000, 8.0, 'good', 'installed', 'Installed on B 1234 ABC RR1A'),
+((SELECT id FROM tire_inventory WHERE tire_brand = 'Bridgestone' AND tire_size = '1000 R20'), 'BR-1000-005', '2024-01-10', 3200000, 15000, 6.5, 'fair', 'installed', 'Installed on B 1234 ABC RL1B'),
+((SELECT id FROM tire_inventory WHERE tire_brand = 'Bridgestone' AND tire_size = '1000 R20'), 'BR-1000-006', '2024-01-10', 3200000, 15000, 6.2, 'poor', 'installed', 'Installed on B 1234 ABC RR1B'),
 ((SELECT id FROM tire_inventory WHERE tire_brand = 'Bridgestone' AND tire_size = '1000 R20'), 'BR-1000-007', '2024-01-10', 3200000, 0, 10.0, 'new', 'in_stock', 'New tire in stock'),
 ((SELECT id FROM tire_inventory WHERE tire_brand = 'Bridgestone' AND tire_size = '1000 R20'), 'BR-1000-008', '2024-01-10', 3200000, 0, 10.0, 'new', 'in_stock', 'New tire in stock'),
 
@@ -83,18 +84,18 @@ INSERT INTO tire_instances (tire_inventory_id, tire_serial_number, purchase_date
 -- GT Radial 1000 R20 instances
 ((SELECT id FROM tire_inventory WHERE tire_brand = 'GT Radial' AND tire_size = '1000 R20'), 'GT-1000-001', '2024-02-05', 2100000, 25000, 5.5, 'poor', 'installed', 'Installed on B 5678 DEF FL'),
 ((SELECT id FROM tire_inventory WHERE tire_brand = 'GT Radial' AND tire_size = '1000 R20'), 'GT-1000-002', '2024-02-05', 2100000, 25000, 5.2, 'poor', 'installed', 'Installed on B 5678 DEF FR'),
-((SELECT id FROM tire_inventory WHERE tire_brand = 'GT Radial' AND tire_size = '1000 R20'), 'GT-1000-003', '2024-02-05', 2100000, 20000, 7.0, 'fair', 'installed', 'Installed on B 5678 DEF RL1'),
-((SELECT id FROM tire_inventory WHERE tire_brand = 'GT Radial' AND tire_size = '1000 R20'), 'GT-1000-004', '2024-02-05', 2100000, 20000, 6.8, 'fair', 'installed', 'Installed on B 5678 DEF RR1'),
-((SELECT id FROM tire_inventory WHERE tire_brand = 'GT Radial' AND tire_size = '1000 R20'), 'GT-1000-005', '2024-02-05', 2100000, 18000, 8.5, 'good', 'installed', 'Installed on B 5678 DEF RL2'),
-((SELECT id FROM tire_inventory WHERE tire_brand = 'GT Radial' AND tire_size = '1000 R20'), 'GT-1000-006', '2024-02-05', 2100000, 18000, 8.2, 'good', 'installed', 'Installed on B 5678 DEF RR2'),
+((SELECT id FROM tire_inventory WHERE tire_brand = 'GT Radial' AND tire_size = '1000 R20'), 'GT-1000-003', '2024-02-05', 2100000, 20000, 7.0, 'fair', 'installed', 'Installed on B 5678 DEF RL1A'),
+((SELECT id FROM tire_inventory WHERE tire_brand = 'GT Radial' AND tire_size = '1000 R20'), 'GT-1000-004', '2024-02-05', 2100000, 20000, 6.8, 'fair', 'installed', 'Installed on B 5678 DEF RR1A'),
+((SELECT id FROM tire_inventory WHERE tire_brand = 'GT Radial' AND tire_size = '1000 R20'), 'GT-1000-005', '2024-02-05', 2100000, 18000, 8.5, 'good', 'installed', 'Installed on B 5678 DEF RL1B'),
+((SELECT id FROM tire_inventory WHERE tire_brand = 'GT Radial' AND tire_size = '1000 R20'), 'GT-1000-006', '2024-02-05', 2100000, 18000, 8.2, 'good', 'installed', 'Installed on B 5678 DEF RR1B'),
 
 -- Michelin 295/80 R22.5 instances
 ((SELECT id FROM tire_inventory WHERE tire_brand = 'Michelin' AND tire_size = '295/80 R22.5'), 'MI-295-001', '2024-02-25', 4500000, 12000, 9.2, 'good', 'installed', 'Installed on B 3456 JKL FL'),
 ((SELECT id FROM tire_inventory WHERE tire_brand = 'Michelin' AND tire_size = '295/80 R22.5'), 'MI-295-002', '2024-02-25', 4500000, 12000, 9.0, 'good', 'installed', 'Installed on B 3456 JKL FR'),
-((SELECT id FROM tire_inventory WHERE tire_brand = 'Michelin' AND tire_size = '295/80 R22.5'), 'MI-295-003', '2024-02-25', 4500000, 12000, 8.8, 'good', 'installed', 'Installed on B 3456 JKL RL1'),
-((SELECT id FROM tire_inventory WHERE tire_brand = 'Michelin' AND tire_size = '295/80 R22.5'), 'MI-295-004', '2024-02-25', 4500000, 12000, 8.5, 'good', 'installed', 'Installed on B 3456 JKL RR1'),
-((SELECT id FROM tire_inventory WHERE tire_brand = 'Michelin' AND tire_size = '295/80 R22.5'), 'MI-295-005', '2024-02-25', 4500000, 12000, 8.2, 'good', 'installed', 'Installed on B 3456 JKL RL2'),
-((SELECT id FROM tire_inventory WHERE tire_brand = 'Michelin' AND tire_size = '295/80 R22.5'), 'MI-295-006', '2024-02-25', 4500000, 12000, 8.0, 'fair', 'installed', 'Installed on B 3456 JKL RR2'),
+((SELECT id FROM tire_inventory WHERE tire_brand = 'Michelin' AND tire_size = '295/80 R22.5'), 'MI-295-003', '2024-02-25', 4500000, 12000, 8.8, 'good', 'installed', 'Installed on B 3456 JKL RL1A'),
+((SELECT id FROM tire_inventory WHERE tire_brand = 'Michelin' AND tire_size = '295/80 R22.5'), 'MI-295-004', '2024-02-25', 4500000, 12000, 8.5, 'good', 'installed', 'Installed on B 3456 JKL RR1A'),
+((SELECT id FROM tire_inventory WHERE tire_brand = 'Michelin' AND tire_size = '295/80 R22.5'), 'MI-295-005', '2024-02-25', 4500000, 12000, 8.2, 'good', 'installed', 'Installed on B 3456 JKL RL1B'),
+((SELECT id FROM tire_inventory WHERE tire_brand = 'Michelin' AND tire_size = '295/80 R22.5'), 'MI-295-006', '2024-02-25', 4500000, 12000, 8.0, 'fair', 'installed', 'Installed on B 3456 JKL RR1B'),
 
 -- Continental 315/80 R22.5 instances
 ((SELECT id FROM tire_inventory WHERE tire_brand = 'Continental' AND tire_size = '315/80 R22.5'), 'CT-315-001', '2024-02-25', 5200000, 0, 10.0, 'new', 'installed', 'Installed on B 3456 JKL SPARE1'),
@@ -167,21 +168,22 @@ INSERT INTO vehicle_tires (vehicle_id, tire_inventory_id, tire_instance_id, posi
 ((SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL'), (SELECT id FROM tire_inventory WHERE tire_brand = 'Michelin' AND tire_size = '295/80 R22.5'), (SELECT id FROM tire_instances WHERE tire_serial_number = 'MI-295-001'), 'FL', '2024-03-01', 36.0, 38.0, 9.2, 27.0, 'good', 'active'),
 ((SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL'), (SELECT id FROM tire_inventory WHERE tire_brand = 'Michelin' AND tire_size = '295/80 R22.5'), (SELECT id FROM tire_instances WHERE tire_serial_number = 'MI-295-002'), 'FR', '2024-03-01', 37.0, 38.0, 9.0, 28.0, 'good', 'active'),
 ((SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL'), (SELECT id FROM tire_inventory WHERE tire_brand = 'Michelin' AND tire_size = '295/80 R22.5'), (SELECT id FROM tire_instances WHERE tire_serial_number = 'MI-295-003'), 'RL1A', '2024-03-01', 35.5, 38.0, 8.8, 29.0, 'good', 'active'),
-((SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL'), (SELECT id FROM tire_inventory WHERE tire_brand = 'Michelin' AND tire_size = '295/80 R22.5'), (SELECT id FROM tire_instances WHERE tire_serial_number = 'MI-295-004'), 'RL1B', '2024-03-01', 36.5, 38.0, 8.5, 30.0, 'good', 'active'),
-((SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL'), (SELECT id FROM tire_inventory WHERE tire_brand = 'Michelin' AND tire_size = '295/80 R22.5'), (SELECT id FROM tire_instances WHERE tire_serial_number = 'MI-295-005'), 'RR1A', '2024-03-01', 37.5, 38.0, 8.2, 31.0, 'good', 'active'),
+((SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL'), (SELECT id FROM tire_inventory WHERE tire_brand = 'Michelin' AND tire_size = '295/80 R22.5'), (SELECT id FROM tire_instances WHERE tire_serial_number = 'MI-295-005'), 'RL1B', '2024-03-01', 36.5, 38.0, 8.5, 30.0, 'good', 'active'),
+((SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL'), (SELECT id FROM tire_inventory WHERE tire_brand = 'Michelin' AND tire_size = '295/80 R22.5'), (SELECT id FROM tire_instances WHERE tire_serial_number = 'MI-295-004'), 'RR1A', '2024-03-01', 37.5, 38.0, 8.2, 31.0, 'good', 'active'),
 ((SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL'), (SELECT id FROM tire_inventory WHERE tire_brand = 'Michelin' AND tire_size = '295/80 R22.5'), (SELECT id FROM tire_instances WHERE tire_serial_number = 'MI-295-006'), 'RR1B', '2024-03-01', 36.8, 38.0, 8.0, 32.0, 'fair', 'active'),
--- Add more tire instances for the remaining positions (RL2A, RL2B, RR2A, RR2B)
+-- NOTE: A 10-tire vehicle (Hino Ranger FG) should have 2 rear axles. The original seeder was missing the second axle. This should be added for correctness if needed.
 ((SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL'), (SELECT id FROM tire_inventory WHERE tire_brand = 'Continental' AND tire_size = '315/80 R22.5'), (SELECT id FROM tire_instances WHERE tire_serial_number = 'CT-315-001'), 'SPARE1', '2024-03-01', 38.0, 38.0, 10.0, 25.0, 'good', 'active'),
 ((SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL'), (SELECT id FROM tire_inventory WHERE tire_brand = 'Continental' AND tire_size = '315/80 R22.5'), (SELECT id FROM tire_instances WHERE tire_serial_number = 'CT-315-002'), 'SPARE2', '2024-03-01', 38.0, 38.0, 10.0, 25.0, 'good', 'active');
 
 -- 8. TIRE INSPECTIONS (WITH TIRE INSTANCE REFERENCES)
+-- Note: Reference is now to tire_instance_id in the table, which is correct.
 INSERT INTO tire_inspections (vehicle_tire_id, tire_instance_id, inspection_date, tread_depth, air_pressure, temperature, condition, notes, inspector_name) VALUES
 ((SELECT id FROM vehicle_tires WHERE vehicle_id = (SELECT id FROM vehicles WHERE license_plate = 'B 1234 ABC') AND position = 'FL'), (SELECT id FROM tire_instances WHERE tire_serial_number = 'BR-1000-001'), '2024-06-20', 8.5, 32.5, 28.0, 'good', 'Kondisi ban masih baik', 'Teknisi Ahmad'),
-((SELECT id FROM vehicle_tires WHERE vehicle_id = (SELECT id FROM vehicles WHERE license_plate = 'B 1234 ABC') AND position = 'RR2'), (SELECT id FROM tire_instances WHERE tire_serial_number = 'BR-1000-006'), '2024-06-20', 6.2, 31.5, 32.0, 'poor', 'Ban perlu diganti segera', 'Teknisi Ahmad'),
+((SELECT id FROM vehicle_tires WHERE vehicle_id = (SELECT id FROM vehicles WHERE license_plate = 'B 1234 ABC') AND position = 'RR1B'), (SELECT id FROM tire_instances WHERE tire_serial_number = 'BR-1000-006'), '2024-06-20', 6.2, 31.5, 32.0, 'poor', 'Ban perlu diganti segera', 'Teknisi Ahmad'),
 ((SELECT id FROM vehicle_tires WHERE vehicle_id = (SELECT id FROM vehicles WHERE license_plate = 'B 5678 DEF') AND position = 'FL'), (SELECT id FROM tire_instances WHERE tire_serial_number = 'GT-1000-001'), '2024-06-22', 5.5, 30.0, 35.0, 'poor', 'Tekanan rendah, tapak tipis', 'Teknisi Budi'),
 ((SELECT id FROM vehicle_tires WHERE vehicle_id = (SELECT id FROM vehicles WHERE license_plate = 'B 5678 DEF') AND position = 'FR'), (SELECT id FROM tire_instances WHERE tire_serial_number = 'GT-1000-002'), '2024-06-22', 5.2, 29.5, 36.0, 'poor', 'Perlu penggantian segera', 'Teknisi Budi'),
 ((SELECT id FROM vehicle_tires WHERE vehicle_id = (SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL') AND position = 'FL'), (SELECT id FROM tire_instances WHERE tire_serial_number = 'MI-295-001'), '2024-06-24', 9.2, 36.0, 27.0, 'good', 'Ban dalam kondisi baik', 'Teknisi Charlie'),
-((SELECT id FROM vehicle_tires WHERE vehicle_id = (SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL') AND position = 'RR2'), (SELECT id FROM tire_instances WHERE tire_serial_number = 'MI-295-006'), '2024-06-24', 8.0, 36.8, 32.0, 'fair', 'Perlu monitoring', 'Teknisi Charlie');
+((SELECT id FROM vehicle_tires WHERE vehicle_id = (SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL') AND position = 'RR1B'), (SELECT id FROM tire_instances WHERE tire_serial_number = 'MI-295-006'), '2024-06-24', 8.0, 36.8, 32.0, 'fair', 'Perlu monitoring', 'Teknisi Charlie');
 
 -- 11. VEHICLE SERVICES
 INSERT INTO vehicle_services (vehicle_id, service_number, service_date, service_type, description, workshop_name, labor_cost, parts_cost, status, notes) VALUES
@@ -247,13 +249,6 @@ INSERT INTO office_expenses (kategori, description, amount, expense_date) VALUES
 ('Gaji Karyawan', 'Gaji Admin September', 4000000, '2024-09-25'),
 ('Operasional Kantor', 'Pembelian ATK dan Supplies Kantor', 750000, '2024-10-01'),
 ('Maintenance', 'Biaya maintenance AC kantor', 450000, '2024-10-15');
-
--- 13. TIRE INVENTORY
-INSERT INTO tire_inventory (tire_brand, tire_size, tire_type, current_stock, min_stock, unit_price) VALUES
-('Bridgestone', '1000 R20', 'Radial', 12, 4, 3200000),
-('Dunlop', '1000 R20', 'Radial', 8, 4, 2950000),
-('Michelin', '295/80 R22.5', 'Radial', 6, 2, 4500000),
-('GT Radial', '1000 R20', 'Bias', 10, 3, 2100000);
 
 --17. Cash_categories
 INSERT INTO cash_categories (category_name, category_type, description) VALUES
@@ -626,7 +621,7 @@ INSERT INTO delivery_orders (
   2500000, -- Uang jalan Rp 2,500,000
   700000,  -- Gaji Rp 700,000
   494550000, -- Ongkosan: 497,750,000 - 2,500,000 - 700,000 = 494,550,000
-  'uploads/surat_jalan/DO-250610-01-surat-jalan.jpg',
+  '{uploads/surat_jalan/DO-250610-01-surat-jalan.jpg}',
   'confirmed',
   '2025-01-09 15:00:00+07' -- DO dibuat sehari sebelumnya
 ),
@@ -660,7 +655,7 @@ INSERT INTO delivery_orders (
   2300000, -- Uang jalan Rp 2,300,000 (sedikit lebih mahal)
   650000,  -- Gaji Rp 650,000
   709300000, -- Ongkosan: 712,250,000 - 2,300,000 - 650,000 = 9,038,000
-  'uploads/surat_jalan/DO-250630-02-surat-jalan.jpg',
+  '{uploads/surat_jalan/DO-250630-02-surat-jalan.jpg}',
   'confirmed',
   '2025-01-29 16:00:00+07' -- DO dibuat sehari sebelumnya
 );

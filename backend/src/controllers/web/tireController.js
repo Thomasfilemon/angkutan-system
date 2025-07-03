@@ -5,7 +5,7 @@ const { Op } = require('sequelize');
 // Update tire data (pressure, temperature, etc.)
 exports.updateTireData = async (req, res, next) => {
   try {
-    const { tireId } = req.params;
+    const { tireId } = req.params; // This is VehicleTire ID
     const { current_pressure, temperature, tread_depth, condition, notes } = req.body;
     
     const tire = await VehicleTire.findByPk(tireId);
@@ -13,28 +13,29 @@ exports.updateTireData = async (req, res, next) => {
     if (!tire) {
       return res.status(404).json({
         success: false,
-        message: 'Tire not found'
+        message: 'Vehicle tire installation not found'
       });
     }
 
     // Update tire data
     await tire.update({
-      current_pressure: current_pressure || tire.current_pressure,
-      temperature: temperature || tire.temperature,
-      tread_depth: tread_depth || tire.tread_depth,
-      condition: condition || tire.condition,
-      notes: notes || tire.notes
+      current_pressure: current_pressure ?? tire.current_pressure,
+      temperature: temperature ?? tire.temperature,
+      tread_depth: tread_depth ?? tire.tread_depth,
+      condition: condition ?? tire.condition,
+      notes: notes ?? tire.notes
     });
 
-    // Create inspection record
+    // Create inspection record for history
     await TireInspection.create({
       vehicle_tire_id: tire.id,
+      tire_instance_id: tire.tire_instance_id,
       inspection_date: new Date(),
-      tread_depth: tread_depth || tire.tread_depth,
-      air_pressure: current_pressure || tire.current_pressure,
-      temperature: temperature || tire.temperature,
-      condition: condition || tire.condition,
-      notes: notes,
+      tread_depth: tread_depth ?? tire.tread_depth,
+      air_pressure: current_pressure ?? tire.current_pressure,
+      temperature: temperature ?? tire.temperature,
+      condition: condition ?? tire.condition,
+      notes: `Inspection: ${notes || 'Routine update'}`,
       inspector_name: req.user?.username || 'System'
     });
 
@@ -48,84 +49,12 @@ exports.updateTireData = async (req, res, next) => {
   }
 };
 
-// Install new tire on vehicle
-exports.installTire = async (req, res, next) => {
-  try {
-    const { vehicleId } = req.params;
-    const { tire_inventory_id, position, recommended_pressure, mileage_installed } = req.body;
-    
-    const vehicle = await Vehicle.findByPk(vehicleId);
-    if (!vehicle) {
-      return res.status(404).json({
-        success: false,
-        message: 'Vehicle not found'
-      });
-    }
-
-    // Check if position is valid for this vehicle
-    const validPositions = vehicle.getTirePositions();
-    if (!validPositions.includes(position)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid tire position for this vehicle'
-      });
-    }
-
-    // Check if position is already occupied
-    const existingTire = await VehicleTire.findOne({
-      where: {
-        vehicle_id: vehicleId,
-        position: position,
-        status: 'active'
-      }
-    });
-
-    if (existingTire) {
-      return res.status(400).json({
-        success: false,
-        message: 'Position already has an active tire'
-      });
-    }
-
-    // Create new tire installation
-    const newTire = await VehicleTire.create({
-      vehicle_id: vehicleId,
-      tire_inventory_id: tire_inventory_id || null,
-      position,
-      install_date: new Date(),
-      mileage_installed: mileage_installed || 0,
-      recommended_pressure: recommended_pressure || 35,
-      current_pressure: recommended_pressure || 35,
-      tread_depth: 10.0, // New tire
-      temperature: 25.0,
-      condition: 'good',
-      status: 'active'
-    });
-
-    // Update inventory if tire is from stock
-    if (tire_inventory_id) {
-      const inventory = await TireInventory.findByPk(tire_inventory_id);
-      if (inventory && inventory.current_stock > 0) {
-        await inventory.update({
-          current_stock: inventory.current_stock - 1
-        });
-      }
-    }
-
-    res.status(201).json({
-      success: true,
-      message: 'Tire installed successfully',
-      data: newTire
-    });
-  } catch (err) {
-    next(err);
-  }
-};
+// REMOVED: The old installTire function is deprecated in favor of installTireInstance.
 
 // Remove tire from vehicle
 exports.removeTire = async (req, res, next) => {
   try {
-    const { tireId } = req.params;
+    const { tireId } = req.params; // This is VehicleTire ID
     const { reason, notes } = req.body;
     
     const vehicleTire = await VehicleTire.findByPk(tireId, {
@@ -140,28 +69,38 @@ exports.removeTire = async (req, res, next) => {
     if (!vehicleTire) {
       return res.status(404).json({
         success: false,
-        message: 'Tire not found'
+        message: 'Tire installation record not found'
       });
+    }
+
+    if (vehicleTire.status === 'removed') {
+        return res.status(400).json({
+            success: false,
+            message: 'This tire has already been removed.'
+        });
     }
 
     // Update vehicle tire status to removed
     await vehicleTire.update({
       status: 'removed',
       remove_date: new Date(),
-      notes: `${vehicleTire.notes || ''}\nRemoved: ${reason || 'No reason specified'}. ${notes || ''}`
+      notes: `${vehicleTire.notes || ''}\nRemoved: ${reason || 'No reason specified'}. ${notes || ''}`.trim()
     });
 
-    // Update tire instance status to removed (so it can be reused)
+    // Update tire instance status to 'removed' so it becomes available in "Ban Bekas" inventory
     if (vehicleTire.tireInstance) {
       await vehicleTire.tireInstance.update({
         status: 'removed',
-        notes: `${vehicleTire.tireInstance.notes || ''}\nRemoved from vehicle on ${new Date().toISOString()}`
+        notes: `${vehicleTire.tireInstance.notes || ''}\nRemoved from vehicle on ${new Date().toISOString()}`.trim()
       });
+    } else {
+       // This case should not happen with the new NOT NULL constraint, but as a safeguard:
+       console.warn(`VehicleTire ID ${vehicleTire.id} was removed but had no associated TireInstance.`);
     }
 
     res.json({
       success: true,
-      message: 'Tire removed successfully and available for reuse'
+      message: 'Tire removed successfully and is now available in used tire inventory.'
     });
   } catch (err) {
     next(err);
@@ -210,6 +149,16 @@ exports.deleteTireInventory = async (req, res, next) => {
         message: 'Tire not found'
       });
     }
+
+    // Check if there are any associated tire instances before deleting
+    const instanceCount = await TireInstance.count({ where: { tire_inventory_id: id } });
+    if (instanceCount > 0) {
+        return res.status(400).json({
+            success: false,
+            message: `Cannot delete inventory. ${instanceCount} tire instances are associated with it.`
+        });
+    }
+
 
     await tire.destroy();
 
@@ -288,10 +237,10 @@ exports.updateTireInventory = async (req, res, next) => {
   }
 };
 
-// Get tire inspection history
+// Get tire inspection history for a specific vehicle tire installation
 exports.getTireInspectionHistory = async (req, res, next) => {
   try {
-    const { tireId } = req.params;
+    const { tireId } = req.params; // This is VehicleTire ID
     
     const inspections = await TireInspection.findAll({
       where: { vehicle_tire_id: tireId },
@@ -312,7 +261,7 @@ exports.getTireInspectionHistory = async (req, res, next) => {
 exports.getVehiclesForTireManagement = async (req, res, next) => {
   try {
     const vehicles = await Vehicle.findAll({
-      attributes: ['id', 'license_plate', 'type', 'tire_count', 'spare_tire_count'],
+      attributes: ['id', 'license_plate', 'type', 'tire_count', 'spare_tire_count', 'current_mileage'],
       order: [['license_plate', 'ASC']]
     });
 
@@ -323,7 +272,8 @@ exports.getVehiclesForTireManagement = async (req, res, next) => {
       display_name: `${vehicle.license_plate} (${vehicle.type})`,
       tire_count: vehicle.tire_count,
       spare_tire_count: vehicle.spare_tire_count,
-      total_tires: vehicle.tire_count + vehicle.spare_tire_count
+      total_tires: vehicle.tire_count + vehicle.spare_tire_count,
+      current_mileage: vehicle.current_mileage
     }));
 
     res.json({
@@ -348,24 +298,32 @@ exports.createTireInstances = async (req, res, next) => {
     }
 
     const instances = [];
+    const createdSerialNumbers = new Set();
+
     for (let i = 1; i <= quantity; i++) {
-      const serialNumber = `${inventory.tire_brand.substring(0, 2).toUpperCase()}-${inventory.tire_size.replace(/[^A-Z0-9]/g, '')}-${Date.now()}-${i}`;
-      
-      const instance = await TireInstance.create({
-        tire_inventory_id,
-        tire_serial_number: serialNumber,
-        purchase_date: purchase_date || new Date(),
-        purchase_price: purchase_price || inventory.unit_price,
-        condition: 'new',
-        status: 'in_stock'
-      });
-      instances.push(instance);
+        // Generate a unique serial number
+        let serialNumber;
+        do {
+            serialNumber = `${inventory.tire_brand.substring(0, 3).toUpperCase()}${inventory.tire_size.replace(/[^0-9]/g, '')}-${Date.now().toString().slice(-6)}-${i}`;
+        } while (createdSerialNumbers.has(serialNumber));
+        
+        createdSerialNumbers.add(serialNumber);
+
+        const instance = await TireInstance.create({
+            tire_inventory_id,
+            tire_serial_number: serialNumber,
+            purchase_date: purchase_date || new Date(),
+            purchase_price: purchase_price || inventory.unit_price,
+            condition: 'new',
+            status: 'in_stock'
+        });
+        instances.push(instance);
     }
 
-    // Update inventory stock
-    await inventory.update({
-      current_stock: inventory.current_stock + quantity
-    });
+
+    // Update inventory stock by adding the quantity of new instances
+    await inventory.increment('current_stock', { by: quantity });
+
 
     res.status(201).json({
       success: true,
@@ -377,20 +335,20 @@ exports.createTireInstances = async (req, res, next) => {
   }
 };
 
-// Get available tire instances for installation
-// src/controllers/web/tireController.js - Add this method
+// Get available tire instances for installation. Can be filtered by status.
 exports.getAvailableTireInstances = async (req, res, next) => {
   try {
     const { tire_inventory_id, status } = req.query;
     
     let whereClause = {
-      condition: ['new', 'good', 'fair'] // Only usable tires
+      condition: { [Op.in]: ['new', 'good', 'fair'] } // Only usable tires
     };
     
     if (status) {
       whereClause.status = status;
     } else {
-      whereClause.status = ['in_stock', 'removed'];
+      // Default to showing all available (new and used)
+      whereClause.status = { [Op.in]: ['in_stock', 'removed'] };
     }
     
     if (tire_inventory_id) {
@@ -408,6 +366,7 @@ exports.getAvailableTireInstances = async (req, res, next) => {
         {
           model: VehicleTire,
           as: 'installations',
+          attributes: ['remove_date'],
           include: [
             {
               model: Vehicle,
@@ -415,8 +374,9 @@ exports.getAvailableTireInstances = async (req, res, next) => {
               attributes: ['license_plate']
             }
           ],
-          order: [['created_at', 'DESC']],
-          limit: 1
+          order: [['remove_date', 'DESC']],
+          limit: 1,
+          required: false,
         }
       ],
       order: [['status', 'ASC'], ['condition', 'ASC'], ['created_at', 'ASC']]
@@ -460,7 +420,7 @@ exports.installTireInstance = async (req, res, next) => {
     if (!['in_stock', 'removed'].includes(tireInstance.status)) {
       return res.status(400).json({
         success: false,
-        message: 'Tire instance is not available for installation'
+        message: 'Tire instance is not available for installation (current status: ' + tireInstance.status + ')'
       });
     }
 
@@ -469,11 +429,11 @@ exports.installTireInstance = async (req, res, next) => {
     if (!validPositions.includes(position)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid tire position for this vehicle'
+        message: `Invalid tire position '${position}' for this vehicle.`
       });
     }
 
-    // Check if position is already occupied
+    // Check if position is already occupied by an active tire
     const existingTire = await VehicleTire.findOne({
       where: {
         vehicle_id: vehicleId,
@@ -485,18 +445,18 @@ exports.installTireInstance = async (req, res, next) => {
     if (existingTire) {
       return res.status(400).json({
         success: false,
-        message: 'Position already has an active tire'
+        message: `Position '${position}' already has an active tire.`
       });
     }
 
-    // Create vehicle tire installation
+    // Create vehicle tire installation record
     const vehicleTire = await VehicleTire.create({
       vehicle_id: vehicleId,
       tire_inventory_id: tireInstance.tire_inventory_id,
       tire_instance_id: tire_instance_id,
       position,
       install_date: new Date(),
-      mileage_installed: mileage_installed || 0,
+      mileage_installed: mileage_installed || vehicle.current_mileage || 0,
       recommended_pressure: recommended_pressure || 35,
       current_pressure: recommended_pressure || 35,
       tread_depth: tireInstance.current_tread_depth,
@@ -505,11 +465,20 @@ exports.installTireInstance = async (req, res, next) => {
       status: 'active'
     });
 
-    // Update tire instance status
+    // Update tire instance status to 'installed'
     await tireInstance.update({
       status: 'installed',
-      total_mileage: tireInstance.total_mileage + (mileage_installed || 0)
     });
+
+    // If the instance was new ('in_stock'), decrement the inventory count.
+    // If it was 'removed', the stock count is not affected.
+    if(tireInstance.status === 'in_stock'){
+      const inventory = await TireInventory.findByPk(tireInstance.tire_inventory_id);
+      if (inventory) {
+        await inventory.decrement('current_stock', { by: 1 });
+      }
+    }
+
 
     res.status(201).json({
       success: true,
@@ -572,7 +541,7 @@ exports.getRemovedTireInstances = async (req, res, next) => {
     const removedTires = await TireInstance.findAll({
       where: {
         status: 'removed',
-        condition: ['good', 'fair'] // Only show reusable tires
+        condition: { [Op.in]: ['good', 'fair'] } // Only show reusable tires
       },
       include: [
         {
@@ -591,7 +560,8 @@ exports.getRemovedTireInstances = async (req, res, next) => {
             }
           ],
           order: [['remove_date', 'DESC']],
-          limit: 1
+          limit: 1,
+          required: false
         }
       ],
       order: [['updated_at', 'DESC']]
@@ -606,7 +576,7 @@ exports.getRemovedTireInstances = async (req, res, next) => {
   }
 };
 
-// Update the existing getVehicleTireStatus to include tire instance data
+// Get vehicle tire status with tire instance data
 exports.getVehicleTireStatus = async (req, res, next) => {
   try {
     const { vehicleId } = req.params;
@@ -616,27 +586,22 @@ exports.getVehicleTireStatus = async (req, res, next) => {
         {
           model: VehicleTire,
           as: 'tires',
+          required: false,
+          where: { status: 'active' },
           include: [
-            {
-              model: TireInventory,
-              as: 'tireInventory',
-              required: false
-            },
             {
               model: TireInstance,
               as: 'tireInstance',
-              required: false,
+              required: true, // This ensures we only get installations with a valid instance
               include: [
                 {
                   model: TireInventory,
                   as: 'tireInventory',
-                  required: false
+                  required: true
                 }
               ]
             }
-          ],
-          where: { status: 'active' },
-          required: false
+          ]
         }
       ]
     });
@@ -649,17 +614,9 @@ exports.getVehicleTireStatus = async (req, res, next) => {
     }
 
     const expectedPositions = vehicle.getTirePositions();
-
-    console.log('=== BACKEND DEBUG ===');
-    console.log('Vehicle ID:', vehicleId);
-    console.log('Tire Count:', vehicle.tire_count);
-    console.log('Spare Count:', vehicle.spare_tire_count);
-    console.log('Generated Positions:', expectedPositions);
-    console.log('Active Tires Count:', vehicle.tires?.length || 0);
-    console.log('===================');
-
     const tireStatusMap = {};
     
+    // Initialize all expected positions as empty
     expectedPositions.forEach(position => {
       tireStatusMap[position] = {
         position,
@@ -668,26 +625,28 @@ exports.getVehicleTireStatus = async (req, res, next) => {
       };
     });
     
+    // Fill in the installed tires
     vehicle.tires.forEach(tire => {
-      if (tireStatusMap[tire.position]) {
-        const tireInfo = tire.tireInstance?.tireInventory || tire.tireInventory;
+      if (tireStatusMap[tire.position] && tire.tireInstance) {
+        const tireInfo = tire.tireInstance.tireInventory;
         
         tireStatusMap[tire.position] = {
           position: tire.position,
           installed: true,
           tire: {
-            id: tire.id,
+            id: tire.id, // This is the vehicle_tire ID
             instance_id: tire.tire_instance_id,
-            serial_number: tire.tireInstance?.tire_serial_number,
+            serial_number: tire.tireInstance.tire_serial_number,
             current_pressure: tire.current_pressure,
             recommended_pressure: tire.recommended_pressure,
             temperature: tire.temperature,
             tread_depth: tire.tread_depth,
             condition: tire.condition,
             install_date: tire.install_date,
-            brand: tireInfo?.tire_brand || 'Unknown',
-            size: tireInfo?.tire_size || 'Unknown',
-            total_mileage: tire.tireInstance?.total_mileage || 0,
+            updated_at: tire.updated_at, // Added update date
+            brand: tireInfo.tire_brand,
+            size: tireInfo.tire_size,
+            total_mileage: tire.tireInstance.total_mileage,
             isPressureLow: tire.isPressureLow(),
             isPressureHigh: tire.isPressureHigh(),
             isTemperatureHigh: tire.isTemperatureHigh(),
@@ -704,13 +663,11 @@ exports.getVehicleTireStatus = async (req, res, next) => {
         type: vehicle.type,
         tire_count: vehicle.tire_count,
         spare_tire_count: vehicle.spare_tire_count,
-        tire_positions: expectedPositions // ADD this for frontend debugging
+        tire_positions: expectedPositions,
+        current_mileage: vehicle.current_mileage
       },
       tires: Object.values(tireStatusMap)
     };
-
-    // DEBUG: Log final response
-    console.log('Final Response Tires:', responseData.tires.map(t => t.position));
     
     res.json({
       success: true,
