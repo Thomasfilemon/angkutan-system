@@ -527,3 +527,266 @@ INSERT INTO delivery_order_payment_history (
  'Payment completed via transfer TRF-20250705-002',
  (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1),
  '2025-07-05 16:45:00+07');
+
+-- ===============================================
+-- 🎯 NEW SEEDER: PO January 2025 + 2 Completed DOs + 3 On-Going DOs
+-- Unit: ton (weight-based pricing)
+-- Driver: Dedi (supir_yoyo)
+-- ===============================================
+
+-- 🏗️ NEW PURCHASE ORDER (Unit: kubik)
+INSERT INTO purchase_orders (
+  po_number, 
+  customer_name, 
+  item_name, 
+  total_quantity, 
+  unit, 
+  unit_price, 
+  total_amount, 
+  load_location, 
+  unload_location, 
+  order_date, 
+  status,
+  notes
+) VALUES (
+  'PO/ADRO/07/2025-01', 
+  'PT ADARO MINERAL', 
+  'Batu Split', 
+  1000.00, 
+  'ton', 
+  11000, -- Rp 11,000 per kg
+  11000000000, -- 1000 ton × Rp 11,000/kg × 1000  = Rp 11,000,000,000
+  'Gunung Kunyit, Bandar Lampung',
+  'Proyek Pembangunan Smelter, Serang',
+  '2025-01-01',
+  'partial', -- Status completed karena semua DO selesai
+  'Batu Split Untuk Pembangunan Smelter'
+);
+
+-- 🚛 DELIVERY ORDER 1 (Completed: 10 Juni 2025)
+INSERT INTO delivery_orders (
+  purchase_order_id, 
+  driver_id, 
+  vehicle_id, 
+  do_number, 
+  customer_name, 
+  item_name, 
+  minimal_load_quantity, 
+  actual_load_quantity, 
+  unit,
+  unit_price, 
+  total_amount,
+  payment_status, 
+  due_date, 
+  load_location, 
+  load_latitude, 
+  load_longitude, 
+  unload_location, 
+  unload_latitude, 
+  unload_longitude, 
+  status, 
+  departed_to_load_location_at, 
+  arrived_at_load_location_at, 
+  departed_from_load_location_at, 
+  arrived_at_unload_location_at, 
+  departed_from_unload_location_at, 
+  completed_at, 
+  trip_allowance, 
+  gaji, 
+  ongkosan,
+  surat_jalan_photo_url,
+  payment_confirmation_status,
+  created_at
+) VALUES (
+  (SELECT id FROM purchase_orders WHERE po_number = 'PO/ADRO/07/2025-01'),
+  (SELECT id FROM users WHERE username = 'supir_yoyo'),
+  (SELECT id FROM vehicles WHERE license_plate = 'BE 9090 AC'),
+  'DO-250110-01',
+  'PT ADARO MINERALS',
+  'BATU SPLIT',
+  45.00, -- Target: 45 ton
+  45.25, -- Actual: 45.25 ton (slight excess)
+  'ton',
+  11000, -- Rp 11,000 per kg
+  497750000, -- 45.25 ton × Rp 11,000/kg × 1,000 = Rp 497,750,000
+  'lunas',
+  '2025-03-10',
+  'Quarry Sukabumi, Jawa Barat',
+  -6.9175, 106.9270, -- Sukabumi coordinates
+  'Proyek Perumahan Serpong, Tangerang Selatan',
+  -6.2615, 106.6900, -- Serpong coordinates
+  'completed',
+  '2025-01-10 06:00:00+07', -- Berangkat pagi
+  '2025-01-10 09:30:00+07', -- Sampai lokasi muat
+  '2025-01-10 11:00:00+07', -- Selesai muat
+  '2025-01-10 14:30:00+07', -- Sampai lokasi bongkar
+  '2025-01-10 16:00:00+07', -- Selesai bongkar
+  '2025-01-10 18:00:00+07', -- Selesai trip
+  2500000, -- Uang jalan Rp 2,500,000
+  700000,  -- Gaji Rp 700,000
+  494550000, -- Ongkosan: 497,750,000 - 2,500,000 - 700,000 = 494,550,000
+  'uploads/surat_jalan/DO-250610-01-surat-jalan.jpg',
+  'confirmed',
+  '2025-29-09 15:00:00+07' -- DO dibuat sehari sebelumnya
+),
+
+-- 🚛 DELIVERY ORDER 2 (Completed: 30 Juni 2025)
+(
+  (SELECT id FROM purchase_orders WHERE po_number = 'PO/ADRO/07/2025-01'),
+  (SELECT id FROM users WHERE username = 'supir_yoyo'),
+  (SELECT id FROM vehicles WHERE license_plate = 'BE 9090 AC'),
+  'DO-250129-02',
+  'PT ADARO MINERALS',
+  'Batu Split',
+  65.00, -- Target: 65 ton
+  64.75, -- Actual: 64.75 ton (slight shortage)
+  'ton',
+  11000, -- Rp 11,000 per kg
+  712250000, -- 64.75 ton × Rp 11,000/kg × 1,000 = Rp 712,250,000
+  'lunas',
+  '2025-02-10',
+  'Quarry Sukabumi, Jawa Barat',
+  -6.9175, 106.9270, -- Sukabumi coordinates
+  'Proyek Perumahan Serpong, Tangerang Selatan',
+  -6.2615, 106.6900, -- Serpong coordinates
+  'completed',
+  '2025-01-30 05:30:00+07', -- Berangkat lebih pagi
+  '2025-01-30 09:00:00+07', -- Sampai lokasi muat
+  '2025-01-30 10:30:00+07', -- Selesai muat
+  '2025-01-30 14:00:00+07', -- Sampai lokasi bongkar
+  '2025-01-30 15:30:00+07', -- Selesai bongkar
+  '2025-01-30 17:30:00+07', -- Selesai trip
+  2300000, -- Uang jalan Rp 2,300,000 (sedikit lebih mahal)
+  650000,  -- Gaji Rp 650,000
+  709300000, -- Ongkosan: 712,250,000 - 2,300,000 - 650,000 = 9,038,000
+  'uploads/surat_jalan/DO-250630-02-surat-jalan.jpg',
+  'confirmed',
+  '2025-01-29 16:00:00+07' -- DO dibuat sehari sebelumnya
+);
+
+-- 💰 DRIVER EXPENSES untuk kedua DO
+INSERT INTO driver_expenses (delivery_order_id, driver_id, jenis, amount, notes) VALUES
+-- Expenses untuk DO-250110-01
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250110-01'), 
+ (SELECT id FROM users WHERE username = 'supir_yoyo'), 
+ 'bbm', 850000, 'Solar + Pertamax untuk perjalanan'),
+
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250110-01'), 
+ (SELECT id FROM users WHERE username = 'supir_yoyo'), 
+ 'makan', 125000, 'Makan siang + minum di rest area'),
+
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250110-01'), 
+ (SELECT id FROM users WHERE username = 'supir_yoyo'), 
+ 'tol', 75000, 'Tol Jagorawi + Serpong'),
+
+-- Expenses untuk DO-250129-02
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250129-02'), 
+ (SELECT id FROM users WHERE username = 'supir_yoyo'), 
+ 'bbm', 900000, 'Solar + Pertamax untuk perjalanan kedua'),
+
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250129-02'), 
+ (SELECT id FROM users WHERE username = 'supir_yoyo'), 
+ 'makan', 140000, 'Makan siang + snack di perjalanan'),
+
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250129-02'), 
+ (SELECT id FROM users WHERE username = 'supir_dedi'), 
+ 'tol', 80000, 'Tol Jagorawi + Serpong (tarif naik)'),
+
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250129-02'), 
+ (SELECT id FROM users WHERE username = 'supir_dedi'), 
+ 'parkir', 25000, 'Parkir di lokasi proyek');
+
+-- 🧾 SAMPLE INVOICE DATA (opsional, untuk testing payment system)
+INSERT INTO delivery_order_invoices (
+  delivery_order_id,
+  invoice_number,
+  invoice_date,
+  invoice_amount,
+  due_date,
+  pph_percentage,
+  pph_amount,
+  net_amount,
+  status,
+  notes,
+  created_by
+) VALUES
+-- Invoice untuk DO-250610-01
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250110-01'),
+ 'INV/2025/01/010',
+ '2025-01-11',
+ 497750000, -- Gross amount
+ '2025-03-11',
+ 0.50, -- PPh 0.5%
+ 2488750, -- PPh amount: 497,750,000 × 0.5%
+ 500238750, -- Net: 497,750,000 + 2,488,750
+ 'paid',
+ 'Invoice untuk pengiriman batu split batch 1',
+ (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
+ ),
+
+-- Invoice untuk DO-250129-02
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250129-02'),
+ 'INV/2025/01/029',
+ '2025-01-30',
+ 712250000, -- Gross amount
+ '2025-05-30',
+ 0.50, -- PPh 0.5%
+ 3561250, -- PPh amount: 712,250,000 × 0.5%
+ 715811250, -- Net: 712,250,000 + 3,561,250
+ 'paid',
+ 'Invoice untuk pengiriman batu split batch 2',
+ (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
+ );
+
+-- 💸 SAMPLE PAYMENT DATA
+INSERT INTO delivery_order_payments (
+  delivery_order_id,
+  invoice_id,
+  payment_reference,
+  payment_type,
+  payment_amount,
+  payment_date,
+  notes
+) VALUES
+-- Payment untuk DO-250110-01
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250110-01'),
+ (SELECT id FROM delivery_order_invoices WHERE invoice_number = 'INV/2025/01/010'),
+ 'TRF-20250115-001',
+ 'transfer',
+ 500238750,
+ '2025-01-15',
+ 'Pembayaran lunas DO-250110-01 via transfer BCA'),
+
+-- Payment untuk DO-250129-02
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250129-02'),
+ (SELECT id FROM delivery_order_invoices WHERE invoice_number = 'INV/2025/01/029'),
+ 'TRF-20250205-002',
+ 'transfer',
+ 715811250,
+ '2025-02-05',
+ 'Pembayaran lunas DO-250129-02 via transfer BCA');
+
+-- 📊 PAYMENT HISTORY untuk tracking status changes
+INSERT INTO delivery_order_payment_history (
+  delivery_order_id,
+  old_status,
+  new_status,
+  change_reason,
+  changed_by,
+  changed_at
+) VALUES
+-- History untuk DO-250110-01
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250110-01'),
+ 'proses_tagihan',
+ 'lunas',
+ 'Payment completed via transfer TRF-20250115-001',
+ (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1),
+ '2025-01-15 11:30:00+07'),
+
+-- History untuk DO-250129-02
+((SELECT id FROM delivery_orders WHERE do_number = 'DO-250129-02'),
+ 'proses_tagihan',
+ 'lunas',
+ 'Payment completed via transfer TRF-20250205-002',
+ (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1),
+ '2025-02-05 13:44:00+07');
