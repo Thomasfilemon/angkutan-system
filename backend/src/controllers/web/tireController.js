@@ -366,7 +366,8 @@ exports.getAvailableTireInstances = async (req, res, next) => {
         {
           model: VehicleTire,
           as: 'installations',
-          attributes: ['remove_date'],
+          // FIX: Added 'id' and 'vehicle_id' to the attributes list
+          attributes: ['id', 'vehicle_id', 'remove_date'],
           include: [
             {
               model: Vehicle,
@@ -461,7 +462,7 @@ exports.installTireInstance = async (req, res, next) => {
       current_pressure: recommended_pressure || 35,
       tread_depth: tireInstance.current_tread_depth,
       temperature: 25.0,
-      condition: tireInstance.condition,
+      condition: (tireInstance.condition === 'new') ? 'good' : tireInstance.condition,
       status: 'active'
     });
 

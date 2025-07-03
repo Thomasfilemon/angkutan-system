@@ -270,14 +270,14 @@ const TireManagementPage = () => {
   }, []);
 
 
-  const fetchAvailableInstances = useCallback(async () => {
-    try {
-      const response = await apiClient.get('/tires/tire-instances/available');
-      setAvailableInstances(Array.isArray(response.data) ? response.data : []);
-    } catch (err) {
-      console.error('Failed to fetch available instances:', err);
-    }
-  }, []);
+const fetchAvailableInstances = useCallback(async () => {
+  try {
+    const response = await apiClient.get('/tires/tire-instances/available?status=removed');
+    setAvailableInstances(Array.isArray(response.data) ? response.data : []);
+  } catch (err) {
+    console.error('Failed to fetch available instances:', err);
+  }
+}, []);
 
 
   // --- EFFECTS ---
