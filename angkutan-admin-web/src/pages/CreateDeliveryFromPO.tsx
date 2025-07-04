@@ -144,6 +144,8 @@ const CreateDeliveryFromPO: React.FC = () => {
     unload_longitude: "",
   });
 
+  const [linkProcessing, setLinkProcessing] = useState<{ load: boolean; unload: boolean }>({ load: false, unload: false });
+
   const defaultCenter = { lat: -6.2088, lng: 106.8456 };
 
   // 🎯 NEW: Unit display helper
@@ -418,6 +420,71 @@ const CreateDeliveryFromPO: React.FC = () => {
     return null;
   };
 
+  const handleProcessLocationLink = async (
+    type: "load" | "unload",
+    input: string
+  ) => {
+    setLinkProcessing((prev) => ({ ...prev, [type]: true }));
+
+    try {
+      const backendUrl = process.env.REACT_APP_API_URL || "";
+      const resp = await fetch(`${backendUrl}/utils/resolve-location`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input }),
+      });
+      const data = await resp.json();
+
+      if (data.lat && data.lng) {
+        setLocationWithType(
+          data.lat,
+          data.lng,
+          `${data.lat},${data.lng}`,
+          type
+        );
+      } else {
+        alert(data.message || "Could not determine coordinates. Please check the input or enter coordinates manually.");
+      }
+    } catch (error) {
+      alert('Could not process the location link. Please try again or enter coordinates manually.');
+    } finally {
+      setLinkProcessing((prev) => ({ ...prev, [type]: false }));
+    }
+  };
+
+  const setLocationWithType = (
+    lat: number,
+    lng: number,
+    address: string,
+    type: "load" | "unload"
+  ) => {
+    if (type === "load") {
+      setFormData((prev) => ({
+        ...prev,
+        load_location: address,
+        load_latitude: lat.toString(),
+        load_longitude: lng.toString(),
+      }));
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        unload_location: address,
+        unload_latitude: lat.toString(),
+        unload_longitude: lng.toString(),
+      }));
+    }
+
+    setMarkers((prev) => [
+      ...prev.filter((m) => m.type !== type),
+      {
+        lat,
+        lng,
+        type,
+        title: `${type.charAt(0).toUpperCase() + type.slice(1)} Location`,
+      },
+    ]);
+  };
+
   if (!poDetails)
     return (
       <div className="text-center p-8">Loading purchase order details...</div>
@@ -625,6 +692,19 @@ const CreateDeliveryFromPO: React.FC = () => {
                     required
                     placeholder="Enter or select on map"
                   />
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      onClick={() => handleProcessLocationLink("load", formData.load_location)}
+                      disabled={linkProcessing.load}
+                      className="text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 px-2 py-1 rounded w-full"
+                    >
+                      {linkProcessing.load ? "Processing..." : "📌 Extract from Google Maps Link"}
+                    </button>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Paste Google Maps link or address. Shortened links will open in browser.
+                    </p>
+                  </div>
                   <button
                     type="button"
                     onClick={() => setSelectedLocationType("load")}
@@ -653,6 +733,19 @@ const CreateDeliveryFromPO: React.FC = () => {
                     required
                     placeholder="Enter or select on map"
                   />
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      onClick={() => handleProcessLocationLink("unload", formData.unload_location)}
+                      disabled={linkProcessing.unload}
+                      className="text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 px-2 py-1 rounded w-full"
+                    >
+                      {linkProcessing.unload ? "Processing..." : "📌 Extract from Google Maps Link"}
+                    </button>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Paste Google Maps link or address. Shortened links will open in browser.
+                    </p>
+                  </div>
                   <button
                     type="button"
                     onClick={() => setSelectedLocationType("unload")}
