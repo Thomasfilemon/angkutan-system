@@ -8,8 +8,19 @@ module.exports = (sequelize) => {
       id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
 
       // === FOREIGN KEYS ===
+      main_delivery_order_id: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        comment: "Reference to the main delivery order",
+      },
       driver_id: { type: DataTypes.INTEGER, allowNull: false },
       vehicle_id: { type: DataTypes.INTEGER, allowNull: false },
+
+      created_by: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        comment: "User who created this Big DO",
+      },
 
       // === BASIC INFO ===
       big_do_number: {
@@ -31,14 +42,14 @@ module.exports = (sequelize) => {
         type: DataTypes.DECIMAL(15, 2),
         allowNull: false,
         defaultValue: 0,
-        comment: "Sum of all individual DO salaries",
+        comment: "Sum of main DO gaji + driver portion for tambahan",
         validate: { min: 0 },
       },
       total_ongkosan: {
         type: DataTypes.DECIMAL(15, 2),
         allowNull: false,
         defaultValue: 0,
-        comment: "Sum of all individual DO ongkosan",
+        comment: "Sum of main DO ongkosan + profit from tambahan",
         validate: { min: 0 },
       },
 
@@ -97,7 +108,15 @@ module.exports = (sequelize) => {
   };
 
   BigDeliveryOrder.prototype.getFinancialSummary = function () {
+    const mainDOAmount = parseFloat(this.mainDeliveryOrder?.ongkosan || 0);
+    const tambahanTotalAmount =
+      this.tambahan?.reduce((sum, t) => sum + parseFloat(t.total_amount), 0) ||
+      0;
+
     return {
+      main_do_amount: mainDOAmount,
+      tambahan_total_amount: tambahanTotalAmount,
+      total_revenue: mainDOAmount + tambahanTotalAmount,
       total_trip_allowance: parseFloat(this.total_trip_allowance) || 0,
       total_gaji: parseFloat(this.total_gaji) || 0,
       total_ongkosan: parseFloat(this.total_ongkosan) || 0,
@@ -108,6 +127,44 @@ module.exports = (sequelize) => {
         (parseFloat(this.total_ongkosan) || 0) -
         ((parseFloat(this.total_trip_allowance) || 0) +
           (parseFloat(this.total_gaji) || 0)),
+    };
+  };
+
+  BigDeliveryOrder.prototype.getTotalQuantity = function () {
+    const mainQuantity = parseFloat(
+      this.mainDeliveryOrder?.actual_load_quantity ||
+        this.mainDeliveryOrder?.minimal_load_quantity ||
+        0
+    );
+    const tambahanQuantity =
+      this.tambahan?.reduce((sum, t) => sum + parseFloat(t.quantity), 0) || 0;
+
+    return {
+      main_do_quantity: mainQuantity,
+      tambahan_quantity: tambahanQuantity,
+      total_quantity: mainQuantity + tambahanQuantity,
+      main_unit: this.mainDeliveryOrder?.unit || "ton",
+    };
+  };
+
+  BigDeliveryOrder.prototype.getDeliveryProgress = function () {
+    const mainCompleted = this.mainDeliveryOrder?.status === "completed";
+    const tambahanCompleted =
+      this.tambahan?.filter((t) => t.status === "delivered").length || 0;
+    const totalTambahan = this.tambahan?.length || 0;
+
+    return {
+      main_do_completed: mainCompleted,
+      tambahan_completed: tambahanCompleted,
+      total_tambahan: totalTambahan,
+      completion_percentage:
+        totalTambahan > 0
+          ? (((mainCompleted ? 1 : 0) + tambahanCompleted) /
+              (1 + totalTambahan)) *
+            100
+          : mainCompleted
+          ? 100
+          : 0,
     };
   };
 

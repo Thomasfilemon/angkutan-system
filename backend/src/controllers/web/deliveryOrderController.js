@@ -11,7 +11,7 @@ const {
 const { Op } = require("sequelize");
 const { Expo } = require("expo-server-sdk");
 
-// 🎯 NEW: Unit-aware calculation helper
+// 🎯 Unit-aware calculation helper
 const calculateTotalAmount = (quantity, unitPrice, unit) => {
   const qty = parseFloat(quantity) || 0;
   const price = parseFloat(unitPrice) || 0;
@@ -28,7 +28,10 @@ const calculateTotalAmount = (quantity, unitPrice, unit) => {
   }
 };
 
-// Create delivery order with conflict prevention and ongkosan
+/**
+ * 🎯 CREATE DELIVERY ORDER (Updated for new architecture)
+ * POST /api/web/delivery-orders
+ */
 exports.createDeliveryOrder = async (req, res, next) => {
   const transaction = await sequelize.transaction();
 
@@ -40,7 +43,7 @@ exports.createDeliveryOrder = async (req, res, next) => {
       customer_name,
       item_name,
       minimal_load_quantity,
-      unit, // 🎯 NEW: Add unit field
+      unit,
       unit_price,
       total_amount,
       trip_allowance,
@@ -54,91 +57,9 @@ exports.createDeliveryOrder = async (req, res, next) => {
       unload_longitude,
       payment_status = "proses_tagihan",
       status = "assigned",
-      big_do_session_id,
-      is_additional_do_for_session = false,
     } = req.body;
 
-    // 🎯 ENHANCED: Driver/Vehicle availability check with Big DO session support
-    if (!big_do_session_id) {
-      // Normal DO creation - existing logic
-      const activeDriverDelivery = await DeliveryOrder.findOne({
-        where: {
-          driver_id,
-          status: {
-            [Op.in]: [
-              "assigned",
-              "otw_to_load_location",
-              "at_load_location",
-              "otw_to_unload_location",
-              "at_unload_location",
-              "otw_to_base",
-            ],
-          },
-        },
-        transaction,
-      });
-
-      if (activeDriverDelivery) {
-        await transaction.rollback();
-        return res.status(400).json({
-          success: false,
-          message: `Driver is already assigned to active delivery order: ${activeDriverDelivery.do_number}`,
-        });
-      }
-
-      const activeVehicleDelivery = await DeliveryOrder.findOne({
-        where: {
-          vehicle_id,
-          status: {
-            [Op.in]: [
-              "assigned",
-              "otw_to_load_location",
-              "at_load_location",
-              "otw_to_unload_location",
-              "at_unload_location",
-              "otw_to_base",
-            ],
-          },
-        },
-        transaction,
-      });
-
-      if (activeVehicleDelivery) {
-        await transaction.rollback();
-        return res.status(400).json({
-          success: false,
-          message: `Vehicle is already assigned to active delivery order: ${activeVehicleDelivery.do_number}`,
-        });
-      }
-    } else {
-      // 🎯 NEW: Big DO session mode - validate session exists
-      const sessionExists = await DeliveryOrder.findOne({
-        where: { big_do_creation_session: big_do_session_id },
-        transaction,
-      });
-
-      if (!sessionExists) {
-        await transaction.rollback();
-        return res.status(400).json({
-          success: false,
-          message: "Invalid Big DO creation session",
-        });
-      }
-
-      // Validate same driver/vehicle as session
-      if (
-        sessionExists.driver_id !== driver_id ||
-        sessionExists.vehicle_id !== vehicle_id
-      ) {
-        await transaction.rollback();
-        return res.status(400).json({
-          success: false,
-          message: "Driver and vehicle must match the Big DO session",
-        });
-      }
-    }
-
-    // 🎯 ENHANCED: Validate required fields including unit
+    // ✅ Validate required fields
     if (!vehicle_id || !driver_id || !minimal_load_quantity) {
       await transaction.rollback();
       return res.status(400).json({
@@ -148,7 +69,7 @@ exports.createDeliveryOrder = async (req, res, next) => {
       });
     }
 
-    // 🎯 NEW: Validate unit field
+    // ✅ Validate unit field
     if (unit && !["kilogram", "ton", "kubik"].includes(unit)) {
       await transaction.rollback();
       return res.status(400).json({
@@ -157,7 +78,7 @@ exports.createDeliveryOrder = async (req, res, next) => {
       });
     }
 
-    // 🎯 NEW: Get unit from PO if not provided
+    // ✅ Get unit and unit_price from PO if not provided
     let finalUnit = unit;
     let finalUnitPrice = unit_price;
 
@@ -168,11 +89,9 @@ exports.createDeliveryOrder = async (req, res, next) => {
       if (purchaseOrder) {
         if (!finalUnit) {
           finalUnit = purchaseOrder.unit || "ton";
-          console.log(`Unit inherited from PO: ${finalUnit}`);
         }
         if (!finalUnitPrice) {
           finalUnitPrice = purchaseOrder.unit_price;
-          console.log(`Unit price inherited from PO: ${finalUnitPrice}`);
         }
       }
     }
@@ -180,10 +99,9 @@ exports.createDeliveryOrder = async (req, res, next) => {
     // Fallback to default unit if still not set
     if (!finalUnit) {
       finalUnit = "ton";
-      console.warn('No unit specified, defaulting to "ton"');
     }
 
-    // Check if driver is already assigned to an active delivery
+    // ✅ Check driver availability
     const activeDriverDelivery = await DeliveryOrder.findOne({
       where: {
         driver_id,
@@ -209,7 +127,7 @@ exports.createDeliveryOrder = async (req, res, next) => {
       });
     }
 
-    // Check if vehicle is already assigned to an active delivery
+    // ✅ Check vehicle availability
     const activeVehicleDelivery = await DeliveryOrder.findOne({
       where: {
         vehicle_id,
@@ -235,51 +153,52 @@ exports.createDeliveryOrder = async (req, res, next) => {
       });
     }
 
-    // Generate unique DO number with timestamp and random suffix
-    const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-    const randomSuffix = Math.floor(Math.random() * 1000)
-      .toString()
-      .padStart(3, "0");
+    // ✅ Check if driver is already main DO in a Big DO
+    const existingBigDO = await BigDeliveryOrder.findOne({
+      where: {
+        driver_id,
+        status: { [Op.in]: ["assigned", "in_progress"] },
+      },
+      transaction,
+    });
 
-    let do_number = `DO-${timestamp}-${randomSuffix}`;
-
-    // Ensure DO number is unique
-    let attempts = 0;
-
-    if (big_do_session_id) {
-      // 🎯 NEW: Temporary DO number for session - will be renamed when Big DO is created
-      const sessionDOCount = await DeliveryOrder.count({
-        where: { big_do_creation_session: big_do_session_id },
-        transaction,
+    if (existingBigDO) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: `Driver is already assigned to Big DO: ${existingBigDO.big_do_number}`,
       });
-      do_number = `TEMP-${big_do_session_id}-${sessionDOCount + 1}`;
-    } else {
-      // Normal DO number generation
-      const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    }
+
+    // ✅ Generate unique DO number
+    const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    let attempts = 0;
+    let do_number;
+
+    do {
       const randomSuffix = Math.floor(Math.random() * 1000)
         .toString()
         .padStart(3, "0");
       do_number = `DO-${timestamp}-${randomSuffix}`;
 
-      // Ensure uniqueness
-      let attempts = 0;
-      while (attempts < 10) {
-        const existingDO = await DeliveryOrder.findOne({
-          where: { do_number },
-          transaction,
-        });
+      const existingDO = await DeliveryOrder.findOne({
+        where: { do_number },
+        transaction,
+      });
 
-        if (!existingDO) break;
+      if (!existingDO) break;
+      attempts++;
+    } while (attempts < 10);
 
-        attempts++;
-        const newRandomSuffix = Math.floor(Math.random() * 1000)
-          .toString()
-          .padStart(3, "0");
-        do_number = `DO-${timestamp}-${newRandomSuffix}`;
-      }
+    if (attempts >= 10) {
+      await transaction.rollback();
+      return res.status(500).json({
+        success: false,
+        message: "Failed to generate unique DO number",
+      });
     }
 
-    // 🎯 ENHANCED: Calculate total amount with unit awareness
+    // ✅ Calculate total amount with unit awareness
     let calculatedTotalAmount = total_amount;
     if (finalUnitPrice && minimal_load_quantity && finalUnit) {
       calculatedTotalAmount = calculateTotalAmount(
@@ -287,12 +206,9 @@ exports.createDeliveryOrder = async (req, res, next) => {
         finalUnitPrice,
         finalUnit
       );
-      console.log(
-        `Unit-aware calculation: ${minimal_load_quantity} ${finalUnit} × ${finalUnitPrice} = ${calculatedTotalAmount}`
-      );
     }
 
-    // 🎯 ENHANCED: Create delivery order with Big DO session fields
+    // ✅ Create delivery order
     const deliveryOrder = await DeliveryOrder.create(
       {
         purchase_order_id,
@@ -305,7 +221,7 @@ exports.createDeliveryOrder = async (req, res, next) => {
         unit: finalUnit,
         unit_price: finalUnitPrice,
         total_amount: calculatedTotalAmount,
-        trip_allowance: big_do_session_id ? 0 : trip_allowance, // Individual DOs in session get 0
+        trip_allowance,
         gaji,
         ongkosan,
         load_location,
@@ -315,71 +231,59 @@ exports.createDeliveryOrder = async (req, res, next) => {
         unload_latitude,
         unload_longitude,
         payment_status,
-        status: big_do_session_id ? "pending_big_do" : status,
-        // 🎯 NEW: Big DO session fields
-        big_do_creation_session: big_do_session_id,
-        is_big_do_candidate: !!big_do_session_id,
-        display_order: big_do_session_id
-          ? await getNextDisplayOrder(big_do_session_id, transaction)
-          : 0,
+        status,
       },
       { transaction }
     );
 
-    // Update vehicle status based on mode
-    if (big_do_session_id) {
-      await Vehicle.update(
-        { status: "in_big_do_creation" },
-        { where: { id: vehicle_id }, transaction }
-      );
-    } else {
-      await Vehicle.update(
-        { status: "in_use" },
-        { where: { id: vehicle_id }, transaction }
-      );
-    }
+    // ✅ Update vehicle status
+    await Vehicle.update(
+      { status: "in_use" },
+      { where: { id: vehicle_id }, transaction }
+    );
 
-    // === SEND PUSH NOTIFICATION TO DRIVER ===
-    // Send push notification only for normal DOs (not session DOs)
-    if (!big_do_session_id) {
-      const driverUser = await User.findOne({
-        where: { id: driver_id },
-        attributes: ["username", "expo_push_token"],
-        transaction,
-      });
+    // ✅ Send push notification to driver
+    const driverUser = await User.findOne({
+      where: { id: driver_id },
+      attributes: ["username", "expo_push_token"],
+      include: [
+        {
+          model: DriverProfile,
+          as: "driverProfile",
+          attributes: ["full_name"],
+        },
+      ],
+      transaction,
+    });
 
-      const driverProfile = await DriverProfile.findOne({
-        where: { user_id: driver_id },
-        attributes: ["full_name"],
-        transaction,
-      });
-      const driverName =
-        driverProfile?.full_name || driverUser?.username || "Driver";
+    if (driverUser && driverUser.expo_push_token) {
+      const expo = new Expo();
+      if (Expo.isExpoPushToken(driverUser.expo_push_token)) {
+        const driverName =
+          driverUser.driverProfile?.full_name || driverUser.username;
+        const messages = [
+          {
+            to: driverUser.expo_push_token,
+            sound: "default",
+            title: "Tugas Pengantaran Baru",
+            body: `Halo ${driverName}, Anda telah ditugaskan untuk DO ${deliveryOrder.do_number}. Silakan cek detail pengantaran di aplikasi.`,
+            data: { do_number: deliveryOrder.do_number },
+          },
+        ];
 
-      if (driverUser && driverUser.expo_push_token) {
-        const expo = new Expo();
-        if (Expo.isExpoPushToken(driverUser.expo_push_token)) {
-          const messages = [
-            {
-              to: driverUser.expo_push_token,
-              sound: "default",
-              title: "Tugas Pengantaran Baru",
-              body: `Halo ${driverName}, Anda telah ditugaskan untuk DO ${deliveryOrder.do_number}. Silakan cek detail pengantaran di aplikasi.`,
-              data: { do_number: deliveryOrder.do_number },
-            },
-          ];
+        try {
           await expo.sendPushNotificationsAsync(messages);
+        } catch (pushError) {
+          console.error("Push notification error:", pushError);
         }
       }
     }
+
     await transaction.commit();
 
-    // 🎯 ENHANCED: Return response with unit information
     res.status(201).json({
       success: true,
-      message: big_do_session_id
-        ? "Delivery order added to Big DO session"
-        : "Delivery order created successfully",
+      message: "Delivery order created successfully",
       data: {
         ...deliveryOrder.toJSON(),
         unit_display: deliveryOrder.getUnitDisplay(),
@@ -394,18 +298,10 @@ exports.createDeliveryOrder = async (req, res, next) => {
   }
 };
 
-// 🎯 NEW: Helper function to get next display order in session
-async function getNextDisplayOrder(sessionId, transaction) {
-  const lastDO = await DeliveryOrder.findOne({
-    where: { big_do_creation_session: sessionId },
-    order: [["display_order", "DESC"]],
-    transaction,
-  });
-
-  return (lastDO?.display_order || 0) + 1;
-}
-
-// Get all DOs with enhanced web features
+/**
+ * 🎯 GET ALL DELIVERY ORDERS (Updated for new architecture)
+ * GET /api/web/delivery-orders
+ */
 exports.getAllDeliveryOrders = async (req, res, next) => {
   try {
     const {
@@ -422,21 +318,10 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
 
     let whereClause = {};
 
-    if (status) {
-      whereClause.status = status;
-    }
-
-    if (driver_id) {
-      whereClause.driver_id = driver_id;
-    }
-
-    if (vehicle_id) {
-      whereClause.vehicle_id = vehicle_id;
-    }
-
-    if (po_id) {
-      whereClause.purchase_order_id = po_id;
-    }
+    if (status) whereClause.status = status;
+    if (driver_id) whereClause.driver_id = driver_id;
+    if (vehicle_id) whereClause.vehicle_id = vehicle_id;
+    if (po_id) whereClause.purchase_order_id = po_id;
 
     if (search) {
       whereClause[Op.or] = [
@@ -446,14 +331,21 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
       ];
     }
 
-    // 🎯 NEW: Big DO filtering
+    // ✅ Big DO filtering (updated for new architecture)
     if (big_do_filter === "standalone") {
-      whereClause.big_delivery_order_id = null;
-      whereClause.big_do_creation_session = null;
-    } else if (big_do_filter === "big_do_only") {
-      whereClause.big_delivery_order_id = { [Op.not]: null };
-    } else if (big_do_filter === "session_only") {
-      whereClause.big_do_creation_session = { [Op.not]: null };
+      // Show only standalone DOs (not part of any Big DO)
+      whereClause.id = {
+        [Op.notIn]: sequelize.literal(
+          "(SELECT main_delivery_order_id FROM big_delivery_orders WHERE status != 'cancelled')"
+        ),
+      };
+    } else if (big_do_filter === "main_dos") {
+      // Show only DOs that are main DOs in Big DOs
+      whereClause.id = {
+        [Op.in]: sequelize.literal(
+          "(SELECT main_delivery_order_id FROM big_delivery_orders WHERE status != 'cancelled')"
+        ),
+      };
     }
 
     const { count, rows: deliveryOrders } = await DeliveryOrder.findAndCountAll(
@@ -468,7 +360,7 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
               "customer_name",
               "total_quantity",
               "unit",
-            ], // 🎯 NEW: Include unit from PO
+            ],
           },
           {
             model: User,
@@ -489,22 +381,20 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
           },
           {
             model: BigDeliveryOrder,
-            as: "bigDeliveryOrder",
+            as: "bigDeliveryOrderAsMain",
             attributes: ["big_do_number", "status", "total_trip_allowance"],
             required: false,
           },
         ],
         order: [["created_at", "DESC"]],
         limit: parseInt(limit),
-        offset: offset,
+        offset: parseInt(offset),
       }
     );
 
-    // 🎯 ENHANCED: Enhance data with computed fields and unit support
+    // ✅ Enhance data with computed fields
     const enhancedDOs = deliveryOrders.map((dOrder) => {
       const doData = dOrder.toJSON();
-
-      // Ensure unit field exists with fallback
       const orderUnit = doData.unit || doData.purchaseOrder?.unit || "ton";
 
       // Calculate unit-aware amounts
@@ -519,21 +409,13 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
 
       return {
         ...doData,
-        unit: orderUnit, // Ensure unit is always present
+        unit: orderUnit,
         status_text: dOrder.getStatusText(),
         financial_summary: {
           ...dOrder.getFinancialSummary(),
           actual_total_amount: actualTotalAmount,
           unit: orderUnit,
-          unit_display: dOrder.getUnitDisplay
-            ? dOrder.getUnitDisplay()
-            : orderUnit === "kilogram"
-            ? "kg"
-            : orderUnit === "ton"
-            ? "ton"
-            : orderUnit === "kubik"
-            ? "m³"
-            : orderUnit,
+          unit_display: dOrder.getUnitDisplay(),
         },
         driver_name:
           doData.driver?.driverProfile?.full_name ||
@@ -542,19 +424,18 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
         vehicle_info:
           `${doData.vehicle?.license_plate} (${doData.vehicle?.type})` || "N/A",
         big_do_context: dOrder.getBigDOContext(),
-        big_do_info: doData.bigDeliveryOrder
+        big_do_info: doData.bigDeliveryOrderAsMain
           ? {
-              big_do_number: doData.bigDeliveryOrder.big_do_number,
-              big_do_status: doData.bigDeliveryOrder.status,
+              big_do_number: doData.bigDeliveryOrderAsMain.big_do_number,
+              big_do_status: doData.bigDeliveryOrderAsMain.status,
               total_trip_allowance:
-                doData.bigDeliveryOrder.total_trip_allowance,
+                doData.bigDeliveryOrderAsMain.total_trip_allowance,
             }
           : null,
       };
     });
 
-    // 🎯 ENHANCED: Calculate summary stats with unit awareness
-    // Enhanced stats with Big DO breakdown
+    // ✅ Calculate summary stats
     const stats = {
       total: count,
       assigned: enhancedDOs.filter((d) => d.status === "assigned").length,
@@ -569,8 +450,6 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
       ).length,
       completed: enhancedDOs.filter((d) => d.status === "completed").length,
       cancelled: enhancedDOs.filter((d) => d.status === "cancelled").length,
-      pending_big_do: enhancedDOs.filter((d) => d.status === "pending_big_do")
-        .length,
       total_revenue: enhancedDOs.reduce(
         (sum, d) => sum + (parseFloat(d.total_amount) || 0),
         0
@@ -579,20 +458,10 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
         (sum, d) => sum + (parseFloat(d.ongkosan) || 0),
         0
       ),
-      total_driver_costs: enhancedDOs.reduce(
-        (sum, d) =>
-          sum + (parseFloat(d.trip_allowance) || 0) + (parseFloat(d.gaji) || 0),
-        0
-      ),
-      // 🎯 NEW: Big DO breakdown
       big_do_breakdown: {
-        standalone_dos: enhancedDOs.filter(
-          (d) => !d.big_delivery_order_id && !d.big_do_creation_session
-        ).length,
-        big_do_members: enhancedDOs.filter((d) => d.big_delivery_order_id)
+        standalone_dos: enhancedDOs.filter((d) => !d.bigDeliveryOrderAsMain)
           .length,
-        session_candidates: enhancedDOs.filter((d) => d.big_do_creation_session)
-          .length,
+        main_dos: enhancedDOs.filter((d) => d.bigDeliveryOrderAsMain).length,
       },
       unit_distribution: {
         kilogram: enhancedDOs.filter((d) => d.unit === "kilogram").length,
@@ -617,8 +486,10 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
   }
 };
 
-// Get DO by ID with detailed info
-// 🎯 ENHANCED: Get DO by ID with Big DO context
+/**
+ * 🎯 GET DO BY ID (Updated for new architecture)
+ * GET /api/web/delivery-orders/:id
+ */
 exports.getDeliveryOrderById = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -644,17 +515,14 @@ exports.getDeliveryOrderById = async (req, res, next) => {
           model: Vehicle,
           as: "vehicle",
         },
-        // 🎯 NEW: Include Big DO data
         {
           model: BigDeliveryOrder,
-          as: "bigDeliveryOrder",
+          as: "bigDeliveryOrderAsMain",
           include: [
             {
-              model: DeliveryOrder,
-              as: "deliveryOrders",
-              attributes: ["id", "do_number", "customer_name", "status"],
-              where: { id: { [Op.not]: id } }, // Exclude current DO
-              required: false,
+              model: require("../../models").BigDoTambahan,
+              as: "tambahan",
+              attributes: ["id", "customer_name", "total_amount", "status"],
             },
           ],
           required: false,
@@ -670,9 +538,9 @@ exports.getDeliveryOrderById = async (req, res, next) => {
     }
 
     const doData = deliveryOrder.toJSON();
-
     const orderUnit = doData.unit || doData.purchaseOrder?.unit || "ton";
 
+    // Calculate unit-aware amounts
     let minimalTotalAmount = null;
     let actualTotalAmount = null;
 
@@ -698,7 +566,6 @@ exports.getDeliveryOrderById = async (req, res, next) => {
       data: {
         ...doData,
         unit: orderUnit,
-        unit_price: doData.unit_price,
         status_text: deliveryOrder.getStatusText(),
         financial_summary: {
           ...deliveryOrder.getFinancialSummary(),
@@ -717,23 +584,14 @@ exports.getDeliveryOrderById = async (req, res, next) => {
             doData.departed_from_unload_location_at,
           completed_at: doData.completed_at,
         },
-        // 🎯 NEW: Big DO context
         big_do_context: deliveryOrder.getBigDOContext(),
-        big_do_info: doData.bigDeliveryOrder
+        big_do_info: doData.bigDeliveryOrderAsMain
           ? {
-              big_do_number: doData.bigDeliveryOrder.big_do_number,
-              big_do_status: doData.bigDeliveryOrder.status,
-              sibling_dos: doData.bigDeliveryOrder.deliveryOrders || [],
-              total_dos_in_big_do:
-                (doData.bigDeliveryOrder.deliveryOrders?.length || 0) + 1,
-            }
-          : null,
-        // 🎯 NEW: Session info if in session
-        session_info: doData.big_do_creation_session
-          ? {
-              session_id: doData.big_do_creation_session,
-              can_add_more: true,
-              can_finalize: true,
+              big_do_number: doData.bigDeliveryOrderAsMain.big_do_number,
+              big_do_status: doData.bigDeliveryOrderAsMain.status,
+              tambahan_count:
+                doData.bigDeliveryOrderAsMain.tambahan?.length || 0,
+              tambahan_summary: doData.bigDeliveryOrderAsMain.tambahan || [],
             }
           : null,
       },
@@ -743,58 +601,10 @@ exports.getDeliveryOrderById = async (req, res, next) => {
   }
 };
 
-// 🎯 NEW: Update DO display order in Big DO session
-exports.updateDODisplayOrder = async (req, res, next) => {
-  const transaction = await sequelize.transaction();
-
-  try {
-    const { session_id } = req.params;
-    const { delivery_orders_with_order } = req.body; // [{ id: 1, display_order: 1 }, ...]
-
-    // Validate session exists
-    const sessionDOs = await DeliveryOrder.findAll({
-      where: { big_do_creation_session: session_id },
-      transaction,
-    });
-
-    if (sessionDOs.length === 0) {
-      await transaction.rollback();
-      return res.status(404).json({
-        success: false,
-        message: "Big DO session not found",
-      });
-    }
-
-    // Update display orders
-    for (const doInfo of delivery_orders_with_order) {
-      await DeliveryOrder.update(
-        { display_order: doInfo.display_order },
-        {
-          where: {
-            id: doInfo.id,
-            big_do_creation_session: session_id,
-          },
-          transaction,
-        }
-      );
-    }
-
-    await transaction.commit();
-
-    res.json({
-      success: true,
-      message: "Display order updated successfully",
-      data: {
-        updated_count: delivery_orders_with_order.length,
-      },
-    });
-  } catch (err) {
-    await transaction.rollback();
-    next(err);
-  }
-};
-
-// Update DO (admin only)
+/**
+ * 🎯 UPDATE DELIVERY ORDER
+ * PUT /api/web/delivery-orders/:id
+ */
 exports.updateDeliveryOrder = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -809,7 +619,7 @@ exports.updateDeliveryOrder = async (req, res, next) => {
       });
     }
 
-    // 🎯 NEW: Validate unit if being updated
+    // ✅ Validate unit if being updated
     if (
       updateData.unit &&
       !["kilogram", "ton", "kubik"].includes(updateData.unit)
@@ -820,7 +630,7 @@ exports.updateDeliveryOrder = async (req, res, next) => {
       });
     }
 
-    // 🎯 NEW: Recalculate total_amount if quantity, unit_price, or unit changes
+    // ✅ Recalculate total_amount if relevant fields change
     if (
       updateData.minimal_load_quantity ||
       updateData.unit_price ||
@@ -836,9 +646,6 @@ exports.updateDeliveryOrder = async (req, res, next) => {
           quantity,
           unitPrice,
           unit
-        );
-        console.log(
-          `Recalculated total_amount: ${updateData.total_amount} for unit: ${unit}`
         );
       }
     }
@@ -858,7 +665,10 @@ exports.updateDeliveryOrder = async (req, res, next) => {
   }
 };
 
-// Cancel DO
+/**
+ * 🎯 CANCEL DELIVERY ORDER
+ * PATCH /api/web/delivery-orders/:id/cancel
+ */
 exports.cancelDeliveryOrder = async (req, res, next) => {
   const transaction = await sequelize.transaction();
 
@@ -876,6 +686,21 @@ exports.cancelDeliveryOrder = async (req, res, next) => {
       });
     }
 
+    // Check if DO is part of Big DO
+    const bigDO = await BigDeliveryOrder.findOne({
+      where: { main_delivery_order_id: id },
+      transaction,
+    });
+
+    if (bigDO) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message:
+          "Cannot cancel DO that is main DO of Big DO. Cancel the Big DO instead.",
+      });
+    }
+
     // Update delivery order status
     await deliveryOrder.update(
       {
@@ -885,7 +710,7 @@ exports.cancelDeliveryOrder = async (req, res, next) => {
       { transaction }
     );
 
-    // Free up vehicle and driver
+    // Free up vehicle
     if (deliveryOrder.vehicle_id) {
       await Vehicle.update(
         { status: "available" },
@@ -905,7 +730,10 @@ exports.cancelDeliveryOrder = async (req, res, next) => {
   }
 };
 
-// 🎯 ENHANCED: Get delivery statistics with unit awareness
+/**
+ * 🎯 GET DELIVERY STATISTICS
+ * GET /api/web/delivery-orders/statistics
+ */
 exports.getDeliveryStatistics = async (req, res, next) => {
   try {
     const { period = "month" } = req.query;
@@ -930,7 +758,8 @@ exports.getDeliveryStatistics = async (req, res, next) => {
       cancelledDeliveries,
       totalRevenue,
       totalOngkosan,
-      totalDriverCosts,
+      totalTripAllowance,
+      totalGaji,
     ] = await Promise.all([
       DeliveryOrder.count({ where: dateFilter }),
       DeliveryOrder.count({ where: { ...dateFilter, status: "completed" } }),
@@ -943,15 +772,19 @@ exports.getDeliveryStatistics = async (req, res, next) => {
       }) || 0,
       DeliveryOrder.sum("trip_allowance", {
         where: { ...dateFilter, status: "completed" },
-      }) ||
-        0 +
-          DeliveryOrder.sum("gaji", {
-            where: { ...dateFilter, status: "completed" },
-          }) ||
-        0,
+      }) || 0,
+      DeliveryOrder.sum("gaji", {
+        where: { ...dateFilter, status: "completed" },
+      }) || 0,
     ]);
 
-    // 🎯 NEW: Get unit distribution statistics
+    const totalDriverCosts =
+      parseFloat(totalTripAllowance) + parseFloat(totalGaji);
+    const completionRate =
+      totalDeliveries > 0 ? (completedDeliveries / totalDeliveries) * 100 : 0;
+    const netProfit = parseFloat(totalOngkosan) - totalDriverCosts;
+
+    // Get unit distribution
     const unitStats = await DeliveryOrder.findAll({
       where: dateFilter,
       attributes: [
@@ -966,10 +799,6 @@ exports.getDeliveryStatistics = async (req, res, next) => {
       raw: true,
     });
 
-    const completionRate =
-      totalDeliveries > 0 ? (completedDeliveries / totalDeliveries) * 100 : 0;
-    const netProfit = parseFloat(totalOngkosan) - parseFloat(totalDriverCosts);
-
     res.json({
       success: true,
       data: {
@@ -980,9 +809,8 @@ exports.getDeliveryStatistics = async (req, res, next) => {
         completion_rate: Math.round(completionRate * 100) / 100,
         total_revenue: parseFloat(totalRevenue),
         total_ongkosan: parseFloat(totalOngkosan),
-        total_driver_costs: parseFloat(totalDriverCosts),
+        total_driver_costs: totalDriverCosts,
         net_profit: netProfit,
-        // 🎯 NEW: Unit distribution statistics
         unit_distribution: unitStats.reduce((acc, stat) => {
           const unit = stat.unit || "unknown";
           acc[unit] = {

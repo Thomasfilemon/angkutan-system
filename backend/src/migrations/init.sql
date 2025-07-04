@@ -21,7 +21,7 @@ CREATE TABLE admin_profiles (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TYPE driver_status AS ENUM ('available', 'busy', 'in_big_do_creation');
+CREATE TYPE driver_status AS ENUM ('available', 'busy');
 CREATE TABLE driver_profiles (
   id SERIAL PRIMARY KEY,
   user_id INTEGER UNIQUE REFERENCES users(id) ON DELETE CASCADE,
@@ -37,7 +37,7 @@ CREATE TABLE driver_profiles (
 
 -- BAGIAN 2: MANAJEMEN ASET & INVENTARIS
 -- =================================================================
-CREATE TYPE vehicle_status AS ENUM ('available', 'in_use', 'maintenance', 'in_big_do_creation');
+CREATE TYPE vehicle_status AS ENUM ('available', 'in_use', 'maintenance');
 -- UPDATED VEHICLES TABLE WITH TIRE CONFIGURATION
 CREATE TABLE vehicles (
   id SERIAL PRIMARY KEY,
@@ -221,25 +221,131 @@ CREATE TYPE delivery_status AS ENUM (
     'at_unload_location',
     'otw_to_base',
     'completed',
-    'pending_big_do',
     'cancelled'
 );
 
-CREATE TYPE big_do_status AS ENUM ('assigned', 'in_progress', 'completed', 'cancelled');
+CREATE TYPE big_do_status AS ENUM (
+    'assigned',
+    'in_progress', 
+    'completed',
+    'cancelled'
+);
+
+CREATE TYPE tambahan_status AS ENUM (
+    'assigned',
+    'picked_up',
+    'in_transit',
+    'delivered',
+    'cancelled'
+);
+
+CREATE TYPE unit_type AS ENUM (
+    'kilogram',
+    'ton', 
+    'kubik'
+);
+
 CREATE TABLE big_delivery_orders (
   id SERIAL PRIMARY KEY,
-  big_do_number VARCHAR(50) UNIQUE, -- BigDO-20250630-001
-  driver_id INTEGER REFERENCES users(id),
-  vehicle_id INTEGER REFERENCES vehicles(id),
-  total_trip_allowance NUMERIC(15,2),
-  total_gaji NUMERIC(15,2),
-  total_ongkosan NUMERIC(15,2),
+  
+  -- Foreign Keys
+  main_delivery_order_id INTEGER NOT NULL REFERENCES delivery_orders(id) ON DELETE CASCADE,
+  driver_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, -- ✅ Added for audit
+  
+  -- Basic Info
+  big_do_number VARCHAR(50) UNIQUE NOT NULL,
+  
+  -- Financial Aggregation
+  total_trip_allowance DECIMAL(15,2) NOT NULL DEFAULT 0 CHECK (total_trip_allowance >= 0),
+  total_gaji DECIMAL(15,2) NOT NULL DEFAULT 0 CHECK (total_gaji >= 0),
+  total_ongkosan DECIMAL(15,2) NOT NULL DEFAULT 0 CHECK (total_ongkosan >= 0),
+  
+  -- Status (✅ Using ENUM)
   status big_do_status NOT NULL DEFAULT 'assigned',
-  created_at TIMESTAMP,
-  started_at TIMESTAMP WITH TIME ZONE,
+  
+  -- Timestamps
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  started_at TIMESTAMP,
   completed_at TIMESTAMP,
+  
+  -- Notes
   notes TEXT,
   cancellation_reason TEXT
+);
+
+-- Tambahan deliveries (hitchhiker deliveries)
+CREATE TABLE big_do_tambahan (
+  id SERIAL PRIMARY KEY,
+  
+  -- Foreign Key
+  big_delivery_order_id INTEGER NOT NULL REFERENCES big_delivery_orders(id) ON DELETE CASCADE,
+  
+  -- Basic Info
+  tambahan_number VARCHAR(50) NOT NULL,
+  customer_name VARCHAR(255) NOT NULL,
+  customer_phone VARCHAR(20),
+  customer_address TEXT,
+  item_name VARCHAR(255) NOT NULL,
+  
+  -- Quantity & Pricing (✅ Using ENUM for unit)
+  quantity DECIMAL(10,2) NOT NULL CHECK (quantity > 0),
+  unit unit_type NOT NULL DEFAULT 'ton',
+  unit_price DECIMAL(15,2) NOT NULL CHECK (unit_price >= 0),
+  total_amount DECIMAL(15,2) NOT NULL CHECK (total_amount >= 0),
+  
+  -- Locations
+  pickup_location TEXT NOT NULL,
+  pickup_latitude DECIMAL(10,8) CHECK (pickup_latitude BETWEEN -90 AND 90),
+  pickup_longitude DECIMAL(11,8) CHECK (pickup_longitude BETWEEN -180 AND 180),
+  delivery_location TEXT NOT NULL,
+  delivery_latitude DECIMAL(10,8) CHECK (delivery_latitude BETWEEN -90 AND 90),
+  delivery_longitude DECIMAL(11,8) CHECK (delivery_longitude BETWEEN -180 AND 180),
+  
+  -- Status & Documents (✅ Using ENUM)
+  status tambahan_status NOT NULL DEFAULT 'assigned',
+  pickup_photo_url VARCHAR(500),
+  delivery_photo_url VARCHAR(500),
+  
+  -- Timestamps
+  picked_up_at TIMESTAMP,
+  delivered_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  
+  -- Notes
+  notes TEXT,
+  
+  -- ✅ Unique constraint for tambahan_number within Big DO
+  CONSTRAINT unique_tambahan_number_per_big_do UNIQUE (big_delivery_order_id, tambahan_number)
+);
+
+-- Big DO status history
+CREATE TABLE big_do_status_history (
+  id SERIAL PRIMARY KEY,
+  big_delivery_order_id INTEGER NOT NULL,
+  old_status VARCHAR(50),
+  new_status VARCHAR(50) NOT NULL,
+  notes TEXT,
+  changed_by INTEGER,
+  changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  
+  FOREIGN KEY (big_delivery_order_id) REFERENCES big_delivery_orders(id) ON DELETE CASCADE,
+  FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- Tambahan status history
+CREATE TABLE big_do_tambahan_status_history (
+  id SERIAL PRIMARY KEY,
+  big_do_tambahan_id INTEGER NOT NULL,
+  old_status VARCHAR(50),
+  new_status VARCHAR(50) NOT NULL,
+  notes TEXT,
+  changed_by INTEGER,
+  changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  
+  FOREIGN KEY (big_do_tambahan_id) REFERENCES big_do_tambahan(id) ON DELETE CASCADE,
+  FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
 CREATE TABLE delivery_orders (
@@ -247,11 +353,6 @@ CREATE TABLE delivery_orders (
   purchase_order_id INTEGER REFERENCES purchase_orders(id) ON DELETE SET NULL,
   driver_id INTEGER REFERENCES users(id),
   vehicle_id INTEGER REFERENCES vehicles(id),
-  
-  big_delivery_order_id INTEGER REFERENCES big_delivery_orders(id),
-  big_do_creation_session VARCHAR(50),
-  is_big_do_candidate BOOLEAN NOT NULL DEFAULT FALSE,
-  display_order INTEGER DEFAULT 0,
 
   do_number VARCHAR(50) UNIQUE NOT NULL,
   customer_name VARCHAR(100) NOT NULL,
@@ -301,7 +402,6 @@ CREATE TABLE delivery_orders (
   payment_confirmation_at TIMESTAMP WITH TIME ZONE,
   payment_confirmed_by INTEGER REFERENCES users(id)
 );
-
 
 
 -- BAGIAN 4: KEUANGAN & BIAYA
@@ -477,10 +577,6 @@ CREATE INDEX idx_delivery_orders_unit ON delivery_orders(unit);
 CREATE INDEX idx_delivery_orders_status ON delivery_orders(payment_status);
 CREATE INDEX idx_delivery_orders_po_id ON delivery_orders(purchase_order_id);
 CREATE INDEX idx_delivery_orders_due_date ON delivery_orders(due_date);
-CREATE INDEX idx_big_delivery_orders_status ON big_delivery_orders(status);
-CREATE INDEX idx_big_delivery_orders_driver ON big_delivery_orders(driver_id);
-CREATE INDEX idx_big_delivery_orders_vehicle ON big_delivery_orders(vehicle_id);
-CREATE INDEX idx_big_delivery_orders_created_at ON big_delivery_orders(created_at);
 CREATE INDEX idx_cash_transactions_date ON cash_transactions(transaction_date DESC);
 CREATE INDEX idx_cash_transactions_type ON cash_transactions(transaction_type);
 CREATE INDEX idx_cash_transactions_category ON cash_transactions(category_id);
@@ -493,9 +589,22 @@ CREATE INDEX idx_delivery_order_invoices_due_date ON delivery_order_invoices(due
 CREATE INDEX idx_delivery_order_payments_do_id ON delivery_order_payments(delivery_order_id);
 CREATE INDEX idx_delivery_order_payments_date ON delivery_order_payments(payment_date);
 CREATE INDEX idx_delivery_order_payments_type ON delivery_order_payments(payment_type);
-CREATE INDEX idx_delivery_orders_big_do_id ON delivery_orders(big_delivery_order_id);
-CREATE INDEX idx_delivery_orders_big_do_session ON delivery_orders(big_do_creation_session);
-CREATE INDEX idx_delivery_orders_big_do_candidate ON delivery_orders(is_big_do_candidate);
+-- Create indexes for performance
+CREATE INDEX idx_big_do_main_do ON big_delivery_orders(main_delivery_order_id);
+CREATE INDEX idx_big_do_driver ON big_delivery_orders(driver_id);
+CREATE INDEX idx_big_do_vehicle ON big_delivery_orders(vehicle_id);
+CREATE INDEX idx_big_do_status ON big_delivery_orders(status);
+CREATE INDEX idx_big_do_created_by ON big_delivery_orders(created_by);
+
+CREATE INDEX idx_tambahan_big_do ON big_do_tambahan(big_delivery_order_id);
+CREATE INDEX idx_tambahan_status ON big_do_tambahan(status);
+CREATE INDEX idx_tambahan_customer ON big_do_tambahan(customer_name);
+
+CREATE INDEX idx_big_do_history_big_do ON big_do_status_history(big_delivery_order_id);
+CREATE INDEX idx_big_do_history_date ON big_do_status_history(changed_at);
+CREATE INDEX idx_tambahan_history_tambahan ON big_do_tambahan_status_history(big_do_tambahan_id);
+CREATE INDEX idx_tambahan_history_date ON big_do_tambahan_status_history(changed_at);
+
 CREATE INDEX idx_do_payment_history_do_id ON delivery_order_payment_history(delivery_order_id);
 CREATE INDEX idx_do_payment_history_date ON delivery_order_payment_history(changed_at);
 CREATE INDEX idx_do_adjustments_do_id ON delivery_order_adjustments(delivery_order_id);

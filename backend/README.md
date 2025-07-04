@@ -22,10 +22,17 @@ backend/
     │   └── angkutan-system-d87e3-ef128576fdb9.json  # Firebase credentials
     ├── controllers/      # Business logic handlers
     │   ├── web/
+    │   │   ├── bigDeliveryOrderController.js
+    │   │   ├── bukuKas.controller.js
+    │   │   ├── cashController.js
     │   │   ├── deliveryOrderController.js
     │   │   ├── purchaseOrderController.js
+    │   │   ├── purchaseOrderController.js
+    │   │   ├── ritase.controller.js
+    │   │   ├── ritaseAnalytics.controller.js
     │   │   ├── serviceController.js
     │   │   ├── stockController.js
+    │   │   ├── tireController.js
     │   │   └── webvehicleController.js
     │   ├── auth.controller.js
     │   ├── deliveryOrder.controller.js
@@ -75,7 +82,7 @@ backend/
     │       ├── driver.routes.js
     │       ├── purchaseOrder.routes.js
     │       ├── service.routes.js
-    │       ├── stock.routes.js    
+    │       ├── stock.routes.js
     │       └── vehicle.routes.js
     ├── services/         # External service integrations
     │   └── firebase.js

@@ -1,6 +1,7 @@
-// src/controllers/web/bigDeliveryOrderController.js
+// src/controllers/web/bigDeliveryOrder.controller.js
 const {
   BigDeliveryOrder,
+  BigDoTambahan,
   DeliveryOrder,
   PurchaseOrder,
   Vehicle,
@@ -12,91 +13,143 @@ const { Op } = require("sequelize");
 const { Expo } = require("expo-server-sdk");
 
 /**
- * 🎯 INITIALIZE BIG DO CREATION SESSION
- * POST /api/web/delivery-orders/initialize-big-do
+ * 🎯 GET ALL BIG DELIVERY ORDERS
+ * GET /api/web/big-delivery-orders
  */
-exports.initializeBigDOSession = async (req, res, next) => {
-  const transaction = await sequelize.transaction();
-
+exports.getAllBigDeliveryOrders = async (req, res, next) => {
   try {
-    const { first_do_id } = req.body;
+    const { status, driver_id, page = 1, limit = 10, search } = req.query;
+    const offset = (page - 1) * limit;
 
-    // Validate first DO
-    const firstDO = await DeliveryOrder.findByPk(first_do_id, { transaction });
-    if (!firstDO) {
-      await transaction.rollback();
-      return res.status(404).json({
-        success: false,
-        message: "Delivery Order not found",
-      });
+    let whereClause = {};
+    if (status) whereClause.status = status;
+    if (driver_id) whereClause.driver_id = driver_id;
+    if (search) {
+      whereClause[Op.or] = [
+        { big_do_number: { [Op.iLike]: `%${search}%` } },
+        { "$mainDeliveryOrder.customer_name$": { [Op.iLike]: `%${search}%` } },
+      ];
     }
 
-    if (firstDO.status !== "assigned" || firstDO.big_delivery_order_id) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "DO is not available for Big DO creation",
-      });
-    }
+    const { count, rows: bigDOs } = await BigDeliveryOrder.findAndCountAll({
+      where: whereClause,
+      include: [
+        {
+          model: DeliveryOrder,
+          as: "mainDeliveryOrder",
+          include: [
+            {
+              model: PurchaseOrder,
+              as: "purchaseOrder",
+              attributes: ["po_number", "customer_name", "item_name"],
+            },
+          ],
+        },
+        {
+          model: User,
+          as: "driver",
+          attributes: ["username"],
+          include: [
+            {
+              model: DriverProfile,
+              as: "driverProfile",
+              attributes: ["full_name", "phone"],
+            },
+          ],
+        },
+        {
+          model: Vehicle,
+          as: "vehicle",
+          attributes: ["license_plate", "type"],
+        },
+        {
+          model: BigDoTambahan,
+          as: "tambahan",
+          attributes: ["id", "customer_name", "total_amount", "status"],
+        },
+      ],
+      order: [["created_at", "DESC"]],
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+    });
 
-    // Generate session ID
-    const sessionId = `BigDO-${Date.now()}-${Math.random()
-      .toString(36)
-      .substr(2, 9)}`;
-
-    // Update first DO with session
-    await firstDO.update(
-      {
-        big_do_creation_session: sessionId,
-        is_big_do_candidate: true,
-        status: "pending_big_do",
+    // Enhance data with computed fields
+    const enhancedBigDOs = bigDOs.map((bigDO) => ({
+      ...bigDO.toJSON(),
+      driver_name:
+        bigDO.driver?.driverProfile?.full_name || bigDO.driver?.username,
+      vehicle_info: `${bigDO.vehicle?.license_plate} (${bigDO.vehicle?.type})`,
+      status_text: bigDO.getStatusText(),
+      financial_summary: bigDO.getFinancialSummary(),
+      quantity_summary: bigDO.getTotalQuantity(),
+      delivery_progress: bigDO.getDeliveryProgress(),
+      delivery_summary: {
+        main_do: {
+          customer: bigDO.mainDeliveryOrder?.customer_name,
+          po_number: bigDO.mainDeliveryOrder?.purchaseOrder?.po_number,
+          status: bigDO.mainDeliveryOrder?.status,
+        },
+        tambahan_count: bigDO.tambahan?.length || 0,
+        tambahan_completed:
+          bigDO.tambahan?.filter((t) => t.status === "delivered").length || 0,
       },
-      { transaction }
-    );
+    }));
 
-    // Update vehicle status
-    await Vehicle.update(
-      { status: "in_big_do_creation" },
-      { where: { id: firstDO.vehicle_id }, transaction }
-    );
-
-    await transaction.commit();
+    // Calculate summary stats
+    const stats = {
+      total: count,
+      assigned: enhancedBigDOs.filter((b) => b.status === "assigned").length,
+      in_progress: enhancedBigDOs.filter((b) => b.status === "in_progress")
+        .length,
+      completed: enhancedBigDOs.filter((b) => b.status === "completed").length,
+      cancelled: enhancedBigDOs.filter((b) => b.status === "cancelled").length,
+      total_revenue: enhancedBigDOs.reduce(
+        (sum, b) => sum + (b.financial_summary?.total_revenue || 0),
+        0
+      ),
+      total_ongkosan: enhancedBigDOs.reduce(
+        (sum, b) => sum + (b.financial_summary?.total_ongkosan || 0),
+        0
+      ),
+    };
 
     res.json({
       success: true,
-      message: "Big DO creation session initialized",
-      data: {
-        session_id: sessionId,
-        driver_id: firstDO.driver_id,
-        vehicle_id: firstDO.vehicle_id,
-        first_do: {
-          id: firstDO.id,
-          do_number: firstDO.do_number,
-          customer_name: firstDO.customer_name,
-        },
+      data: enhancedBigDOs,
+      pagination: {
+        total: count,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(count / limit),
       },
+      stats,
     });
   } catch (err) {
-    await transaction.rollback();
     next(err);
   }
 };
 
 /**
- * 🎯 GET BIG DO SESSION DATA
- * GET /api/web/delivery-orders/big-do-session/:sessionId
+ * 🎯 GET AVAILABLE DELIVERY ORDERS FOR BIG DO CREATION
+ * GET /api/web/big-delivery-orders/available-dos
  */
-exports.getBigDOSession = async (req, res, next) => {
+exports.getAvailableDeliveryOrders = async (req, res, next) => {
   try {
-    const { sessionId } = req.params;
-
-    const sessionDOs = await DeliveryOrder.findAll({
-      where: { big_do_creation_session: sessionId },
+    const availableDOs = await DeliveryOrder.findAll({
+      where: {
+        status: "assigned",
+        // Exclude DOs that are already main DOs in other Big DOs
+        id: {
+          [Op.notIn]: sequelize.literal(
+            "(SELECT main_delivery_order_id FROM big_delivery_orders WHERE status != 'cancelled')"
+          ),
+        },
+      },
       include: [
         {
           model: PurchaseOrder,
           as: "purchaseOrder",
-          attributes: ["po_number", "customer_name", "unit"],
+          attributes: ["po_number", "customer_name", "item_name"],
         },
         {
           model: User,
@@ -116,55 +169,23 @@ exports.getBigDOSession = async (req, res, next) => {
           attributes: ["license_plate", "type"],
         },
       ],
-      order: [
-        ["display_order", "ASC"],
-        ["created_at", "ASC"],
-      ],
+      order: [["created_at", "DESC"]],
     });
 
-    if (sessionDOs.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Big DO session not found or expired",
-      });
-    }
-
-    // Enhance data with computed fields
-    const enhancedDOs = sessionDOs.map((dOrder) => ({
-      ...dOrder.toJSON(),
+    // Enhance with computed fields
+    const enhancedDOs = availableDOs.map((doItem) => ({
+      ...doItem.toJSON(),
       driver_name:
-        dOrder.driver?.driverProfile?.full_name || dOrder.driver?.username,
-      vehicle_info: `${dOrder.vehicle?.license_plate} (${dOrder.vehicle?.type})`,
-      unit_display: dOrder.getUnitDisplay(),
-      financial_summary: dOrder.getFinancialSummary(),
+        doItem.driver?.driverProfile?.full_name || doItem.driver?.username,
+      vehicle_info: `${doItem.vehicle?.license_plate} (${doItem.vehicle?.type})`,
+      financial_summary: doItem.getFinancialSummary(),
+      unit_display: doItem.getUnitDisplay(),
     }));
-
-    // Calculate session totals
-    const sessionTotals = {
-      total_dos: enhancedDOs.length,
-      total_gaji: enhancedDOs.reduce(
-        (sum, dOrder) => sum + (parseFloat(dOrder.gaji) || 0),
-        0
-      ),
-      total_ongkosan: enhancedDOs.reduce(
-        (sum, dOrder) => sum + (parseFloat(dOrder.ongkosan) || 0),
-        0
-      ),
-      total_revenue: enhancedDOs.reduce(
-        (sum, dOrder) => sum + (parseFloat(dOrder.total_amount) || 0),
-        0
-      ),
-    };
 
     res.json({
       success: true,
-      data: {
-        session_id: sessionId,
-        delivery_orders: enhancedDOs,
-        session_totals: sessionTotals,
-        driver_info: enhancedDOs[0]?.driver_name,
-        vehicle_info: enhancedDOs[0]?.vehicle_info,
-      },
+      data: enhancedDOs,
+      total: enhancedDOs.length,
     });
   } catch (err) {
     next(err);
@@ -179,83 +200,124 @@ exports.createBigDeliveryOrder = async (req, res, next) => {
   const transaction = await sequelize.transaction();
 
   try {
-    const { session_id, trip_allowance, notes } = req.body;
+    const {
+      main_delivery_order_id,
+      total_trip_allowance,
+      total_gaji,
+      tambahan = [],
+      notes,
+    } = req.body;
 
-    // Get all DOs in session
-    const sessionDOs = await DeliveryOrder.findAll({
+    // Validate main DO
+    const mainDO = await DeliveryOrder.findByPk(main_delivery_order_id, {
+      transaction,
+    });
+    if (!mainDO) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: "Main Delivery Order not found",
+      });
+    }
+
+    if (mainDO.status !== "assigned") {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Main Delivery Order must be in assigned status",
+      });
+    }
+
+    // Check if main DO is already used in another Big DO
+    const existingBigDO = await BigDeliveryOrder.findOne({
       where: {
-        big_do_creation_session: session_id,
-        status: "pending_big_do",
+        main_delivery_order_id,
+        status: { [Op.ne]: "cancelled" },
       },
       transaction,
     });
 
-    if (sessionDOs.length < 2) {
+    if (existingBigDO) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: "Big DO requires at least 2 delivery orders",
+        message: "This Delivery Order is already used in another Big DO",
       });
     }
 
     // Generate Big DO number
-    const bigDONumber = await BigDeliveryOrder.generateBigDONumber();
+    const bigDoNumber = await BigDeliveryOrder.generateBigDONumber();
 
-    // Calculate totals
-    const totalGaji = sessionDOs.reduce(
-      (sum, dOrder) => sum + parseFloat(dOrder.gaji),
-      0
-    );
-    const totalOngkosan = sessionDOs.reduce(
-      (sum, dOrder) => sum + parseFloat(dOrder.ongkosan || 0),
-      0
-    );
+    // Calculate tambahan totals
+    let tambahanTotalAmount = 0;
+    for (const item of tambahan) {
+      const itemTotalAmount = calculateTambahanAmount(
+        item.quantity,
+        item.unit,
+        item.unit_price
+      );
+      tambahanTotalAmount += itemTotalAmount;
+    }
 
     // Create Big DO
     const bigDO = await BigDeliveryOrder.create(
       {
-        big_do_number: bigDONumber,
-        driver_id: sessionDOs[0].driver_id,
-        vehicle_id: sessionDOs[0].vehicle_id,
-        total_trip_allowance: parseFloat(trip_allowance) || 0,
-        total_gaji: totalGaji,
-        total_ongkosan: totalOngkosan,
+        big_do_number: bigDoNumber,
+        main_delivery_order_id,
+        driver_id: mainDO.driver_id,
+        vehicle_id: mainDO.vehicle_id,
+        total_trip_allowance: parseFloat(total_trip_allowance) || 0,
+        total_gaji:
+          (parseFloat(mainDO.gaji) || 0) + (parseFloat(total_gaji) || 0),
+        total_ongkosan:
+          (parseFloat(mainDO.ongkosan) || 0) + tambahanTotalAmount,
         status: "assigned",
         notes,
+        created_by: req.user.id,
       },
       { transaction }
     );
 
-    // Update individual DOs
-    for (let i = 0; i < sessionDOs.length; i++) {
-      const dOrder = sessionDOs[i];
-      const newDONumber = `DO-BigDO${
-        bigDONumber.split("-")[1]
-      }-${String.fromCharCode(65 + i)}`;
+    // Create tambahan deliveries
+    const createdTambahan = [];
+    for (const item of tambahan) {
+      const tambahanNumber = await BigDoTambahan.generateTambahanNumber(
+        bigDO.id
+      );
 
-      await dOrder.update(
+      const tambahanItem = await BigDoTambahan.create(
         {
           big_delivery_order_id: bigDO.id,
-          do_number: newDONumber,
-          display_order: i + 1,
-          trip_allowance: 0, // Individual DOs get 0, Big DO gets the total
-          status: "assigned",
-          big_do_creation_session: null,
-          is_big_do_candidate: false,
+          tambahan_number: tambahanNumber,
+          customer_name: item.customer_name,
+          customer_phone: item.customer_phone,
+          customer_address: item.customer_address,
+          item_name: item.item_name,
+          quantity: item.quantity,
+          unit: item.unit,
+          unit_price: item.unit_price,
+          total_amount: calculateTambahanAmount(
+            item.quantity,
+            item.unit,
+            item.unit_price
+          ),
+          pickup_location: item.pickup_location,
+          pickup_latitude: item.pickup_latitude,
+          pickup_longitude: item.pickup_longitude,
+          delivery_location: item.delivery_location,
+          delivery_latitude: item.delivery_latitude,
+          delivery_longitude: item.delivery_longitude,
+          notes: item.notes,
         },
         { transaction }
       );
-    }
 
-    // Update vehicle status
-    await Vehicle.update(
-      { status: "in_use" },
-      { where: { id: sessionDOs[0].vehicle_id }, transaction }
-    );
+      createdTambahan.push(tambahanItem);
+    }
 
     // Send push notification to driver
     const driverUser = await User.findOne({
-      where: { id: sessionDOs[0].driver_id },
+      where: { id: mainDO.driver_id },
       attributes: ["username", "expo_push_token"],
       include: [
         {
@@ -277,54 +339,37 @@ exports.createBigDeliveryOrder = async (req, res, next) => {
             to: driverUser.expo_push_token,
             sound: "default",
             title: "Big DO Assignment Baru",
-            body: `Halo ${driverName}, Anda telah ditugaskan Big DO ${bigDO.big_do_number} dengan ${sessionDOs.length} pengiriman. Silakan cek detail di aplikasi.`,
+            body: `Halo ${driverName}, Anda telah ditugaskan Big DO ${bigDO.big_do_number} dengan ${createdTambahan.length} tambahan pengiriman. Silakan cek detail di aplikasi.`,
             data: {
               big_do_number: bigDO.big_do_number,
               type: "big_do_assignment",
             },
           },
         ];
-        await expo.sendPushNotificationsAsync(messages);
+
+        try {
+          await expo.sendPushNotificationsAsync(messages);
+        } catch (pushError) {
+          console.error("Push notification error:", pushError);
+        }
       }
     }
 
     await transaction.commit();
 
-    res.status(201).json({
-      success: true,
-      message: "Big Delivery Order created successfully",
-      data: {
-        big_do: {
-          ...bigDO.toJSON(),
-          financial_summary: bigDO.getFinancialSummary(),
-        },
-        individual_dos: sessionDOs.length,
-        driver_name:
-          driverUser?.driverProfile?.full_name || driverUser?.username,
-      },
-    });
-  } catch (err) {
-    await transaction.rollback();
-    next(err);
-  }
-};
-
-/**
- * 🎯 GET ALL BIG DELIVERY ORDERS
- * GET /api/web/big-delivery-orders
- */
-exports.getAllBigDeliveryOrders = async (req, res, next) => {
-  try {
-    const { status, driver_id, page = 1, limit = 10 } = req.query;
-    const offset = (page - 1) * limit;
-
-    let whereClause = {};
-    if (status) whereClause.status = status;
-    if (driver_id) whereClause.driver_id = driver_id;
-
-    const { count, rows: bigDOs } = await BigDeliveryOrder.findAndCountAll({
-      where: whereClause,
+    // Fetch complete Big DO data for response
+    const completeBigDO = await BigDeliveryOrder.findByPk(bigDO.id, {
       include: [
+        {
+          model: DeliveryOrder,
+          as: "mainDeliveryOrder",
+          include: [
+            {
+              model: PurchaseOrder,
+              as: "purchaseOrder",
+            },
+          ],
+        },
         {
           model: User,
           as: "driver",
@@ -340,65 +385,27 @@ exports.getAllBigDeliveryOrders = async (req, res, next) => {
         {
           model: Vehicle,
           as: "vehicle",
-          attributes: ["license_plate", "type"],
         },
         {
-          model: DeliveryOrder,
-          as: "deliveryOrders",
-          include: [
-            {
-              model: PurchaseOrder,
-              as: "purchaseOrder",
-              attributes: ["po_number", "customer_name"],
-            },
-          ],
+          model: BigDoTambahan,
+          as: "tambahan",
         },
       ],
-      order: [["created_at", "DESC"]],
-      limit: parseInt(limit),
-      offset: offset,
     });
 
-    // Enhance data
-    const enhancedBigDOs = bigDOs.map((bigDO) => ({
-      ...bigDO.toJSON(),
-      driver_name:
-        bigDO.driver?.driverProfile?.full_name || bigDO.driver?.username,
-      vehicle_info: `${bigDO.vehicle?.license_plate} (${bigDO.vehicle?.type})`,
-      status_text: bigDO.getStatusText(),
-      financial_summary: bigDO.getFinancialSummary(),
-      delivery_summary: {
-        total_dos: bigDO.deliveryOrders?.length || 0,
-        completed_dos:
-          bigDO.deliveryOrders?.filter(
-            (dOrder) => dOrder.status === "completed"
-          ).length || 0,
-        customers: [
-          ...new Set(
-            bigDO.deliveryOrders?.map((dOrder) => dOrder.customer_name) || []
-          ),
-        ],
-        po_numbers: [
-          ...new Set(
-            bigDO.deliveryOrders
-              ?.map((dOrder) => dOrder.purchaseOrder?.po_number)
-              .filter(Boolean) || []
-          ),
-        ],
-      },
-    }));
-
-    res.json({
+    res.status(201).json({
       success: true,
-      data: enhancedBigDOs,
-      pagination: {
-        total: count,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(count / limit),
+      data: {
+        ...completeBigDO.toJSON(),
+        financial_summary: completeBigDO.getFinancialSummary(),
+        quantity_summary: completeBigDO.getTotalQuantity(),
+        driver_name:
+          driverUser?.driverProfile?.full_name || driverUser?.username,
       },
+      message: "Big Delivery Order created successfully",
     });
   } catch (err) {
+    await transaction.rollback();
     next(err);
   }
 };
@@ -414,19 +421,33 @@ exports.getBigDeliveryOrderById = async (req, res, next) => {
     const bigDO = await BigDeliveryOrder.findByPk(id, {
       include: [
         {
+          model: DeliveryOrder,
+          as: "mainDeliveryOrder",
+          include: [
+            {
+              model: PurchaseOrder,
+              as: "purchaseOrder",
+            },
+          ],
+        },
+        {
           model: User,
           as: "driver",
-          include: [{ model: DriverProfile, as: "driverProfile" }],
+          include: [
+            {
+              model: DriverProfile,
+              as: "driverProfile",
+            },
+          ],
         },
         {
           model: Vehicle,
           as: "vehicle",
         },
         {
-          model: DeliveryOrder,
-          as: "deliveryOrders",
-          include: [{ model: PurchaseOrder, as: "purchaseOrder" }],
-          order: [["display_order", "ASC"]],
+          model: BigDoTambahan,
+          as: "tambahan",
+          order: [["created_at", "ASC"]],
         },
       ],
     });
@@ -438,7 +459,7 @@ exports.getBigDeliveryOrderById = async (req, res, next) => {
       });
     }
 
-    // Enhance data
+    // Enhance data with computed fields
     const enhancedBigDO = {
       ...bigDO.toJSON(),
       driver_name:
@@ -446,12 +467,15 @@ exports.getBigDeliveryOrderById = async (req, res, next) => {
       vehicle_info: `${bigDO.vehicle?.license_plate} (${bigDO.vehicle?.type})`,
       status_text: bigDO.getStatusText(),
       financial_summary: bigDO.getFinancialSummary(),
-      deliveryOrders: bigDO.deliveryOrders.map((dOrder) => ({
-        ...dOrder.toJSON(),
-        unit_display: dOrder.getUnitDisplay(),
-        status_text: dOrder.getStatusText(),
-        financial_summary: dOrder.getFinancialSummary(),
-      })),
+      quantity_summary: bigDO.getTotalQuantity(),
+      delivery_progress: bigDO.getDeliveryProgress(),
+      tambahan:
+        bigDO.tambahan?.map((t) => ({
+          ...t.toJSON(),
+          status_text: t.getStatusText(),
+          financial_summary: t.getFinancialSummary(),
+          unit_display: t.getUnitDisplay(),
+        })) || [],
     };
 
     res.json({
@@ -464,56 +488,58 @@ exports.getBigDeliveryOrderById = async (req, res, next) => {
 };
 
 /**
- * 🎯 CANCEL BIG DO SESSION
- * DELETE /api/web/delivery-orders/big-do-session/:sessionId
+ * 🎯 UPDATE BIG DO STATUS
+ * PATCH /api/web/big-delivery-orders/:id/status
  */
-exports.cancelBigDOSession = async (req, res, next) => {
+exports.updateBigDeliveryOrderStatus = async (req, res, next) => {
   const transaction = await sequelize.transaction();
 
   try {
-    const { sessionId } = req.params;
+    const { id } = req.params;
+    const { status, notes } = req.body;
 
-    const sessionDOs = await DeliveryOrder.findAll({
-      where: { big_do_creation_session: sessionId },
-      transaction,
-    });
-
-    if (sessionDOs.length === 0) {
+    const bigDO = await BigDeliveryOrder.findByPk(id, { transaction });
+    if (!bigDO) {
       await transaction.rollback();
       return res.status(404).json({
         success: false,
-        message: "Big DO session not found",
+        message: "Big Delivery Order not found",
       });
     }
 
-    // Reset all DOs in session
-    for (const dOrder of sessionDOs) {
-      await dOrder.update(
-        {
-          big_do_creation_session: null,
-          is_big_do_candidate: false,
-          status: "assigned",
-        },
-        { transaction }
-      );
+    // Validate status transition
+    const validStatuses = ["assigned", "in_progress", "completed", "cancelled"];
+    if (!validStatuses.includes(status)) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status",
+      });
     }
 
-    // Reset vehicle status
-    if (sessionDOs[0]) {
-      await Vehicle.update(
-        { status: "in_use" },
-        { where: { id: sessionDOs[0].vehicle_id }, transaction }
-      );
-    }
+    // Update Big DO status
+    await bigDO.update(
+      {
+        status,
+        notes: notes ? `${bigDO.notes || ""}\n${notes}`.trim() : bigDO.notes,
+        started_at:
+          status === "in_progress" && !bigDO.started_at
+            ? new Date()
+            : bigDO.started_at,
+        completed_at: status === "completed" ? new Date() : bigDO.completed_at,
+      },
+      { transaction }
+    );
 
     await transaction.commit();
 
     res.json({
       success: true,
-      message: "Big DO session cancelled successfully",
       data: {
-        cancelled_dos: sessionDOs.length,
+        ...bigDO.toJSON(),
+        status_text: bigDO.getStatusText(),
       },
+      message: "Big Delivery Order status updated successfully",
     });
   } catch (err) {
     await transaction.rollback();
@@ -533,7 +559,12 @@ exports.cancelBigDeliveryOrder = async (req, res, next) => {
     const { cancellation_reason } = req.body;
 
     const bigDO = await BigDeliveryOrder.findByPk(id, {
-      include: [{ model: DeliveryOrder, as: "deliveryOrders" }],
+      include: [
+        {
+          model: BigDoTambahan,
+          as: "tambahan",
+        },
+      ],
       transaction,
     });
 
@@ -562,24 +593,20 @@ exports.cancelBigDeliveryOrder = async (req, res, next) => {
       { transaction }
     );
 
-    // Cancel all individual DOs
-    for (const dOrder of bigDO.deliveryOrders) {
-      await dOrder.update(
-        {
-          status: "cancelled",
-          notes: `Cancelled due to Big DO cancellation: ${
-            cancellation_reason || "Admin cancelled"
-          }`,
-        },
-        { transaction }
-      );
+    // Cancel all tambahan
+    if (bigDO.tambahan && bigDO.tambahan.length > 0) {
+      for (const tambahan of bigDO.tambahan) {
+        await tambahan.update(
+          {
+            status: "cancelled",
+            notes: `Cancelled due to Big DO cancellation: ${
+              cancellation_reason || "Admin cancelled"
+            }`,
+          },
+          { transaction }
+        );
+      }
     }
-
-    // Free up vehicle
-    await Vehicle.update(
-      { status: "available" },
-      { where: { id: bigDO.vehicle_id }, transaction }
-    );
 
     await transaction.commit();
 
@@ -587,11 +614,392 @@ exports.cancelBigDeliveryOrder = async (req, res, next) => {
       success: true,
       message: "Big Delivery Order cancelled successfully",
       data: {
-        cancelled_dos: bigDO.deliveryOrders.length,
+        cancelled_tambahan: bigDO.tambahan?.length || 0,
       },
     });
   } catch (err) {
     await transaction.rollback();
     next(err);
+  }
+};
+
+/**
+ * 🎯 ADD TAMBAHAN TO EXISTING BIG DO
+ * POST /api/web/big-delivery-orders/:id/tambahan
+ */
+exports.addTambahanToBigDO = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+    const tambahanData = req.body;
+
+    const bigDO = await BigDeliveryOrder.findByPk(id, { transaction });
+    if (!bigDO) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: "Big Delivery Order not found",
+      });
+    }
+
+    if (bigDO.status !== "assigned") {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Cannot add tambahan to Big DO that is not in assigned status",
+      });
+    }
+
+    // Generate tambahan number
+    const tambahanNumber = await BigDoTambahan.generateTambahanNumber(bigDO.id);
+
+    // Create tambahan
+    const tambahan = await BigDoTambahan.create(
+      {
+        big_delivery_order_id: bigDO.id,
+        tambahan_number: tambahanNumber,
+        customer_name: tambahanData.customer_name,
+        customer_phone: tambahanData.customer_phone,
+        customer_address: tambahanData.customer_address,
+        item_name: tambahanData.item_name,
+        quantity: tambahanData.quantity,
+        unit: tambahanData.unit,
+        unit_price: tambahanData.unit_price,
+        total_amount: calculateTambahanAmount(
+          tambahanData.quantity,
+          tambahanData.unit,
+          tambahanData.unit_price
+        ),
+        pickup_location: tambahanData.pickup_location,
+        pickup_latitude: tambahanData.pickup_latitude,
+        pickup_longitude: tambahanData.pickup_longitude,
+        delivery_location: tambahanData.delivery_location,
+        delivery_latitude: tambahanData.delivery_latitude,
+        delivery_longitude: tambahanData.delivery_longitude,
+        notes: tambahanData.notes,
+      },
+      { transaction }
+    );
+
+    // Update Big DO total amounts
+    await bigDO.update(
+      {
+        total_ongkosan:
+          parseFloat(bigDO.total_ongkosan) + parseFloat(tambahan.total_amount),
+      },
+      { transaction }
+    );
+
+    await transaction.commit();
+
+    res.status(201).json({
+      success: true,
+      data: {
+        ...tambahan.toJSON(),
+        financial_summary: tambahan.getFinancialSummary(),
+      },
+      message: "Tambahan added successfully",
+    });
+  } catch (err) {
+    await transaction.rollback();
+    next(err);
+  }
+};
+
+/**
+ * 🎯 UPDATE TAMBAHAN
+ * PUT /api/web/big-delivery-orders/:id/tambahan/:tambahanId
+ */
+exports.updateTambahan = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id, tambahanId } = req.params;
+    const updateData = req.body;
+
+    // Validate Big DO exists and is editable
+    const bigDO = await BigDeliveryOrder.findByPk(id, { transaction });
+    if (!bigDO) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: "Big Delivery Order not found",
+      });
+    }
+
+    if (bigDO.status !== "assigned") {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Cannot update tambahan when Big DO is not in assigned status",
+      });
+    }
+
+    // Find and update tambahan
+    const tambahan = await BigDoTambahan.findOne({
+      where: {
+        id: tambahanId,
+        big_delivery_order_id: id,
+      },
+      transaction,
+    });
+
+    if (!tambahan) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: "Tambahan not found",
+      });
+    }
+
+    // Recalculate total_amount if quantity, unit, or unit_price changes
+    if (updateData.quantity || updateData.unit || updateData.unit_price) {
+      const quantity = updateData.quantity || tambahan.quantity;
+      const unit = updateData.unit || tambahan.unit;
+      const unitPrice = updateData.unit_price || tambahan.unit_price;
+
+      updateData.total_amount = calculateTambahanAmount(
+        quantity,
+        unit,
+        unitPrice
+      );
+    }
+
+    const updatedTambahan = await tambahan.update(updateData, { transaction });
+
+    // Update Big DO total if amount changed
+    if (updateData.total_amount) {
+      const totalTambahanAmount = await BigDoTambahan.sum("total_amount", {
+        where: { big_delivery_order_id: id },
+        transaction,
+      });
+
+      const mainDO = await DeliveryOrder.findByPk(
+        bigDO.main_delivery_order_id,
+        { transaction }
+      );
+      const newTotalOngkosan =
+        (parseFloat(mainDO.ongkosan) || 0) + (totalTambahanAmount || 0);
+
+      await bigDO.update(
+        {
+          total_ongkosan: newTotalOngkosan,
+        },
+        { transaction }
+      );
+    }
+
+    await transaction.commit();
+
+    res.json({
+      success: true,
+      data: {
+        ...updatedTambahan.toJSON(),
+        financial_summary: updatedTambahan.getFinancialSummary(),
+      },
+      message: "Tambahan updated successfully",
+    });
+  } catch (err) {
+    await transaction.rollback();
+    next(err);
+  }
+};
+
+/**
+ * 🎯 UPDATE TAMBAHAN STATUS
+ * PATCH /api/web/big-delivery-orders/:id/tambahan/:tambahanId/status
+ */
+exports.updateTambahanStatus = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id, tambahanId } = req.params;
+    const { status, notes } = req.body;
+
+    const validStatuses = [
+      "assigned",
+      "picked_up",
+      "in_transit",
+      "delivered",
+      "cancelled",
+    ];
+    if (!validStatuses.includes(status)) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status",
+      });
+    }
+
+    const tambahan = await BigDoTambahan.findOne({
+      where: {
+        id: tambahanId,
+        big_delivery_order_id: id,
+      },
+      transaction,
+    });
+
+    if (!tambahan) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: "Tambahan not found",
+      });
+    }
+
+    // Update status with timestamps
+    const updateData = {
+      status,
+      notes: notes
+        ? `${tambahan.notes || ""}\n${notes}`.trim()
+        : tambahan.notes,
+    };
+
+    if (status === "picked_up" && !tambahan.picked_up_at) {
+      updateData.picked_up_at = new Date();
+    }
+    if (status === "delivered") {
+      updateData.delivered_at = new Date();
+    }
+
+    await tambahan.update(updateData, { transaction });
+
+    await transaction.commit();
+
+    res.json({
+      success: true,
+      data: {
+        ...tambahan.toJSON(),
+        status_text: tambahan.getStatusText(),
+      },
+      message: "Tambahan status updated successfully",
+    });
+  } catch (err) {
+    await transaction.rollback();
+    next(err);
+  }
+};
+
+/**
+ * 🎯 DELETE TAMBAHAN
+ * DELETE /api/web/big-delivery-orders/:id/tambahan/:tambahanId
+ */
+exports.deleteTambahan = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id, tambahanId } = req.params;
+
+    const bigDO = await BigDeliveryOrder.findByPk(id, { transaction });
+    if (!bigDO || bigDO.status !== "assigned") {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Cannot delete tambahan when Big DO is not in assigned status",
+      });
+    }
+
+    const tambahan = await BigDoTambahan.findOne({
+      where: {
+        id: tambahanId,
+        big_delivery_order_id: id,
+      },
+      transaction,
+    });
+
+    if (!tambahan) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: "Tambahan not found",
+      });
+    }
+
+    const tambahanAmount = parseFloat(tambahan.total_amount) || 0;
+
+    // Delete tambahan
+    await tambahan.destroy({ transaction });
+
+    // Update Big DO total
+    await bigDO.update(
+      {
+        total_ongkosan: parseFloat(bigDO.total_ongkosan) - tambahanAmount,
+      },
+      { transaction }
+    );
+
+    await transaction.commit();
+
+    res.json({
+      success: true,
+      message: "Tambahan deleted successfully",
+      data: {
+        deleted_amount: tambahanAmount,
+      },
+    });
+  } catch (err) {
+    await transaction.rollback();
+    next(err);
+  }
+};
+
+/**
+ * 🎯 GET TAMBAHAN BY ID
+ * GET /api/web/big-delivery-orders/:id/tambahan/:tambahanId
+ */
+exports.getTambahanById = async (req, res, next) => {
+  try {
+    const { id, tambahanId } = req.params;
+
+    const tambahan = await BigDoTambahan.findOne({
+      where: {
+        id: tambahanId,
+        big_delivery_order_id: id,
+      },
+      include: [
+        {
+          model: BigDeliveryOrder,
+          as: "bigDeliveryOrder",
+          attributes: ["big_do_number", "status"],
+        },
+      ],
+    });
+
+    if (!tambahan) {
+      return res.status(404).json({
+        success: false,
+        message: "Tambahan not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        ...tambahan.toJSON(),
+        status_text: tambahan.getStatusText(),
+        financial_summary: tambahan.getFinancialSummary(),
+        unit_display: tambahan.getUnitDisplay(),
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Helper function for unit-aware tambahan calculation
+const calculateTambahanAmount = (quantity, unit, unitPrice) => {
+  const qty = parseFloat(quantity) || 0;
+  const price = parseFloat(unitPrice) || 0;
+
+  switch (unit) {
+    case "kilogram":
+      return qty * price;
+    case "ton":
+      return qty * 1000 * price; // Convert ton to kg
+    case "kubik":
+      return qty * price; // Direct kubik pricing
+    default:
+      return qty * price;
   }
 };

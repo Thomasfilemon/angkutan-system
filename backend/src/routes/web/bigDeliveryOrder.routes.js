@@ -13,6 +13,12 @@ router.get(
   bigDOController.getAllBigDeliveryOrders
 );
 
+router.get(
+  "/available-dos",
+  checkRole(["admin", "owner"]),
+  bigDOController.getAvailableDeliveryOrders
+);
+
 router.post(
   "/",
   checkRole(["admin", "owner"]),
@@ -26,9 +32,46 @@ router.get(
 );
 
 router.patch(
+  "/:id/status",
+  checkRole(["admin", "owner"]),
+  bigDOController.updateBigDeliveryOrderStatus
+);
+
+router.patch(
   "/:id/cancel",
   checkRole(["admin", "owner"]),
   bigDOController.cancelBigDeliveryOrder
+);
+
+router.post(
+  "/:id/tambahan",
+  checkRole(["admin", "owner"]),
+  bigDOController.addTambahanToBigDO
+);
+
+// ✅ TAMBAHAN MANAGEMENT ROUTES
+router.put(
+  "/:id/tambahan/:tambahanId",
+  checkRole(["admin", "owner"]),
+  bigDOController.updateTambahan
+);
+
+router.patch(
+  "/:id/tambahan/:tambahanId/status",
+  checkRole(["admin", "owner"]),
+  bigDOController.updateTambahanStatus
+);
+
+router.delete(
+  "/:id/tambahan/:tambahanId",
+  checkRole(["admin", "owner"]),
+  bigDOController.deleteTambahan
+);
+
+router.get(
+  "/:id/tambahan/:tambahanId",
+  checkRole(["admin", "owner"]),
+  bigDOController.getTambahanById
 );
 
 module.exports = router;
