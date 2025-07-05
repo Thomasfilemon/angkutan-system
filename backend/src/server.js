@@ -33,6 +33,7 @@ const webTireRoutes = require("./routes/web/tire.routes");
 const webCashRoutes = require("./routes/web/cash.routes");
 const webRitaseRoutes = require("./routes/web/ritase.routes");
 const webBukuKasRoutes = require("./routes/web/bukuKas.routes");
+const utilsRoutes = require("./routes/utils.routes");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -105,6 +106,7 @@ app.use("/api/web/tires", webTireRoutes);
 app.use("/api/web/cash", webCashRoutes);
 app.use("/api/web/ritase", webRitaseRoutes);
 app.use("/api/web/buku-kas", webBukuKasRoutes);
+app.use("/api/web/utils", utilsRoutes);
 
 // Error handling middleware
 app.use(errorHandler);
