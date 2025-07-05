@@ -13,12 +13,13 @@ const MainLayout = () => {
     if (path === "/") return "Dashboard";
     if (path.startsWith("/trips")) return "Manajemen Trips";
     if (path.startsWith("/delivery-orders")) return "Delivery Orders";
+    if (path.startsWith("/big-dos")) return "Big Delivery Orders";
     if (path.startsWith("/vehicles/tires")) return "Manajemen Ban";
     if (path.startsWith("/vehicles")) return "Manajemen Kendaraan";
     if (path.startsWith("/drivers")) return "Manajemen Supir";
     if (path.startsWith("/stock")) return "Manajemen Stok";
     if (path.startsWith("/services")) return "Riwayat Servis";
-    if (path.startsWith("/cash")) return "Buku Kas"; // NEW
+    if (path.startsWith("/cash")) return "Buku Kas";
     if (path.startsWith("/ritase")) return "Dashboard Ritase";
     if (path.startsWith("/buku-kas")) return "Buku Kas";
     return "Dashboard";
@@ -169,6 +170,23 @@ const MainLayout = () => {
                 <span className="text-xl mr-3">🚚</span>
                 <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
                   Delivery Orders
+                </span>
+              </Link>
+            </li>
+
+            <li className="mb-4">
+              <Link
+                to="/big-dos"
+                className={`flex items-center p-2 rounded hover:bg-gray-700 ${
+                  isActiveLink("/big-dos")
+                    ? "bg-gray-700 border-l-4 border-blue-500"
+                    : ""
+                }`}
+                title="Big Delivery Orders"
+              >
+                <span className="text-xl mr-3">🚛</span>
+                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
+                  Big DOs
                 </span>
               </Link>
             </li>

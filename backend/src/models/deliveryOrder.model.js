@@ -37,32 +37,6 @@ module.exports = (sequelize) => {
         defaultValue: "ton",
         comment: "Unit satuan barang (inherited from PO)",
       },
-
-      big_delivery_order_id: {
-        type: DataTypes.INTEGER,
-        allowNull: true,
-        references: {
-          model: "big_delivery_orders",
-          key: "id",
-        },
-        comment: "Reference to Big DO if this DO is part of one",
-      },
-      big_do_creation_session: {
-        type: DataTypes.STRING(50),
-        allowNull: true,
-        comment: "Session ID for Big DO creation process",
-      },
-      is_big_do_candidate: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: false,
-        comment: "Flag indicating this DO is in Big DO creation process",
-      },
-      display_order: {
-        type: DataTypes.INTEGER,
-        defaultValue: 0,
-        comment: "Display order within Big DO (for admin UI only)",
-      },
-
       // === FINANCIAL FIELDS ===
       unit_price: { type: DataTypes.DECIMAL },
       total_amount: { type: DataTypes.DECIMAL, allowNull: false },
@@ -263,27 +237,16 @@ module.exports = (sequelize) => {
     return unitMap[this.unit] || this.unit;
   };
 
-  DeliveryOrder.prototype.isPartOfBigDO = function () {
-    return !!this.big_delivery_order_id;
+  DeliveryOrder.prototype.isMainDOOfBigDO = function () {
+    return !!this.bigDeliveryOrderAsMain;
   };
 
-  // Check if DO is in Big DO creation session
-  DeliveryOrder.prototype.isInBigDOSession = function () {
-    return !!this.big_do_creation_session;
-  };
-
-  // Get Big DO status context
   DeliveryOrder.prototype.getBigDOContext = function () {
-    if (this.big_delivery_order_id) {
+    if (this.bigDeliveryOrderAsMain) {
       return {
-        type: "completed_big_do",
-        message: "Part of Big Delivery Order",
-      };
-    }
-    if (this.big_do_creation_session) {
-      return {
-        type: "in_session",
-        message: "In Big DO creation session",
+        type: "big_do_main",
+        message: "Main DO of Big Delivery Order",
+        big_do: this.bigDeliveryOrderAsMain,
       };
     }
     return {
@@ -291,5 +254,6 @@ module.exports = (sequelize) => {
       message: "Standalone Delivery Order",
     };
   };
+
   return DeliveryOrder;
 };

@@ -23,7 +23,9 @@ import PurchaseOrderEditPage from "./pages/PurchaseOrderEdit";
 import CreateDeliveryFromPO from "./pages/CreateDeliveryFromPO";
 import DeliveryOrdersPage from "./pages/DeliveryOrders";
 import DeliveryOrderDetailPage from "./pages/DeliveryOrderDetail";
-import CreateBigDOPage from "./pages/CreateBigDOPage";
+import BigDOListPage from "./pages/BigDOListPage";
+import BigDOCreatePage from "./pages/BigDOCreatePage";
+import BigDODetailPage from "./pages/BigDODetailPage";
 import StockManagementPage from "./pages/StockManagement";
 import StockCreatePage from "./pages/StockCreate";
 import ServiceManagementPage from "./pages/ServiceManagement";
@@ -113,10 +115,10 @@ function App() {
             path="delivery-orders/:id"
             element={<DeliveryOrderDetailPage />}
           />
-          <Route
-            path="delivery-orders/create-big-do"
-            element={<CreateBigDOPage />}
-          />
+
+          <Route path="big-dos" element={<BigDOListPage />} />
+          <Route path="big-dos/create" element={<BigDOCreatePage />} />
+          <Route path="big-dos/:id" element={<BigDODetailPage />} />
 
           {/* Stock Management Routes */}
           <Route path="stock" element={<StockManagementPage />} />

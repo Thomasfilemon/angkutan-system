@@ -10,6 +10,7 @@ const setupAdminProfileModel = require("./adminProfile.model");
 const setupPurchaseOrderModel = require("./purchaseOrder.model");
 const setupDeliveryOrderModel = require("./deliveryOrder.model");
 const setupBigDeliveryOrderModel = require("./bigDeliveryOrder.model");
+const setupBigDoTambahanModel = require("./bigDoTambahan.model");
 const setupDriverExpenseModel = require("./driverExpense.model");
 const setupVehicleServiceModel = require("./vehicleService.model");
 // NEW: Stock and Service Management Models
@@ -64,8 +65,10 @@ db.AdminProfile = setupAdminProfileModel(sequelize);
 db.PurchaseOrder = setupPurchaseOrderModel(sequelize);
 db.DeliveryOrder = setupDeliveryOrderModel(sequelize);
 db.BigDeliveryOrder = setupBigDeliveryOrderModel(sequelize); // <-- ADD THIS LINE
+db.BigDoTambahan = setupBigDoTambahanModel(sequelize);
 db.DriverExpense = setupDriverExpenseModel(sequelize);
 db.VehicleService = setupVehicleServiceModel(sequelize);
+
 // NEW: Stock and Service Management Models
 db.StockCategory = setupStockCategoryModel(sequelize);
 db.StockItem = setupStockItemModel(sequelize);
@@ -94,7 +97,8 @@ const {
   AdminProfile,
   PurchaseOrder,
   DeliveryOrder,
-  BigDeliveryOrder, // <-- ADD THIS LINE
+  BigDeliveryOrder,
+  BigDoTambahan,
   Vehicle,
   DriverExpense,
   VehicleService,
@@ -261,24 +265,37 @@ DeliveryOrderPaymentHistory.belongsTo(DeliveryOrder, {
   as: "deliveryOrder",
 });
 
-// Big DO associations
+// BIG DO ASSOCIATIONS
+BigDeliveryOrder.belongsTo(DeliveryOrder, {
+  foreignKey: "main_delivery_order_id",
+  as: "mainDeliveryOrder",
+});
+
 BigDeliveryOrder.belongsTo(User, {
   foreignKey: "driver_id",
   as: "driver",
 });
+
 BigDeliveryOrder.belongsTo(Vehicle, {
   foreignKey: "vehicle_id",
   as: "vehicle",
 });
-BigDeliveryOrder.hasMany(DeliveryOrder, {
+
+BigDeliveryOrder.hasMany(BigDoTambahan, {
   foreignKey: "big_delivery_order_id",
-  as: "deliveryOrders",
+  as: "tambahan",
 });
 
-// Enhanced DO associations
-DeliveryOrder.belongsTo(BigDeliveryOrder, {
+// Tambahan associations
+BigDoTambahan.belongsTo(BigDeliveryOrder, {
   foreignKey: "big_delivery_order_id",
   as: "bigDeliveryOrder",
+});
+
+// Enhanced DO associations (NEW)
+DeliveryOrder.hasOne(BigDeliveryOrder, {
+  foreignKey: "main_delivery_order_id",
+  as: "bigDeliveryOrderAsMain",
 });
 
 // Invoice to Payments relationship
