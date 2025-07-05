@@ -678,3 +678,27 @@ exports.getVehicleTireStatus = async (req, res, next) => {
     next(err);
   }
 };
+exports.getInventoryTireInstances = async (req, res, next) => {
+  try {
+    const instances = await TireInstance.findAll({
+      where: {
+        status: 'in_stock' // We only want tires that are in stock for this inventory page
+      },
+      include: [
+        {
+          model: TireInventory,
+          as: 'tireInventory',
+          attributes: ['tire_brand', 'tire_size', 'tire_type']
+        },
+      ],
+      order: [['created_at', 'DESC']]
+    });
+
+    res.json({
+      success: true,
+      data: instances
+    });
+  } catch (err) {
+    next(err);
+  }
+};

@@ -262,7 +262,7 @@ const TireManagementPage = () => {
 
   const fetchAvailableTires = useCallback(async () => {
     try {
-      const response = await apiClient.get('/tires/tire-inventory');
+      const response = await apiClient.get('/tires/inventory-instances');
       setAvailableTires(Array.isArray(response.data) ? response.data : []);
     } catch (err) {
       console.error('Failed to fetch available tires:', err);
@@ -732,28 +732,29 @@ const fetchAvailableInstances = useCallback(async () => {
               </div>
             ) : (
               <div className="form-group">
-                <label>Pilih Ban dari Inventaris:</label>
-                <div className="tire-selection">
-                  {availableTires.length === 0 ? (
-                    <p className="no-data">Tidak ada ban baru yang tersedia</p>
-                  ) : (
-                    availableTires.map((tire) => (
-                      <div 
-                        key={tire.id}
-                        className={`tire-option ${installData.tire_inventory_id === tire.id ? 'selected' : ''}`}
-                        onClick={() => setInstallData(prev => ({ 
-                          ...prev, 
-                          tire_inventory_id: tire.id, 
-                          tire_instance_id: null 
-                        }))}
-                      >
-                        <div>{tire.tire_brand} {tire.tire_size}</div>
-                        <div>Stok: {tire.current_stock} | Harga: Rp {tire.unit_price?.toLocaleString() || 'N/A'}</div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
+  <label>Pilih Ban dari Inventaris:</label>
+  <div className="tire-selection">
+    {availableTires.length === 0 ? (
+      <p className="no-data">Tidak ada ban baru yang tersedia</p>
+    ) : (
+      availableTires.map((tire) => (
+        <div 
+          key={tire.id}
+          className={`tire-option ${installData.tire_inventory_id === tire.id ? 'selected' : ''}`}
+          onClick={() => setInstallData(prev => ({ 
+            ...prev, 
+            tire_inventory_id: tire.id, 
+            tire_instance_id: null 
+          }))}
+        >
+          <div>Nomor Serial: <b>{instance.tire_serial_number}</b></div>
+          <div>Tanggal Pembelian: {new Date(instance.purchase_date).toLocaleDateString('id-ID')}</div>
+          {/* Tambahkan field lain sesuai kebutuhan */}
+        </div>
+      ))
+    )}
+  </div>
+</div>
             )}
 
             <div className="form-group">

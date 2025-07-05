@@ -29,6 +29,7 @@ tireRouter.delete('/tire-inventory/:id', tireController.deleteTireInventory);
 tireRouter.get('/tire-inventory', tireController.getTireInventory); // Get inventory with stock > 0
 
 // --- Tire Instance Management (Individual Tires) ---
+tireRouter.get('/inventory-instances', tireController.getInventoryTireInstances);
 tireRouter.post('/tire-instances', tireController.createTireInstances);
 tireRouter.get('/tire-instances/available', tireController.getAvailableTireInstances);
 tireRouter.get('/tire-instances/removed', tireController.getRemovedTireInstances);
