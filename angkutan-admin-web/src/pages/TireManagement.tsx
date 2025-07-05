@@ -747,8 +747,8 @@ const fetchAvailableInstances = useCallback(async () => {
             tire_instance_id: null 
           }))}
         >
-          <div>Nomor Serial: <b>{instance.tire_serial_number}</b></div>
-          <div>Tanggal Pembelian: {new Date(instance.purchase_date).toLocaleDateString('id-ID')}</div>
+          <div>Nomor Serial: </div>
+          <div>Tanggal Pembelian: </div>
           {/* Tambahkan field lain sesuai kebutuhan */}
         </div>
       ))
