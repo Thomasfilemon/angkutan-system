@@ -164,6 +164,44 @@ exports.createService = async (req, res, next) => {
       }
     }
 
+    // Compose description for cash transaction
+    let cashDescription = `Servis kendaraan ${service.vehicle_id}`;
+    if (items.length > 0) {
+      cashDescription += `\nSuku Cadang:`;
+      items.forEach(item => {
+        cashDescription += `\n  • ${item.item_name} x${item.quantity} @${item.unit_price.toLocaleString()} = ${(
+          item.quantity * item.unit_price
+        ).toLocaleString()}`;
+      });
+      cashDescription += `\nTotal Parts: ${parts_cost.toLocaleString()}`;
+    }
+    cashDescription += `\nBiaya Jasa: ${Number(labor_cost || 0).toLocaleString()}`;
+    cashDescription += `\nTotal: ${(parts_cost + (Number(labor_cost) || 0)).toLocaleString()}`;
+
+    // Find "Servis" category
+    const CashCategory = require('../../models').CashCategory;
+    let servisCategory = await CashCategory.findOne({ where: { category_name: 'Servis' } });
+
+    // If not found, create it as 'income' (or 'expense' if you prefer)
+    if (!servisCategory) {
+      servisCategory = await CashCategory.create({
+        category_name: 'Servis',
+        category_type: 'income', // or 'expense'
+        description: 'Pemasukan dari servis kendaraan'
+      });
+    }
+
+    // Create cash transaction
+    const CashTransaction = require('../../models').CashTransaction;
+    await CashTransaction.create({
+      transaction_type: 'debit',
+      category_id: servisCategory.id,
+      amount: parts_cost + (labor_cost || 0),
+      description: cashDescription,
+      reference_number: service.id.toString(),
+      transaction_date: service_date
+    });
+
     res.status(201).json({
       success: true,
       message: 'Service created successfully',

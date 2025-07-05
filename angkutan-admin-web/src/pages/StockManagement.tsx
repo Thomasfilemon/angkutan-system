@@ -99,7 +99,7 @@ const StockManagementPage = () => {
                 <h1 className="text-3xl font-bold text-gray-800">Manajemen Stok</h1>
                 <Link to="/stock/create">
                     <button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded shadow">
-                        + Tambah Barang
+                        + Restok Barang
                     </button>
                 </Link>
             </div>

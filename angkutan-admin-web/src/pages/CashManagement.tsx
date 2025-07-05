@@ -1,6 +1,6 @@
 // src/pages/CashManagement.tsx
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import apiClient from '../api/axiosConfig';
 
 interface CashCategory {
@@ -39,6 +39,8 @@ const CashManagementPage = () => {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isSpecialCategory, setIsSpecialCategory] = useState(false);
+  const navigate = useNavigate();
   
   // Filters
   const [filters, setFilters] = useState({
@@ -114,6 +116,21 @@ const CashManagementPage = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Check for special categories first
+    if (formData.category_id === 'inventory_redirect') {
+      navigate('/stock/create');
+      setShowModal(false);
+      resetForm();
+      return;
+    }
+    
+    if (formData.category_id === 'service_redirect') {
+      navigate('/services/create');
+      setShowModal(false);
+      resetForm();
+      return;
+    }
     
     try {
       if (editingTransaction) {
@@ -130,6 +147,12 @@ const CashManagementPage = () => {
       console.error('Error saving transaction:', err);
       setError('Failed to save transaction.');
     }
+  };
+
+  const handleCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    setFormData(prev => ({ ...prev, category_id: value }));
+    setIsSpecialCategory(value === 'inventory_redirect' || value === 'service_redirect');
   };
 
   const handleEdit = (transaction: CashTransaction) => {
@@ -248,18 +271,33 @@ const CashManagementPage = () => {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Kategori</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Kategori
+            </label>
             <select
-              value={filters.category_id}
-              onChange={(e) => setFilters(prev => ({ ...prev, category_id: e.target.value }))}
+              value={formData.category_id}
+              onChange={(e) => setFormData(prev => ({ ...prev, category_id: e.target.value }))}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             >
-              <option value="">Semua Kategori</option>
-              {categories.map(category => (
-                <option key={category.id} value={category.id}>
-                  {category.category_name}
-                </option>
-              ))}
+              <option value="">Pilih Kategori</option>
+              {categories
+                .filter(cat => 
+                  (formData.transaction_type === 'debit' && cat.category_type === 'income') ||
+                  (formData.transaction_type === 'kredit' && cat.category_type === 'expense')
+                )
+                .map(category => (
+                  <option key={category.id} value={category.id}>
+                    {category.category_name}
+                  </option>
+                ))}
+              
+              {/* ADD SPECIAL CATEGORIES HERE */}
+              {formData.transaction_type === 'kredit' && (
+                <option value="inventory_redirect">Inventory (Pembelian Stok)</option>
+              )}
+              {formData.transaction_type === 'debit' && (
+                <option value="service_redirect">Servis (Penjualan Jasa)</option>
+              )}
             </select>
           </div>
           <div>
@@ -506,10 +544,14 @@ const CashManagementPage = () => {
                   </label>
                   <select
                     value={formData.transaction_type}
-                    onChange={(e) => setFormData(prev => ({ 
-                      ...prev, 
-                      transaction_type: e.target.value as 'debit' | 'kredit' 
-                    }))}
+                    onChange={(e) => {
+                      setFormData(prev => ({ 
+                        ...prev, 
+                        transaction_type: e.target.value as 'debit' | 'kredit',
+                        category_id: '' // Reset category when type changes
+                      }));
+                      setIsSpecialCategory(false);
+                    }}
                     className="w-full border border-gray-300 rounded-md px-3 py-2"
                     required
                   >
@@ -524,7 +566,7 @@ const CashManagementPage = () => {
                   </label>
                   <select
                     value={formData.category_id}
-                    onChange={(e) => setFormData(prev => ({ ...prev, category_id: e.target.value }))}
+                    onChange={handleCategoryChange}
                     className="w-full border border-gray-300 rounded-md px-3 py-2"
                   >
                     <option value="">Pilih Kategori</option>
@@ -538,63 +580,86 @@ const CashManagementPage = () => {
                           {category.category_name}
                         </option>
                       ))}
+                    
+                    {/* Special categories */}
+                    {formData.transaction_type === 'kredit' && (
+                      <option value="inventory_redirect">Inventory (Pembelian Stok)</option>
+                    )}
+                    {formData.transaction_type === 'kredit' && (
+                      <option value="service_redirect">Servis</option>
+                    )}
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Jumlah *
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={formData.amount}
-                    onChange={(e) => setFormData(prev => ({ ...prev, amount: e.target.value }))}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2"
-                    placeholder="0"
-                    required
-                  />
-                </div>
+                {/* Conditionally render other fields only if not special category */}
+                {!isSpecialCategory && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Jumlah *
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={formData.amount}
+                        onChange={(e) => setFormData(prev => ({ ...prev, amount: e.target.value }))}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                        placeholder="0"
+                        required={!isSpecialCategory}
+                      />
+                    </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Deskripsi *
-                  </label>
-                  <textarea
-                    value={formData.description}
-                    onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2"
-                    rows={3}
-                    placeholder="Deskripsi transaksi..."
-                    required
-                  />
-                </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Deskripsi *
+                      </label>
+                      <textarea
+                        value={formData.description}
+                        onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                        rows={3}
+                        placeholder="Deskripsi transaksi..."
+                        required={!isSpecialCategory}
+                      />
+                    </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Nomor Referensi
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.reference_number}
-                    onChange={(e) => setFormData(prev => ({ ...prev, reference_number: e.target.value }))}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2"
-                    placeholder="Nomor referensi (opsional)"
-                  />
-                </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Nomor Referensi
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.reference_number}
+                        onChange={(e) => setFormData(prev => ({ ...prev, reference_number: e.target.value }))}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                        placeholder="Nomor referensi (opsional)"
+                      />
+                    </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Tanggal Transaksi *
-                  </label>
-                  <input
-                    type="date"
-                    value={formData.transaction_date}
-                    onChange={(e) => setFormData(prev => ({ ...prev, transaction_date: e.target.value }))}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2"
-                    required
-                  />
-                </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Tanggal Transaksi *
+                      </label>
+                      <input
+                        type="date"
+                        value={formData.transaction_date}
+                        onChange={(e) => setFormData(prev => ({ ...prev, transaction_date: e.target.value }))}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                        required={!isSpecialCategory}
+                      />
+                    </div>
+                  </>
+                )}
+
+                {isSpecialCategory && (
+                  <div className="bg-blue-50 p-3 rounded-md text-blue-800">
+                    {formData.category_id === 'inventory_redirect' ? (
+                      <p>Anda akan diarahkan ke halaman pembelian stok</p>
+                    ) : (
+                      <p>Anda akan diarahkan ke halaman penjualan servis</p>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex justify-end space-x-3 pt-4">
                   <button
@@ -603,6 +668,7 @@ const CashManagementPage = () => {
                       setShowModal(false);
                       setEditingTransaction(null);
                       resetForm();
+                      setIsSpecialCategory(false);
                     }}
                     className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded"
                   >
@@ -612,7 +678,7 @@ const CashManagementPage = () => {
                     type="submit"
                     className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
                   >
-                    {editingTransaction ? 'Update' : 'Simpan'}
+                    {editingTransaction ? 'Update' : 'Lanjutkan'}
                   </button>
                 </div>
               </form>
