@@ -59,17 +59,23 @@ const TripsPage = () => {
       const params = statusFilter !== "all" ? `?status=${statusFilter}` : "";
       const response = await apiClient.get(`/purchase-orders${params}`);
 
+      // ✅ FIX: Handle full response format
+      const orders = response.data.success
+        ? response.data.data
+        : response.data || [];
+      const stats = response.data.success ? response.data.stats : null;
+
       // 🎯 NEW: Ensure unit field exists with fallback
-      const processedOrders = (response.data || []).map(
-        (po: PurchaseOrder) => ({
-          ...po,
-          unit: po.unit || "ton", // Fallback for existing data
-        })
-      );
+      const processedOrders = orders.map((po: PurchaseOrder) => ({
+        ...po,
+        unit: po.unit || "ton", // Fallback for existing data
+      }));
 
       setPurchaseOrders(processedOrders);
-      if (response.data.stats) {
-        setStats(response.data.stats);
+
+      // ✅ FIX: Use extracted stats
+      if (stats) {
+        setStats(stats);
       }
     } catch (err) {
       setError("Failed to fetch purchase orders.");

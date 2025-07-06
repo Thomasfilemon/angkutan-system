@@ -83,8 +83,9 @@ exports.getAllPurchaseOrders = async (req, res, next) => {
     );
 
     // Calculate summary stats
+    // Calculate summary stats
     const stats = {
-      total: count,
+      total: enhancedPOs.length, // ✅ FIX: Use actual results, not DB count
       active: enhancedPOs.filter((po) =>
         ["confirmed", "partial"].includes(po.status)
       ).length,

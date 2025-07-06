@@ -12,8 +12,12 @@ const {
 } = require("../../models");
 
 /**
- * 🎯 COMPREHENSIVE RITASE TABLE - The Excel Killer
- * GET /ritase/comprehensive?startDate=2024-01-01&endDate=2024-12-31&vehicle=1&driver=2&status=completed
+ * 🎯 COMPREHENSIVE RITASE TABLE - Vehicle-Focused Analysis
+ * GET /ritase/comprehensive?vehicle=1&startDate=2024-01-01&endDate=2024-12-31&driver=2&status=completed
+ */
+/**
+ * 🎯 COMPREHENSIVE RITASE TABLE - Auto-load latest ritase by vehicle plate
+ * GET /ritase/comprehensive - Shows 10 latest ritase sorted by license plate DESC
  */
 exports.getComprehensiveRitaseTable = async (req, res, next) => {
   try {
@@ -25,15 +29,15 @@ exports.getComprehensiveRitaseTable = async (req, res, next) => {
       status = null,
       paymentStatus = null,
       page = 1,
-      limit = 50,
-      sortBy = "created_at",
+      limit = 10, // ✅ DEFAULT: 10 records
+      sortBy = "license_plate", // ✅ CHANGE: Default sort by license plate
       sortOrder = "DESC",
     } = req.query;
 
     // Build dynamic where conditions
     const whereConditions = {};
 
-    // Date filtering
+    // ✅ REMOVE: No default date filtering - show all data
     if (startDate && endDate) {
       whereConditions.created_at = {
         [Op.between]: [new Date(startDate), new Date(endDate)],
@@ -49,7 +53,7 @@ exports.getComprehensiveRitaseTable = async (req, res, next) => {
       whereConditions.payment_status = paymentStatus;
     }
 
-    // Vehicle filtering
+    // Vehicle filtering (optional)
     if (vehicle && vehicle !== "all") {
       whereConditions.vehicle_id = vehicle;
     }
@@ -59,12 +63,24 @@ exports.getComprehensiveRitaseTable = async (req, res, next) => {
       whereConditions.driver_id = driver;
     }
 
-    // Only include completed orders for financial analysis
-    if (!status) {
-      whereConditions.status = "completed";
-    }
-
     const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    // ✅ NEW: Custom order logic based on sortBy
+    let orderClause;
+    if (sortBy === "license_plate") {
+      // Sort by vehicle license plate, then by created_at
+      orderClause = [
+        [
+          { model: Vehicle, as: "vehicle" },
+          "license_plate",
+          sortOrder.toUpperCase(),
+        ],
+        ["created_at", "DESC"],
+      ];
+    } else {
+      // Default sort by the specified field
+      orderClause = [[sortBy, sortOrder.toUpperCase()]];
+    }
 
     // Main query with all related data
     const { rows: deliveryOrders, count: totalRecords } =
@@ -114,7 +130,7 @@ exports.getComprehensiveRitaseTable = async (req, res, next) => {
             attributes: ["adjustment_type", "adjustment_amount", "reason"],
           },
         ],
-        order: [[sortBy, sortOrder.toUpperCase()]],
+        order: orderClause, // ✅ Use custom order
         limit: parseInt(limit),
         offset,
       });
@@ -127,9 +143,9 @@ exports.getComprehensiveRitaseTable = async (req, res, next) => {
         case "kilogram":
           return quantity * price;
         case "ton":
-          return quantity * 1000 * price; // 🎯 FIXED: Convert ton to kg
+          return quantity * 1000 * price;
         case "kubik":
-          return quantity * price; // Direct kubik pricing
+          return quantity * price;
         default:
           return quantity * price;
       }
@@ -240,10 +256,30 @@ exports.getComprehensiveRitaseTable = async (req, res, next) => {
       };
     });
 
+    // ✅ NEW: Overall summary stats
+    const summaryStats = {
+      totalRecords,
+      totalRevenue: processedData.reduce(
+        (sum, record) => sum + record.calculated.grossIncome,
+        0
+      ),
+      totalProfit: processedData.reduce(
+        (sum, record) => sum + record.calculated.netProfit,
+        0
+      ),
+      vehicleCount: [
+        ...new Set(processedData.map((record) => record.vehicle_id)),
+      ].length,
+      completedTrips: processedData.filter(
+        (record) => record.status === "completed"
+      ).length,
+    };
+
     res.json({
       success: true,
       data: {
         records: processedData,
+        summary: summaryStats, // ✅ NEW: Overall summary
         pagination: {
           currentPage: parseInt(page),
           totalPages: Math.ceil(totalRecords / parseInt(limit)),
@@ -258,6 +294,8 @@ exports.getComprehensiveRitaseTable = async (req, res, next) => {
           driver,
           status,
           paymentStatus,
+          sortBy,
+          sortOrder,
         },
       },
     });
@@ -270,7 +308,7 @@ const getUnitDisplay = (unit) => {
   const unitMap = {
     kilogram: "kg",
     ton: "ton",
-    kubik: "m³",
+    kubik: "kubik",
   };
   return unitMap[unit] || unit;
 };

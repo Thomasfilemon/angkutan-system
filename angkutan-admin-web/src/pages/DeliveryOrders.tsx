@@ -12,8 +12,8 @@ interface DeliveryOrder {
   item_name: string;
   minimal_load_quantity: number;
   actual_load_quantity?: number;
-  unit: string; // 🎯 NEW: Add unit field
-  unit_price?: number; // 🎯 NEW: Add unit price
+  unit: string;
+  unit_price?: number;
   status: string;
   status_text: string;
   driver_name: string;
@@ -24,15 +24,15 @@ interface DeliveryOrder {
     gaji: number;
     total_for_driver: number;
     minimal_total_amount: number;
-    actual_total_amount?: number; // 🎯 NEW: Actual calculated amount
-    ongkosan: number; // 🎯 ADD: Missing field
-    net_profit: number; // 🎯 ADD: Missing field
-    unit: string; // 🎯 ADD: Missing field
-    unit_display: string; // 🎯 ADD: Missing field
+    actual_total_amount?: number;
+    ongkosan: number;
+    net_profit: number;
+    unit: string;
+    unit_display: string;
   };
   purchaseOrder?: {
     po_number: string;
-    unit?: string; // 🎯 NEW: Add unit from PO
+    unit?: string;
   };
   surat_jalan_photo_url?: string;
   ongkosan?: number;
@@ -92,7 +92,12 @@ const DeliveryOrdersPage = () => {
       }
 
       const response = await apiClient.get(url);
-      const orders = response.data || [];
+
+      // ✅ FIX: Handle full response format
+      const orders = response.data.success
+        ? response.data.data
+        : response.data || [];
+      const stats = response.data.success ? response.data.stats : null;
 
       // 🎯 NEW: Ensure unit field exists with fallback
       const processedOrders = orders.map((order: DeliveryOrder) => ({
@@ -102,8 +107,9 @@ const DeliveryOrdersPage = () => {
 
       setDeliveryOrders(processedOrders);
 
-      if (response.data.stats) {
-        setStats(response.data.stats);
+      // ✅ FIX: Use extracted stats
+      if (stats) {
+        setStats(stats);
       }
     } catch (err) {
       setError("Failed to fetch delivery orders.");

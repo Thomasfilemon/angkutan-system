@@ -81,7 +81,18 @@ const BigDOCreatePage: React.FC = () => {
 
       // Handle response format
       const data = response.data.success ? response.data.data : response.data;
-      setAvailableDOs(Array.isArray(data) ? data : []);
+
+      // ✅ FIX: Ensure numeric fields are actually numbers
+      const processedData = Array.isArray(data)
+        ? data.map((item: any) => ({
+            ...item,
+            total_amount: parseFloat(item.total_amount) || 0,
+            unit_price: parseFloat(item.unit_price) || 0,
+            minimal_load_quantity: parseFloat(item.minimal_load_quantity) || 0,
+          }))
+        : [];
+
+      setAvailableDOs(processedData);
     } catch (err: any) {
       toast.error(
         err.response?.data?.message || "Failed to fetch available DOs"
@@ -137,11 +148,31 @@ const BigDOCreatePage: React.FC = () => {
   };
 
   const calculateTotalRevenue = () => {
-    const mainDOAmount = selectedMainDO?.total_amount || 0;
+    // ✅ FIX: Handle both string and number types
+    const mainDOAmount =
+      typeof selectedMainDO?.total_amount === "string"
+        ? parseFloat(selectedMainDO.total_amount) || 0
+        : selectedMainDO?.total_amount || 0;
+
     const tambahanTotal = tambahan.reduce((sum, t) => {
       return sum + calculateTambahanAmount(t.quantity, t.unit, t.unit_price);
     }, 0);
+
+    console.log("Main DO Amount:", mainDOAmount, typeof mainDOAmount);
+    console.log("Tambahan Total:", tambahanTotal, typeof tambahanTotal);
+    console.log("Total Revenue:", mainDOAmount + tambahanTotal);
+
     return mainDOAmount + tambahanTotal;
+  };
+
+  const toNumber = (value: string | number | undefined): number => {
+    if (typeof value === "string") {
+      return parseFloat(value) || 0;
+    }
+    if (typeof value === "number") {
+      return value;
+    }
+    return 0;
   };
 
   const handleCreateBigDO = async () => {
@@ -778,30 +809,66 @@ const BigDOCreatePage: React.FC = () => {
                   <div className="flex justify-between">
                     <span>Main DO ({selectedMainDO.do_number})</span>
                     <span className="font-medium">
-                      {formatCurrency(selectedMainDO.total_amount)}
+                      {formatCurrency(toNumber(selectedMainDO.total_amount))}
                     </span>
                   </div>
-                  {tambahan.map((item, index) => (
-                    <div key={index} className="flex justify-between">
-                      <span>
-                        Tambahan #{index + 1} ({item.customer_name})
-                      </span>
-                      <span className="font-medium">
-                        {formatCurrency(
-                          calculateTambahanAmount(
-                            item.quantity,
-                            item.unit,
-                            item.unit_price
-                          )
-                        )}
-                      </span>
-                    </div>
-                  ))}
+                  {tambahan.map((item, index) => {
+                    const tambahanAmount = calculateTambahanAmount(
+                      item.quantity,
+                      item.unit,
+                      item.unit_price
+                    );
+                    return (
+                      <div key={index} className="flex justify-between">
+                        <span>
+                          Tambahan #{index + 1} ({item.customer_name})
+                        </span>
+                        <span className="font-medium">
+                          {formatCurrency(tambahanAmount)}
+                        </span>
+                      </div>
+                    );
+                  })}
                   <div className="border-t pt-2 flex justify-between font-medium text-lg">
                     <span>Total Revenue</span>
                     <span className="text-green-600">
                       {formatCurrency(calculateTotalRevenue())}
                     </span>
+                  </div>
+
+                  {/* ✅ FIX: Use helper function for debug info */}
+                  <div className="text-xs text-gray-500 border-t pt-2">
+                    <div>
+                      Debug: Main DO = {toNumber(selectedMainDO.total_amount)}
+                    </div>
+                    <div>
+                      Debug: Tambahan Total ={" "}
+                      {tambahan.reduce(
+                        (sum, t) =>
+                          sum +
+                          calculateTambahanAmount(
+                            t.quantity,
+                            t.unit,
+                            t.unit_price
+                          ),
+                        0
+                      )}
+                    </div>
+                    <div>
+                      Debug: Calculation ={" "}
+                      {toNumber(selectedMainDO.total_amount)} +{" "}
+                      {tambahan.reduce(
+                        (sum, t) =>
+                          sum +
+                          calculateTambahanAmount(
+                            t.quantity,
+                            t.unit,
+                            t.unit_price
+                          ),
+                        0
+                      )}{" "}
+                      = {calculateTotalRevenue()}
+                    </div>
                   </div>
                 </div>
               </div>

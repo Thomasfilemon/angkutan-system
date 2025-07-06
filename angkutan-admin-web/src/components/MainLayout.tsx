@@ -127,11 +127,6 @@ const MainLayout = () => {
                 📊 Dashboard Ritase
               </Link>
             </li>
-            <li className="mb-4">
-              {/* <Link to="/buku-kas" className={}>
-                💰 Buku Kas
-              </Link> */}
-            </li>
 
             {/* Operations Section */}
             {!sidebarMinimized && (
