@@ -485,11 +485,12 @@ CREATE TABLE cash_categories (
 
 CREATE TABLE cash_transactions (
   id SERIAL PRIMARY KEY,
-  transaction_type VARCHAR(20) NOT NULL CHECK(transaction_type IN ('debit','kredit')),
+  transaction_type VARCHAR(20) NOT NULL CHECK(transaction_type IN ('debit','kredit', 'debit_tempo', 'kredit_tempo')),
   category_id INTEGER REFERENCES cash_categories(id),
   amount NUMERIC(15,2) NOT NULL,
   description TEXT NOT NULL,
   reference_number VARCHAR(50),
+  account VARCHAR(20) NOT NULL CHECK(account IN ('Ewaldo', 'Malvin', 'Company', 'General')),
   transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

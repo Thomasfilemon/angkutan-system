@@ -40,6 +40,7 @@ import TireInventoryCreatePage from "./pages/TireInventoryCreate";
 import TireInventoryEditPage from "./pages/TireInventoryEdit";
 import RemovedTiresPage from "./pages/RemovedTires";
 import CashManagementPage from "./pages/CashManagement";
+import TempoManagementPage from "./pages/CashTempoManagement";
 import StockHistoryPage from "./pages/StockHistory";
 import VehicleServiceHistory from "./pages/VehicleServiceHistory"; // <-- Import baru
 
@@ -140,6 +141,7 @@ function App() {
           <Route path="services/:id" element={<ServiceDetailPage />} />
           <Route path="services/edit/:id" element={<ServiceEditPage />} />
           <Route path="cash" element={<CashManagementPage />} />
+          <Route path="tempo" element={<TempoManagementPage />} />
         </Route>
       </Routes>
     </Router>

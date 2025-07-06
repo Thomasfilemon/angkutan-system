@@ -12,6 +12,7 @@ router.get('/categories', cashController.getCashCategories);
 
 // Cash transactions routes
 router.get('/transactions', cashController.getAllCashTransactions);
+router.get('/tempo-transactions', cashController.getAllTempoTransactions);
 router.post('/transactions', cashController.createCashTransaction);
 router.get('/transactions/:id', cashController.getCashTransactionById);
 router.put('/transactions/:id', cashController.updateCashTransaction);

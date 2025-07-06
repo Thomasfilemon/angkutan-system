@@ -67,6 +67,11 @@ const StockCreatePage = () => {
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // Add these to the state in StockCreatePage
+  const [saveToCash, setSaveToCash] = useState(true);
+  const [isTempo, setIsTempo] = useState(false);
+  const [selectedAccount, setSelectedAccount] = useState("General");
+
   useEffect(() => {
     fetchCategories();
     fetchStockItems();
@@ -351,15 +356,16 @@ const StockCreatePage = () => {
       }
 
       // Create cash transaction if there was any restock
-      if (totalRestockCost > 0) {
+      if (totalRestockCost > 0 && saveToCash) {
+        const transactionType = isTempo ? "debit_tempo" : "debit";
         restockDescription += `Total: ${totalRestockCost.toLocaleString()}`;
-        
-        await apiClient.post('/cash/transactions', {
-          transaction_type: 'kredit',
-          category_name: 'Restok',
+        await apiClient.post("/cash/transactions", {
+          transaction_type: transactionType,
+          category_name: "Restok",
           amount: totalRestockCost,
           description: restockDescription,
           transaction_date: new Date().toISOString(),
+          account: selectedAccount, // Use the selected account
         });
       }
 
@@ -691,6 +697,49 @@ const StockCreatePage = () => {
             </button>
           </div>
         )}
+
+        {/* Settings for Cash Transaction */}
+        <div className="mt-6">
+          <label className="flex items-center">
+            <input
+              type="checkbox"
+              checked={saveToCash}
+              onChange={(e) => setSaveToCash(e.target.checked)}
+              className="form-checkbox h-5 w-5 text-blue-600"
+            />
+            <span className="ml-2 text-gray-700">Simpan ke Buku Kas</span>
+          </label>
+          {saveToCash && (
+            <div className="mt-4 p-4 border-l-4 border-blue-500 bg-blue-50 rounded">
+              <div className="flex items-center mb-3">
+                <label className="flex items-center mr-4">
+                  <input
+                    type="checkbox"
+                    checked={isTempo}
+                    onChange={(e) => setIsTempo(e.target.checked)}
+                    className="form-checkbox h-5 w-5 text-blue-600"
+                  />
+                  <span className="ml-2 text-gray-700">Transaksi Tempo</span>
+                </label>
+              </div>
+              <div>
+                <label className="block text-gray-700 text-sm font-bold mb-2">
+                  Akun
+                </label>
+                <select
+                  value={selectedAccount}
+                  onChange={(e) => setSelectedAccount(e.target.value)}
+                  className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                >
+                  <option value="Ewaldo">Ewaldo</option>
+                  <option value="Malvin">Malvin</option>
+                  <option value="Company">Company</option>
+                  <option value="General">General</option>
+                </select>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Submit Buttons */}
         <div className="flex items-center justify-between mt-8">

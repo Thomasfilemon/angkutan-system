@@ -42,6 +42,10 @@ const ServiceCreatePage = () => {
     notes: ''
   });
 
+  const [saveToCash, setSaveToCash] = useState(true); // Default to saving to cash
+  const [isTempo, setIsTempo] = useState(false);
+  const [cashAccount, setCashAccount] = useState('General');
+
   useEffect(() => {
     fetchVehicles();
     fetchStockItems();
@@ -115,7 +119,15 @@ const ServiceCreatePage = () => {
       const submitData = {
         ...formData,
         labor_cost: parseFloat(formData.labor_cost) || 0,
-        items: serviceItems.filter(item => item.item_name && item.quantity > 0)
+        items: serviceItems.filter(item => item.item_name && item.quantity > 0),
+        // Add cash management settings
+        cash_settings: saveToCash ? {
+          save_to_cash: true,
+          is_tempo: isTempo,
+          account: cashAccount
+        } : {
+          save_to_cash: false
+        }
       };
 
       await apiClient.post('/services', submitData);
@@ -235,6 +247,55 @@ const ServiceCreatePage = () => {
             className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
             required
           />
+        </div>
+
+        {/* Cash Management Settings */}
+        <div className="mb-6 p-4 border rounded-lg bg-gray-50">
+          <div className="flex items-center mb-4">
+            <input
+              type="checkbox"
+              id="saveToCash"
+              checked={saveToCash}
+              onChange={(e) => setSaveToCash(e.target.checked)}
+              className="h-4 w-4 text-blue-600 rounded"
+            />
+            <label htmlFor="saveToCash" className="ml-2 font-bold text-gray-700">
+              Simpan ke Kas
+            </label>
+          </div>
+
+          {saveToCash && (
+            <div className="ml-6 space-y-4">
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="isTempo"
+                  checked={isTempo}
+                  onChange={(e) => setIsTempo(e.target.checked)}
+                  className="h-4 w-4 text-blue-600 rounded"
+                />
+                <label htmlFor="isTempo" className="ml-2 text-gray-700">
+                  Transaksi Tempo
+                </label>
+              </div>
+
+              <div>
+                <label className="block text-gray-700 text-sm font-bold mb-2">
+                  Akun Kas
+                </label>
+                <select
+                  value={cashAccount}
+                  onChange={(e) => setCashAccount(e.target.value)}
+                  className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                >
+                  <option value="Ewaldo">Ewaldo</option>
+                  <option value="Malvin">Malvin</option>
+                  <option value="Company">Company</option>
+                  <option value="General">General</option>
+                </select>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Service Items */}
