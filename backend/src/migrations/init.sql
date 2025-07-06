@@ -245,6 +245,62 @@ CREATE TYPE unit_type AS ENUM (
     'kubik'
 );
 
+
+CREATE TABLE delivery_orders (
+  id SERIAL PRIMARY KEY,
+  purchase_order_id INTEGER REFERENCES purchase_orders(id) ON DELETE SET NULL,
+  driver_id INTEGER REFERENCES users(id),
+  vehicle_id INTEGER REFERENCES vehicles(id),
+
+  do_number VARCHAR(50) UNIQUE NOT NULL,
+  customer_name VARCHAR(100) NOT NULL,
+  item_name VARCHAR(100),
+  
+  minimal_load_quantity NUMERIC(10, 2) DEFAULT 0,
+  actual_load_quantity NUMERIC(10, 2),
+
+  unit VARCHAR(10) DEFAULT 'ton' 
+    CHECK (unit IN ('kilogram', 'ton', 'kubik')),
+  unit_price NUMERIC,
+  total_amount NUMERIC NOT NULL,
+  trip_allowance NUMERIC(15, 2) NOT NULL DEFAULT 0,
+  gaji NUMERIC(15, 2) NOT NULL DEFAULT 0,
+  ongkosan NUMERIC(15, 2) DEFAULT 0,
+  final_amount NUMERIC(15,2),
+  
+  load_location TEXT,
+  load_latitude DECIMAL(10, 8),
+  load_longitude DECIMAL(11, 8),
+  unload_location TEXT,
+  unload_latitude DECIMAL(10, 8),
+  unload_longitude DECIMAL(11, 8),
+  
+  surat_jalan_photo_url VARCHAR(255),
+
+  payment_status VARCHAR(30) NOT NULL DEFAULT 'proses_tagihan' 
+    CHECK(payment_status IN ('awaiting_confirmation','lunas','deposit','proses_tagihan')),
+  payment_type VARCHAR(20) CHECK(payment_type IN ('cash','transfer','deposit')),
+  deposit_amount NUMERIC DEFAULT 0,
+  invoice_amount NUMERIC,
+  due_date DATE,
+  payment_notes TEXT,
+  
+
+  status delivery_status NOT NULL DEFAULT 'assigned',
+  payment_confirmation_status VARCHAR(30) DEFAULT 'pending' 
+    CHECK(payment_confirmation_status IN ('pending', 'awaiting_confirmation', 'confirmed')),
+  
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  departed_to_load_location_at TIMESTAMP WITH TIME ZONE,
+  arrived_at_load_location_at TIMESTAMP WITH TIME ZONE,
+  departed_from_load_location_at TIMESTAMP WITH TIME ZONE,
+  arrived_at_unload_location_at TIMESTAMP WITH TIME ZONE,
+  departed_from_unload_location_at TIMESTAMP WITH TIME ZONE,
+  completed_at TIMESTAMP WITH TIME ZONE,
+  payment_confirmation_at TIMESTAMP WITH TIME ZONE,
+  payment_confirmed_by INTEGER REFERENCES users(id)
+);
+
 CREATE TABLE big_delivery_orders (
   id SERIAL PRIMARY KEY,
   
@@ -346,61 +402,6 @@ CREATE TABLE big_do_tambahan_status_history (
   
   FOREIGN KEY (big_do_tambahan_id) REFERENCES big_do_tambahan(id) ON DELETE CASCADE,
   FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL
-);
-
-CREATE TABLE delivery_orders (
-  id SERIAL PRIMARY KEY,
-  purchase_order_id INTEGER REFERENCES purchase_orders(id) ON DELETE SET NULL,
-  driver_id INTEGER REFERENCES users(id),
-  vehicle_id INTEGER REFERENCES vehicles(id),
-
-  do_number VARCHAR(50) UNIQUE NOT NULL,
-  customer_name VARCHAR(100) NOT NULL,
-  item_name VARCHAR(100),
-  
-  minimal_load_quantity NUMERIC(10, 2) DEFAULT 0,
-  actual_load_quantity NUMERIC(10, 2),
-
-  unit VARCHAR(10) DEFAULT 'ton' 
-    CHECK (unit IN ('kilogram', 'ton', 'kubik')),
-  unit_price NUMERIC,
-  total_amount NUMERIC NOT NULL,
-  trip_allowance NUMERIC(15, 2) NOT NULL DEFAULT 0,
-  gaji NUMERIC(15, 2) NOT NULL DEFAULT 0,
-  ongkosan NUMERIC(15, 2) DEFAULT 0,
-  final_amount NUMERIC(15,2),
-  
-  load_location TEXT,
-  load_latitude DECIMAL(10, 8),
-  load_longitude DECIMAL(11, 8),
-  unload_location TEXT,
-  unload_latitude DECIMAL(10, 8),
-  unload_longitude DECIMAL(11, 8),
-  
-  surat_jalan_photo_url VARCHAR(255),
-
-  payment_status VARCHAR(30) NOT NULL DEFAULT 'proses_tagihan' 
-    CHECK(payment_status IN ('awaiting_confirmation','lunas','deposit','proses_tagihan')),
-  payment_type VARCHAR(20) CHECK(payment_type IN ('cash','transfer','deposit')),
-  deposit_amount NUMERIC DEFAULT 0,
-  invoice_amount NUMERIC,
-  due_date DATE,
-  payment_notes TEXT,
-  
-
-  status delivery_status NOT NULL DEFAULT 'assigned',
-  payment_confirmation_status VARCHAR(30) DEFAULT 'pending' 
-    CHECK(payment_confirmation_status IN ('pending', 'awaiting_confirmation', 'confirmed')),
-  
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  departed_to_load_location_at TIMESTAMP WITH TIME ZONE,
-  arrived_at_load_location_at TIMESTAMP WITH TIME ZONE,
-  departed_from_load_location_at TIMESTAMP WITH TIME ZONE,
-  arrived_at_unload_location_at TIMESTAMP WITH TIME ZONE,
-  departed_from_unload_location_at TIMESTAMP WITH TIME ZONE,
-  completed_at TIMESTAMP WITH TIME ZONE,
-  payment_confirmation_at TIMESTAMP WITH TIME ZONE,
-  payment_confirmed_by INTEGER REFERENCES users(id)
 );
 
 

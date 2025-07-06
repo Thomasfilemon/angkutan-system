@@ -240,6 +240,7 @@ const BigDOCreatePage: React.FC = () => {
       </div>
 
       {/* Step 1: Select Main DO */}
+      {/* Step 1: Select Main DO */}
       {step === 1 && (
         <div className="bg-white shadow rounded-lg">
           <div className="px-6 py-4 border-b border-gray-200">
@@ -253,72 +254,210 @@ const BigDOCreatePage: React.FC = () => {
           <div className="p-6">
             {availableDOs.length === 0 ? (
               <div className="text-center py-8">
-                <p className="text-gray-500">
-                  No available DOs for Big DO creation
-                </p>
-                <p className="text-sm text-gray-400 mt-2">
+                <div className="mb-4">
+                  <svg
+                    className="mx-auto h-12 w-12 text-gray-400"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2 2v-5m16 0h-3a2 2 0 00-2 2v3a2 2 0 01-2 2H8a2 2 0 01-2-2v-3a2 2 0 00-2-2H3"
+                    />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                  No Available DOs for Big DO Creation
+                </h3>
+                <p className="text-gray-500 mb-2">
                   All DOs must be in "assigned" status and not already part of
                   another Big DO
                 </p>
-              </div>
-            ) : (
-              <div className="grid gap-4">
-                {availableDOs.map((doItem) => (
-                  <div
-                    key={doItem.id}
-                    className={`border rounded-lg p-4 cursor-pointer transition-colors ${
-                      selectedMainDO?.id === doItem.id
-                        ? "border-blue-500 bg-blue-50"
-                        : "border-gray-200 hover:border-gray-300"
-                    }`}
-                    onClick={() => setSelectedMainDO(doItem)}
+                <p className="text-sm text-gray-400 mb-6">
+                  You can create a new delivery order and then use it for this
+                  Big DO
+                </p>
+
+                {/* Action Buttons */}
+                <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
+                  <button
+                    onClick={() => navigate("/delivery-orders/create")}
+                    className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
                   >
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-4">
-                          <div className="font-medium text-gray-900">
-                            {doItem.do_number}
-                          </div>
-                          <div className="text-sm text-gray-600">
-                            {doItem.purchaseOrder.po_number}
-                          </div>
-                        </div>
-                        <div className="mt-1 text-sm text-gray-600">
-                          {doItem.customer_name} • {doItem.item_name}
-                        </div>
-                        <div className="mt-1 text-sm text-gray-500">
-                          {doItem.driver_name} • {doItem.vehicle_info}
-                        </div>
-                        <div className="mt-2 text-sm">
-                          <span className="text-gray-600">
-                            {doItem.minimal_load_quantity} {doItem.unit} ×{" "}
-                            {formatCurrency(doItem.unit_price)}/{doItem.unit}
-                          </span>
-                          <span className="ml-4 font-medium text-green-600">
-                            {formatCurrency(doItem.total_amount)}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex-shrink-0">
-                        {selectedMainDO?.id === doItem.id && (
-                          <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center">
-                            <svg
-                              className="w-4 h-4 text-white"
-                              fill="currentColor"
-                              viewBox="0 0 20 20"
-                            >
-                              <path
-                                fillRule="evenodd"
-                                d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                                clipRule="evenodd"
-                              />
-                            </svg>
-                          </div>
-                        )}
-                      </div>
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                      />
+                    </svg>
+                    <span>Create New Delivery Order</span>
+                  </button>
+
+                  <span className="text-gray-400 text-sm">or</span>
+
+                  <button
+                    onClick={fetchAvailableDOs}
+                    className="bg-gray-100 text-gray-700 px-6 py-3 rounded-lg hover:bg-gray-200 transition-colors flex items-center space-x-2"
+                  >
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
+                    </svg>
+                    <span>Refresh Available DOs</span>
+                  </button>
+                </div>
+
+                {/* Additional Help Text */}
+                <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-start space-x-2">
+                    <svg
+                      className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    <div className="text-left">
+                      <h4 className="text-sm font-medium text-blue-900">
+                        Quick Tip
+                      </h4>
+                      <p className="text-sm text-blue-700 mt-1">
+                        After creating a new DO, you'll be redirected back here
+                        automatically. Make sure to set the DO status to
+                        "assigned" and ensure it has a driver and vehicle
+                        assigned.
+                      </p>
                     </div>
                   </div>
-                ))}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Refresh Button when there are DOs */}
+                <div className="flex justify-between items-center">
+                  <div className="text-sm text-gray-600">
+                    Found {availableDOs.length} available DO
+                    {availableDOs.length !== 1 ? "s" : ""} for Big DO creation
+                  </div>
+                  <button
+                    onClick={fetchAvailableDOs}
+                    className="text-blue-600 hover:text-blue-800 text-sm flex items-center space-x-1"
+                  >
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
+                    </svg>
+                    <span>Refresh</span>
+                  </button>
+                </div>
+
+                <div className="grid gap-4">
+                  {availableDOs.map((doItem) => (
+                    <div
+                      key={doItem.id}
+                      className={`border rounded-lg p-4 cursor-pointer transition-colors ${
+                        selectedMainDO?.id === doItem.id
+                          ? "border-blue-500 bg-blue-50"
+                          : "border-gray-200 hover:border-gray-300"
+                      }`}
+                      onClick={() => setSelectedMainDO(doItem)}
+                    >
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-4">
+                            <div className="font-medium text-gray-900">
+                              {doItem.do_number}
+                            </div>
+                            <div className="text-sm text-gray-600">
+                              {doItem.purchaseOrder.po_number}
+                            </div>
+                          </div>
+                          <div className="mt-1 text-sm text-gray-600">
+                            {doItem.customer_name} • {doItem.item_name}
+                          </div>
+                          <div className="mt-1 text-sm text-gray-500">
+                            {doItem.driver_name} • {doItem.vehicle_info}
+                          </div>
+                          <div className="mt-2 text-sm">
+                            <span className="text-gray-600">
+                              {doItem.minimal_load_quantity} {doItem.unit} ×{" "}
+                              {formatCurrency(doItem.unit_price)}/{doItem.unit}
+                            </span>
+                            <span className="ml-4 font-medium text-green-600">
+                              {formatCurrency(doItem.total_amount)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex-shrink-0">
+                          {selectedMainDO?.id === doItem.id && (
+                            <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center">
+                              <svg
+                                className="w-4 h-4 text-white"
+                                fill="currentColor"
+                                viewBox="0 0 20 20"
+                              >
+                                <path
+                                  fillRule="evenodd"
+                                  d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                  clipRule="evenodd"
+                                />
+                              </svg>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Quick Action to Create More DOs */}
+                <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm text-gray-600">
+                      Need more delivery orders for your Big DO?
+                    </div>
+                    <button
+                      onClick={() => navigate("/delivery-orders/create")}
+                      className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                    >
+                      + Create Another DO
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 
