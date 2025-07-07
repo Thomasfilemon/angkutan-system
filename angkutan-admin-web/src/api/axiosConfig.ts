@@ -55,12 +55,18 @@ authClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// ✅ FIX: Keep response interceptor for all EXCEPT cash endpoints
+// ✅ UPDATE: Keep response interceptor for all EXCEPT cash and big-delivery-orders endpoints
 apiClient.interceptors.response.use(
   (response) => {
-    // Skip interceptor for cash endpoints (they need full response with summary & pagination)
-    if (response.config.url?.includes("/cash/")) {
-      return response; // Return full response for cash
+    // Skip interceptor for endpoints that need full response with pagination/stats
+    if (
+      response.config.url?.includes("/cash/") ||
+      response.config.url?.includes("/big-delivery-orders") ||
+      response.config.url?.includes("/trips") ||
+      response.config.url?.includes("/purchase-orders") ||
+      response.config.url?.includes("/delivery-orders")
+    ) {
+      return response; // Return full response for these endpoints
     }
 
     // Apply interceptor for all other endpoints (stock, purchase-orders, etc.)

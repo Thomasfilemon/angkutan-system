@@ -81,22 +81,69 @@ const BigDOListPage: React.FC = () => {
 
       const response = await apiClient.get(`/big-delivery-orders?${params}`);
 
-      // Handle full API response (not intercepted)
-      const apiData: ApiResponse = response.data.success
-        ? {
-            data: response.data.data,
-            pagination: response.data.pagination,
-            stats: response.data.stats,
-          }
-        : response.data;
+      // ✅ Debug log to see actual response format
+      console.log("Big DO API Response:", response.data);
 
-      setBigDOs(apiData.data);
+      // ✅ Safe data extraction with fallbacks
+      let apiData: ApiResponse;
+
+      if (response.data.success) {
+        // Handle intercepted response format
+        apiData = {
+          data: response.data.data || [],
+          pagination: response.data.pagination || {
+            total: 0,
+            page: 1,
+            limit: 10,
+            totalPages: 0,
+          },
+          stats: response.data.stats || {
+            total: 0,
+            assigned: 0,
+            in_progress: 0,
+            completed: 0,
+            cancelled: 0,
+          },
+        };
+      } else {
+        // Handle non-intercepted response format
+        apiData = {
+          data: response.data.data || [],
+          pagination: response.data.pagination || {
+            total: 0,
+            page: 1,
+            limit: 10,
+            totalPages: 0,
+          },
+          stats: response.data.stats || {
+            total: 0,
+            assigned: 0,
+            in_progress: 0,
+            completed: 0,
+            cancelled: 0,
+          },
+        };
+      }
+
+      // ✅ Set data with safe fallbacks
+      setBigDOs(Array.isArray(apiData.data) ? apiData.data : []);
       setStats(apiData.stats);
     } catch (err: any) {
+      console.error("Big DO fetch error:", err);
       const errorMessage =
         err.response?.data?.message || "Failed to fetch Big DOs";
       setError(errorMessage);
       toast.error(errorMessage);
+
+      // ✅ Reset to safe state on error
+      setBigDOs([]);
+      setStats({
+        total: 0,
+        assigned: 0,
+        in_progress: 0,
+        completed: 0,
+        cancelled: 0,
+      });
     } finally {
       setLoading(false);
     }
@@ -154,33 +201,35 @@ const BigDOListPage: React.FC = () => {
         </Link>
       </div>
 
-      {/* Stats Cards */}
+      {/* Stats Cards - Safe rendering */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <div className="bg-white p-4 rounded-lg shadow border">
-          <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
+          <div className="text-2xl font-bold text-gray-900">
+            {stats?.total || 0}
+          </div>
           <div className="text-sm text-gray-600">Total Big DOs</div>
         </div>
         <div className="bg-white p-4 rounded-lg shadow border">
           <div className="text-2xl font-bold text-yellow-600">
-            {stats.assigned}
+            {stats?.assigned || 0}
           </div>
           <div className="text-sm text-gray-600">Assigned</div>
         </div>
         <div className="bg-white p-4 rounded-lg shadow border">
           <div className="text-2xl font-bold text-blue-600">
-            {stats.in_progress}
+            {stats?.in_progress || 0}
           </div>
           <div className="text-sm text-gray-600">In Progress</div>
         </div>
         <div className="bg-white p-4 rounded-lg shadow border">
           <div className="text-2xl font-bold text-green-600">
-            {stats.completed}
+            {stats?.completed || 0}
           </div>
           <div className="text-sm text-gray-600">Completed</div>
         </div>
         <div className="bg-white p-4 rounded-lg shadow border">
           <div className="text-2xl font-bold text-red-600">
-            {stats.cancelled}
+            {stats?.cancelled || 0}
           </div>
           <div className="text-sm text-gray-600">Cancelled</div>
         </div>
@@ -280,49 +329,51 @@ const BigDOListPage: React.FC = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
                         <div className="text-sm font-medium text-gray-900">
-                          {bigDO.big_do_number}
+                          {bigDO.big_do_number || "N/A"}
                         </div>
                         <div className="text-sm text-gray-500">
-                          {new Date(bigDO.created_at).toLocaleDateString(
-                            "id-ID"
-                          )}
+                          {bigDO.created_at
+                            ? new Date(bigDO.created_at).toLocaleDateString(
+                                "id-ID"
+                              )
+                            : "N/A"}
                         </div>
                         <span
                           className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full border ${getStatusColor(
-                            bigDO.status
+                            bigDO.status || "unknown"
                           )}`}
                         >
-                          {bigDO.status_text}
+                          {bigDO.status_text || bigDO.status || "Unknown"}
                         </span>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
                         <div className="text-sm font-medium text-gray-900">
-                          {bigDO.driver_name}
+                          {bigDO.driver_name || "N/A"}
                         </div>
                         <div className="text-sm text-gray-500">
-                          {bigDO.vehicle_info}
+                          {bigDO.vehicle_info || "N/A"}
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
                         <div className="text-sm font-medium text-gray-900">
-                          {bigDO.delivery_summary.main_do.customer}
+                          {bigDO.delivery_summary?.main_do?.customer || "N/A"}
                         </div>
                         <div className="text-sm text-gray-500">
-                          {bigDO.delivery_summary.main_do.po_number}
+                          {bigDO.delivery_summary?.main_do?.po_number || "N/A"}
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">
                       <div className="text-sm font-medium text-gray-900">
-                        {bigDO.delivery_summary.tambahan_completed}/
-                        {bigDO.delivery_summary.tambahan_count}
+                        {bigDO.delivery_summary?.tambahan_completed || 0}/
+                        {bigDO.delivery_summary?.tambahan_count || 0}
                       </div>
                       <div className="text-xs text-gray-500">
-                        {bigDO.delivery_summary.tambahan_count} tambahan
+                        {bigDO.delivery_summary?.tambahan_count || 0} tambahan
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -332,7 +383,8 @@ const BigDOListPage: React.FC = () => {
                             className="bg-blue-600 h-2 rounded-full"
                             style={{
                               width: `${Math.min(
-                                bigDO.delivery_progress.completion_percentage,
+                                bigDO.delivery_progress
+                                  ?.completion_percentage || 0,
                                 100
                               )}%`,
                             }}
@@ -340,7 +392,7 @@ const BigDOListPage: React.FC = () => {
                         </div>
                         <span className="text-sm text-gray-600">
                           {Math.round(
-                            bigDO.delivery_progress.completion_percentage
+                            bigDO.delivery_progress?.completion_percentage || 0
                           )}
                           %
                         </span>
@@ -350,14 +402,14 @@ const BigDOListPage: React.FC = () => {
                       <div>
                         <div className="text-sm font-medium text-gray-900">
                           {formatCurrency(
-                            bigDO.financial_summary.total_revenue
+                            bigDO.financial_summary?.total_revenue || 0
                           )}
                         </div>
                         <div className="text-sm text-gray-500">
                           Profit:{" "}
                           {formatCurrency(
-                            bigDO.financial_summary.total_ongkosan -
-                              bigDO.financial_summary.total_for_driver
+                            (bigDO.financial_summary?.total_ongkosan || 0) -
+                              (bigDO.financial_summary?.total_for_driver || 0)
                           )}
                         </div>
                       </div>

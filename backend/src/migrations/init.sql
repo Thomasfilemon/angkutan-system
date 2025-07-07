@@ -245,6 +245,7 @@ CREATE TYPE unit_type AS ENUM (
     'kubik'
 );
 
+
 CREATE TABLE delivery_orders (
   id SERIAL PRIMARY KEY,
   purchase_order_id INTEGER REFERENCES purchase_orders(id) ON DELETE SET NULL,
@@ -274,7 +275,7 @@ CREATE TABLE delivery_orders (
   unload_latitude DECIMAL(10, 8),
   unload_longitude DECIMAL(11, 8),
   
-  surat_jalan_photo_url TEXT[],
+  surat_jalan_photo_url VARCHAR(255),
 
   payment_status VARCHAR(30) NOT NULL DEFAULT 'proses_tagihan' 
     CHECK(payment_status IN ('awaiting_confirmation','lunas','deposit','proses_tagihan')),
