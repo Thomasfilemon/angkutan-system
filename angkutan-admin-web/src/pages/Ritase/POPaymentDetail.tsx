@@ -161,7 +161,7 @@ const POPaymentDetail: React.FC = () => {
       do_item.actual_load_quantity || do_item.minimal_load_quantity
     );
     const unitPrice = safeNumber(po.unit_price);
-    const paidAmount = safeNumber(financialSummary.total_paid_amount);
+    const paidAmount = safeNumber(poData?.financial_summary?.total_paid_amount);
 
     const billableAmount = quantity * unitPrice;
     const variance = paidAmount - billableAmount;
@@ -195,7 +195,7 @@ const POPaymentDetail: React.FC = () => {
       setError(null);
 
       const response = await apiClient.get(`/ritase/purchase-orders/${poId}`);
-      setPOData(response.data);
+      setPOData(response.data.data);
     } catch (err: any) {
       setError(err.response?.data?.message || "Failed to fetch PO details");
       console.error("Error fetching PO details:", err);
@@ -245,7 +245,6 @@ const POPaymentDetail: React.FC = () => {
       </div>
     );
   }
-
   if (error || !poData) {
     return (
       <div className="bg-red-50 border border-red-200 rounded-lg p-6">
@@ -283,10 +282,8 @@ const POPaymentDetail: React.FC = () => {
       </div>
     );
   }
-
   const po = poData.purchase_order;
   const financialSummary = poData.financial_summary;
-
   return (
     <div className="space-y-6 pb-8">
       {/* ✅ Hero Header Card */}

@@ -384,14 +384,12 @@ const POSpecificRitaseTable: React.FC = () => {
                 <span className="text-sm font-medium">Back</span>
               </button>
 
-              <div className="h-6 w-px bg-white/20"></div>
-
               <button
-                onClick={() => navigate(`/ritase/po/${poId}`)}
-                className="flex items-center space-x-2 bg-white/15 hover:bg-white/25 px-4 py-2 rounded-lg transition-colors border border-white/20"
+                onClick={() => navigate(`/ritase/po/${poId}/table`)}
+                className="flex items-center px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-all duration-200 shadow-lg hover:shadow-emerald-500/25 font-medium"
               >
                 <svg
-                  className="w-4 h-4"
+                  className="h-4 w-4 mr-2"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -400,11 +398,15 @@ const POSpecificRitaseTable: React.FC = () => {
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2}
-                    d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+                    d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"
                   />
                 </svg>
-                <span className="text-sm font-medium">Card View</span>
+                <span className="text-sm font-medium">Payment Details</span>
               </button>
+              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none">
+                View payments, invoices & billing details
+                <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+              </div>
             </div>
 
             {/* PO Info */}

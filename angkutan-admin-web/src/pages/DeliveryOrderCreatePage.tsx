@@ -253,7 +253,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
         unit: formData.unit,
         unit_price: formData.unit_price,
         total_amount: totalAmount,
-        // ✅ FIX: Convert string back to number for submission
         trip_allowance: parseFloat(formData.trip_allowance) || 0,
         gaji: parseFloat(formData.gaji) || 0,
         ongkosan: formData.ongkosan,

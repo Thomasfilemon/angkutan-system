@@ -1,23 +1,23 @@
-// src/controllers/web/vehicleController.js
-const { Vehicle, User, VehicleTire, TireInventory } = require('../../models');
-const { Op } = require('sequelize');
+// backend/src/controllers/web/webvehicleController.js
+const { Vehicle, User, VehicleTire, TireInventory } = require("../../models");
+const { Op } = require("sequelize");
 
-// Get all vehicles with driver and tire information
+// ✅ FIXED: Get all vehicles with proper response format for frontend
 exports.getAllVehicles = async (req, res, next) => {
   try {
     const { status, search, page = 1, limit = 20 } = req.query;
     const offset = (page - 1) * limit;
-    
+
     let whereClause = {};
-    
-    if (status) {
+
+    if (status && status !== "all") {
       whereClause.status = status;
     }
-    
+
     if (search) {
       whereClause[Op.or] = [
         { license_plate: { [Op.iLike]: `%${search}%` } },
-        { type: { [Op.iLike]: `%${search}%` } }
+        { type: { [Op.iLike]: `%${search}%` } },
       ];
     }
 
@@ -26,54 +26,58 @@ exports.getAllVehicles = async (req, res, next) => {
       include: [
         {
           model: User,
-          as: 'driver',
-          attributes: ['id', 'username'],
+          as: "driver",
+          attributes: ["id", "username"],
           include: [
             {
-              model: require('../../models').DriverProfile,
-              as: 'driverProfile',
-              attributes: ['full_name', 'phone', 'status'],
-              required: false
-            }
+              model: require("../../models").DriverProfile,
+              as: "driverProfile",
+              attributes: ["full_name", "phone", "status"],
+              required: false,
+            },
           ],
-          required: false
+          required: false,
         },
         {
           model: VehicleTire,
-          as: 'tires',
-          where: { status: 'active' },
+          as: "tires",
+          where: { status: "active" },
           required: false,
           include: [
             {
               model: TireInventory,
-              as: 'tireInventory',
-              attributes: ['tire_brand', 'tire_size'],
-              required: false
-            }
-          ]
-        }
+              as: "tireInventory",
+              attributes: ["tire_brand", "tire_size"],
+              required: false,
+            },
+          ],
+        },
       ],
-      order: [['license_plate', 'ASC']],
+      order: [["license_plate", "ASC"]],
       limit: parseInt(limit),
-      offset: offset
+      offset: offset,
     });
 
     // Enhanced vehicle data with driver and tire information
-    const enhancedVehicles = result.rows.map(vehicle => {
+    const enhancedVehicles = result.rows.map((vehicle) => {
       const vehicleData = vehicle.toJSON();
-      
+
       // Calculate tire statistics
       const tires = vehicle.tires || [];
       const tireStats = {
         total_installed: tires.length,
-        total_expected: vehicle.tire_count + vehicle.spare_tire_count,
-        needs_attention: tires.filter(t => 
-          t.condition === 'poor' || 
-          t.condition === 'replace' ||
-          t.current_pressure < (t.recommended_pressure * 0.8) ||
-          t.current_pressure > (t.recommended_pressure * 1.2)
+        total_expected:
+          (vehicle.tire_count || 0) + (vehicle.spare_tire_count || 0),
+        needs_attention: tires.filter(
+          (t) =>
+            t.condition === "poor" ||
+            t.condition === "replace" ||
+            (t.current_pressure &&
+              t.recommended_pressure &&
+              (t.current_pressure < t.recommended_pressure * 0.8 ||
+                t.current_pressure > t.recommended_pressure * 1.2))
         ).length,
-        good_condition: tires.filter(t => t.condition === 'good').length
+        good_condition: tires.filter((t) => t.condition === "good").length,
       };
 
       return {
@@ -81,21 +85,24 @@ exports.getAllVehicles = async (req, res, next) => {
         driver_name: vehicle.driver?.driverProfile?.full_name || null,
         driver_phone: vehicle.driver?.driverProfile?.phone || null,
         driver_status: vehicle.driver?.driverProfile?.status || null,
-        tire_stats: tireStats
+        tire_stats: tireStats,
       };
     });
 
+    // ✅ COMPATIBLE: Frontend expects both .records and direct data
     res.json({
       success: true,
       data: enhancedVehicles,
+      records: enhancedVehicles, // ✅ ADD: For frontend compatibility
       pagination: {
         total: result.count,
         page: parseInt(page),
         limit: parseInt(limit),
-        totalPages: Math.ceil(result.count / limit)
-      }
+        totalPages: Math.ceil(result.count / limit),
+      },
     });
   } catch (err) {
+    console.error("Error in getAllVehicles:", err);
     next(err);
   }
 };
@@ -104,44 +111,44 @@ exports.getAllVehicles = async (req, res, next) => {
 exports.getVehicleById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    
+
     const vehicle = await Vehicle.findByPk(id, {
       include: [
         {
           model: User,
-          as: 'driver',
-          attributes: ['id', 'username'],
+          as: "driver",
+          attributes: ["id", "username"],
           include: [
             {
-              model: require('../../models').DriverProfile,
-              as: 'driverProfile',
-              attributes: ['full_name', 'phone', 'status'],
-              required: false
-            }
+              model: require("../../models").DriverProfile,
+              as: "driverProfile",
+              attributes: ["full_name", "phone", "status"],
+              required: false,
+            },
           ],
-          required: false
+          required: false,
         },
         {
           model: VehicleTire,
-          as: 'tires',
-          where: { status: 'active' },
+          as: "tires",
+          where: { status: "active" },
           required: false,
           include: [
             {
               model: TireInventory,
-              as: 'tireInventory',
-              attributes: ['tire_brand', 'tire_size', 'tire_type'],
-              required: false
-            }
-          ]
-        }
-      ]
+              as: "tireInventory",
+              attributes: ["tire_brand", "tire_size", "tire_type"],
+              required: false,
+            },
+          ],
+        },
+      ],
     });
 
     if (!vehicle) {
       return res.status(404).json({
         success: false,
-        message: 'Vehicle not found'
+        message: "Vehicle not found",
       });
     }
 
@@ -151,14 +158,17 @@ exports.getVehicleById = async (req, res, next) => {
       driver_name: vehicle.driver?.driverProfile?.full_name || null,
       driver_phone: vehicle.driver?.driverProfile?.phone || null,
       driver_status: vehicle.driver?.driverProfile?.status || null,
-      tire_positions: vehicle.getTirePositions ? vehicle.getTirePositions() : []
+      tire_positions: vehicle.getTirePositions
+        ? vehicle.getTirePositions()
+        : [],
     };
 
     res.json({
       success: true,
-      data: enhancedVehicle
+      data: enhancedVehicle,
     });
   } catch (err) {
+    console.error("Error in getVehicleById:", err);
     next(err);
   }
 };
@@ -167,21 +177,22 @@ exports.getVehicleById = async (req, res, next) => {
 exports.createVehicle = async (req, res, next) => {
   try {
     const vehicle = await Vehicle.create(req.body);
-    
+
     res.status(201).json({
       success: true,
-      message: 'Vehicle created successfully',
-      data: vehicle
+      message: "Vehicle created successfully",
+      data: vehicle,
     });
   } catch (err) {
-    if (err.name === 'SequelizeValidationError') {
-      const messages = err.errors.map(e => e.message);
+    if (err.name === "SequelizeValidationError") {
+      const messages = err.errors.map((e) => e.message);
       return res.status(400).json({
         success: false,
-        message: 'Validation failed',
-        errors: messages
+        message: "Validation failed",
+        errors: messages,
       });
     }
+    console.error("Error in createVehicle:", err);
     next(err);
   }
 };
@@ -191,11 +202,11 @@ exports.updateVehicle = async (req, res, next) => {
   try {
     const { id } = req.params;
     const vehicle = await Vehicle.findByPk(id);
-    
+
     if (!vehicle) {
       return res.status(404).json({
         success: false,
-        message: 'Vehicle not found'
+        message: "Vehicle not found",
       });
     }
 
@@ -203,18 +214,19 @@ exports.updateVehicle = async (req, res, next) => {
 
     res.json({
       success: true,
-      message: 'Vehicle updated successfully',
-      data: vehicle
+      message: "Vehicle updated successfully",
+      data: vehicle,
     });
   } catch (err) {
-    if (err.name === 'SequelizeValidationError') {
-      const messages = err.errors.map(e => e.message);
+    if (err.name === "SequelizeValidationError") {
+      const messages = err.errors.map((e) => e.message);
       return res.status(400).json({
         success: false,
-        message: 'Validation failed',
-        errors: messages
+        message: "Validation failed",
+        errors: messages,
       });
     }
+    console.error("Error in updateVehicle:", err);
     next(err);
   }
 };
@@ -224,11 +236,11 @@ exports.deleteVehicle = async (req, res, next) => {
   try {
     const { id } = req.params;
     const vehicle = await Vehicle.findByPk(id);
-    
+
     if (!vehicle) {
       return res.status(404).json({
         success: false,
-        message: 'Vehicle not found'
+        message: "Vehicle not found",
       });
     }
 
@@ -236,50 +248,51 @@ exports.deleteVehicle = async (req, res, next) => {
 
     res.json({
       success: true,
-      message: 'Vehicle deleted successfully'
+      message: "Vehicle deleted successfully",
     });
   } catch (err) {
+    console.error("Error in deleteVehicle:", err);
     next(err);
   }
 };
 
-// Assign driver to vehicle
+// ✅ FIXED: Assign driver to vehicle - parameter consistency
 exports.assignDriver = async (req, res, next) => {
   try {
-    const { vehicleId } = req.params;
+    const { id } = req.params; // ✅ FIXED: Use 'id' instead of 'vehicleId'
     const { driver_id } = req.body;
-    
-    const vehicle = await Vehicle.findByPk(vehicleId);
+
+    const vehicle = await Vehicle.findByPk(id);
     if (!vehicle) {
       return res.status(404).json({
         success: false,
-        message: 'Vehicle not found'
+        message: "Vehicle not found",
       });
     }
 
     if (driver_id) {
       const driver = await User.findOne({
-        where: { id: driver_id, role: 'driver' },
+        where: { id: driver_id, role: "driver" },
         include: [
           {
-            model: require('../../models').DriverProfile,
-            as: 'driverProfile',
-            required: true
-          }
-        ]
+            model: require("../../models").DriverProfile,
+            as: "driverProfile",
+            required: true,
+          },
+        ],
       });
 
       if (!driver) {
         return res.status(400).json({
           success: false,
-          message: 'Driver not found or invalid'
+          message: "Driver not found or invalid",
         });
       }
 
-      if (driver.driverProfile.status !== 'available') {
+      if (driver.driverProfile.status !== "available") {
         return res.status(400).json({
           success: false,
-          message: 'Driver is not available'
+          message: "Driver is not available",
         });
       }
     }
@@ -288,10 +301,11 @@ exports.assignDriver = async (req, res, next) => {
 
     res.json({
       success: true,
-      message: 'Driver assigned successfully',
-      data: vehicle
+      message: "Driver assigned successfully",
+      data: vehicle,
     });
   } catch (err) {
+    console.error("Error in assignDriver:", err);
     next(err);
   }
 };
@@ -300,31 +314,32 @@ exports.assignDriver = async (req, res, next) => {
 exports.getAvailableDrivers = async (req, res, next) => {
   try {
     const drivers = await User.findAll({
-      where: { role: 'driver' },
+      where: { role: "driver" },
       include: [
         {
-          model: require('../../models').DriverProfile,
-          as: 'driverProfile',
-          where: { status: 'available' },
-          required: true
-        }
+          model: require("../../models").DriverProfile,
+          as: "driverProfile",
+          where: { status: "available" },
+          required: true,
+        },
       ],
-      order: [['driverProfile', 'full_name', 'ASC']]
+      order: [["driverProfile", "full_name", "ASC"]],
     });
 
-    const formattedDrivers = drivers.map(driver => ({
+    const formattedDrivers = drivers.map((driver) => ({
       id: driver.id,
       username: driver.username,
       full_name: driver.driverProfile.full_name,
       phone: driver.driverProfile.phone,
-      status: driver.driverProfile.status
+      status: driver.driverProfile.status,
     }));
 
     res.json({
       success: true,
-      data: formattedDrivers
+      data: formattedDrivers,
     });
   } catch (err) {
+    console.error("Error in getAvailableDrivers:", err);
     next(err);
   }
 };
@@ -333,25 +348,36 @@ exports.getAvailableDrivers = async (req, res, next) => {
 exports.getVehicleStatistics = async (req, res, next) => {
   try {
     const totalVehicles = await Vehicle.count();
-    const availableVehicles = await Vehicle.count({ where: { status: 'available' } });
-    const inUseVehicles = await Vehicle.count({ where: { status: 'in_use' } });
-    const maintenanceVehicles = await Vehicle.count({ where: { status: 'maintenance' } });
-
-    // Tire statistics
-    const tiresNeedingAttention = await VehicleTire.count({
-      where: {
-        status: 'active',
-        [Op.or]: [
-          { condition: 'poor' },
-          { condition: 'replace' },
-          { tread_depth: { [Op.lt]: 2.0 } }
-        ]
-      }
+    const availableVehicles = await Vehicle.count({
+      where: { status: "available" },
+    });
+    const inUseVehicles = await Vehicle.count({ where: { status: "in_use" } });
+    const maintenanceVehicles = await Vehicle.count({
+      where: { status: "maintenance" },
     });
 
-    const totalActiveTires = await VehicleTire.count({
-      where: { status: 'active' }
-    });
+    // ✅ SAFE: Tire statistics with error handling
+    let tiresNeedingAttention = 0;
+    let totalActiveTires = 0;
+
+    try {
+      tiresNeedingAttention = await VehicleTire.count({
+        where: {
+          status: "active",
+          [Op.or]: [
+            { condition: "poor" },
+            { condition: "replace" },
+            { tread_depth: { [Op.lt]: 2.0 } },
+          ],
+        },
+      });
+
+      totalActiveTires = await VehicleTire.count({
+        where: { status: "active" },
+      });
+    } catch (tireError) {
+      console.warn("Tire statistics not available:", tireError.message);
+    }
 
     res.json({
       success: true,
@@ -360,38 +386,42 @@ exports.getVehicleStatistics = async (req, res, next) => {
           total: totalVehicles,
           available: availableVehicles,
           in_use: inUseVehicles,
-          maintenance: maintenanceVehicles
+          maintenance: maintenanceVehicles,
         },
         tires: {
           total_active: totalActiveTires,
           needs_attention: tiresNeedingAttention,
-          good_condition: totalActiveTires - tiresNeedingAttention
-        }
-      }
+          good_condition: totalActiveTires - tiresNeedingAttention,
+        },
+      },
     });
   } catch (err) {
+    console.error("Error in getVehicleStatistics:", err);
     next(err);
   }
 };
 
-// Get service history for a vehicle
+// ✅ FIXED: Get service history for a vehicle - parameter consistency
 exports.getServiceHistory = async (req, res, next) => {
   try {
-    const { vehicle_id } = req.params;
-    
-    const vehicle = await Vehicle.findByPk(vehicle_id);
+    const { id } = req.params; // ✅ FIXED: Use 'id' instead of 'vehicle_id'
+
+    const vehicle = await Vehicle.findByPk(id);
     if (!vehicle) {
       return res.status(404).json({
         success: false,
-        message: 'Vehicle not found'
+        message: "Vehicle not found",
       });
     }
 
+    // ✅ TODO: Implement actual service history fetching
     res.json({
       success: true,
-      data: []
+      data: [],
+      message: "Service history feature coming soon",
     });
   } catch (err) {
+    console.error("Error in getServiceHistory:", err);
     next(err);
   }
 };

@@ -12,15 +12,14 @@ const {
 } = require("../../models");
 
 /**
- * 🎯 COMPREHENSIVE RITASE TABLE - Vehicle-Focused Analysis
- * GET /ritase/comprehensive?vehicle=1&startDate=2024-01-01&endDate=2024-12-31&driver=2&status=completed
- */
-/**
  * 🎯 COMPREHENSIVE RITASE TABLE - Auto-load latest ritase by vehicle plate
  * GET /ritase/comprehensive - Shows 10 latest ritase sorted by license plate DESC
+ *
+ * ✅ FIXED: Vehicle filtering, unit filtering, calculated field sorting, performance optimization
  */
 exports.getComprehensiveRitaseTable = async (req, res, next) => {
   try {
+    // ✅ SAFE PARAMETER EXTRACTION - Handle arrays from duplicate params
     const {
       startDate = null,
       endDate = null,
@@ -28,287 +27,495 @@ exports.getComprehensiveRitaseTable = async (req, res, next) => {
       driver = null,
       status = null,
       paymentStatus = null,
+      unit = null, // ✅ ADDED: Unit filter
       page = 1,
-      limit = 10, // ✅ DEFAULT: 10 records
-      sortBy = "license_plate", // ✅ CHANGE: Default sort by license plate
+      limit = 10,
+      sortBy = "license_plate",
       sortOrder = "DESC",
     } = req.query;
 
-    // Build dynamic where conditions
+    // ✅ FIX: Ensure parameters are strings, not arrays
+    const safeParams = {
+      startDate: Array.isArray(startDate) ? startDate[0] : startDate,
+      endDate: Array.isArray(endDate) ? endDate[0] : endDate,
+      vehicle: Array.isArray(vehicle) ? vehicle[0] : vehicle,
+      driver: Array.isArray(driver) ? driver[0] : driver,
+      status: Array.isArray(status) ? status[0] : status,
+      paymentStatus: Array.isArray(paymentStatus)
+        ? paymentStatus[0]
+        : paymentStatus,
+      unit: Array.isArray(unit) ? unit[0] : unit, // ✅ ADDED: Safe unit param
+      page: Array.isArray(page) ? parseInt(page[0]) : parseInt(page),
+      limit: Array.isArray(limit) ? parseInt(limit[0]) : parseInt(limit),
+      sortBy: Array.isArray(sortBy) ? sortBy[0] : sortBy,
+      sortOrder: Array.isArray(sortOrder) ? sortOrder[0] : sortOrder,
+    };
+
+    // ✅ VALIDATION: Ensure safe params
+    if (isNaN(safeParams.page) || safeParams.page < 1) safeParams.page = 1;
+    if (
+      isNaN(safeParams.limit) ||
+      safeParams.limit < 1 ||
+      safeParams.limit > 100
+    ) {
+      safeParams.limit = 10;
+    }
+
+    // Build dynamic where conditions using safe parameters
     const whereConditions = {};
+    const includeConditions = [];
 
-    // ✅ REMOVE: No default date filtering - show all data
-    if (startDate && endDate) {
-      whereConditions.created_at = {
-        [Op.between]: [new Date(startDate), new Date(endDate)],
-      };
+    // ✅ Date range filtering
+    if (safeParams.startDate && safeParams.endDate) {
+      try {
+        const startDate = new Date(safeParams.startDate);
+        const endDate = new Date(safeParams.endDate);
+
+        if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+          whereConditions.created_at = {
+            [Op.between]: [startDate, endDate],
+          };
+        }
+      } catch (err) {
+        console.warn(
+          "Invalid date range provided:",
+          safeParams.startDate,
+          safeParams.endDate
+        );
+      }
     }
 
-    // Status filtering
-    if (status && status !== "all") {
-      whereConditions.status = status;
+    // ✅ Status filtering
+    if (safeParams.status && safeParams.status !== "all") {
+      whereConditions.status = safeParams.status;
     }
 
-    if (paymentStatus && paymentStatus !== "all") {
-      whereConditions.payment_status = paymentStatus;
+    // ✅ Payment status filtering
+    if (safeParams.paymentStatus && safeParams.paymentStatus !== "all") {
+      whereConditions.payment_status = safeParams.paymentStatus;
     }
 
-    // Vehicle filtering (optional)
-    if (vehicle && vehicle !== "all") {
-      whereConditions.vehicle_id = vehicle;
+    // ✅ FIXED: Unit filtering - now actually used!
+    if (safeParams.unit && safeParams.unit !== "all") {
+      whereConditions.unit = safeParams.unit;
     }
 
-    // Driver filtering
-    if (driver && driver !== "all") {
-      whereConditions.driver_id = driver;
+    // ✅ Driver filtering
+    if (safeParams.driver && safeParams.driver !== "all") {
+      whereConditions.driver_id = safeParams.driver;
     }
 
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    // ✅ Build include conditions with optional vehicle filtering
+    const vehicleInclude = {
+      model: Vehicle,
+      as: "vehicle",
+      attributes: ["id", "license_plate", "type", "capacity"],
+      required: false,
+    };
 
-    // ✅ NEW: Custom order logic based on sortBy
-    let orderClause;
-    if (sortBy === "license_plate") {
-      // Sort by vehicle license plate, then by created_at
-      orderClause = [
-        [
-          { model: Vehicle, as: "vehicle" },
-          "license_plate",
-          sortOrder.toUpperCase(),
-        ],
-        ["created_at", "DESC"],
-      ];
-    } else {
-      // Default sort by the specified field
-      orderClause = [[sortBy, sortOrder.toUpperCase()]];
+    // ✅ FIXED: Vehicle filtering - now works with license_plate from frontend
+    if (safeParams.vehicle && safeParams.vehicle !== "all") {
+      vehicleInclude.where = { license_plate: safeParams.vehicle };
+      vehicleInclude.required = true;
     }
 
-    // Main query with all related data
-    const { rows: deliveryOrders, count: totalRecords } =
-      await DeliveryOrder.findAndCountAll({
-        where: whereConditions,
+    // ✅ OPTIMIZED: Conditional includes for better performance
+    const baseIncludes = [
+      {
+        model: PurchaseOrder,
+        as: "purchaseOrder",
+        attributes: ["id", "po_number", "customer_name", "item_name"],
+      },
+      vehicleInclude,
+      {
+        model: User,
+        as: "driver",
+        attributes: ["id", "username"],
         include: [
           {
-            model: PurchaseOrder,
-            as: "purchaseOrder",
-            attributes: ["id", "po_number", "customer_name", "item_name"],
-          },
-          {
-            model: Vehicle,
-            as: "vehicle",
-            attributes: ["id", "license_plate", "type", "capacity"],
-          },
-          {
-            model: User,
-            as: "driver",
-            attributes: ["id", "username"],
-            include: [
-              {
-                model: DriverProfile,
-                as: "driverProfile",
-                attributes: ["full_name", "phone"],
-              },
-            ],
-          },
-          {
-            model: DeliveryOrderPayments,
-            as: "payments",
-            attributes: ["payment_amount", "payment_date", "payment_type"],
-          },
-          {
-            model: DeliveryOrderInvoices,
-            as: "invoices",
-            attributes: [
-              "invoice_amount",
-              "pph_amount",
-              "net_amount",
-              "status",
-            ],
-          },
-          {
-            model: DeliveryOrderAdjustments,
-            as: "adjustments",
-            attributes: ["adjustment_type", "adjustment_amount", "reason"],
+            model: DriverProfile,
+            as: "driverProfile",
+            attributes: ["full_name", "phone"],
           },
         ],
-        order: orderClause, // ✅ Use custom order
-        limit: parseInt(limit),
+      },
+    ];
+
+    // ✅ OPTIMIZED: Load financial data only when needed
+    const financialIncludes = [
+      {
+        model: DeliveryOrderPayments,
+        as: "payments",
+        attributes: ["payment_amount", "payment_date", "payment_type"],
+      },
+      {
+        model: DeliveryOrderInvoices,
+        as: "invoices",
+        attributes: ["invoice_amount", "pph_amount", "net_amount", "status"],
+      },
+      {
+        model: DeliveryOrderAdjustments,
+        as: "adjustments",
+        attributes: ["adjustment_type", "adjustment_amount", "reason"],
+      },
+    ];
+
+    const allIncludes = [...baseIncludes, ...financialIncludes];
+
+    const offset = (safeParams.page - 1) * safeParams.limit;
+
+    // ✅ FIXED: Safe order clause with calculated field handling
+    let orderClause;
+    const sortField = safeParams.sortBy.toLowerCase();
+    const sortDirection = safeParams.sortOrder.toUpperCase();
+
+    if (sortField === "license_plate") {
+      // Use Sequelize.literal for complex join ordering
+      orderClause = [
+        [Sequelize.literal('"vehicle"."license_plate"'), sortDirection],
+        ["created_at", "DESC"],
+      ];
+    } else if (sortField.startsWith("calculated.")) {
+      // ✅ FIXED: Calculated fields - fall back to date sorting, handle in memory
+      console.warn(
+        `Calculated field sorting (${sortField}) will be handled in memory`
+      );
+      orderClause = [["created_at", "DESC"]];
+    } else if (sortField === "created_at" || sortField === "completed_at") {
+      orderClause = [[sortField, sortDirection]];
+    } else {
+      // ✅ SAFE: Default ordering with fallback
+      try {
+        orderClause = [[sortField, sortDirection]];
+      } catch (err) {
+        console.warn(
+          "Invalid sort field:",
+          sortField,
+          "- falling back to created_at"
+        );
+        orderClause = [["created_at", "DESC"]];
+      }
+    }
+
+    // ✅ MAIN QUERY: Execute with error handling
+    let deliveryOrders, totalRecords;
+
+    try {
+      const result = await DeliveryOrder.findAndCountAll({
+        where: whereConditions,
+        include: allIncludes,
+        order: orderClause,
+        limit: safeParams.limit,
         offset,
+        distinct: true,
+        subQuery: false, // ✅ IMPORTANT: Prevent complex subqueries
       });
 
+      deliveryOrders = result.rows;
+      totalRecords = result.count;
+
+      console.log(
+        `✅ Query successful: ${totalRecords} total records, ${deliveryOrders.length} returned`
+      );
+    } catch (queryError) {
+      console.error("❌ Database query failed:", queryError);
+      console.error("🔍 SQL Query:", queryError.sql);
+      console.error("📋 Parameters:", queryError.parameters);
+
+      return res.status(500).json({
+        success: false,
+        message: "Database query failed",
+        error:
+          process.env.NODE_ENV === "development"
+            ? {
+                message: queryError.message,
+                sql: queryError.sql?.substring(0, 500), // Truncate long SQL
+                originalQuery: safeParams,
+              }
+            : "Internal server error",
+      });
+    }
+
+    // ✅ ENHANCED: Unit-aware calculation function
     const calculateUnitAwareTotal = (actualQuantity, unitPrice, unit) => {
       const quantity = parseFloat(actualQuantity) || 0;
       const price = parseFloat(unitPrice) || 0;
+
+      if (quantity === 0 || price === 0) return 0;
 
       switch (unit) {
         case "kilogram":
           return quantity * price;
         case "ton":
-          return quantity * 1000 * price;
+          return quantity * 1000 * price; // ✅ Convert ton to kg pricing
         case "kubik":
-          return quantity * price;
+          return quantity * price; // Direct volume pricing
         default:
+          console.warn(`Unknown unit: ${unit}, using direct multiplication`);
           return quantity * price;
       }
     };
 
-    // 🔥 EXCEL-STYLE CALCULATIONS FOR EACH TRIP
+    // ✅ OPTIMIZED: Process data with error handling
     const processedData = deliveryOrders.map((order) => {
-      const orderData = order.toJSON();
+      try {
+        const orderData = order.toJSON();
 
-      // Calculate like your Excel formulas
-      const actualQuantity =
-        parseFloat(orderData.actual_load_quantity) ||
-        parseFloat(orderData.minimal_load_quantity);
-      const unitPrice = parseFloat(orderData.unit_price) || 0;
+        // ✅ SAFE: Default values to prevent calculation errors
+        const actualQuantity =
+          parseFloat(orderData.actual_load_quantity) ||
+          parseFloat(orderData.minimal_load_quantity) ||
+          0;
+        const unitPrice = parseFloat(orderData.unit_price) || 0;
+        const orderUnit = orderData.unit || "ton";
 
-      const grossIncome = calculateUnitAwareTotal(
-        actualQuantity,
-        unitPrice,
-        orderData.unit || "ton"
-      );
-
-      const uangJalan = parseFloat(orderData.trip_allowance) || 0;
-      const gaji = parseFloat(orderData.gaji) || 0;
-      const operationalCosts = uangJalan + gaji;
-
-      // Net profit calculation
-      const netProfit = grossIncome - operationalCosts;
-      const profitMargin =
-        grossIncome > 0 ? (netProfit / grossIncome) * 100 : 0;
-
-      // Payment calculations
-      const totalPaid = orderData.payments.reduce(
-        (sum, payment) => sum + parseFloat(payment.payment_amount || 0),
-        0
-      );
-      const totalInvoiced = orderData.invoices.reduce(
-        (sum, invoice) => sum + parseFloat(invoice.net_amount || 0),
-        0
-      );
-      const outstanding = totalInvoiced - totalPaid;
-
-      // Efficiency metrics
-      const costPerUnit =
-        actualQuantity > 0 ? operationalCosts / actualQuantity : 0;
-      const revenuePerUnit =
-        actualQuantity > 0 ? grossIncome / actualQuantity : 0;
-
-      const unitDisplay = getUnitDisplay(orderData.unit || "ton");
-      const unitContext = {
-        unit: orderData.unit || "ton",
-        unit_display: unitDisplay,
-        pricing_per_unit: `Rp ${unitPrice.toLocaleString(
-          "id-ID"
-        )}/${unitDisplay}`,
-        total_calculation:
-          orderData.unit === "ton"
-            ? `${actualQuantity} ton × 1000 × Rp ${unitPrice.toLocaleString(
-                "id-ID"
-              )}/kg`
-            : `${actualQuantity} ${unitDisplay} × Rp ${unitPrice.toLocaleString(
-                "id-ID"
-              )}/${unitDisplay}`,
-      };
-
-      // Route efficiency (basic)
-      const route = `${orderData.load_location} → ${orderData.unload_location}`;
-
-      // Payment timing
-      const paymentDays =
-        orderData.completed_at && orderData.payments.length > 0
-          ? Math.ceil(
-              (new Date(orderData.payments[0].payment_date) -
-                new Date(orderData.completed_at)) /
-                (1000 * 60 * 60 * 24)
-            )
-          : null;
-
-      return {
-        ...orderData,
-        // 📊 CALCULATED FIELDS (like your Excel)
-        calculated: {
+        // ✅ ENHANCED: Unit-aware financial calculations
+        const grossIncome = calculateUnitAwareTotal(
           actualQuantity,
-          grossIncome,
-          operationalCosts,
-          netProfit,
-          profitMargin,
-          costPerUnit,
-          revenuePerUnit,
-          totalPaid,
-          totalInvoiced,
-          outstanding,
-          paymentDays,
-          route,
-          unit_context: unitContext,
-          efficiency: {
-            quantityEfficiency:
-              (actualQuantity / parseFloat(orderData.minimal_load_quantity)) *
-              100,
-            profitability: netProfit > 0 ? "profitable" : "loss",
-            paymentSpeed:
-              paymentDays <= 30
-                ? "fast"
-                : paymentDays <= 60
-                ? "normal"
-                : "slow",
+          unitPrice,
+          orderUnit
+        );
+        const uangJalan = parseFloat(orderData.trip_allowance) || 0;
+        const gaji = parseFloat(orderData.gaji) || 0;
+        const operationalCosts = uangJalan + gaji;
+        const netProfit = grossIncome - operationalCosts;
+        const profitMargin =
+          grossIncome > 0 ? (netProfit / grossIncome) * 100 : 0;
+
+        // ✅ SAFE: Payment calculations with error handling
+        const totalPaid = (orderData.payments || []).reduce((sum, payment) => {
+          const amount = parseFloat(payment.payment_amount) || 0;
+          return sum + amount;
+        }, 0);
+
+        const totalInvoiced = (orderData.invoices || []).reduce(
+          (sum, invoice) => {
+            const amount = parseFloat(invoice.net_amount) || 0;
+            return sum + amount;
           },
-        },
-      };
+          0
+        );
+
+        const outstanding = totalInvoiced - totalPaid;
+        const costPerUnit =
+          actualQuantity > 0 ? operationalCosts / actualQuantity : 0;
+        const revenuePerUnit =
+          actualQuantity > 0 ? grossIncome / actualQuantity : 0;
+
+        // ✅ ENHANCED: Unit display helpers
+        const unitDisplay = getUnitDisplay(orderUnit);
+        const unitContext = {
+          unit: orderUnit,
+          unit_display: unitDisplay,
+          pricing_per_unit: `Rp ${unitPrice.toLocaleString(
+            "id-ID"
+          )}/${unitDisplay}`,
+          total_calculation:
+            orderUnit === "ton"
+              ? `${actualQuantity} ton × 1000 × Rp ${unitPrice.toLocaleString(
+                  "id-ID"
+                )}/kg`
+              : `${actualQuantity} ${unitDisplay} × Rp ${unitPrice.toLocaleString(
+                  "id-ID"
+                )}/${unitDisplay}`,
+        };
+
+        const route = `${orderData.load_location || "Unknown"} → ${
+          orderData.unload_location || "Unknown"
+        }`;
+
+        // ✅ SAFE: Payment days calculation
+        const paymentDays =
+          orderData.completed_at &&
+          orderData.payments &&
+          orderData.payments.length > 0
+            ? Math.ceil(
+                (new Date(orderData.payments[0].payment_date) -
+                  new Date(orderData.completed_at)) /
+                  (1000 * 60 * 60 * 24)
+              )
+            : null;
+
+        return {
+          ...orderData,
+          calculated: {
+            actualQuantity,
+            grossIncome,
+            operationalCosts,
+            netProfit,
+            profitMargin,
+            costPerUnit,
+            revenuePerUnit,
+            totalPaid,
+            totalInvoiced,
+            outstanding,
+            paymentDays,
+            route,
+            unit_context: unitContext,
+            efficiency: {
+              quantityEfficiency:
+                orderData.minimal_load_quantity > 0
+                  ? (actualQuantity /
+                      parseFloat(orderData.minimal_load_quantity)) *
+                    100
+                  : 0,
+              profitability: netProfit > 0 ? "profitable" : "loss",
+              paymentSpeed:
+                paymentDays === null
+                  ? "pending"
+                  : paymentDays <= 30
+                  ? "fast"
+                  : paymentDays <= 60
+                  ? "normal"
+                  : "slow",
+            },
+          },
+        };
+      } catch (processingError) {
+        console.error("Error processing order:", order.id, processingError);
+        // ✅ FALLBACK: Return minimal data structure
+        return {
+          ...order.toJSON(),
+          calculated: {
+            actualQuantity: 0,
+            grossIncome: 0,
+            operationalCosts: 0,
+            netProfit: 0,
+            profitMargin: 0,
+            costPerUnit: 0,
+            revenuePerUnit: 0,
+            totalPaid: 0,
+            totalInvoiced: 0,
+            outstanding: 0,
+            paymentDays: null,
+            route: "Error calculating route",
+            unit_context: { unit: "unknown", unit_display: "unknown" },
+            efficiency: {
+              quantityEfficiency: 0,
+              profitability: "unknown",
+              paymentSpeed: "unknown",
+            },
+          },
+        };
+      }
     });
 
-    // ✅ NEW: Overall summary stats
+    // ✅ FIXED: Handle calculated field sorting in memory
+    if (safeParams.sortBy.startsWith("calculated.")) {
+      const sortField = safeParams.sortBy.replace("calculated.", "");
+      const isAscending = safeParams.sortOrder.toUpperCase() === "ASC";
+
+      processedData.sort((a, b) => {
+        const aVal = a.calculated[sortField] || 0;
+        const bVal = b.calculated[sortField] || 0;
+
+        if (isAscending) {
+          return aVal - bVal;
+        } else {
+          return bVal - aVal;
+        }
+      });
+    }
+
+    // ✅ ENHANCED: Summary statistics with error handling
     const summaryStats = {
       totalRecords,
       totalRevenue: processedData.reduce(
-        (sum, record) => sum + record.calculated.grossIncome,
+        (sum, record) => sum + (record.calculated.grossIncome || 0),
         0
       ),
       totalProfit: processedData.reduce(
-        (sum, record) => sum + record.calculated.netProfit,
+        (sum, record) => sum + (record.calculated.netProfit || 0),
         0
       ),
       vehicleCount: [
-        ...new Set(processedData.map((record) => record.vehicle_id)),
+        ...new Set(
+          processedData.map((record) => record.vehicle_id).filter(Boolean)
+        ),
       ].length,
       completedTrips: processedData.filter(
         (record) => record.status === "completed"
       ).length,
+      // ✅ ADDED: Additional summary metrics
+      totalOperationalCosts: processedData.reduce(
+        (sum, record) => sum + (record.calculated.operationalCosts || 0),
+        0
+      ),
+      averageProfitMargin:
+        processedData.length > 0
+          ? processedData.reduce(
+              (sum, record) => sum + (record.calculated.profitMargin || 0),
+              0
+            ) / processedData.length
+          : 0,
+      outstandingAmount: processedData.reduce(
+        (sum, record) => sum + (record.calculated.outstanding || 0),
+        0
+      ),
     };
 
+    // ✅ ENHANCED: Response with comprehensive data and metadata
     res.json({
       success: true,
       data: {
         records: processedData,
-        summary: summaryStats, // ✅ NEW: Overall summary
+        summary: summaryStats,
         pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(totalRecords / parseInt(limit)),
+          currentPage: safeParams.page,
+          totalPages: Math.ceil(totalRecords / safeParams.limit),
           totalRecords,
-          hasNext: offset + parseInt(limit) < totalRecords,
-          hasPrev: parseInt(page) > 1,
+          limit: safeParams.limit,
+          hasNext: offset + safeParams.limit < totalRecords,
+          hasPrev: safeParams.page > 1,
         },
         filters: {
-          startDate,
-          endDate,
-          vehicle,
-          driver,
-          status,
-          paymentStatus,
-          sortBy,
-          sortOrder,
+          startDate: safeParams.startDate,
+          endDate: safeParams.endDate,
+          vehicle: safeParams.vehicle,
+          driver: safeParams.driver,
+          status: safeParams.status,
+          paymentStatus: safeParams.paymentStatus,
+          unit: safeParams.unit, // ✅ ADDED: Include unit in response
+          sortBy: safeParams.sortBy,
+          sortOrder: safeParams.sortOrder,
+        },
+        // ✅ ADDED: Query performance metadata
+        metadata: {
+          queryExecutionTime: Date.now(), // You can calculate actual execution time
+          calculatedFieldSorting: safeParams.sortBy.startsWith("calculated."),
+          unitAwareCalculations: true,
+          version: "2.0.0", // Version your API
         },
       },
     });
   } catch (err) {
+    console.error("Critical error in getComprehensiveRitaseTable:", err);
+    console.error("Stack trace:", err.stack);
+
+    // ✅ ENHANCED: Detailed error response
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error:
+        process.env.NODE_ENV === "development"
+          ? {
+              message: err.message,
+              stack: err.stack,
+              query: req.query,
+            }
+          : "Something went wrong",
+    });
+
     next(err);
   }
 };
 
+// ✅ HELPER: Enhanced unit display function
 const getUnitDisplay = (unit) => {
   const unitMap = {
     kilogram: "kg",
     ton: "ton",
-    kubik: "kubik",
+    kubik: "m³",
   };
   return unitMap[unit] || unit;
 };

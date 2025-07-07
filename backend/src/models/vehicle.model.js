@@ -116,10 +116,8 @@ module.exports = (sequelize) => {
         defaultValue: "available",
         validate: {
           isIn: {
-            args: [
-              ["available", "in_use", "maintenance", "in_big_do_creation"],
-            ], // 🎯 ADD this status
-            msg: "Status must be one of: available, in_use, maintenance, in_big_do_creation",
+            args: [["available", "in_use", "maintenance"]], // 🎯 ADD this status
+            msg: "Status must be one of: available, in_use, maintenance",
           },
         },
       },
@@ -289,10 +287,6 @@ module.exports = (sequelize) => {
     }
 
     return positions;
-  };
-
-  Vehicle.prototype.isInBigDOCreation = function () {
-    return this.status === "in_big_do_creation";
   };
 
   return Vehicle;
