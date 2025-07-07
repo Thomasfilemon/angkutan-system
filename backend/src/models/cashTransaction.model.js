@@ -38,6 +38,10 @@ module.exports = (sequelize) => {
       type: DataTypes.DATEONLY,
       allowNull: false,
       defaultValue: DataTypes.NOW
+    },
+    attachment_url: {
+      type: DataTypes.STRING(255),
+      allowNull: true
     }
   }, {
     tableName: 'cash_transactions',

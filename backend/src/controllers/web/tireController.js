@@ -287,8 +287,16 @@ exports.getVehiclesForTireManagement = async (req, res, next) => {
 
 exports.createTireInstances = async (req, res, next) => {
   try {
-    const { tire_inventory_id, quantity, purchase_price, purchase_date } = req.body;
-    
+    const { tire_inventory_id, serial_numbers, purchase_price, purchase_date } = req.body;
+
+    // --- VALIDATION ---
+    if (!tire_inventory_id || !Array.isArray(serial_numbers) || serial_numbers.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tire inventory ID and a non-empty array of serial numbers are required.'
+      });
+    }
+
     const inventory = await TireInventory.findByPk(tire_inventory_id);
     if (!inventory) {
       return res.status(404).json({
@@ -297,40 +305,52 @@ exports.createTireInstances = async (req, res, next) => {
       });
     }
 
-    const instances = [];
-    const createdSerialNumbers = new Set();
+    // Check for duplicate serial numbers in the database
+    const existingInstances = await TireInstance.findAll({
+      where: {
+        tire_serial_number: {
+          [Op.in]: serial_numbers
+        }
+      }
+    });
 
-    for (let i = 1; i <= quantity; i++) {
-        // Generate a unique serial number
-        let serialNumber;
-        do {
-            serialNumber = `${inventory.tire_brand.substring(0, 3).toUpperCase()}${inventory.tire_size.replace(/[^0-9]/g, '')}-${Date.now().toString().slice(-6)}-${i}`;
-        } while (createdSerialNumbers.has(serialNumber));
-        
-        createdSerialNumbers.add(serialNumber);
-
-        const instance = await TireInstance.create({
-            tire_inventory_id,
-            tire_serial_number: serialNumber,
-            purchase_date: purchase_date || new Date(),
-            purchase_price: purchase_price || inventory.unit_price,
-            condition: 'new',
-            status: 'in_stock'
-        });
-        instances.push(instance);
+    if (existingInstances.length > 0) {
+      const existingSerials = existingInstances.map(inst => inst.tire_serial_number).join(', ');
+      return res.status(409).json({
+        success: false,
+        message: `One or more serial numbers already exist: ${existingSerials}`
+      });
     }
 
+    // --- CREATION ---
+    const instancesToCreate = serial_numbers.map(serial => ({
+      tire_inventory_id,
+      tire_serial_number: serial,
+      purchase_date: purchase_date || new Date(),
+      purchase_price: purchase_price || inventory.unit_price, // Fallback to inventory unit_price
+      condition: 'new',
+      status: 'in_stock'
+    }));
 
-    // Update inventory stock by adding the quantity of new instances
-    await inventory.increment('current_stock', { by: quantity });
+    const createdInstances = await TireInstance.bulkCreate(instancesToCreate);
 
+    // Update inventory stock by the number of instances created
+    await inventory.increment('current_stock', { by: serial_numbers.length });
 
     res.status(201).json({
       success: true,
-      message: `${quantity} tire instances created successfully`,
-      data: instances
+      message: `${serial_numbers.length} tire instances created successfully`,
+      data: createdInstances
     });
   } catch (err) {
+    // Handle potential unique constraint errors during bulkCreate
+    if (err.name === 'SequelizeUniqueConstraintError') {
+        return res.status(409).json({
+            success: false,
+            message: 'One or more serial numbers already exist. Please provide unique serial numbers.',
+            details: err.errors.map(e => e.message)
+        });
+    }
     next(err);
   }
 };

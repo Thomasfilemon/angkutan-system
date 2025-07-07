@@ -22,6 +22,7 @@ interface CashTransaction {
   running_balance?: number;
   category?: CashCategory;
   account: string;
+  attachment_url?: string;
 }
 
 interface CashSummary {
@@ -43,17 +44,15 @@ const CashManagementPage = () => {
   const [isSpecialCategory, setIsSpecialCategory] = useState(false);
   const navigate = useNavigate();
   
-  // Filters
   const [filters, setFilters] = useState({
     transaction_type: '',
     category_id: '',
     date_from: '',
     date_to: '',
     search: '',
-    account: 'All' // New account filter
+    account: 'All'
   });
   
-  // Pagination
   const [pagination, setPagination] = useState({
     page: 1,
     limit: 20,
@@ -61,7 +60,6 @@ const CashManagementPage = () => {
     totalPages: 0
   });
 
-  // Modal state
   const [showModal, setShowModal] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<CashTransaction | null>(null);
   const [formData, setFormData] = useState({
@@ -70,9 +68,10 @@ const CashManagementPage = () => {
     amount: '',
     description: '',
     reference_number: '',
-    account: 'General', // Default account
+    account: 'General',
     transaction_date: new Date().toISOString().split('T')[0]
   });
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
 
   const fetchTransactions = useCallback(async () => {
     try {
@@ -111,40 +110,49 @@ const CashManagementPage = () => {
 
   useEffect(() => {
     fetchTransactions();
-  }, [fetchTransactions]);
-
-  useEffect(() => {
     fetchCategories();
-  }, [fetchCategories]);
+  }, [fetchTransactions, fetchCategories]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setAttachmentFile(e.target.files[0]);
+    } else {
+      setAttachmentFile(null);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Check for special categories first
-    if (formData.category_id === 'inventory_redirect') {
-      navigate('/stock/create');
+    if (formData.category_id === 'inventory_redirect' || formData.category_id === 'service_redirect') {
+      navigate(formData.category_id === 'inventory_redirect' ? '/stock/create' : '/services/create');
       setShowModal(false);
       resetForm();
       return;
     }
     
-    if (formData.category_id === 'service_redirect') {
-      navigate('/services/create');
-      setShowModal(false);
-      resetForm();
-      return;
+    const submissionData = new FormData();
+    Object.entries(formData).forEach(([key, value]) => {
+        submissionData.append(key, value);
+    });
+    if (attachmentFile) {
+        submissionData.append('attachment', attachmentFile);
     }
-    
+
     try {
+      const config = {
+          headers: {
+              'Content-Type': 'multipart/form-data'
+          }
+      };
+
       if (editingTransaction) {
-        await apiClient.put(`/cash/transactions/${editingTransaction.id}`, formData);
+        await apiClient.put(`/cash/transactions/${editingTransaction.id}`, submissionData, config);
       } else {
-        await apiClient.post('/cash/transactions', formData);
+        await apiClient.post('/cash/transactions', submissionData, config);
       }
       
       setShowModal(false);
-      setEditingTransaction(null);
-      resetForm();
       fetchTransactions();
     } catch (err) {
       console.error('Error saving transaction:', err);
@@ -167,8 +175,9 @@ const CashManagementPage = () => {
       description: transaction.description,
       reference_number: transaction.reference_number || '',
       transaction_date: transaction.transaction_date,
-      account: transaction.account || 'General' // Use existing account or default to General
+      account: transaction.account || 'General'
     });
+    setAttachmentFile(null);
     setShowModal(true);
   };
 
@@ -193,9 +202,10 @@ const CashManagementPage = () => {
       amount: '',
       description: '',
       reference_number: '',
-      account: 'General', // Reset to default account
+      account: 'General',
       transaction_date: new Date().toISOString().split('T')[0]
     });
+    setAttachmentFile(null);
   };
 
   const formatCurrency = (amount: number) => {
@@ -238,7 +248,6 @@ const CashManagementPage = () => {
         </div>
       )}
 
-      {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-white p-4 rounded-lg shadow border-l-4 border-green-500">
           <h3 className="text-lg font-semibold text-gray-700">Total Debit</h3>
@@ -260,7 +269,6 @@ const CashManagementPage = () => {
         </div>
       </div>
 
-      {/* Filters */}
       <div className="bg-white p-4 rounded-lg shadow mb-6">
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div>
@@ -280,29 +288,16 @@ const CashManagementPage = () => {
               Kategori
             </label>
             <select
-              value={formData.category_id}
-              onChange={(e) => setFormData(prev => ({ ...prev, category_id: e.target.value }))}
+              value={filters.category_id}
+              onChange={(e) => setFilters(prev => ({ ...prev, category_id: e.target.value }))}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             >
               <option value="">Pilih Kategori</option>
-              {categories
-                .filter(cat => 
-                  (formData.transaction_type === 'debit' && cat.category_type === 'income') ||
-                  (formData.transaction_type === 'kredit' && cat.category_type === 'expense')
-                )
-                .map(category => (
+              {categories.map(category => (
                   <option key={category.id} value={category.id}>
                     {category.category_name}
                   </option>
-                ))}
-              
-              {/* ADD SPECIAL CATEGORIES HERE */}
-              {formData.transaction_type === 'kredit' && (
-                <option value="inventory_redirect">Inventory (Pembelian Stok)</option>
-              )}
-              {formData.transaction_type === 'debit' && (
-                <option value="service_redirect">Servis (Penjualan Jasa)</option>
-              )}
+              ))}
             </select>
           </div>
           <div>
@@ -370,7 +365,6 @@ const CashManagementPage = () => {
         </div>
       </div>
 
-      {/* Transactions Table */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
@@ -428,6 +422,20 @@ const CashManagementPage = () => {
                       <div className="font-medium">{transaction.description}</div>
                       {transaction.reference_number && (
                         <div className="text-xs text-gray-500">Ref: {transaction.reference_number}</div>
+                      )}
+                       {transaction.attachment_url ? (
+                        <div>
+                          <span className="text-green-500">Ada file: {transaction.attachment_url}</span>
+                          <br />
+                          <a href={`${process.env.REACT_APP_BACKEND_URL}/${transaction.attachment_url}`} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            className="text-xs text-blue-500 hover:underline">
+                            Lihat Nota
+                          </a>
+                        </div>
+                      ) : (
+                        <span className="text-red-500">Tidak ada file</span>
                       )}
                     </div>
                   </td>
@@ -489,7 +497,6 @@ const CashManagementPage = () => {
           </div>
         )}
 
-        {/* Pagination */}
         {pagination.totalPages > 1 && (
           <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200">
             <div className="flex-1 flex justify-between sm:hidden">
@@ -557,7 +564,6 @@ const CashManagementPage = () => {
         )}
       </div>
 
-      {/* Modal for Add/Edit Transaction */}
       {showModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
@@ -592,7 +598,7 @@ const CashManagementPage = () => {
                       setFormData(prev => ({ 
                         ...prev, 
                         transaction_type: e.target.value as 'debit' | 'kredit',
-                        category_id: '' // Reset category when type changes
+                        category_id: ''
                       }));
                       setIsSpecialCategory(false);
                     }}
@@ -625,7 +631,6 @@ const CashManagementPage = () => {
                         </option>
                       ))}
                     
-                    {/* Special categories */}
                     {formData.transaction_type === 'kredit' && (
                       <option value="inventory_redirect">Inventory (Pembelian Stok)</option>
                     )}
@@ -635,7 +640,6 @@ const CashManagementPage = () => {
                   </select>
                 </div>
 
-                {/* Conditionally render other fields only if not special category */}
                 {!isSpecialCategory && (
                   <>
                     <div>
@@ -690,6 +694,18 @@ const CashManagementPage = () => {
                         onChange={(e) => setFormData(prev => ({ ...prev, transaction_date: e.target.value }))}
                         className="w-full border border-gray-300 rounded-md px-3 py-2"
                         required={!isSpecialCategory}
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Foto Nota (Opsional)
+                      </label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleFileChange}
+                        className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                       />
                     </div>
                   </>

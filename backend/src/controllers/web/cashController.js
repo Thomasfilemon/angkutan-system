@@ -251,6 +251,9 @@ exports.getAllTempoTransactions = async (req, res, next) => {
 
 // Create new cash transaction
 exports.createCashTransaction = async (req, res, next) => {
+  if (!req.body) {
+        return res.status(400).json({ success: false, message: 'Invalid request format' });
+    }
   const transaction = await db.sequelize.transaction();
   
   try {
@@ -264,26 +267,21 @@ exports.createCashTransaction = async (req, res, next) => {
       account
     } = req.body;
 
+    // Get attachment URL if a file was uploaded
+    const attachment_url = req.file ? `uploads/receipts/${req.file.filename}` : null;
+
     // Validation
     if (!transaction_type || !['debit', 'kredit', 'debit_tempo', 'kredit_tempo'].includes(transaction_type)) {
       await transaction.rollback();
       return res.status(400).json({ success: false, message: 'Invalid transaction type' });
     }
-
     if (!amount || parseFloat(amount) <= 0) {
       await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: 'Amount must be greater than 0'
-      });
+      return res.status(400).json({ success: false, message: 'Amount must be greater than 0' });
     }
-
     if (!description || description.trim() === '') {
       await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: 'Description is required'
-      });
+      return res.status(400).json({ success: false, message: 'Description is required' });
     }
 
     const cashTransaction = await CashTransaction.create({
@@ -293,16 +291,12 @@ exports.createCashTransaction = async (req, res, next) => {
       description: description.trim(),
       reference_number: reference_number || null,
       transaction_date: transaction_date || new Date(),
-      account
+      account,
+      attachment_url // Save the file path
     }, { transaction });
 
-    // Get the created transaction with category
     const createdTransaction = await CashTransaction.findByPk(cashTransaction.id, {
-      include: [{
-        model: CashCategory,
-        as: 'category',
-        required: false
-      }],
+      include: [{ model: CashCategory, as: 'category', required: false }],
       transaction
     });
 
@@ -392,6 +386,10 @@ exports.updateCashTransaction = async (req, res, next) => {
         message: 'Cash transaction not found'
       });
     }
+    let attachment_url = cashTransaction.attachment_url; // Keep existing if no new file
+      if (req.file) {
+        attachment_url = `uploads/receipts/${req.file.filename}`;
+      }
 
     // Validation
     if (transaction_type && !['debit', 'kredit', 'debit_tempo', 'kredit_tempo'].includes(transaction_type)) {
@@ -414,7 +412,8 @@ exports.updateCashTransaction = async (req, res, next) => {
       description: description ? description.trim() : cashTransaction.description,
       reference_number: reference_number !== undefined ? reference_number : cashTransaction.reference_number,
       transaction_date: transaction_date || cashTransaction.transaction_date,
-      account: account || cashTransaction.account
+      account: account || cashTransaction.account,
+      attachment_url: attachment_url
     }, { transaction: dbTransaction });
 
     // Get updated transaction with category

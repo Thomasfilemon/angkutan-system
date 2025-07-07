@@ -493,6 +493,7 @@ CREATE TABLE cash_transactions (
   reference_number VARCHAR(50),
   account VARCHAR(20) NOT NULL CHECK(account IN ('Ewaldo', 'Malvin', 'Company', 'General')),
   transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  attachment_url VARCHAR(255), -- <<< NEW COLUMN to store the photo path
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

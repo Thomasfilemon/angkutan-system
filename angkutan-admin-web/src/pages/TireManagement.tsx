@@ -62,6 +62,7 @@ interface TireInventory {
 interface TireInstance {
   id: number;
   tire_serial_number: string;
+  purchase_date: string; // <-- TAMBAHKAN INI
   tireInventory: {
     tire_brand: string;
     tire_size: string;
@@ -112,7 +113,7 @@ const TireManagementPage = () => {
   
   const [installModalOpen, setInstallModalOpen] = useState(false);
   const [selectedPosition, setSelectedPosition] = useState('');
-  const [availableTires, setAvailableTires] = useState<TireInventory[]>([]);
+const [availableTires, setAvailableTires] = useState<TireInstance[]>([]);
   const [availableInstances, setAvailableInstances] = useState<TireInstance[]>([]);
   const [installData, setInstallData] = useState<InstallData>({
     tire_inventory_id: null,
@@ -731,30 +732,32 @@ const fetchAvailableInstances = useCallback(async () => {
                 </div>
               </div>
             ) : (
-              <div className="form-group">
-  <label>Pilih Ban dari Inventaris:</label>
-  <div className="tire-selection">
-    {availableTires.length === 0 ? (
-      <p className="no-data">Tidak ada ban baru yang tersedia</p>
-    ) : (
-      availableTires.map((tire) => (
-        <div 
-          key={tire.id}
-          className={`tire-option ${installData.tire_inventory_id === tire.id ? 'selected' : ''}`}
-          onClick={() => setInstallData(prev => ({ 
-            ...prev, 
-            tire_inventory_id: tire.id, 
-            tire_instance_id: null 
-          }))}
-        >
-          <div>Nomor Serial: </div>
-          <div>Tanggal Pembelian: </div>
-          {/* Tambahkan field lain sesuai kebutuhan */}
-        </div>
-      ))
-    )}
-  </div>
-</div>
+            <div className="form-group">
+              <label>Pilih Ban dari Inventaris:</label>
+              <div className="tire-selection">
+                {availableTires.length === 0 ? (
+                  <p className="no-data">Tidak ada ban baru yang tersedia</p>
+                ) : (
+                  availableTires.map((tire) => (
+                    <div 
+                      key={tire.id}
+                      className={`tire-option ${installData.tire_instance_id === tire.id ? 'selected' : ''}`}
+                      onClick={() => setInstallData(prev => ({ 
+                        ...prev, 
+                        tire_instance_id: tire.id, // Gunakan instance_id
+                        tire_inventory_id: null 
+                      }))}
+                    >
+                      {/* KODE YANG SUDAH DIPERBAIKI */}
+                      <div><strong>S/N:</strong> {tire.tire_serial_number}</div>
+                      <div><strong>Merek:</strong> {tire.tireInventory.tire_brand}</div>
+                      <div><strong>Ukuran:</strong> {tire.tireInventory.tire_size}</div>
+                      <div><strong>Tgl Beli:</strong> {new Date(tire.purchase_date).toLocaleDateString('id-ID')}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
             )}
 
             <div className="form-group">

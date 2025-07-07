@@ -71,6 +71,7 @@ const StockCreatePage = () => {
   const [saveToCash, setSaveToCash] = useState(true);
   const [isTempo, setIsTempo] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState("General");
+  const [notaFile, setNotaFile] = useState<File | null>(null);
 
   useEffect(() => {
     fetchCategories();
@@ -299,88 +300,102 @@ const StockCreatePage = () => {
     return isValid;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!validateForm()) {
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      let totalRestockCost = 0;
-      let restockDescription = 'Restok Barang:\n';
-      
-      // Process each item
-      for (const formItem of formItems) {
-        const adjustmentAmount = parseFloat(formItem.adjustmentAmount) || 0;
-        const originalStock = parseFloat(formItem.originalStock?.toString() || '0'); // Parse to float
-        let newStock = 0;
-        
-        if (formItem.isNew) {
-          newStock = formItem.adjustmentType === 'add' 
-            ? adjustmentAmount 
-            : 0;
-        } else {
-          newStock = formItem.adjustmentType === 'add' 
-            ? originalStock + adjustmentAmount 
-            : Math.max(0, originalStock - adjustmentAmount);
-        }
-
-        // Prepare data for API
-        const submitData = {
-          ...formItem,
-          category_id: formItem.category_id ? parseInt(formItem.category_id) : null,
-          current_stock: newStock,
-          min_stock: parseFloat(formItem.min_stock) || 0,
-          unit_price: parseFloat(formItem.unit_price) || 0
-        };
-
-        // Save the item
-        if (formItem.isNew || !formItem.id) {
-          // Create new item
-          await apiClient.post('/stock', submitData);
-        } else {
-          // Update existing item
-          await apiClient.put(`/stock/${formItem.id}`, submitData);
-        }
-
-        // Calculate cost for cash transaction (only for additions)
-        if (formItem.adjustmentType === 'add' && adjustmentAmount > 0) {
-          const unitPrice = parseFloat(formItem.unit_price) || 0;
-          const itemCost = adjustmentAmount * unitPrice;
-          totalRestockCost += itemCost;
-          restockDescription += `• ${formItem.item_name} +${adjustmentAmount} @${unitPrice.toLocaleString()} = ${itemCost.toLocaleString()}\n`;
-        }
-      }
-
-      // Create cash transaction if there was any restock
-      if (totalRestockCost > 0 && saveToCash) {
-        const transactionType = isTempo ? "debit_tempo" : "debit";
-        restockDescription += `Total: ${totalRestockCost.toLocaleString()}`;
-        await apiClient.post("/cash/transactions", {
-          transaction_type: transactionType,
-          category_name: "Restok",
-          amount: totalRestockCost,
-          description: restockDescription,
-          transaction_date: new Date().toISOString(),
-          account: selectedAccount, // Use the selected account
-        });
-      }
-
-      navigate('/stock');
-    } catch (err: any) {
-      console.error('Failed to save stock item:', err);
-      if (err.response?.data?.errors) {
-        alert(err.response.data.errors.join(', '));
-      } else {
-        alert('Gagal menyimpan data. Silakan coba lagi.');
-      }
-    } finally {
-      setLoading(false);
+   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setNotaFile(e.target.files[0]);
+    } else {
+      setNotaFile(null);
     }
   };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  
+  if (!validateForm()) {
+    return;
+  }
+
+  setLoading(true);
+
+  try {
+    let totalRestockCost = 0;
+    let restockDescription = 'Pembelian Stok:\n';
+    
+    // Process each item
+    for (const formItem of formItems) {
+      const adjustmentAmount = parseFloat(formItem.adjustmentAmount) || 0;
+      const originalStock = parseFloat(formItem.originalStock?.toString() || '0');
+      let newStock = 0;
+      
+      if (formItem.isNew) {
+        newStock = formItem.adjustmentType === 'add' 
+          ? adjustmentAmount 
+          : 0;
+      } else {
+        newStock = formItem.adjustmentType === 'add' 
+          ? originalStock + adjustmentAmount 
+          : Math.max(0, originalStock - adjustmentAmount);
+      }
+
+      // Prepare data for API
+      const submitData = {
+        ...formItem,
+        category_id: formItem.category_id ? parseInt(formItem.category_id) : null,
+        current_stock: newStock,
+        min_stock: parseFloat(formItem.min_stock) || 0,
+        unit_price: parseFloat(formItem.unit_price) || 0
+      };
+
+      // Save the item
+      if (formItem.isNew || !formItem.id) {
+        await apiClient.post('/stock', submitData);
+      } else {
+        await apiClient.put(`/stock/${formItem.id}`, submitData);
+      }
+
+      // Calculate cost for cash transaction (only for additions)
+      if (formItem.adjustmentType === 'add' && adjustmentAmount > 0) {
+        const unitPrice = parseFloat(formItem.unit_price) || 0;
+        const itemCost = adjustmentAmount * unitPrice;
+        totalRestockCost += itemCost;
+        restockDescription += `• ${formItem.item_name} +${adjustmentAmount} @${unitPrice.toLocaleString()} = ${itemCost.toLocaleString()}\n`;
+      }
+    }
+
+    // Create cash transaction using FormData approach (second method)
+    if (totalRestockCost > 0 && saveToCash) {
+      const transactionType = isTempo ? "kredit_tempo" : "kredit";
+      restockDescription += `\nTotal: ${totalRestockCost.toLocaleString()}`;
+
+      const cashFormData = new FormData();
+      cashFormData.append('transaction_type', transactionType);
+      cashFormData.append('amount', String(totalRestockCost));
+      cashFormData.append('description', restockDescription);
+      cashFormData.append('transaction_date', new Date().toISOString());
+      cashFormData.append('account', selectedAccount);
+      
+      // Add file attachment if exists
+      if (notaFile) {
+        cashFormData.append('attachment', notaFile);
+      }
+
+      await apiClient.post("/cash/transactions", cashFormData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+    }
+
+    navigate('/stock');
+  } catch (err: any) {
+    console.error('Failed to save stock item:', err);
+    if (err.response?.data?.errors) {
+      alert(err.response.data.errors.join(', '));
+    } else {
+      alert('Gagal menyimpan data. Silakan coba lagi.');
+    }
+  } finally {
+    setLoading(false);
+  }
+};
 
   const calculateNewStock = (item: FormItem) => {
     const adjustmentAmount = parseFloat(item.adjustmentAmount) || 0;
@@ -722,7 +737,7 @@ const StockCreatePage = () => {
                   <span className="ml-2 text-gray-700">Transaksi Tempo</span>
                 </label>
               </div>
-              <div>
+              <div className="mb-4">
                 <label className="block text-gray-700 text-sm font-bold mb-2">
                   Akun
                 </label>
@@ -736,6 +751,24 @@ const StockCreatePage = () => {
                   <option value="Company">Company</option>
                   <option value="General">General</option>
                 </select>
+              </div>
+              
+              {/* ADD THIS FILE UPLOAD SECTION */}
+              <div>
+                <label className="block text-gray-700 text-sm font-bold mb-2">
+                  Foto Nota (Opsional)
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileChange}
+                  className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                />
+                {notaFile && (
+                  <p className="text-sm text-green-600 mt-1">
+                    File dipilih: {notaFile.name}
+                  </p>
+                )}
               </div>
             </div>
           )}

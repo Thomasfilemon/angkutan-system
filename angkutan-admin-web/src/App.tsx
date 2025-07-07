@@ -43,7 +43,9 @@ import RemovedTiresPage from "./pages/RemovedTires";
 import CashManagementPage from "./pages/CashManagement";
 import TempoManagementPage from "./pages/CashTempoManagement";
 import StockHistoryPage from "./pages/StockHistory";
-import VehicleServiceHistory from "./pages/VehicleServiceHistory"; // <-- Import baru
+import VehicleServiceHistory from "./pages/VehicleServiceHistory"; 
+import { Toaster } from 'react-hot-toast'; // <-- Added this import
+// <-- Import baru
 
 import ComprehensiveRitaseTable from "./pages/Ritase/ComprehensiveRitaseTable";
 import POSpecificRitaseTable from "./pages/Ritase/POSpecificRitaseTable";
@@ -53,6 +55,7 @@ function App() {
 
   return (
     <Router>
+        <Toaster position="top-center" reverseOrder={false} />
       <Routes>
         <Route
           path="/login"

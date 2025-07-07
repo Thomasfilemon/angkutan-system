@@ -3,6 +3,7 @@ const express = require('express');
 const tireRouter = express.Router();
 const tireController = require('../../controllers/web/tireController');
 const { verifyToken, checkRole } = require('../../middlewares/auth.middleware');
+const upload = require('../../middlewares/upload.middleware'); // 👈 Import the middleware
 
 tireRouter.use(verifyToken, checkRole(['admin', 'owner']));
 

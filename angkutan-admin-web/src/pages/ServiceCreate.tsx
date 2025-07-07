@@ -45,6 +45,7 @@ const ServiceCreatePage = () => {
   const [saveToCash, setSaveToCash] = useState(true); // Default to saving to cash
   const [isTempo, setIsTempo] = useState(false);
   const [cashAccount, setCashAccount] = useState('General');
+  const [notaFile, setNotaFile] = useState<File | null>(null);
 
   useEffect(() => {
     fetchVehicles();
@@ -66,6 +67,14 @@ const ServiceCreatePage = () => {
       setStockItems(response.data);
     } catch (err) {
       console.error('Failed to fetch stock items:', err);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setNotaFile(e.target.files[0]);
+    } else {
+      setNotaFile(null);
     }
   };
 
@@ -116,21 +125,43 @@ const ServiceCreatePage = () => {
     setLoading(true);
 
     try {
-      const submitData = {
-        ...formData,
-        labor_cost: parseFloat(formData.labor_cost) || 0,
-        items: serviceItems.filter(item => item.item_name && item.quantity > 0),
-        // Add cash management settings
-        cash_settings: saveToCash ? {
-          save_to_cash: true,
-          is_tempo: isTempo,
-          account: cashAccount
-        } : {
-          save_to_cash: false
-        }
-      };
+      // Use FormData approach for file upload support
+      const submissionData = new FormData();
+      
+      // Append form fields
+      submissionData.append('vehicle_id', formData.vehicle_id);
+      submissionData.append('service_date', formData.service_date);
+      submissionData.append('service_type', formData.service_type);
+      submissionData.append('description', formData.description);
+      submissionData.append('workshop_name', formData.workshop_name);
+      submissionData.append('labor_cost', formData.labor_cost || '0');
+      submissionData.append('notes', formData.notes);
+      
+      // Append service items as JSON string
+      const itemsToSubmit = serviceItems.filter(item => item.item_name && item.quantity > 0);
+      submissionData.append('items', JSON.stringify(itemsToSubmit));
 
-      await apiClient.post('/services', submitData);
+      // Append cash settings as JSON string
+      const cashSettings = saveToCash ? {
+        save_to_cash: true,
+        is_tempo: isTempo,
+        account: cashAccount
+      } : {
+        save_to_cash: false
+      };
+      submissionData.append('cash_settings', JSON.stringify(cashSettings));
+
+      // Add file attachment if exists
+      if (saveToCash && notaFile) {
+        submissionData.append('attachment', notaFile);
+      }
+
+      await apiClient.post('/services', submissionData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      
       navigate('/services');
     } catch (err) {
       console.error('Failed to create service:', err);
@@ -139,6 +170,7 @@ const ServiceCreatePage = () => {
       setLoading(false);
     }
   };
+
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -293,6 +325,24 @@ const ServiceCreatePage = () => {
                   <option value="Company">Company</option>
                   <option value="General">General</option>
                 </select>
+              </div>
+
+              {/* TAMBAHAN: FILE UPLOAD SECTION */}
+              <div>
+                <label className="block text-gray-700 text-sm font-bold mb-2">
+                  Foto Nota (Opsional)
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileChange}
+                  className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                />
+                {notaFile && (
+                  <p className="text-sm text-green-600 mt-1">
+                    File dipilih: {notaFile.name}
+                  </p>
+                )}
               </div>
             </div>
           )}
