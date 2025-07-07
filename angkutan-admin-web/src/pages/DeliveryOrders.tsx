@@ -1,6 +1,6 @@
 // src/pages/DeliveryOrders.tsx
 import React, { useState, useEffect } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import apiClient from "../api/axiosConfig";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -51,6 +51,7 @@ const DeliveryOrdersPage = () => {
     completed: 0,
     cancelled: 0,
   });
+  const navigate = useNavigate();
 
   const poId = searchParams.get("po_id");
 
@@ -522,10 +523,10 @@ const DeliveryOrdersPage = () => {
                           dOrder.status !== "cancelled" && (
                             <button
                               onClick={() => {
-                                /* Handle quick edit */
+                                navigate(`/delivery-orders/${dOrder.id}/edit`);
                               }}
                               className="inline-flex items-center justify-center w-7 h-7 text-green-600 hover:text-green-800 hover:bg-green-50 rounded-md transition-all duration-200"
-                              title="Quick Edit"
+                              title="Edit Delivery Order"
                             >
                               <svg
                                 className="w-4 h-4"

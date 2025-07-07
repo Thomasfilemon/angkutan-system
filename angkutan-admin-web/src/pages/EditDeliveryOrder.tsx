@@ -1,0 +1,460 @@
+import React, { useState, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import apiClient from "../api/axiosConfig";
+
+interface DeliveryOrderData {
+  id: number;
+  do_number: string;
+  customer_name: string;
+  item_name: string;
+  minimal_load_quantity: number;
+  actual_load_quantity?: number;
+  unit: string;
+  unit_price: number;
+  total_amount: number;
+  load_location: string;
+  unload_location: string;
+  status: string;
+  notes?: string;
+  driver_name?: string;
+  vehicle_info?: string;
+  trip_allowance?: number;
+  gaji?: number;
+}
+
+const EditDeliveryOrder: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+
+  const [deliveryOrder, setDeliveryOrder] = useState<DeliveryOrderData | null>(
+    null
+  );
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancellationReason, setCancellationReason] = useState("");
+
+  // Form state
+  const [formData, setFormData] = useState({
+    customer_name: "",
+    item_name: "",
+    minimal_load_quantity: 0,
+    actual_load_quantity: 0,
+    unit: "ton",
+    unit_price: 0,
+    load_location: "",
+    unload_location: "",
+    notes: "",
+    trip_allowance: 0,
+    gaji: 0,
+  });
+
+  useEffect(() => {
+    if (id) {
+      fetchDeliveryOrder();
+    }
+  }, [id]);
+
+  const fetchDeliveryOrder = async () => {
+    try {
+      setLoading(true);
+      const response = await apiClient.get(`/delivery-orders/${id}`);
+      const data = response.data.data;
+
+      setDeliveryOrder(data);
+      setFormData({
+        customer_name: data.customer_name || "",
+        item_name: data.item_name || "",
+        minimal_load_quantity: data.minimal_load_quantity || 0,
+        actual_load_quantity: data.actual_load_quantity || 0,
+        unit: data.unit || "ton",
+        unit_price: data.unit_price || 0,
+        load_location: data.load_location || "",
+        unload_location: data.unload_location || "",
+        notes: data.notes || "",
+        trip_allowance: data.trip_allowance || 0,
+        gaji: data.gaji || 0,
+      });
+    } catch (err: any) {
+      setError(err.response?.data?.message || "Failed to fetch delivery order");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleInputChange = (
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+    >
+  ) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]:
+        name.includes("quantity") ||
+        name.includes("price") ||
+        name.includes("allowance") ||
+        name === "gaji"
+          ? parseFloat(value) || 0
+          : value,
+    }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    try {
+      setSaving(true);
+      setError(null);
+
+      await apiClient.put(`/delivery-orders/${id}`, formData);
+
+      // Success toast/notification here
+      navigate("/delivery-orders", {
+        state: { message: "Delivery Order updated successfully!" },
+      });
+    } catch (err: any) {
+      setError(
+        err.response?.data?.message || "Failed to update delivery order"
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!cancellationReason.trim()) {
+      setError("Cancellation reason is required");
+      return;
+    }
+
+    try {
+      setCancelling(true);
+      setError(null);
+
+      await apiClient.patch(`/delivery-orders/${id}/cancel`, {
+        cancellation_reason: cancellationReason,
+      });
+
+      setShowCancelModal(false);
+      navigate("/delivery-orders", {
+        state: { message: "Delivery Order cancelled successfully!" },
+      });
+    } catch (err: any) {
+      setError(
+        err.response?.data?.message || "Failed to cancel delivery order"
+      );
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
+  if (error && !deliveryOrder) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+          <p>Error: {error}</p>
+          <button
+            onClick={() => navigate("/delivery-orders")}
+            className="mt-2 bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+          >
+            Back to Delivery Orders
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="container mx-auto px-4 py-8">
+      {/* Header */}
+      <div className="mb-8">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">
+              Edit Delivery Order
+            </h1>
+            <p className="text-gray-600 mt-2">
+              DO Number:{" "}
+              <span className="font-medium">{deliveryOrder?.do_number}</span>
+            </p>
+          </div>
+          <div className="flex space-x-3">
+            <button
+              onClick={() => navigate("/delivery-orders")}
+              className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => setShowCancelModal(true)}
+              disabled={
+                deliveryOrder?.status === "cancelled" ||
+                deliveryOrder?.status === "completed"
+              }
+              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              Cancel DO
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {error && (
+        <div className="mb-6 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+          {error}
+        </div>
+      )}
+
+      {/* Form */}
+      <form
+        onSubmit={handleSubmit}
+        className="bg-white shadow-lg rounded-lg p-6"
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Customer Name */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Customer Name
+            </label>
+            <input
+              type="text"
+              name="customer_name"
+              value={formData.customer_name}
+              onChange={handleInputChange}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              required
+            />
+          </div>
+
+          {/* Item Name */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Item Name
+            </label>
+            <input
+              type="text"
+              name="item_name"
+              value={formData.item_name}
+              onChange={handleInputChange}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              required
+            />
+          </div>
+
+          {/* Minimal Load Quantity */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Target Quantity
+            </label>
+            <input
+              type="number"
+              name="minimal_load_quantity"
+              value={formData.minimal_load_quantity}
+              onChange={handleInputChange}
+              step="0.01"
+              min="0"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              required
+            />
+          </div>
+
+          {/* Actual Load Quantity */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Actual Quantity
+            </label>
+            <input
+              type="number"
+              name="actual_load_quantity"
+              value={formData.actual_load_quantity}
+              onChange={handleInputChange}
+              step="0.01"
+              min="0"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {/* Unit */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Unit
+            </label>
+            <select
+              name="unit"
+              value={formData.unit}
+              onChange={handleInputChange}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="ton">Ton</option>
+              <option value="kilogram">Kilogram</option>
+              <option value="kubik">Kubik</option>
+            </select>
+          </div>
+
+          {/* Unit Price */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Unit Price (Rp)
+            </label>
+            <input
+              type="number"
+              name="unit_price"
+              value={formData.unit_price}
+              onChange={handleInputChange}
+              step="0.01"
+              min="0"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              required
+            />
+          </div>
+
+          {/* Trip Allowance */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Trip Allowance (Rp)
+            </label>
+            <input
+              type="number"
+              name="trip_allowance"
+              value={formData.trip_allowance}
+              onChange={handleInputChange}
+              step="0.01"
+              min="0"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {/* Gaji */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Driver Salary (Rp)
+            </label>
+            <input
+              type="number"
+              name="gaji"
+              value={formData.gaji}
+              onChange={handleInputChange}
+              step="0.01"
+              min="0"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+
+        {/* Load Location */}
+        <div className="mt-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Load Location
+          </label>
+          <input
+            type="text"
+            name="load_location"
+            value={formData.load_location}
+            onChange={handleInputChange}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            required
+          />
+        </div>
+
+        {/* Unload Location */}
+        <div className="mt-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Unload Location
+          </label>
+          <input
+            type="text"
+            name="unload_location"
+            value={formData.unload_location}
+            onChange={handleInputChange}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            required
+          />
+        </div>
+
+        {/* Notes */}
+        <div className="mt-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Notes
+          </label>
+          <textarea
+            name="notes"
+            value={formData.notes}
+            onChange={handleInputChange}
+            rows={4}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Additional notes..."
+          />
+        </div>
+
+        {/* Submit Button */}
+        <div className="mt-8 flex justify-end">
+          <button
+            type="submit"
+            disabled={saving}
+            className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed"
+          >
+            {saving ? "Saving..." : "Update Delivery Order"}
+          </button>
+        </div>
+      </form>
+
+      {/* Cancel Modal */}
+      {showCancelModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Cancel Delivery Order
+            </h3>
+            <p className="text-gray-600 mb-4">
+              Are you sure you want to cancel this delivery order? This action
+              cannot be undone.
+            </p>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Cancellation Reason *
+              </label>
+              <textarea
+                value={cancellationReason}
+                onChange={(e) => setCancellationReason(e.target.value)}
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                placeholder="Please provide a reason for cancellation..."
+                required
+              />
+            </div>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setShowCancelModal(false)}
+                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              >
+                Keep DO
+              </button>
+              <button
+                onClick={handleCancel}
+                disabled={cancelling || !cancellationReason.trim()}
+                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                {cancelling ? "Cancelling..." : "Cancel DO"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default EditDeliveryOrder;

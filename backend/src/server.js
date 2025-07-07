@@ -106,7 +106,7 @@ app.use("/api/web/tires", webTireRoutes);
 app.use("/api/web/cash", webCashRoutes);
 app.use("/api/web/ritase", webRitaseRoutes);
 app.use("/api/web/buku-kas", webBukuKasRoutes);
-app.use("/api/web/big-delivery-orders", webBigDeliveryOrderRoutes)
+app.use("/api/web/big-delivery-orders", webBigDeliveryOrderRoutes);
 app.use("/api/web/utils", utilsRoutes);
 
 // Error handling middleware

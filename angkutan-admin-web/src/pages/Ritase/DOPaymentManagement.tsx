@@ -257,20 +257,24 @@ const DOPaymentManagement: React.FC = () => {
       const response = await apiClient.get(
         `/ritase/delivery-orders/${doId}/payment`
       );
-      setDOData(response.data);
 
-      // Initialize form with calculated values
-      if (response.data.delivery_order) {
-        const do_item = response.data.delivery_order;
+      // ✅ FIXED: Handle wrapped response structure properly
+      const responseData = response.data.success
+        ? response.data.data
+        : response.data;
+      setDOData(responseData);
+
+      // ✅ FIXED: Use consistent data structure
+      if (responseData.delivery_order) {
+        const do_item = responseData.delivery_order;
         const quantity = safeNumber(
           do_item.actual_load_quantity || do_item.minimal_load_quantity
         );
         const unitPrice = safeNumber(
           do_item.purchaseOrder?.unit_price || do_item.unit_price
         );
-        const unit = do_item.unit || "ton"; // Get the unit from DO data
+        const unit = do_item.unit || "ton";
 
-        // 🔥 Use unit-aware calculation instead of buggy one
         const calculatedAmount = calculateUnitAwareAmount(
           quantity,
           unit,
@@ -281,7 +285,7 @@ const DOPaymentManagement: React.FC = () => {
           ...prev,
           invoice_amount: calculatedAmount,
           pph_percentage:
-            response.data.system_settings?.default_pph_percentage || 0.5,
+            responseData.system_settings?.default_pph_percentage || 0.5,
           invoice_number: `INV/${
             safeReplace(do_item?.do_number, "DO-", "") || "NEW"
           }`,
@@ -498,7 +502,7 @@ const DOPaymentManagement: React.FC = () => {
             </div>
             <div className="mt-4">
               <button
-                onClick={() => navigate("/ritase")}
+                onClick={() => navigate("/ritase/comprehensive")}
                 className="bg-red-100 px-4 py-2 rounded-md text-red-800 hover:bg-red-200 transition-colors"
               >
                 ← Back to Ritase Dashboard

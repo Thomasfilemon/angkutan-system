@@ -24,6 +24,7 @@ import DeliveryOrderCreatePage from "./pages/DeliveryOrderCreatePage";
 import CreateDeliveryFromPO from "./pages/CreateDeliveryFromPO";
 import DeliveryOrdersPage from "./pages/DeliveryOrders";
 import DeliveryOrderDetailPage from "./pages/DeliveryOrderDetail";
+import EditDeliveryOrder from "./pages/EditDeliveryOrder";
 import BigDOListPage from "./pages/BigDOListPage";
 import BigDOCreatePage from "./pages/BigDOCreatePage";
 import BigDODetailPage from "./pages/BigDODetailPage";
@@ -67,13 +68,17 @@ function App() {
           element={token ? <MainLayout /> : <Navigate to="/login" replace />}
         >
           <Route path="" element={<Dashboard />} />
+
           {/* Ritase dan Buku Kas */}
           <Route path="ritase" element={<RitaseDashboard />} />
+
           <Route
             path="ritase/comprehensive"
             element={<ComprehensiveRitaseTable />}
           />
+
           <Route path="ritase/po/:poId" element={<POPaymentDetail />} />
+
           <Route
             path="ritase/po/:poId/table"
             element={<POSpecificRitaseTable />}
@@ -123,6 +128,10 @@ function App() {
           <Route
             path="delivery-orders/:id"
             element={<DeliveryOrderDetailPage />}
+          />
+          <Route
+            path="delivery-orders/:id/edit"
+            element={<EditDeliveryOrder />}
           />
 
           <Route path="big-dos" element={<BigDOListPage />} />
