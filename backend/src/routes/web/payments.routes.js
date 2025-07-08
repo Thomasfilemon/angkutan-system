@@ -1,0 +1,70 @@
+/**
+ * Payment-related routes
+ * Prefix mounted in app.js as:  app.use('/api/web/payments', paymentsRouter);
+ */
+
+const express = require("express");
+const router = express.Router();
+
+const PaymentsCtrl = require("../../controllers/web/payments.controller");
+
+const { verifyToken, checkRole } = require("../../middlewares/auth.middleware");
+router.use(verifyToken);
+
+router.get(
+  "/overview",
+  checkRole(["admin", "owner"]),
+  PaymentsCtrl.getOverviewStats
+);
+
+router.get(
+  "/delivery-orders",
+  checkRole(["admin", "owner"]),
+  PaymentsCtrl.getDeliveryOrders
+);
+
+// ──────── Invoice Endpoints ────────
+
+// Create single-DO invoice
+// POST /api/web/payments/delivery-orders/:doId/invoices
+router.post(
+  "/delivery-orders/:doId/invoices",
+  checkRole(["admin", "owner"]),
+  PaymentsCtrl.createInvoice
+);
+
+// Update invoice (edit PPH %, amount, due date, notes, status)
+// PUT /api/web/payments/invoices/:invoiceId
+router.put(
+  "/invoices/:invoiceId",
+  checkRole(["admin", "owner"]),
+  PaymentsCtrl.updateInvoice
+);
+
+// ──────── Payment Endpoints ────────
+
+// Record payment for a Delivery Order (and optionally an invoice)
+// POST /api/web/payments/delivery-orders/:doId
+router.post(
+  "/delivery-orders/:doId",
+  checkRole(["admin", "owner"]),
+  PaymentsCtrl.recordPayment
+);
+
+// Manual payment-status override (deposit, lunas, etc.)
+// PATCH /api/web/payments/status
+router.patch(
+  "/status",
+  checkRole(["admin", "owner"]),
+  PaymentsCtrl.updatePaymentStatus
+);
+
+// Confirm completed DO as ready for invoicing / payment
+// PATCH /api/web/payments/delivery-orders/:doId/confirm
+router.patch(
+  "/delivery-orders/:doId/confirm",
+  checkRole(["admin", "owner"]),
+  PaymentsCtrl.confirmDeliveryOrder
+);
+
+module.exports = router;

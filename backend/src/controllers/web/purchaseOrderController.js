@@ -35,7 +35,7 @@ exports.getAllPurchaseOrders = async (req, res, next) => {
         include: [
           {
             model: DeliveryOrder,
-            as: "deliveryOrders",
+            as: "poDeliveryOrders",
             attributes: ["id", "do_number", "status", "actual_load_quantity"],
             required: false,
           },
@@ -60,9 +60,9 @@ exports.getAllPurchaseOrders = async (req, res, next) => {
 
         const remainingQuantity =
           parseFloat(po.total_quantity) - totalDelivered;
-        const deliveryCount = po.deliveryOrders?.length || 0;
+        const deliveryCount = po.poDeliveryOrders?.length || 0;
         const completedDeliveries =
-          po.deliveryOrders?.filter((d) => d.status === "completed").length ||
+          po.poDeliveryOrders?.filter((d) => d.status === "completed").length ||
           0;
 
         return {
@@ -118,7 +118,7 @@ exports.getPurchaseOrderById = async (req, res, next) => {
       include: [
         {
           model: DeliveryOrder,
-          as: "deliveryOrders",
+          as: "poDeliveryOrders",
           include: [
             {
               model: User,

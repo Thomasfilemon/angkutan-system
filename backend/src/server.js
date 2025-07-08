@@ -33,6 +33,8 @@ const webTireRoutes = require("./routes/web/tire.routes");
 const webCashRoutes = require("./routes/web/cash.routes");
 const webRitaseRoutes = require("./routes/web/ritase.routes");
 const webBukuKasRoutes = require("./routes/web/bukuKas.routes");
+const webPaymentsRoutes = require("./routes/web/payments.routes");
+const legacyRitasePaymentsRoutes = require("./routes/web/ritase.payments.legacy.route");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -75,6 +77,7 @@ app.get("/", (req, res) => {
         cash: "/api/web/cash",
         ritase: "/api/web/ritase",
         buku_kas: "/api/web/buku-kas",
+        payments: "/api/web/payments",
       },
     },
   });
@@ -106,6 +109,7 @@ app.use("/api/web/cash", webCashRoutes);
 app.use("/api/web/ritase", webRitaseRoutes);
 app.use("/api/web/buku-kas", webBukuKasRoutes);
 app.use("/api/web/big-delivery-orders", webBigDeliveryOrderRoutes);
+app.use("/api/web/payments", webPaymentsRoutes);
 
 // Error handling middleware
 app.use(errorHandler);
@@ -117,6 +121,7 @@ app.listen(PORT, "0.0.0.0", () => {
     `📱 Mobile API: /api/purchase-orders, /api/delivery-orders, /api/vehicles`
   );
   console.log(
-    `🌐 Web API: /api/web/purchase-orders, /api/web/delivery-orders, /api/web/vehicles, /api/web/stock, /api/web/services, /api/web/tires`
+    "🌐 Web API: /api/web/purchase-orders, /api/web/delivery-orders, /api/web/vehicles, " +
+      "/api/web/stock, /api/web/services, /api/web/tires, /api/web/payments"
   );
 });

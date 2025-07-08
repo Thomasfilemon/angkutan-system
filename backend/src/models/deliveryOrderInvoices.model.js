@@ -133,40 +133,6 @@ module.exports = (sequelize) => {
           fields: ["invoice_date"],
         },
       ],
-      hooks: {
-        beforeCreate: (invoice) => {
-          // Auto-calculate PPH and net amount
-          const grossAmount = parseFloat(invoice.invoice_amount) || 0;
-          const pphPercentage = parseFloat(invoice.pph_percentage) || 0;
-          const pphAmount = (grossAmount * pphPercentage) / 100;
-
-          invoice.pph_amount = pphAmount;
-          invoice.net_amount = grossAmount - pphAmount;
-
-          // Set due date if not provided (30 days default)
-          if (!invoice.due_date) {
-            const dueDate = new Date(invoice.invoice_date);
-            dueDate.setDate(dueDate.getDate() + 30);
-            invoice.due_date = dueDate;
-          }
-        },
-        beforeUpdate: (invoice) => {
-          invoice.updated_at = new Date();
-
-          // Recalculate if amounts changed
-          if (
-            invoice.changed("invoice_amount") ||
-            invoice.changed("pph_percentage")
-          ) {
-            const grossAmount = parseFloat(invoice.invoice_amount) || 0;
-            const pphPercentage = parseFloat(invoice.pph_percentage) || 0;
-            const pphAmount = (grossAmount * pphPercentage) / 100;
-
-            invoice.pph_amount = pphAmount;
-            invoice.net_amount = grossAmount - pphAmount;
-          }
-        },
-      },
     }
   );
 

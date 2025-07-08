@@ -9,7 +9,7 @@ const {
   DeliveryOrderInvoices,
   DeliveryOrderAdjustments,
   SystemSettings,
-  DeliveryOrderPaymentHistory, // <-- Add this line
+  DeliveryOrderPaymentHistory,
 } = require("../../models");
 const { Op, Sequelize } = require("sequelize");
 
@@ -873,8 +873,6 @@ exports.createPriceAdjustment = async (req, res, next) => {
     next(err);
   }
 };
-
-// Add these functions to your ritase.controller.js
 
 // ✅ 1. Get ritase dashboard overview (Vehicle-focused)
 exports.getRitaseDashboard = async (req, res, next) => {

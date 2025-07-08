@@ -683,3 +683,23 @@ CREATE TRIGGER trigger_auto_payment_confirmation
   BEFORE UPDATE ON delivery_orders
   FOR EACH ROW
   EXECUTE FUNCTION auto_set_payment_confirmation();
+
+CREATE OR REPLACE FUNCTION recalc_do_invoice_pph()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- default kalau NULL
+  IF NEW.pph_percentage IS NULL THEN
+    NEW.pph_percentage := 0.5;
+  END IF;
+
+  NEW.pph_amount := ROUND(NEW.invoice_amount * NEW.pph_percentage / 100, 2);
+  NEW.net_amount := NEW.invoice_amount - NEW.pph_amount;
+  NEW.updated_at := NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_recalc_pph
+BEFORE INSERT OR UPDATE ON delivery_order_invoices
+FOR EACH ROW
+EXECUTE FUNCTION recalc_do_invoice_pph();

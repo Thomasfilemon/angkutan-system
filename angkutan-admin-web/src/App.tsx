@@ -44,7 +44,8 @@ import TireInventoryEditPage from "./pages/TireInventoryEdit";
 import RemovedTiresPage from "./pages/RemovedTires";
 import CashManagementPage from "./pages/CashManagement";
 import StockHistoryPage from "./pages/StockHistory";
-import VehicleServiceHistory from "./pages/VehicleServiceHistory"; // <-- Import baru
+import VehicleServiceHistory from "./pages/VehicleServiceHistory";
+import PaymentsRoutes from "./modules/payments/routes";
 
 import ComprehensiveRitaseTable from "./pages/Ritase/ComprehensiveRitaseTable";
 import POSpecificRitaseTable from "./pages/Ritase/POSpecificRitaseTable";
@@ -84,6 +85,9 @@ function App() {
             path="ritase/delivery-orders/:doId/payment"
             element={<DOPaymentManagement />}
           />
+
+          <Route path="payments/*" element={<PaymentsRoutes />} />
+
           {/* Vehicles Routes */}
           <Route path="vehicles" element={<VehiclesPage />} />
           <Route path="vehicles/create" element={<VehicleCreatePage />} />

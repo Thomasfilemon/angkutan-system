@@ -2,6 +2,7 @@
 const express = require("express");
 const router = express.Router();
 const ritaseController = require("../../controllers/web/ritase.controller");
+const paymentsCtrl = require("../../controllers/web/payments.controller");
 const ritaseAnalyticsController = require("../../controllers/web/ritaseAnalytics.controller");
 const { verifyToken, checkRole } = require("../../middlewares/auth.middleware");
 
@@ -26,22 +27,22 @@ router.get(
   ritaseController.getDeliveryOrderPaymentDetail
 );
 
-router.post(
-  "/delivery-orders/:do_id/confirm",
+router.patch(
+  "/delivery-orders/:doId/confirm",
   checkRole(["admin", "owner"]),
-  ritaseController.confirmDeliveryOrderForPayment
+  paymentsCtrl.confirmDeliveryOrder
 );
 
 router.post(
-  "/delivery-orders/:do_id/invoice",
+  "/delivery-orders/:doId/invoices",
   checkRole(["admin", "owner"]),
-  ritaseController.createDeliveryOrderInvoice
+  paymentsCtrl.createInvoice
 );
 
 router.post(
-  "/delivery-orders/:do_id/payment",
+  "/delivery-orders/:doId/payment",
   checkRole(["admin", "owner"]),
-  ritaseController.recordDeliveryOrderPayment
+  paymentsCtrl.recordPayment
 );
 
 router.post(
@@ -63,10 +64,10 @@ router.get(
   ritaseController.getVehiclePerformance
 );
 
-router.post(
-  "/payment-status",
+router.patch(
+  "/status",
   checkRole(["admin", "owner"]),
-  ritaseController.updatePaymentStatus
+  paymentsCtrl.updatePaymentStatus
 );
 
 router.get(

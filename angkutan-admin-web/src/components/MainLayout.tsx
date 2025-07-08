@@ -128,6 +128,19 @@ const MainLayout = () => {
               </Link>
             </li>
 
+            <li className="mb-4">
+              <Link
+                to="/payments"
+                className={`block p-2 rounded hover:bg-gray-700 ${
+                  location.pathname.startsWith("/payments")
+                    ? "bg-gray-700 border-l-4 border-blue-500"
+                    : ""
+                }`}
+              >
+                💰 Payments
+              </Link>
+            </li>
+
             {/* Operations Section */}
             {!sidebarMinimized && (
               <li className="mb-2">

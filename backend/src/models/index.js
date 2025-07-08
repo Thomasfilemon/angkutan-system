@@ -128,22 +128,25 @@ AdminProfile.belongsTo(User, { foreignKey: "user_id", as: "user" });
 
 // Order-related Associations (One-to-Many)
 PurchaseOrder.hasMany(DeliveryOrder, {
+  as: "poDeliveryOrders",
   foreignKey: "purchase_order_id",
-  as: "deliveryOrders",
 });
 DeliveryOrder.belongsTo(PurchaseOrder, {
-  foreignKey: "purchase_order_id",
   as: "purchaseOrder",
+  foreignKey: "purchase_order_id",
 });
 
 // User (as Driver) <-> DeliveryOrder
-User.hasMany(DeliveryOrder, { foreignKey: "driver_id", as: "deliveryOrders" });
+User.hasMany(DeliveryOrder, {
+  foreignKey: "driver_id",
+  as: "driverDeliveryOrders",
+});
 DeliveryOrder.belongsTo(User, { foreignKey: "driver_id", as: "driver" });
 
 // Vehicle <-> DeliveryOrder
 Vehicle.hasMany(DeliveryOrder, {
   foreignKey: "vehicle_id",
-  as: "deliveryOrders",
+  as: "vehicleDeliveryOrders",
 });
 DeliveryOrder.belongsTo(Vehicle, { foreignKey: "vehicle_id", as: "vehicle" });
 
@@ -263,6 +266,14 @@ DeliveryOrder.hasMany(DeliveryOrderPaymentHistory, {
 DeliveryOrderPaymentHistory.belongsTo(DeliveryOrder, {
   foreignKey: "delivery_order_id",
   as: "deliveryOrder",
+});
+DeliveryOrderPaymentHistory.belongsTo(User, {
+  foreignKey: "changed_by",
+  as: "changedBy",
+});
+User.hasMany(DeliveryOrderPaymentHistory, {
+  foreignKey: "changed_by",
+  as: "paymentHistoryChanges",
 });
 
 // BIG DO ASSOCIATIONS
