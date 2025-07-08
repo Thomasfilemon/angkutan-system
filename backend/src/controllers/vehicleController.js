@@ -120,15 +120,44 @@ exports.getVehicleById = async (req, res, next) => {
 
 // Create new vehicle
 exports.createVehicle = async (req, res, next) => {
+  const transaction = await require('../models').sequelize.transaction();
+  
   try {
-    const vehicle = await Vehicle.create(req.body);
+    // Create the vehicle first
+    const vehicle = await Vehicle.create(req.body, { transaction });
+    
+    // Get tire positions for this vehicle type using the model method
+    const tirePositions = vehicle.getTirePositions();
+    
+    // Create empty tire slots for each position
+    const { VehicleTire } = require('../models');
+    const tireSlots = tirePositions.map(position => ({
+      vehicle_id: vehicle.id,
+      position: position,
+      status: 'empty', // Mark as empty initially
+      current_pressure: 0,
+      recommended_pressure: 35,
+      tread_depth: 0,
+      temperature: 25.0,
+      condition: 'good'
+    }));
+    
+    // Create all tire slots
+    await VehicleTire.bulkCreate(tireSlots, { transaction });
+    
+    await transaction.commit();
     
     res.status(201).json({
       success: true,
-      message: 'Vehicle created successfully',
-      data: vehicle
+      message: 'Vehicle created successfully with tire positions',
+      data: {
+        ...vehicle.toJSON(),
+        tire_positions: tirePositions
+      }
     });
   } catch (err) {
+    await transaction.rollback();
+    
     if (err.name === 'SequelizeValidationError') {
       const messages = err.errors.map(e => e.message);
       return res.status(400).json({

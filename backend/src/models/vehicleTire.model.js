@@ -25,15 +25,16 @@ module.exports = (sequelize) => {
       }
     },
     position: {
-      type: DataTypes.STRING(20),
-      allowNull: false,
-      validate: {
-        isIn: {
-          args: [['FL', 'FR', 'RL1', 'RR1', 'RL2', 'RR2', 'RL3', 'RR3', 'SPARE1', 'SPARE2', 'SPARE3', 'SPARE4']],
-          msg: 'Invalid tire position'
-        }
+    type: DataTypes.STRING(20),
+    allowNull: false,
+    validate: {
+      isIn: {
+        // EXPANDED: Include A/B designations for dual tires
+        args: [['FL', 'FR', 'RL1', 'RR1', 'RL1A', 'RL1B', 'RR1A', 'RR1B', 'RL2A', 'RL2B', 'RR2A', 'RR2B', 'RL3A', 'RL3B', 'RR3A', 'RR3B', 'SPARE1', 'SPARE2', 'SPARE3', 'SPARE4']],
+        msg: 'Invalid tire position'
       }
-    },
+    }
+  },
     install_date: {
       type: DataTypes.DATEONLY,
       allowNull: false,

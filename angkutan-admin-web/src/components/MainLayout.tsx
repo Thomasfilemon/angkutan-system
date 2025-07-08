@@ -22,6 +22,7 @@ const MainLayout = () => {
     if (path.startsWith("/cash")) return "Buku Kas";
     if (path.startsWith("/ritase")) return "Dashboard Ritase";
     if (path.startsWith("/buku-kas")) return "Buku Kas";
+    if (path.startsWith("/tempo")) return "Buku Tempo";
     return "Dashboard";
   };
 
@@ -351,6 +352,22 @@ const MainLayout = () => {
                 <span className="text-xl mr-3">💰</span>
                 <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
                   Buku Kas
+                </span>
+              </Link>
+            </li>
+            <li className="mb-4">
+              <Link
+                to="/tempo"
+                className={`flex items-center p-2 rounded hover:bg-gray-700 ${
+                  isActiveLink("/tempo")
+                    ? "bg-gray-700 border-l-4 border-blue-500"
+                    : ""
+                }`}
+                title="Buku Tempo"
+              >
+                <span className="text-xl mr-3">🤬</span>
+                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
+                  Buku Tempo
                 </span>
               </Link>
             </li>

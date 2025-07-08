@@ -35,6 +35,7 @@ const webRitaseRoutes = require("./routes/web/ritase.routes");
 const webBukuKasRoutes = require("./routes/web/bukuKas.routes");
 const webPaymentsRoutes = require("./routes/web/payments.routes");
 const legacyRitasePaymentsRoutes = require("./routes/web/ritase.payments.legacy.route");
+const utilsRoutes = require("./routes/utils.routes");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -110,6 +111,7 @@ app.use("/api/web/ritase", webRitaseRoutes);
 app.use("/api/web/buku-kas", webBukuKasRoutes);
 app.use("/api/web/big-delivery-orders", webBigDeliveryOrderRoutes);
 app.use("/api/web/payments", webPaymentsRoutes);
+app.use("/api/web/utils", utilsRoutes);
 
 // Error handling middleware
 app.use(errorHandler);

@@ -1,4 +1,3 @@
-// backend/src/models/cashTransaction.model.js
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
@@ -9,7 +8,7 @@ module.exports = (sequelize) => {
       autoIncrement: true
     },
     transaction_type: {
-      type: DataTypes.ENUM('debit', 'kredit'),
+      type: DataTypes.ENUM('debit', 'kredit', 'debit_tempo', 'kredit_tempo'), // Added new types
       allowNull: false
     },
     category_id: {
@@ -31,10 +30,18 @@ module.exports = (sequelize) => {
       type: DataTypes.STRING(50),
       allowNull: true
     },
+    account: {
+      type: DataTypes.ENUM('Ewaldo', 'Malvin', 'Company', 'General'),
+      allowNull: false
+    },
     transaction_date: {
       type: DataTypes.DATEONLY,
       allowNull: false,
       defaultValue: DataTypes.NOW
+    },
+    attachment_url: {
+      type: DataTypes.STRING(255),
+      allowNull: true
     }
   }, {
     tableName: 'cash_transactions',

@@ -13,7 +13,6 @@ import VehiclesPage from "./pages/Vehicles";
 import VehicleCreatePage from "./pages/VehicleCreate";
 import VehicleEditPage from "./pages/VehicleEdit";
 import TireManagementPage from "./pages/TireManagement";
-import VehicleTireDetailPage from "./pages/VehicleTireDetail";
 import DriversPage from "./pages/Drivers";
 import DriverCreatePage from "./pages/DriverCreate";
 import DriverEditPage from "./pages/DriverEdit";
@@ -43,9 +42,12 @@ import TireInventoryCreatePage from "./pages/TireInventoryCreate";
 import TireInventoryEditPage from "./pages/TireInventoryEdit";
 import RemovedTiresPage from "./pages/RemovedTires";
 import CashManagementPage from "./pages/CashManagement";
+import TempoManagementPage from "./pages/CashTempoManagement";
 import StockHistoryPage from "./pages/StockHistory";
 import VehicleServiceHistory from "./pages/VehicleServiceHistory";
 import PaymentsRoutes from "./modules/payments/routes";
+import { Toaster } from "react-hot-toast"; // <-- Added this import
+// <-- Import baru
 
 import ComprehensiveRitaseTable from "./pages/Ritase/ComprehensiveRitaseTable";
 import POSpecificRitaseTable from "./pages/Ritase/POSpecificRitaseTable";
@@ -55,6 +57,7 @@ function App() {
 
   return (
     <Router>
+      <Toaster position="top-center" reverseOrder={false} />
       <Routes>
         <Route
           path="/login"
@@ -94,10 +97,6 @@ function App() {
           <Route path="vehicles/edit/:id" element={<VehicleEditPage />} />
           {/* Tire Management Routes */}
           <Route path="vehicles/tires" element={<TireManagementPage />} />
-          <Route
-            path="vehicles/tires/:vehicleId"
-            element={<VehicleTireDetailPage />}
-          />
 
           <Route path="tire-inventory" element={<TireInventoryPage />} />
           <Route
@@ -162,6 +161,7 @@ function App() {
           <Route path="services/:id" element={<ServiceDetailPage />} />
           <Route path="services/edit/:id" element={<ServiceEditPage />} />
           <Route path="cash" element={<CashManagementPage />} />
+          <Route path="tempo" element={<TempoManagementPage />} />
         </Route>
       </Routes>
     </Router>

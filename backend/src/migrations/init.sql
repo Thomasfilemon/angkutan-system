@@ -31,7 +31,7 @@ CREATE TABLE driver_profiles (
   id_card_number VARCHAR(50) UNIQUE NOT NULL,
   sim_number VARCHAR(50) UNIQUE,
   license_type VARCHAR(10),
-  status driver_status NOT NULL DEFAULT 'available', -- 🎯 FIXED: Use ENUM
+  status driver_status NOT NULL DEFAULT 'available',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -47,16 +47,17 @@ CREATE TABLE vehicles (
   tire_count INTEGER NOT NULL DEFAULT 6,
   spare_tire_count INTEGER NOT NULL DEFAULT 2,
   driver_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  status vehicle_status NOT NULL DEFAULT 'available', -- 🎯 FIXED: Use ENUM
+  status vehicle_status NOT NULL DEFAULT 'available',
   last_service_date DATE,
   next_service_due DATE,
   stnk_number VARCHAR(50) UNIQUE,
   stnk_expired_date DATE,
   tax_due_date DATE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  current_mileage INTEGER DEFAULT 0,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- TIRE MANAGEMENT TABLES (UPDATED WITH INDIVIDUAL TIRE TRACKING)
 CREATE TABLE tire_inventory (
   id SERIAL PRIMARY KEY,
   tire_brand VARCHAR(50) NOT NULL,
@@ -68,7 +69,6 @@ CREATE TABLE tire_inventory (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- NEW: Individual tire instances for complete tracking
 CREATE TABLE tire_instances (
   id SERIAL PRIMARY KEY,
   tire_inventory_id INTEGER REFERENCES tire_inventory(id),
@@ -84,12 +84,12 @@ CREATE TABLE tire_instances (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- UPDATED: Vehicle tires now reference individual tire instances
+-- MODIFIED: vehicle_tires now requires a tire_instance_id
 CREATE TABLE vehicle_tires (
   id SERIAL PRIMARY KEY,
   vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE CASCADE,
-  tire_inventory_id INTEGER REFERENCES tire_inventory(id), -- For backward compatibility
-  tire_instance_id INTEGER REFERENCES tire_instances(id), -- NEW: Reference to specific tire
+  tire_inventory_id INTEGER REFERENCES tire_inventory(id), -- For backward compatibility & easy lookup
+  tire_instance_id INTEGER NOT NULL REFERENCES tire_instances(id), -- MODIFIED: Enforce instance tracking
   position VARCHAR(20) NOT NULL,
   install_date DATE NOT NULL DEFAULT CURRENT_DATE,
   remove_date DATE,
@@ -405,6 +405,8 @@ CREATE TABLE big_do_tambahan_status_history (
 );
 
 
+
+
 -- BAGIAN 4: KEUANGAN & BIAYA
 -- =================================================================
 
@@ -484,12 +486,14 @@ CREATE TABLE cash_categories (
 
 CREATE TABLE cash_transactions (
   id SERIAL PRIMARY KEY,
-  transaction_type VARCHAR(20) NOT NULL CHECK(transaction_type IN ('debit','kredit')),
+  transaction_type VARCHAR(20) NOT NULL CHECK(transaction_type IN ('debit','kredit', 'debit_tempo', 'kredit_tempo')),
   category_id INTEGER REFERENCES cash_categories(id),
   amount NUMERIC(15,2) NOT NULL,
   description TEXT NOT NULL,
   reference_number VARCHAR(50),
+  account VARCHAR(20) NOT NULL CHECK(account IN ('Ewaldo', 'Malvin', 'Company', 'General')),
   transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  attachment_url VARCHAR(255), -- <<< NEW COLUMN to store the photo path
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

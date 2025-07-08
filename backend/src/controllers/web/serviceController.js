@@ -1,6 +1,20 @@
 // src/controllers/web/serviceController.js
-const { VehicleService, ServiceItem, Vehicle, StockItem, StockTransaction, StockCategory } = require('../../models');
+const db = require('../../models');
+const {  
+  ServiceItem, 
+  Vehicle,
+  VehicleService, 
+  StockItem, 
+  StockTransaction, 
+  StockCategory,
+  CashTransaction 
+} = db;
 const { Op } = require('sequelize');
+
+console.log('Available models:', Object.keys(db));
+console.log('ServiceItem model:', ServiceItem);
+
+
 
 // Get all services
 exports.getAllServices = async (req, res, next) => {
@@ -113,66 +127,178 @@ exports.getServiceById = async (req, res, next) => {
 
 // Create new service
 exports.createService = async (req, res, next) => {
+  const transaction = await db.sequelize.transaction();
+  let serviceId;
+  
   try {
-    const { vehicle_id, service_date, service_type, description, workshop_name, labor_cost, items = [], notes } = req.body;
-    
-    // Calculate parts cost from items
-    const parts_cost = items.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0);
-    
-    // Create service
-    const service = await VehicleService.create({
+    // Add validation for req.body
+    if (!req.body) {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid request format' 
+      });
+    }
+
+    // Parse FormData fields
+    const {
       vehicle_id,
       service_date,
       service_type,
       description,
       workshop_name,
-      labor_cost: labor_cost || 0,
-      parts_cost,
+      labor_cost,
       notes
-    });
+    } = req.body;
 
-    // Create service items and update stock if needed
-    for (const item of items) {
-      await ServiceItem.create({
-        service_id: service.id,
-        stock_item_id: item.stock_item_id || null,
-        item_name: item.item_name,
-        quantity: item.quantity,
-        unit_price: item.unit_price,
-        from_stock: item.from_stock || false
+    // Parse JSON strings from FormData
+    const items = req.body.items ? JSON.parse(req.body.items) : [];
+    const cashSettings = req.body.cash_settings ? JSON.parse(req.body.cash_settings) : {};
+    
+    // Handle file upload
+    const attachment_url = req.file ? `uploads/receipts/${req.file.filename}` : null;
+
+    // Validation
+    if (!vehicle_id) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Vehicle ID is required'
       });
+    }
 
-      // If item is from stock, reduce stock quantity
-      if (item.from_stock && item.stock_item_id) {
-        const stockItem = await StockItem.findByPk(item.stock_item_id);
-        if (stockItem) {
-          const newStock = parseFloat(stockItem.current_stock) - parseFloat(item.quantity);
-          await stockItem.update({ current_stock: Math.max(0, newStock) });
+    if (!description || description.trim() === '') {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Service description is required'
+      });
+    }
 
-          // Record stock transaction
-          await StockTransaction.create({
-            item_id: item.stock_item_id,
-            transaction_type: 'out',
-            quantity: item.quantity,
-            unit_price: item.unit_price,
-            total_amount: item.quantity * item.unit_price,
-            reference_type: 'service',
-            reference_id: service.id,
-            notes: `Used in service ${service.service_number}`
-          });
+    // Calculate parts cost
+    let totalItemsCost = 0;
+    if (items && items.length > 0) {
+      totalItemsCost = items.reduce((sum, item) => {
+        return sum + (parseFloat(item.quantity) * parseFloat(item.unit_price));
+      }, 0);
+    }
+
+    // Create VehicleService record
+    const service = await VehicleService.create({
+      vehicle_id: parseInt(vehicle_id),
+      service_date: service_date || new Date(),
+      service_type: service_type || 'regular',
+      description: description.trim(),
+      workshop_name: workshop_name || '',
+      labor_cost: parseFloat(labor_cost) || 0,
+      parts_cost: totalItemsCost,
+      notes: notes || ''
+    }, { transaction });
+
+    serviceId = service.id;
+
+    // Process service items if any
+    if (items && items.length > 0) {
+      for (const item of items) {
+        await ServiceItem.create({
+          service_id: service.id,
+          stock_item_id: item.stock_item_id || null,
+          item_name: item.item_name,
+          quantity: parseFloat(item.quantity),
+          unit_price: parseFloat(item.unit_price),
+          from_stock: item.from_stock || false
+        }, { transaction });
+
+        // Update stock if item is from stock
+        if (item.from_stock && item.stock_item_id) {
+          const stockItem = await StockItem.findByPk(item.stock_item_id, { transaction });
+          if (stockItem) {
+            const newStock = parseFloat(stockItem.current_stock) - parseFloat(item.quantity);
+            await stockItem.update({ current_stock: Math.max(0, newStock) }, { transaction });
+            
+            // Record stock transaction
+            await StockTransaction.create({
+              item_id: item.stock_item_id,
+              transaction_type: 'out',
+              quantity: parseFloat(item.quantity),
+              unit_price: parseFloat(item.unit_price),
+              total_amount: parseFloat(item.quantity) * parseFloat(item.unit_price),
+              reference_type: 'service',
+              reference_id: service.id,
+              notes: `Used in service: ${description}`
+            }, { transaction });
+          }
         }
       }
     }
 
+    // Create cash transaction if required
+    if (cashSettings.save_to_cash) {
+      const totalServiceCost = parseFloat(labor_cost || 0) + totalItemsCost;
+      
+      if (totalServiceCost > 0) {
+        const transactionType = cashSettings.is_tempo ? 'kredit_tempo' : 'kredit';
+        const serviceDescription = `Servis ${service_type}: ${description}${totalItemsCost > 0 ? ` + Suku cadang: ${totalItemsCost.toLocaleString()}` : ''}`;
+
+        await CashTransaction.create({
+          transaction_type: transactionType,
+          amount: totalServiceCost,
+          description: serviceDescription,
+          account: cashSettings.account || 'General',
+          transaction_date: service_date || new Date(),
+          attachment_url: attachment_url
+        }, { transaction });
+      }
+    }
+
+    // Commit transaction - all database operations successful
+    await transaction.commit();
+
+  } catch (err) {
+    // Only rollback if transaction hasn't been finished
+    if (!transaction.finished) {
+      await transaction.rollback();
+    }
+    console.error('Error in createService:', err);
+    
+    if (err.name === 'SequelizeValidationError') {
+      const messages = err.errors.map(e => e.message);
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: messages
+      });
+    }
+    
+    return next(err);
+  }
+
+  // Fetch complete service data AFTER successful commit
+  try {
+    const completeService = await VehicleService.findByPk(serviceId, {
+      include: [
+        { model: Vehicle, as: 'vehicle' },
+        { model: ServiceItem, as: 'items' }
+      ]
+    });
+
     res.status(201).json({
       success: true,
       message: 'Service created successfully',
-      data: service
+      data: completeService
     });
-  } catch (err) {
-    next(err);
+  } catch (fetchError) {
+    // If fetch fails, data is already saved, return minimal response
+    console.error('Error fetching complete service data:', fetchError);
+    res.status(201).json({
+      success: true,
+      message: 'Service created successfully',
+      data: { id: serviceId }
+    });
   }
 };
+
+
 
 // Update service
 exports.updateService = async (req, res, next) => {

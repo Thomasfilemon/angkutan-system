@@ -3,6 +3,7 @@ const express = require('express');
 const stockRouter = express.Router();
 const stockController = require('../../controllers/web/stockController');
 const { verifyToken } = require('../../middlewares/auth.middleware');
+const upload = require('../../middlewares/upload.middleware'); // 👈 Import the middleware
 
 stockRouter.use(verifyToken);
 

@@ -1,0 +1,717 @@
+.tire-management-page {
+  padding: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.error-message {
+  background-color: #fee;
+  color: #c33;
+  padding: 10px;
+  border-radius: 4px;
+  margin-bottom: 20px;
+}
+
+.vehicle-selector {
+  margin-bottom: 30px;
+}
+
+.vehicle-selector label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: bold;
+}
+
+.vehicle-selector select {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 16px;
+  min-width: 300px;
+}
+
+.loading {
+  text-align: center;
+  padding: 40px;
+  font-size: 18px;
+}
+
+.vehicle-info {
+  background: #f5f5f5;
+  padding: 15px;
+  border-radius: 8px;
+  margin-bottom: 30px;
+  display: flex;
+  gap: 30px;
+  font-weight: bold;
+}
+
+/* FIXED TRUCK LAYOUT STYLES */
+.truck-layout-container {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  justify-content: center;
+  margin-top: 30px;
+  min-height: 600px;
+  position: relative; /* ADDED */
+}
+
+.left-info-column,
+.right-info-column {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  min-width: 200px;
+  max-width: 220px;
+  flex-shrink: 0; /* ADDED - Prevent shrinking */
+}
+
+.truck-visual-container {
+  flex: 1;
+  max-width: 600px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative; /* ADDED */
+}
+
+.truck-header {
+  background: #f8f9fa;
+  border: 2px solid #dee2e6;
+  border-radius: 8px;
+  padding: 15px;
+  margin-bottom: 20px;
+  width: 100%;
+  text-align: center;
+}
+
+.truck-info-line {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.truck-info-line:last-child {
+  margin-bottom: 0;
+}
+
+/* FIXED TRUCK BODY */
+.truck-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 30px;
+  position: relative;
+  width: 100%; /* ADDED */
+  max-width: 500px; /* ADDED - Constrain width */
+}
+
+/* FIXED AXLE SECTION */
+.axle-section {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  position: relative;
+  flex-shrink: 0; /* ADDED - Prevent shrinking that could cause duplication */
+}
+
+.axle-label {
+  font-weight: bold;
+  font-size: 12px;
+  color: #495057;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+/* FIXED TIRE PAIR */
+.tire-pair {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  position: relative;
+  justify-content: center; /* ADDED */
+  width: 100%; /* ADDED */
+}
+
+.dual-tire {
+  gap: 40px;
+}
+
+/* FIXED DUAL TIRE GROUP */
+.dual-tire-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: center;
+  flex-shrink: 0; /* ADDED - Prevent shrinking */
+  position: relative; /* ADDED */
+}
+
+.dual-tire-group.left {
+  align-items: flex-end;
+}
+
+.dual-tire-group.right {
+  align-items: flex-start;
+}
+
+.axle-line {
+  height: 8px;
+  background: #343a40;
+  border-radius: 4px;
+  position: relative;
+  flex-shrink: 0; /* ADDED */
+}
+
+.front-line {
+  width: 120px;
+}
+
+.rear-line {
+  width: 160px;
+}
+
+.axle-line::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 20px;
+  background: #495057;
+  border-radius: 50%;
+}
+
+.truck-chassis {
+  width: 100px;
+  min-height: 80px;
+  background: linear-gradient(to bottom, #e9ecef 0%, #dee2e6 100%);
+  border: 2px solid #adb5bd;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  flex-shrink: 0; /* ADDED */
+}
+
+.spare-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0; /* ADDED */
+}
+
+.spare-label {
+  font-weight: bold;
+  font-size: 12px;
+  color: #495057;
+  margin-bottom: 5px;
+}
+
+.spare-tires {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.spare-info {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.spare-info .tire-info-box {
+  min-width: 120px;
+  font-size: 11px;
+  padding: 8px;
+}
+
+.spare-info .tire-position {
+  font-size: 10px;
+  margin-bottom: 4px;
+}
+
+.spare-info .tire-details {
+  font-size: 9px;
+}
+
+.spare-info .tire-details > div {
+  margin-bottom: 1px;
+}
+
+.spare-info button {
+  padding: 4px 8px;
+  font-size: 10px;
+}
+
+/* TIRE VISUAL STYLES */
+.tire-visual {
+  width: 50px;
+  height: 70px;
+  border: 3px solid #333;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: bold;
+  background: #6c757d;
+  color: white;
+  position: relative;
+  margin: 2px;
+  text-align: center;
+  line-height: 1.1;
+  flex-shrink: 0; /* ADDED - Prevent tire shrinking */
+}
+
+.tire-position-text {
+  white-space: pre-line;
+  text-align: center;
+  line-height: 1;
+}
+
+.tire-visual.outer-tire {
+  border-width: 4px;
+  border-style: solid;
+}
+
+.tire-visual.inner-tire {
+  border-width: 2px;
+  border-style: double;
+}
+
+.tire-visual.installed {
+  background: #28a745;
+  border-color: #1e7e34;
+}
+
+.tire-visual.empty {
+  background: #e9ecef;
+  color: #6c757d;
+  border-color: #adb5bd;
+  border-style: dashed;
+}
+
+.dual-tire-row {
+  display: flex;
+  flex-direction: row;
+  gap: 8px; /* Adjust spacing as needed */
+}
+.tire-visual.pressure-low {
+  background: #ffc107;
+  border-color: #e0a800;
+  color: #212529;
+}
+
+.tire-visual.pressure-high {
+  background: #dc3545;
+  border-color: #c82333;
+}
+
+.tire-visual.temp-high {
+  box-shadow: 0 0 10px #dc3545;
+  animation: pulse-red 2s infinite;
+}
+
+.tire-visual.needs-replacement {
+  background: #6f42c1;
+  border-color: #59359a;
+  animation: pulse-purple 2s infinite;
+}
+
+@keyframes pulse-red {
+  0%, 100% { box-shadow: 0 0 5px #dc3545; }
+  50% { box-shadow: 0 0 20px #dc3545; }
+}
+
+@keyframes pulse-purple {
+  0%, 100% { box-shadow: 0 0 5px #6f42c1; }
+  50% { box-shadow: 0 0 20px #6f42c1; }
+}
+
+/* INFO BOX STYLES */
+.tire-info-box {
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 10px;
+  background: white;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  min-width: 160px;
+  flex-shrink: 0; /* ADDED */
+}
+
+.tire-info-box.empty {
+  background: #f8f9fa;
+  border-style: dashed;
+}
+
+.tire-info-box.installed {
+  background: #d4edda;
+  border-color: #c3e6cb;
+}
+
+.tire-info-box.outer-tire-info {
+  border-left: 4px solid #007bff;
+}
+
+.tire-info-box.inner-tire-info {
+  border-left: 4px solid #6c757d;
+}
+
+.tire-position {
+  font-weight: bold;
+  margin-bottom: 8px;
+  text-align: center;
+  color: #495057;
+  font-size: 12px;
+}
+
+.tire-type-label {
+  font-size: 10px;
+  font-weight: normal;
+  color: #6c757d;
+  display: block;
+  margin-top: 2px;
+}
+
+.tire-details {
+  font-size: 11px;
+  margin: 6px 0;
+  color: #6c757d;
+}
+
+.tire-details > div {
+  margin-bottom: 2px;
+}
+
+.install-button, .update-button, .remove-button {
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  margin-bottom: 3px;
+  font-weight: 500;
+}
+
+.install-button {
+  background: #28a745;
+  color: white;
+}
+
+.install-button:hover {
+  background: #218838;
+}
+
+.update-button {
+  background: #007bff;
+  color: white;
+}
+
+.update-button:hover {
+  background: #0056b3;
+}
+
+.remove-button {
+  background: #dc3545;
+  color: white;
+}
+
+.remove-button:hover {
+  background: #c82333;
+}
+
+/* MODAL STYLES */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: white;
+  padding: 24px;
+  border-radius: 8px;
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.modal h3 {
+  margin-top: 0;
+  margin-bottom: 20px;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: bold;
+}
+
+.form-group input, .form-group select, .form-group textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: normal;
+}
+
+.tire-selection {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.tire-option {
+  padding: 12px;
+  border-bottom: 1px solid #eee;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.tire-option:hover {
+  background: #f5f5f5;
+}
+
+.tire-option.selected {
+  background: #e3f2fd;
+  border-left: 4px solid #2196F3;
+}
+
+.tire-option:last-child {
+  border-bottom: none;
+}
+
+.modal-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 24px;
+}
+
+.modal-button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.modal-button.secondary {
+  background: #6c757d;
+  color: white;
+}
+
+.modal-button.primary {
+  background: #007bff;
+  color: white;
+}
+
+.modal-button.danger {
+  background: #dc3545;
+  color: white;
+}
+
+.modal-button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.no-data {
+  text-align: center;
+  color: #6c757d;
+  font-style: italic;
+  padding: 20px;
+}
+
+/* FIXED RESPONSIVE DESIGN */
+@media (max-width: 1200px) {
+  .truck-layout-container {
+    flex-direction: column;
+    align-items: center;
+    gap: 30px; /* INCREASED */
+  }
+  
+  .left-info-column,
+  .right-info-column {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 800px; /* ADDED CONSTRAINT */
+    gap: 10px; /* REDUCED */
+  }
+  
+  .truck-visual-container {
+    order: -1;
+    width: 100%; /* ADDED */
+  }
+  
+  /* ADDED: Prevent duplication in responsive mode */
+  .axle-section {
+    margin-bottom: 20px;
+  }
+}
+
+@media (max-width: 768px) {
+  .tire-visual {
+    width: 40px;
+    height: 60px;
+    font-size: 7px;
+  }
+  
+  .tire-info-box {
+    min-width: 140px;
+    padding: 8px;
+  }
+  
+  .dual-tire {
+    gap: 20px;
+  }
+  
+  .rear-line {
+    width: 120px;
+  }
+  
+  .front-line {
+    width: 100px;
+  }
+  
+  .truck-header {
+    padding: 10px;
+  }
+  
+  .truck-info-line {
+    font-size: 12px;
+  }
+  
+  .spare-info .tire-info-box {
+    min-width: 100px;
+  }
+  
+  .tire-type-label {
+    font-size: 8px;
+  }
+  
+  /* ADDED: Better mobile constraints */
+  .truck-body {
+    max-width: 400px;
+  }
+  
+  .left-info-column,
+  .right-info-column {
+    max-width: 600px;
+  }
+}
+
+@media (max-width: 480px) {
+  .truck-layout-container {
+    gap: 15px; /* REDUCED */
+  }
+  
+  .left-info-column,
+  .right-info-column {
+    gap: 8px; /* REDUCED */
+    max-width: 400px; /* ADDED */
+  }
+  
+  .tire-visual {
+    width: 35px;
+    height: 50px;
+    font-size: 6px;
+  }
+  
+  .tire-info-box {
+    min-width: 120px;
+    padding: 6px;
+    font-size: 10px;
+  }
+  
+  .truck-chassis {
+    width: 80px;
+    min-height: 60px;
+  }
+  
+  .spare-tires {
+    gap: 4px;
+  }
+  
+  .spare-info {
+    gap: 4px;
+  }
+  
+  .dual-tire-group {
+    gap: 2px;
+  }
+  
+  .tire-type-label {
+    font-size: 7px;
+  }
+  
+  /* ADDED: Mobile truck body constraint */
+  .truck-body {
+    max-width: 300px;
+  }
+}
+
+/* ENHANCED dual tire visualization */
+@media (min-width: 769px) {
+  .dual-tire-group {
+    gap: 5px;
+  }
+  
+  .dual-tire-group .tire-visual:first-child {
+    margin-bottom: 2px;
+  }
+  
+  .dual-tire-group .tire-visual:last-child {
+    margin-top: 2px;
+  }
+}
+
+/* ADDED: Debug styles to prevent duplication */
+.axle-section:not(:last-child) {
+  border-bottom: 1px solid transparent; /* Separator to prevent merging */
+}
+
+.dual-tire-group > .tire-visual {
+  position: relative;
+  z-index: 1; /* Ensure proper stacking */
+}

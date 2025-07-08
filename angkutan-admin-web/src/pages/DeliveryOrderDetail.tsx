@@ -637,15 +637,22 @@ const DeliveryOrderDetailPage = () => {
         </div>
 
         {/* Surat Jalan Photo */}
-        {deliveryOrder.surat_jalan_photo_url && (
+        {Array.isArray(deliveryOrder.surat_jalan_photo_url) && deliveryOrder.surat_jalan_photo_url.length > 0 && (
           <div className="lg:col-span-3 bg-white shadow-md rounded-lg p-6">
-            <h2 className="text-xl font-semibold mb-4">Surat Jalan Photo</h2>
-            <div className="max-w-md">
-              <img
-                src={deliveryOrder.surat_jalan_photo_url}
-                alt="Surat Jalan"
-                className="w-full h-auto rounded-lg border border-gray-300"
-              />
+            <h2 className="text-xl font-semibold mb-4">Surat Jalan Photos</h2>
+            <div className="flex flex-wrap gap-4">
+              {deliveryOrder.surat_jalan_photo_url.map((url, idx) => (
+                <div key={idx} className="max-w-xs">
+                  <img
+                    src={`${process.env.REACT_APP_BACKEND_URL || ""}/${url}`}
+                    alt={`Surat Jalan ${idx + 1}`}
+                    className="w-full h-auto rounded-lg border border-gray-300"
+                  />
+                  <div className="text-xs text-gray-500 mt-1 text-center">
+                    Surat Jalan {idx + 1}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}

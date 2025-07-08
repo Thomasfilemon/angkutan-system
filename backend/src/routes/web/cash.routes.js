@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const cashController = require('../../controllers/web/cashController');
 const { verifyToken } = require('../../middlewares/auth.middleware'); // CHANGE: Use destructuring
+const upload = require('../../middlewares/upload.middleware'); // Import the upload middleware
 
 // Apply auth middleware to all routes
 router.use(verifyToken); // CHANGE: Use verifyToken instead of authMiddleware
@@ -12,7 +13,8 @@ router.get('/categories', cashController.getCashCategories);
 
 // Cash transactions routes
 router.get('/transactions', cashController.getAllCashTransactions);
-router.post('/transactions', cashController.createCashTransaction);
+router.get('/tempo-transactions', cashController.getAllTempoTransactions);
+router.post('/transactions', upload.single('attachment'), cashController.createCashTransaction);
 router.get('/transactions/:id', cashController.getCashTransactionById);
 router.put('/transactions/:id', cashController.updateCashTransaction);
 router.delete('/transactions/:id', cashController.deleteCashTransaction);
