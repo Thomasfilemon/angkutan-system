@@ -144,7 +144,10 @@ const CreateDeliveryFromPO: React.FC = () => {
     unload_longitude: "",
   });
 
-  const [linkProcessing, setLinkProcessing] = useState<{ load: boolean; unload: boolean }>({ load: false, unload: false });
+  const [linkProcessing, setLinkProcessing] = useState<{
+    load: boolean;
+    unload: boolean;
+  }>({ load: false, unload: false });
 
   const defaultCenter = { lat: -6.2088, lng: 106.8456 };
 
@@ -168,7 +171,7 @@ const CreateDeliveryFromPO: React.FC = () => {
       case "kilogram":
         return quantity * unitPrice;
       case "ton":
-        return quantity * 1000 * unitPrice; // Convert ton to kg
+        return quantity * unitPrice; // Convert ton to kg
       case "kubik":
         return quantity * unitPrice; // Direct kubik pricing
       default:
@@ -443,10 +446,15 @@ const CreateDeliveryFromPO: React.FC = () => {
           type
         );
       } else {
-        alert(data.message || "Could not determine coordinates. Please check the input or enter coordinates manually.");
+        alert(
+          data.message ||
+            "Could not determine coordinates. Please check the input or enter coordinates manually."
+        );
       }
     } catch (error) {
-      alert('Could not process the location link. Please try again or enter coordinates manually.');
+      alert(
+        "Could not process the location link. Please try again or enter coordinates manually."
+      );
     } finally {
       setLinkProcessing((prev) => ({ ...prev, [type]: false }));
     }
@@ -561,8 +569,8 @@ const CreateDeliveryFromPO: React.FC = () => {
                   {poDetails.unit === "ton" && (
                     <span className="text-xs text-blue-600 block">
                       (Rp{" "}
-                      {(poDetails.unit_price * 1000).toLocaleString("id-ID")}
-                      /ton)
+                      {(poDetails.unit_price / 1000).toLocaleString("id-ID")}
+                      /kg)
                     </span>
                   )}
                 </p>
@@ -695,14 +703,22 @@ const CreateDeliveryFromPO: React.FC = () => {
                   <div className="mt-2">
                     <button
                       type="button"
-                      onClick={() => handleProcessLocationLink("load", formData.load_location)}
+                      onClick={() =>
+                        handleProcessLocationLink(
+                          "load",
+                          formData.load_location
+                        )
+                      }
                       disabled={linkProcessing.load}
                       className="text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 px-2 py-1 rounded w-full"
                     >
-                      {linkProcessing.load ? "Processing..." : "📌 Extract from Google Maps Link"}
+                      {linkProcessing.load
+                        ? "Processing..."
+                        : "📌 Extract from Google Maps Link"}
                     </button>
                     <p className="text-xs text-gray-500 mt-1">
-                      Paste Google Maps link or address. Shortened links will open in browser.
+                      Paste Google Maps link or address. Shortened links will
+                      open in browser.
                     </p>
                   </div>
                   <button
@@ -736,14 +752,22 @@ const CreateDeliveryFromPO: React.FC = () => {
                   <div className="mt-2">
                     <button
                       type="button"
-                      onClick={() => handleProcessLocationLink("unload", formData.unload_location)}
+                      onClick={() =>
+                        handleProcessLocationLink(
+                          "unload",
+                          formData.unload_location
+                        )
+                      }
                       disabled={linkProcessing.unload}
                       className="text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 px-2 py-1 rounded w-full"
                     >
-                      {linkProcessing.unload ? "Processing..." : "📌 Extract from Google Maps Link"}
+                      {linkProcessing.unload
+                        ? "Processing..."
+                        : "📌 Extract from Google Maps Link"}
                     </button>
                     <p className="text-xs text-gray-500 mt-1">
-                      Paste Google Maps link or address. Shortened links will open in browser.
+                      Paste Google Maps link or address. Shortened links will
+                      open in browser.
                     </p>
                   </div>
                   <button
