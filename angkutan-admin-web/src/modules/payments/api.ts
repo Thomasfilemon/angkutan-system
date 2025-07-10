@@ -21,6 +21,16 @@ export const paymentsApi = {
     limit?: number;
   }) => apiClient.get("/payments/delivery-orders", { params }),
 
+  // Get invoices with filtering and pagination
+  fetchInvoices: (params?: {
+    status?: string;
+    customer?: string;
+    page?: number;
+    limit?: number;
+    sort?: string;
+    order?: string;
+  }) => apiClient.get("/payments/invoices", { params }),
+
   // Create invoice for DO
   createInvoice: (
     doId: number,
@@ -33,6 +43,15 @@ export const paymentsApi = {
     }
   ) => apiClient.post(`/payments/delivery-orders/${doId}/invoices`, payload),
 
+  // Update invoice status
+  updateInvoiceStatus: (
+    invoiceId: number,
+    payload: {
+      status: string;
+      notes?: string;
+    }
+  ) => apiClient.patch(`/payments/invoices/${invoiceId}/status`, payload),
+
   // Update invoice (edit PPH %, etc.)
   updateInvoice: (
     invoiceId: number,
@@ -44,6 +63,29 @@ export const paymentsApi = {
       status?: string;
     }
   ) => apiClient.put(`/payments/invoices/${invoiceId}`, payload),
+
+  // Get delivery orders eligible for bulk invoicing
+  getBulkEligibleDOs: (params?: {
+    customer?: string;
+    po_id?: number;
+    limit?: number;
+  }) => apiClient.get("/payments/delivery-orders/bulk-eligible", { params }),
+
+  // Create bulk invoice
+  createBulkInvoice: (payload: {
+    do_ids: number[];
+    invoice_number?: string;
+    pph_percentage?: number;
+    due_date?: string;
+    notes?: string;
+  }) => apiClient.post("/payments/bulk-invoices", payload),
+
+  // Export invoices
+  exportInvoices: (params?: {
+    format?: "excel" | "csv";
+    status?: string;
+    customer?: string;
+  }) => apiClient.get("/payments/invoices/export", { params }),
 
   // Record payment
   recordPayment: (

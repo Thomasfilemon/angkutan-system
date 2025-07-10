@@ -41,6 +41,33 @@ router.put(
   PaymentsCtrl.updateInvoice
 );
 
+// Tambah routes baru untuk invoice management
+router.get(
+  "/invoices",
+  checkRole(["admin", "owner"]),
+  PaymentsCtrl.getInvoices
+);
+router.patch(
+  "/invoices/:invoiceId/status",
+  checkRole(["admin", "owner"]),
+  PaymentsCtrl.updateInvoiceStatus
+);
+router.post(
+  "/bulk-invoices",
+  checkRole(["admin", "owner"]),
+  PaymentsCtrl.createBulkInvoice
+);
+router.get(
+  "/delivery-orders/bulk-eligible",
+  checkRole(["admin", "owner"]),
+  PaymentsCtrl.getBulkEligibleDOs
+);
+router.get(
+  "/invoices/export",
+  checkRole(["admin", "owner"]),
+  PaymentsCtrl.exportInvoices
+);
+
 // ──────── Payment Endpoints ────────
 
 // Record payment for a Delivery Order (and optionally an invoice)

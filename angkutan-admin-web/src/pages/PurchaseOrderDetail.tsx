@@ -24,7 +24,7 @@ interface PurchaseOrderDetail {
     percentage: number;
     is_complete: boolean;
   };
-  deliveryOrders: Array<{
+  poDeliveryOrders: Array<{
     id: number;
     do_number: string;
     status: string;
@@ -67,8 +67,9 @@ const PurchaseOrderDetailPage = () => {
     const unitDisplay = getUnitDisplay(unit);
 
     if (unit === "ton") {
-      const pricePerTon = unitPrice * 1000;
-      return `Rp ${parseFloat(String(unitPrice)).toLocaleString(
+      const pricePerTon = unitPrice;
+      const pricePerKg = unitPrice / 1000;
+      return `Rp ${parseFloat(String(pricePerKg)).toLocaleString(
         "id-ID"
       )}/kg (Rp ${parseFloat(String(pricePerTon)).toLocaleString(
         "id-ID"
@@ -94,8 +95,8 @@ const PurchaseOrderDetailPage = () => {
         }
 
         // 🎯 NEW: Ensure delivery orders have unit field
-        if (data.deliveryOrders) {
-          data.deliveryOrders = data.deliveryOrders.map((dOrder: any) => ({
+        if (data.poDeliveryOrders) {
+          data.poDeliveryOrders = data.poDeliveryOrders.map((dOrder: any) => ({
             ...dOrder,
             unit: dOrder.unit || data.unit, // Inherit from PO if missing
           }));
@@ -634,7 +635,7 @@ const PurchaseOrderDetailPage = () => {
       <div className="lg:col-span-3 bg-white shadow-md rounded-lg p-6 mt-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-semibold">
-            Delivery Orders ({po.deliveryOrders?.length || 0})
+            Delivery Orders ({po.poDeliveryOrders?.length || 0})
           </h2>
           <Link to={`/delivery-orders?po_id=${po.id}`}>
             <button className="bg-blue-500 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm">
@@ -643,7 +644,7 @@ const PurchaseOrderDetailPage = () => {
           </Link>
         </div>
 
-        {po.deliveryOrders && po.deliveryOrders.length > 0 ? (
+        {po.poDeliveryOrders && po.poDeliveryOrders.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="min-w-full leading-normal">
               <thead>
@@ -675,7 +676,7 @@ const PurchaseOrderDetailPage = () => {
                 </tr>
               </thead>
               <tbody>
-                {po.deliveryOrders.map((dOrder) => {
+                {po.poDeliveryOrders.map((dOrder) => {
                   const doUnitDisplay = getUnitDisplay(dOrder.unit || po.unit);
                   return (
                     <tr key={dOrder.id}>
@@ -768,7 +769,7 @@ const PurchaseOrderDetailPage = () => {
                   <span className="text-gray-600">Total Revenue:</span>
                   <span className="font-semibold text-green-600 ml-2">
                     Rp{" "}
-                    {po.deliveryOrders
+                    {po.poDeliveryOrders
                       .reduce(
                         (sum, dOrder) =>
                           sum + parseFloat(String(dOrder.total_amount)),
@@ -781,7 +782,7 @@ const PurchaseOrderDetailPage = () => {
                   <span className="text-gray-600">Total Ongkosan:</span>
                   <span className="font-semibold text-blue-600 ml-2">
                     Rp{" "}
-                    {po.deliveryOrders
+                    {po.poDeliveryOrders
                       .reduce(
                         (sum, dOrder) =>
                           sum + parseFloat(String(dOrder.ongkosan || 0)),
@@ -794,11 +795,11 @@ const PurchaseOrderDetailPage = () => {
                   <span className="text-gray-600">Completed Orders:</span>
                   <span className="font-semibold ml-2">
                     {
-                      po.deliveryOrders.filter(
+                      po.poDeliveryOrders.filter(
                         (dOrder) => dOrder.status === "completed"
                       ).length
                     }{" "}
-                    / {po.deliveryOrders.length}
+                    / {po.poDeliveryOrders.length}
                   </span>
                 </div>
               </div>

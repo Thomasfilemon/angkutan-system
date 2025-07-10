@@ -1,41 +1,10 @@
-// src/pages/Ritase/POSpecificRitaseTable.tsx
 import React, { useState, useEffect } from "react";
-import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import apiClient from "../../api/axiosConfig";
 
-interface PODeliveryOrder {
-  id: number;
-  do_number: string;
-  created_at: string;
-  completed_at: string;
-  vehicle: {
-    id: number;
-    license_plate: string;
-    type: string;
-  };
-  driver: {
-    username: string;
-    driverProfile: {
-      full_name: string;
-    };
-  };
-  item_name: string;
-  minimal_load_quantity: number;
-  actual_load_quantity: number;
-  unit: string;
-  unit_price: number;
-  trip_allowance: number;
-  gaji: number;
-  status: string;
-  payment_status: string;
-  calculated: {
-    actualQuantity: number;
-    grossIncome: number;
-    operationalCosts: number;
-    netProfit: number;
-    profitMargin: number;
-  };
-}
+// Import the payments API we built earlier
+import { paymentsApi } from "../../modules/payments/api";
+import EditablePphCell from "../../modules/payments/components/EditablePphCell";
 
 interface POData {
   purchase_order: {
@@ -43,14 +12,18 @@ interface POData {
     po_number: string;
     customer_name: string;
     item_name: string;
-    total_quantity: number;
+    total_quantity: string;
     unit: string;
-    unit_price: number;
-    total_amount: number;
+    unit_price: string;
+    total_amount: string;
+    load_location: string;
+    unload_location: string;
     order_date: string;
     status: string;
+    notes?: string;
+    poDeliveryOrders: DeliveryOrder[];
   };
-  delivery_orders: PODeliveryOrder[];
+  delivery_orders: DeliveryOrder[];
   summary: {
     total_dos: number;
     completed_dos: number;
@@ -62,138 +35,68 @@ interface POData {
     outstanding_payments: number;
     completion_percentage: number;
     profit_margin: number;
-    unit_analytics: {
-      po_unit: string;
-      po_unit_display: string;
-      pricing_strategy: string;
-      unit_consistency: boolean;
-      mixed_units: string[];
-    };
-    vehicle_analytics: Record<
-      string,
-      {
-        vehicle_info: any;
-        trip_count: number;
-        completed_trips: number;
-        total_quantity: number;
-        total_revenue: number;
-        total_profit: number;
-        avg_profit_margin: number;
-      }
-    >;
   };
-  metadata: {
-    filters_available: {
-      vehicles: Array<{
-        id: number | null;
-        license_plate: string;
-        type: string;
-        display_name: string;
-      }>;
-      statuses: string[];
-      payment_statuses: string[];
-    };
-    unit_context: {
-      po_unit: string;
-      consistent_units: boolean;
-      pricing_type: string;
+}
+
+interface DeliveryOrder {
+  id: number;
+  do_number: string;
+  customer_name: string;
+  item_name: string;
+  minimal_load_quantity: string;
+  actual_load_quantity?: string;
+  unit: string;
+  unit_price: string;
+  total_amount: string;
+  payment_status: string;
+  status: string;
+  completed_at?: string;
+  vehicle: {
+    license_plate: string;
+    type: string;
+    capacity: string;
+  };
+  driver: {
+    driverProfile: {
+      full_name: string;
     };
   };
+  payments: Payment[];
+  invoices: Invoice[];
+}
+
+interface Payment {
+  id: number;
+  payment_amount: string;
+  payment_date: string;
+  payment_type: string;
+  payment_reference?: string;
+  notes?: string;
+}
+
+interface Invoice {
+  id: number;
+  invoice_number: string;
+  invoice_date: string;
+  invoice_amount: string;
+  pph_percentage: string;
+  pph_amount: string;
+  net_amount: string;
+  status: string;
+  due_date?: string;
 }
 
 const POSpecificRitaseTable: React.FC = () => {
   const { poId } = useParams<{ poId: string }>();
-  const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-
-  const [poData, setPOData] = useState<POData | null>(null);
-  const [filteredData, setFilteredData] = useState<PODeliveryOrder[]>([]);
+  const [data, setData] = useState<POData | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // Filters specific to this PO
-  const [filters, setFilters] = useState({
-    startDate: searchParams.get("startDate") || "",
-    endDate: searchParams.get("endDate") || "",
-    deliveryStatus: searchParams.get("deliveryStatus") || "all",
-    paymentStatus: searchParams.get("paymentStatus") || "all",
-    vehicleId: searchParams.get("vehicleId") || "all",
-  });
-
-  const [sortConfig, setSortConfig] = useState({
-    key: "created_at",
-    direction: "desc" as "asc" | "desc",
-  });
-
-  // 🎯 NEW: Unit display helper
-  const getUnitDisplay = (unit: string) => {
-    const unitMap = {
-      kilogram: "kg",
-      ton: "ton",
-      kubik: "m³",
-    };
-    return unitMap[unit as keyof typeof unitMap] || unit;
-  };
-
-  // 🎯 NEW: Get PO unit with fallback
-  const getPOUnit = () => {
-    return poData?.purchase_order?.unit || "ton";
-  };
-
-  // 🎯 NEW: Get DO unit with fallback to PO unit
-  const getDOUnit = (order: PODeliveryOrder) => {
-    return order.unit || getPOUnit();
-  };
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("id-ID", {
-      style: "currency",
-      currency: "IDR",
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
-
-  const formatDate = (dateString: string) => {
-    if (!dateString) return "-";
-    return new Date(dateString).toLocaleDateString("id-ID", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
-  };
-
-  // Fetch PO-specific data
-  const fetchPOData = async () => {
-    try {
-      setLoading(true);
-      const response = await apiClient.get(
-        `/ritase/purchase-orders/${poId}/comprehensive`
-      );
-      const data = response.data.data || response.data;
-
-      // 🎯 NEW: Ensure unit fields exist with fallback
-      if (!data.purchase_order.unit) {
-        console.warn('PO data missing unit field, defaulting to "ton"');
-        data.purchase_order.unit = "ton";
-      }
-
-      // 🎯 NEW: Ensure delivery orders have unit field
-      if (data.delivery_orders) {
-        data.delivery_orders = data.delivery_orders.map(
-          (dOrder: PODeliveryOrder) => ({
-            ...dOrder,
-            unit: dOrder.unit || data.purchase_order.unit || "ton", // Inherit from PO if missing
-          })
-        );
-      }
-
-      setPOData(data);
-      setFilteredData(data.delivery_orders);
-    } catch (error) {
-      console.error("Error fetching PO data:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [error, setError] = useState<string | null>(null);
+  const [selectedDOs, setSelectedDOs] = useState<number[]>([]);
+  const [showCreateInvoiceModal, setShowCreateInvoiceModal] = useState(false);
+  const [showBulkInvoiceModal, setShowBulkInvoiceModal] = useState(false);
+  const [activeTab, setActiveTab] = useState<
+    "deliveries" | "invoices" | "analytics"
+  >("deliveries");
 
   useEffect(() => {
     if (poId) {
@@ -201,598 +104,730 @@ const POSpecificRitaseTable: React.FC = () => {
     }
   }, [poId]);
 
-  // Apply filters
-  useEffect(() => {
-    if (!poData) return;
+  const fetchPOData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-    let filtered = [...poData.delivery_orders];
-
-    // Date filtering
-    if (filters.startDate) {
-      filtered = filtered.filter(
-        (order) => new Date(order.created_at) >= new Date(filters.startDate)
+      const response = await apiClient.get(
+        `/ritase/purchase-orders/${poId}/comprehensive`
       );
+      setData(response.data.data);
+    } catch (err: any) {
+      setError(err.response?.data?.message || "Failed to fetch PO data");
+    } finally {
+      setLoading(false);
     }
-    if (filters.endDate) {
-      filtered = filtered.filter(
-        (order) =>
-          new Date(order.created_at) <= new Date(filters.endDate + "T23:59:59")
-      );
-    }
-
-    // Status filtering
-    if (filters.deliveryStatus !== "all") {
-      filtered = filtered.filter(
-        (order) => order.status === filters.deliveryStatus
-      );
-    }
-    if (filters.paymentStatus !== "all") {
-      filtered = filtered.filter(
-        (order) => order.payment_status === filters.paymentStatus
-      );
-    }
-
-    // 🎯 FIXED: Vehicle filtering
-    if (filters.vehicleId !== "all") {
-      filtered = filtered.filter((order) => {
-        const vehicleId = order.vehicle?.id?.toString();
-        const licensePlate = order.vehicle?.license_plate;
-        return (
-          vehicleId === filters.vehicleId || licensePlate === filters.vehicleId
-        );
-      });
-    }
-
-    // Sorting
-    filtered.sort((a, b) => {
-      const aVal = a[sortConfig.key as keyof PODeliveryOrder] as any;
-      const bVal = b[sortConfig.key as keyof PODeliveryOrder] as any;
-
-      if (sortConfig.direction === "asc") {
-        return aVal > bVal ? 1 : -1;
-      }
-      return aVal < bVal ? 1 : -1;
-    });
-
-    setFilteredData(filtered);
-
-    // Update URL params
-    const newSearchParams = new URLSearchParams();
-    Object.entries(filters).forEach(([key, value]) => {
-      if (value && value !== "all") {
-        newSearchParams.set(key, value);
-      }
-    });
-    setSearchParams(newSearchParams);
-  }, [poData, filters, sortConfig]);
-
-  const getAvailableVehicles = () => {
-    if (poData?.metadata?.filters_available?.vehicles) {
-      return poData.metadata.filters_available.vehicles;
-    }
-
-    // Fallback: Extract unique vehicles from delivery orders
-    if (!poData?.delivery_orders) return [];
-
-    const uniqueVehicles = new Map();
-    poData.delivery_orders.forEach((order) => {
-      if (order.vehicle) {
-        const key = order.vehicle.id || order.vehicle.license_plate;
-        if (!uniqueVehicles.has(key)) {
-          uniqueVehicles.set(key, {
-            id: order.vehicle.id,
-            license_plate: order.vehicle.license_plate,
-            type: order.vehicle.type,
-            display_name: `${order.vehicle.license_plate} (${order.vehicle.type})`,
-          });
-        }
-      }
-    });
-
-    return Array.from(uniqueVehicles.values());
   };
 
-  // Status badge styling
-  const getDeliveryStatusBadge = (status: string) => {
-    const config = {
-      completed: "bg-green-100 text-green-800 border-green-200",
-      assigned: "bg-blue-100 text-blue-800 border-blue-200",
-      otw_to_load_location: "bg-yellow-100 text-yellow-800 border-yellow-200",
-      at_load_location: "bg-orange-100 text-orange-800 border-orange-200",
-      cancelled: "bg-red-100 text-red-800 border-red-200",
+  const calculateVariance = () => {
+    if (!data) return { quantity: 0, amount: 0, percentage: 0 };
+
+    const targetQty = parseFloat(data.purchase_order.total_quantity);
+    const actualQty = data.summary.total_quantity_delivered;
+    const targetAmount = parseFloat(data.purchase_order.total_amount);
+    const actualAmount = data.summary.total_revenue;
+
+    return {
+      quantity: actualQty - targetQty,
+      amount: actualAmount - targetAmount,
+      percentage: ((actualQty - targetQty) / targetQty) * 100,
     };
-    return (
-      config[status as keyof typeof config] ||
-      "bg-gray-100 text-gray-800 border-gray-200"
-    );
   };
 
   const getPaymentStatusBadge = (status: string) => {
-    const config = {
-      lunas: "bg-green-100 text-green-800 border-green-200",
-      deposit: "bg-blue-100 text-blue-800 border-blue-200",
-      proses_tagihan: "bg-yellow-100 text-yellow-800 border-yellow-200",
-      awaiting_confirmation: "bg-orange-100 text-orange-800 border-orange-200",
+    const statusMap: { [key: string]: string } = {
+      lunas: "bg-green-100 text-green-800",
+      deposit: "bg-blue-100 text-blue-800",
+      proses_tagihan: "bg-yellow-100 text-yellow-800",
+      awaiting_confirmation: "bg-orange-100 text-orange-800",
     };
+
+    const statusText: { [key: string]: string } = {
+      lunas: "Paid",
+      deposit: "Partial",
+      proses_tagihan: "Billing",
+      awaiting_confirmation: "Awaiting",
+    };
+
     return (
-      config[status as keyof typeof config] ||
-      "bg-gray-100 text-gray-800 border-gray-200"
+      <span
+        className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+          statusMap[status] || "bg-gray-100 text-gray-800"
+        }`}
+      >
+        {statusText[status] || status}
+      </span>
     );
   };
 
-  const handleSort = (key: string) => {
-    setSortConfig((prev) => ({
-      key,
-      direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc",
-    }));
+  const handleDOSelection = (doId: number) => {
+    setSelectedDOs((prev) =>
+      prev.includes(doId) ? prev.filter((id) => id !== doId) : [...prev, doId]
+    );
+  };
+
+  const handleDownloadInvoice = async (invoiceId: number) => {
+    try {
+      // Option 1: PDF generation (future)
+      // const response = await apiClient.get(`/payments/invoices/${invoiceId}/pdf`, { responseType: 'blob' });
+
+      // Option 2: Simple invoice data export (immediate)
+      const response = await apiClient.get(`/payments/invoices/${invoiceId}`);
+      const invoice = response.data.data;
+
+      // Create downloadable JSON/text for now
+      const dataStr = JSON.stringify(invoice, null, 2);
+      const dataBlob = new Blob([dataStr], { type: "application/json" });
+      const url = URL.createObjectURL(dataBlob);
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `invoice-${invoice.invoice_number}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Download failed:", err);
+      alert("Failed to download invoice");
+    }
+  };
+
+  const handleCreateInvoice = async (doId: number, invoiceData: any) => {
+    try {
+      await paymentsApi.createInvoice(doId, invoiceData);
+      fetchPOData(); // Refresh data
+      setShowCreateInvoiceModal(false);
+    } catch (err: any) {
+      console.error("Failed to create invoice:", err);
+      alert(err.response?.data?.message || "Failed to create invoice");
+    }
+  };
+
+  const handleRecordPayment = async (doId: number, paymentData: any) => {
+    try {
+      await paymentsApi.recordPayment(doId, paymentData);
+      fetchPOData(); // Refresh data
+    } catch (err: any) {
+      console.error("Failed to record payment:", err);
+      alert(err.response?.data?.message || "Failed to record payment");
+    }
   };
 
   if (loading) {
     return (
       <div className="flex justify-center items-center min-h-screen">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
       </div>
     );
   }
 
-  if (!poData) {
+  if (error || !data) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">
-            PO Not Found
-          </h2>
-          <p className="text-gray-600 mb-4">
-            The requested Purchase Order could not be found.
-          </p>
-          <button
-            onClick={() => navigate("/ritase/comprehensive")}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+      <div className="container mx-auto px-4 py-8">
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+          <p>Error: {error}</p>
+          <Link
+            to="/ritase"
+            className="mt-2 inline-block bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
           >
-            Back
-          </button>
+            Back to Ritase
+          </Link>
         </div>
       </div>
     );
   }
+
+  const variance = calculateVariance();
+  const po = data.purchase_order;
+  const summary = data.summary;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header - PO Information */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-700 shadow-xl">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="flex justify-between items-start mb-6">
-            {/* Navigation */}
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={() => navigate("/ritase/comprehensive")}
-                className="flex items-center px-4 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors"
+    <div className="container mx-auto px-4 py-8">
+      {/* 🎯 SECTION 1: PO Summary Header (Excel-style) */}
+      <div className="bg-white shadow-xl rounded-lg p-6 mb-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* PO Info */}
+          <div className="lg:col-span-2">
+            <div className="flex items-center justify-between mb-4">
+              <h1 className="text-2xl font-bold text-gray-900">
+                {po.po_number}
+              </h1>
+              <span
+                className={`px-3 py-1 rounded-full text-sm font-medium ${
+                  po.status === "completed"
+                    ? "bg-green-100 text-green-800"
+                    : po.status === "partial"
+                    ? "bg-yellow-100 text-yellow-800"
+                    : "bg-blue-100 text-blue-800"
+                }`}
               >
-                <svg
-                  className="h-4 w-4 mr-2"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M15 19l-7-7 7-7"
-                  />
-                </svg>
-                <span className="text-sm font-medium">Back</span>
-              </button>
-
-              <button
-                onClick={() => navigate(`/ritase/po/${poId}/table`)}
-                className="flex items-center px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-all duration-200 shadow-lg hover:shadow-emerald-500/25 font-medium"
-              >
-                <svg
-                  className="h-4 w-4 mr-2"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"
-                  />
-                </svg>
-                <span className="text-sm font-medium">Payment Details</span>
-              </button>
-              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none">
-                View payments, invoices & billing details
-                <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
-              </div>
+                {po.status.toUpperCase()}
+              </span>
             </div>
 
-            {/* PO Info */}
-            <div className="text-right">
-              <span className="text-blue-100 text-sm font-medium">
-                Purchase Order Detail
-              </span>
-              <h1 className="text-2xl font-bold text-white tracking-tight">
-                {poData.purchase_order.po_number}
-              </h1>
-              <p className="text-blue-100 text-sm">
-                {poData.purchase_order.customer_name} •{" "}
-                {formatDate(poData.purchase_order.order_date)}
-              </p>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-gray-500">Customer:</span>
+                <p className="font-medium">{po.customer_name}</p>
+              </div>
+              <div>
+                <span className="text-gray-500">Item:</span>
+                <p className="font-medium">{po.item_name}</p>
+              </div>
+              <div>
+                <span className="text-gray-500">Load Location:</span>
+                <p className="font-medium">{po.load_location}</p>
+              </div>
+              <div>
+                <span className="text-gray-500">Unload Location:</span>
+                <p className="font-medium">{po.unload_location}</p>
+              </div>
             </div>
           </div>
 
-          {/* PO Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white/10 rounded-lg p-4">
-              <div className="text-white">
-                <div className="text-2xl font-bold">
-                  {poData.summary.completed_dos}/{poData.summary.total_dos}
-                </div>
-                <div className="text-blue-100 text-sm">Completed DOs</div>
+          {/* Financial Summary */}
+          <div className="bg-gray-50 rounded-lg p-4">
+            <h3 className="text-lg font-semibold mb-3">Financial Summary</h3>
+
+            {/* Target vs Actual */}
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Target:</span>
+                <span className="font-medium">
+                  {parseFloat(po.total_quantity).toLocaleString("id-ID")}{" "}
+                  {po.unit} @ Rp{" "}
+                  {parseFloat(po.unit_price).toLocaleString("id-ID")}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Actual:</span>
+                <span className="font-medium">
+                  {summary.total_quantity_delivered.toLocaleString("id-ID")}{" "}
+                  {po.unit}
+                </span>
+              </div>
+              <div className="flex justify-between border-t pt-2">
+                <span className="text-gray-600">Variance:</span>
+                <span
+                  className={`font-medium ${
+                    variance.quantity >= 0 ? "text-green-600" : "text-red-600"
+                  }`}
+                >
+                  {variance.quantity >= 0 ? "+" : ""}
+                  {variance.quantity.toLocaleString("id-ID")} {po.unit}(
+                  {variance.percentage.toFixed(1)}%)
+                </span>
               </div>
             </div>
-            <div className="bg-white/10 rounded-lg p-4">
-              <div className="text-white">
-                <div className="text-2xl font-bold">
-                  {formatCurrency(poData.summary.total_revenue)}
-                </div>
-                <div className="text-blue-100 text-sm">Total Revenue</div>
+
+            <div className="border-t mt-3 pt-3 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Total Revenue:</span>
+                <span className="font-medium">
+                  Rp {summary.total_revenue.toLocaleString("id-ID")}
+                </span>
               </div>
-            </div>
-            <div className="bg-white/10 rounded-lg p-4">
-              <div className="text-white">
-                <div className="text-2xl font-bold">
-                  {formatCurrency(poData.summary.total_net_profit)}
-                </div>
-                <div className="text-blue-100 text-sm">Net Profit</div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Net Profit:</span>
+                <span className="font-medium text-green-600">
+                  Rp {summary.total_net_profit.toLocaleString("id-ID")}
+                </span>
               </div>
-            </div>
-            <div className="bg-white/10 rounded-lg p-4">
-              <div className="text-white">
-                <div className="text-2xl font-bold">
-                  {poData.summary.completion_percentage.toFixed(1)}%
-                </div>
-                <div className="text-blue-100 text-sm">Completion Rate</div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Profit Margin:</span>
+                <span className="font-medium">
+                  {summary.profit_margin.toFixed(2)}%
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Completion:</span>
+                <span className="font-medium">
+                  {summary.completion_percentage.toFixed(1)}%
+                </span>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Filters */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Tanggal Mulai
-              </label>
-              <input
-                type="date"
-                value={filters.startDate}
-                onChange={(e) =>
-                  setFilters((prev) => ({ ...prev, startDate: e.target.value }))
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Tanggal Akhir
-              </label>
-              <input
-                type="date"
-                value={filters.endDate}
-                onChange={(e) =>
-                  setFilters((prev) => ({ ...prev, endDate: e.target.value }))
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-
-            {/* 🎯 FIXED: Vehicle Filter */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Kendaraan
-              </label>
-              <select
-                value={filters.vehicleId}
-                onChange={(e) =>
-                  setFilters((prev) => ({ ...prev, vehicleId: e.target.value }))
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+      {/* 🎯 SECTION 2: Navigation Tabs */}
+      <div className="mb-6">
+        <div className="border-b border-gray-200">
+          <nav className="-mb-px flex space-x-8">
+            {[
+              {
+                key: "deliveries",
+                label: "Delivery Orders",
+                count: summary.total_dos,
+              },
+              {
+                key: "invoices",
+                label: "Invoices",
+                count: data.delivery_orders.reduce(
+                  (acc, do_) => acc + do_.invoices.length,
+                  0
+                ),
+              },
+              { key: "analytics", label: "Analytics", count: null },
+            ].map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key as any)}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === tab.key
+                    ? "border-blue-500 text-blue-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}
               >
-                <option value="all">Semua Kendaraan</option>
-                {getAvailableVehicles().map((vehicle) => (
-                  <option
-                    key={vehicle.id || vehicle.license_plate}
-                    value={vehicle.id || vehicle.license_plate}
-                  >
-                    {vehicle.display_name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Status Delivery Order
-              </label>
-              <select
-                value={filters.deliveryStatus}
-                onChange={(e) =>
-                  setFilters((prev) => ({
-                    ...prev,
-                    deliveryStatus: e.target.value,
-                  }))
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="all">Semua Status</option>
-                <option value="completed">Selesai</option>
-                <option value="assigned">Ditugaskan</option>
-                <option value="otw_to_load_location">OTW ke Lokasi Muat</option>
-                <option value="at_load_location">Di Lokasi Muat</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Status Pembayaran
-              </label>
-              <select
-                value={filters.paymentStatus}
-                onChange={(e) =>
-                  setFilters((prev) => ({
-                    ...prev,
-                    paymentStatus: e.target.value,
-                  }))
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="all">Semua Status</option>
-                <option value="lunas">LUNAS</option>
-                <option value="deposit">DEPOSIT</option>
-                <option value="proses_tagihan">PROSES TAGIHAN</option>
-                <option value="awaiting_confirmation">
-                  AWAITING CONFIRMATION
-                </option>
-              </select>
-            </div>
-          </div>
+                {tab.label}
+                {tab.count !== null && (
+                  <span className="ml-2 bg-gray-100 text-gray-900 py-0.5 px-2 rounded-full text-xs">
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </nav>
         </div>
+      </div>
 
-        {/* Delivery Orders Table */}
+      {/* 🎯 SECTION 3: Content Based on Active Tab */}
+
+      {/* Deliveries Tab */}
+      {activeTab === "deliveries" && (
         <div className="bg-white shadow-xl rounded-lg overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
+          {/* Action Bar */}
+          <div className="bg-gray-50 px-6 py-4 border-b">
             <div className="flex justify-between items-center">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">
-                  Delivery Orders - {poData.purchase_order.po_number}
-                </h2>
-                <p className="text-sm text-gray-600">
-                  {filteredData.length} dari {poData.summary.total_dos} delivery
-                  orders • Item: {poData.purchase_order.item_name}
-                </p>
+              <div className="flex items-center space-x-4">
+                <h3 className="text-lg font-medium">
+                  Delivery Orders ({data.delivery_orders.length})
+                </h3>
+                {selectedDOs.length > 0 && (
+                  <span className="text-sm text-gray-600">
+                    {selectedDOs.length} selected
+                  </span>
+                )}
+              </div>
+              <div className="flex space-x-3">
+                {selectedDOs.length > 1 && (
+                  <button
+                    onClick={() => setShowBulkInvoiceModal(true)}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
+                  >
+                    Create Bulk Invoice
+                  </button>
+                )}
+                <button
+                  onClick={() =>
+                    window.open(
+                      `/api/web/ritase/purchase-orders/${poId}/export`,
+                      "_blank"
+                    )
+                  }
+                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                >
+                  Export Excel
+                </button>
               </div>
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                    onClick={() => handleSort("do_number")}
-                  >
-                    Nomor DO
-                  </th>
-                  <th
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                    onClick={() => handleSort("created_at")}
-                  >
-                    Tanggal Jalan
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Tanggal Bongkar
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Plat Nomor
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Nama Supir
-                  </th>
-                  {/* 🎯 FIXED: Dynamic unit in header */}
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Qty Aktual ({getUnitDisplay(getPOUnit())})
-                  </th>
-                  {/* 🎯 FIXED: Unit-aware price header */}
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Harga Satuan (Rp/{getUnitDisplay(getPOUnit())})
-                  </th>
-                  <th
-                    className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                    onClick={() => handleSort("calculated.grossIncome")}
-                  >
-                    Pendapatan Kotor
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Uang Jalan
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Gaji
-                  </th>
-                  <th
-                    className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                    onClick={() => handleSort("calculated.netProfit")}
-                  >
-                    Pendapatan Bersih
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status DO
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status Pembayaran
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Aksi
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredData.map((order) => {
-                  // 🎯 DEFINE VARIABLES FOR EACH ROW
-                  const doUnit = getDOUnit(order);
-                  const unitDisplay = getUnitDisplay(doUnit);
+          {/* DO Table */}
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="w-12 px-6 py-3 text-left">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 text-blue-600 rounded border-gray-300"
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedDOs(
+                          data.delivery_orders.map((do_) => do_.id)
+                        );
+                      } else {
+                        setSelectedDOs([]);
+                      }
+                    }}
+                  />
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Vehicle & Driver
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  DO Number & Date
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Quantity
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Amount
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Payment Status
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Invoice Info
+                </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {data.delivery_orders.map((do_) => (
+                <tr key={do_.id} className="hover:bg-gray-50">
+                  <td className="px-6 py-4">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 text-blue-600 rounded border-gray-300"
+                      checked={selectedDOs.includes(do_.id)}
+                      onChange={() => handleDOSelection(do_.id)}
+                    />
+                  </td>
 
-                  return (
-                    <tr key={order.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {order.do_number}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {formatDate(order.created_at)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {formatDate(order.completed_at)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {order.vehicle.license_plate}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {order.driver.driverProfile.full_name ||
-                          order.driver.username}
-                      </td>
+                  <td className="px-6 py-4">
+                    <div className="text-sm font-medium text-gray-900">
+                      {do_.vehicle.license_plate}
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      {do_.driver.driverProfile.full_name}
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      {do_.vehicle.type}
+                    </div>
+                  </td>
 
-                      {/* 🎯 FIXED: Dynamic unit display */}
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                        <div>
-                          <div className="font-medium">
-                            {order.calculated.actualQuantity.toFixed(2)}{" "}
-                            {unitDisplay}
-                          </div>
-                          {/* 🎯 NEW: Unit mismatch warning */}
-                          {doUnit !== getPOUnit() && (
-                            <div className="text-xs text-orange-600">
-                              ⚠️ Unit differs from PO:{" "}
-                              {getUnitDisplay(getPOUnit())}
-                            </div>
-                          )}
+                  <td className="px-6 py-4">
+                    <div className="text-sm font-medium text-gray-900">
+                      {do_.do_number}
+                    </div>
+                    {do_.completed_at && (
+                      <div className="text-sm text-gray-500">
+                        {new Date(do_.completed_at).toLocaleDateString("id-ID")}
+                      </div>
+                    )}
+                  </td>
+
+                  <td className="px-6 py-4">
+                    <div className="text-sm">
+                      <div className="text-gray-500">
+                        Target:{" "}
+                        {parseFloat(do_.minimal_load_quantity).toLocaleString(
+                          "id-ID"
+                        )}{" "}
+                        {do_.unit}
+                      </div>
+                      {do_.actual_load_quantity && (
+                        <div className="font-medium text-gray-900">
+                          Actual:{" "}
+                          {parseFloat(do_.actual_load_quantity).toLocaleString(
+                            "id-ID"
+                          )}{" "}
+                          {do_.unit}
                         </div>
-                      </td>
+                      )}
+                    </div>
+                  </td>
 
-                      {/* 🎯 ENHANCED: Unit-aware price display */}
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                        <div>
-                          <div className="font-medium">
-                            {formatCurrency(order.unit_price)}
-                          </div>
-                          {/* 🎯 NEW: Show converted price for ton unit */}
-                          {doUnit === "ton" && (
-                            <div className="text-xs text-gray-500">
-                              ({formatCurrency(order.unit_price * 1000)}/ton)
+                  <td className="px-6 py-4">
+                    <div className="text-sm font-medium text-gray-900">
+                      Rp {parseFloat(do_.total_amount).toLocaleString("id-ID")}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      @ Rp {parseFloat(do_.unit_price).toLocaleString("id-ID")}/
+                      {do_.unit}
+                    </div>
+                  </td>
+
+                  <td className="px-6 py-4">
+                    {getPaymentStatusBadge(do_.payment_status)}
+                    {do_.payments.length > 0 && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        {do_.payments.length} payment(s)
+                      </div>
+                    )}
+                  </td>
+
+                  <td className="px-6 py-4">
+                    {do_.invoices.length > 0 ? (
+                      <div className="space-y-1">
+                        {do_.invoices.map((invoice) => (
+                          <div key={invoice.id} className="text-xs">
+                            <div className="font-medium">
+                              {invoice.invoice_number}
                             </div>
-                          )}
-                        </div>
-                      </td>
+                            <div className="text-gray-500">
+                              Rp{" "}
+                              {parseFloat(invoice.net_amount).toLocaleString(
+                                "id-ID"
+                              )}
+                              (PPH {invoice.pph_percentage}%)
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-400">No invoice</span>
+                    )}
+                  </td>
 
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-right">
-                        {formatCurrency(order.calculated.grossIncome)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                        {formatCurrency(order.trip_allowance)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                        {formatCurrency(order.gaji)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-right">
-                        <span
-                          className={`${
-                            order.calculated.netProfit >= 0
-                              ? "text-green-600"
-                              : "text-red-600"
-                          }`}
-                        >
-                          {formatCurrency(order.calculated.netProfit)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span
-                          className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full border ${getDeliveryStatusBadge(
-                            order.status
-                          )}`}
-                        >
-                          {order.status.replace("_", " ").toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span
-                          className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full border ${getPaymentStatusBadge(
-                            order.payment_status
-                          )}`}
-                        >
-                          {order.payment_status.replace("_", " ").toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                        <button
-                          onClick={() =>
-                            navigate(
-                              `/ritase/delivery-orders/${order.id}/payment`
-                            )
-                          }
-                          className="text-blue-600 hover:text-blue-900"
-                        >
-                          Lihat Detail
-                        </button>
-                        {order.payment_status === "proses_tagihan" && (
+                  <td className="px-6 py-4 text-right text-sm font-medium">
+                    <div className="flex items-center justify-end space-x-2">
+                      <Link
+                        to={`/delivery-orders/${do_.id}`}
+                        className="text-indigo-600 hover:text-indigo-900 text-xs"
+                      >
+                        Details
+                      </Link>
+
+                      {do_.invoices.length === 0 &&
+                        do_.payment_status === "proses_tagihan" && (
                           <button
-                            onClick={() => {
-                              /* Handle payment confirmation */
-                            }}
-                            className="text-green-600 hover:text-green-900"
+                            onClick={() => setShowCreateInvoiceModal(true)}
+                            className="text-green-600 hover:text-green-900 text-xs"
                           >
-                            Konfirmasi Bayar
+                            Invoice
                           </button>
                         )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+
+                      {do_.invoices.length > 0 &&
+                        do_.payment_status !== "lunas" && (
+                          <button
+                            onClick={() => {
+                              /* Show payment modal */
+                            }}
+                            className="text-blue-600 hover:text-blue-900 text-xs"
+                          >
+                            Payment
+                          </button>
+                        )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Invoices Tab */}
+      {activeTab === "invoices" && (
+        <div className="bg-white shadow-xl rounded-lg overflow-hidden">
+          <div className="px-6 py-4 border-b">
+            <h3 className="text-lg font-medium">All Invoices</h3>
           </div>
 
-          {filteredData.length === 0 && (
-            <div className="text-center py-12">
-              <svg
-                className="mx-auto h-12 w-12 text-gray-400"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-                />
-              </svg>
-              <h3 className="mt-2 text-sm font-medium text-gray-900">
-                No delivery orders found
-              </h3>
-              <p className="mt-1 text-sm text-gray-500">
-                Try adjusting your filters to see more results.
-              </p>
-            </div>
-          )}
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Invoice Number
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  DO Number
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Date & Due
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Amount
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  PPH
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Net Amount
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {data.delivery_orders.flatMap((do_) =>
+                do_.invoices.map((invoice) => (
+                  <tr key={invoice.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                      {invoice.invoice_number}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {do_.do_number}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      <div>
+                        {new Date(invoice.invoice_date).toLocaleDateString(
+                          "id-ID"
+                        )}
+                      </div>
+                      {invoice.due_date && (
+                        <div className="text-xs">
+                          Due:{" "}
+                          {new Date(invoice.due_date).toLocaleDateString(
+                            "id-ID"
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900">
+                      Rp{" "}
+                      {parseFloat(invoice.invoice_amount).toLocaleString(
+                        "id-ID"
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-sm">
+                      <div>{invoice.pph_percentage}%</div>
+                      <div className="text-xs text-gray-500">
+                        Rp{" "}
+                        {parseFloat(invoice.pph_amount).toLocaleString("id-ID")}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                      Rp{" "}
+                      {parseFloat(invoice.net_amount).toLocaleString("id-ID")}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span
+                        className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                          invoice.status === "paid"
+                            ? "bg-green-100 text-green-800"
+                            : invoice.status === "sent"
+                            ? "bg-blue-100 text-blue-800"
+                            : "bg-yellow-100 text-yellow-800"
+                        }`}
+                      >
+                        {invoice.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right text-sm font-medium">
+                      <div className="flex items-center justify-end space-x-2">
+                        <EditablePphCell
+                          invoice={{
+                            id: invoice.id,
+                            pph_percentage: parseFloat(invoice.pph_percentage),
+                            pph_amount: parseFloat(invoice.pph_amount),
+                            net_amount: parseFloat(invoice.net_amount),
+                            invoice_amount: parseFloat(invoice.invoice_amount),
+                            status: invoice.status,
+                          }}
+                          onUpdate={(invoiceId, updatedData) => {
+                            // Refresh PO data setelah PPH update
+                            fetchPOData();
+                          }}
+                        />
+                        <button
+                          onClick={() => handleDownloadInvoice(invoice.id)}
+                          className="text-green-600 hover:text-green-900 text-xs"
+                        >
+                          Download
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
-      </div>
+      )}
+
+      {/* Analytics Tab */}
+      {activeTab === "analytics" && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Completion Progress */}
+          <div className="bg-white shadow rounded-lg p-6">
+            <h3 className="text-lg font-medium mb-4">Progress Overview</h3>
+            <div className="space-y-4">
+              <div>
+                <div className="flex justify-between text-sm mb-1">
+                  <span>Quantity Progress</span>
+                  <span>{summary.completion_percentage.toFixed(1)}%</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div
+                    className="bg-blue-600 h-2 rounded-full"
+                    style={{
+                      width: `${Math.min(summary.completion_percentage, 100)}%`,
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex justify-between text-sm mb-1">
+                  <span>Payment Progress</span>
+                  <span>
+                    {(
+                      ((summary.total_revenue - summary.outstanding_payments) /
+                        summary.total_revenue) *
+                      100
+                    ).toFixed(1)}
+                    %
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div
+                    className="bg-green-600 h-2 rounded-full"
+                    style={{
+                      width: `${
+                        ((summary.total_revenue -
+                          summary.outstanding_payments) /
+                          summary.total_revenue) *
+                        100
+                      }%`,
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Financial Breakdown */}
+          <div className="bg-white shadow rounded-lg p-6">
+            <h3 className="text-lg font-medium mb-4">Financial Breakdown</h3>
+            <div className="space-y-3">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Gross Revenue:</span>
+                <span className="font-medium">
+                  Rp {summary.total_revenue.toLocaleString("id-ID")}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Operational Costs:</span>
+                <span className="font-medium text-red-600">
+                  Rp {summary.total_operational_costs.toLocaleString("id-ID")}
+                </span>
+              </div>
+              <div className="flex justify-between border-t pt-3">
+                <span className="text-gray-600">Net Profit:</span>
+                <span className="font-medium text-green-600">
+                  Rp {summary.total_net_profit.toLocaleString("id-ID")}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Profit Margin:</span>
+                <span className="font-medium">
+                  {summary.profit_margin.toFixed(2)}%
+                </span>
+              </div>
+              {summary.outstanding_payments > 0 && (
+                <div className="flex justify-between text-orange-600">
+                  <span>Outstanding:</span>
+                  <span className="font-medium">
+                    Rp {summary.outstanding_payments.toLocaleString("id-ID")}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -50,7 +50,7 @@ const TripsPage = () => {
 
   // 🎯 NEW: Currency formatter
   const formatCurrency = (amount: number) => {
-    return `Rp ${amount.toLocaleString("de-DE")}`;
+    return `Rp ${parseFloat(String(amount)).toLocaleString("id-ID")}`;
   };
 
   const fetchPurchaseOrders = useCallback(async () => {
@@ -226,7 +226,7 @@ const TripsPage = () => {
                       </p>
                       {po.unit === "ton" && (
                         <p className="text-xs text-gray-500">
-                          ({formatCurrency(po.unit_price * 1000)}/ton)
+                          ({formatCurrency(po.unit_price / 1000)}/kg)
                         </p>
                       )}
                     </div>

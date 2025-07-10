@@ -769,7 +769,7 @@ exports.getPOComprehensiveData = async (req, res, next) => {
       include: [
         {
           model: DeliveryOrder,
-          as: "deliveryOrders",
+          as: "poDeliveryOrders",
           include: [
             {
               model: Vehicle,
@@ -821,7 +821,7 @@ exports.getPOComprehensiveData = async (req, res, next) => {
     };
 
     // 🎯 ENHANCED: Process DOs with unit-aware calculations
-    const processedDOs = poData.deliveryOrders.map((order) => {
+    const processedDOs = poData.poDeliveryOrders.map((order) => {
       const orderData = order.toJSON();
 
       // 🎯 NEW: Ensure unit field exists with fallback
@@ -900,13 +900,8 @@ exports.getPOComprehensiveData = async (req, res, next) => {
         0
       ),
       outstanding_payments: 0, // Calculate from payments vs invoices
-      completion_percentage:
-        processedDOs.length > 0
-          ? (processedDOs.filter((order) => order.status === "completed")
-              .length /
-              processedDOs.length) *
-            100
-          : 0,
+      completion_percentage: 0,
+
       profit_margin: 0,
 
       // 🎯 NEW: Unit-based analytics
@@ -959,6 +954,13 @@ exports.getPOComprehensiveData = async (req, res, next) => {
         return acc;
       }, {}),
     };
+
+    summary.completion_percentage =
+      poData.total_quantity > 0
+        ? (summary.total_quantity_delivered /
+            parseFloat(poData.total_quantity)) *
+          100
+        : 0;
 
     // Calculate overall profit margin
     summary.profit_margin =

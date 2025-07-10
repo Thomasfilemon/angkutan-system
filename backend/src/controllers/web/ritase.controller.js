@@ -50,7 +50,7 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
       include: [
         {
           model: DeliveryOrder,
-          as: "deliveryOrders",
+          as: "poDeliveryOrders",
           required: false, // LEFT JOIN to include POs without DOs
           include: [
             {
@@ -85,7 +85,7 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
     // ✅ ENHANCED CALCULATION with ACTUAL PAYMENTS from delivery_order_payments table
     const enrichedPOs = await Promise.all(
       purchaseOrders.map(async (po) => {
-        const deliveryOrders = po.deliveryOrders || [];
+        const deliveryOrders = po.poDeliveryOrders || [];
         const completedDOs = deliveryOrders.filter(
           (do_item) => do_item.status === "completed"
         );
@@ -315,7 +315,7 @@ exports.getPurchaseOrderPaymentDetail = async (req, res, next) => {
       include: [
         {
           model: DeliveryOrder,
-          as: "deliveryOrders",
+          as: "poDeliveryOrders",
           include: [
             {
               model: Vehicle,
@@ -362,10 +362,10 @@ exports.getPurchaseOrderPaymentDetail = async (req, res, next) => {
     }
 
     // Separate completed and non-completed DOs
-    const completedDOs = purchaseOrder.deliveryOrders.filter(
+    const completedDOs = purchaseOrder.poDeliveryOrders.filter(
       (do_item) => do_item.status === "completed"
     );
-    const nonCompletedDOs = purchaseOrder.deliveryOrders.filter(
+    const nonCompletedDOs = purchaseOrder.poDeliveryOrders.filter(
       (do_item) => do_item.status !== "completed"
     );
 
@@ -503,7 +503,7 @@ exports.getPurchaseOrderPaymentDetail = async (req, res, next) => {
         completed_delivery_orders: enrichedCompletedDOs,
         non_completed_delivery_orders: nonCompletedDOs,
         summary: {
-          total_dos: purchaseOrder.deliveryOrders.length,
+          total_dos: purchaseOrder.poDeliveryOrders.length,
           completed_dos: completedDOs.length,
           payment_ready_dos: completedDOs.filter(
             (do_item) =>
