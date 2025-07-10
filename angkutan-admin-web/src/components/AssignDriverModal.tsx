@@ -23,46 +23,59 @@ interface Props {
 
 const AssignDriverModal: React.FC<Props> = ({ isOpen, onClose, vehicle, onSuccess }) => {
   const [availableDrivers, setAvailableDrivers] = useState<Driver[]>([]);
-  const [selectedDriver, setSelectedDriver] = useState<string>('');
+  const [selectedDriver, setSelectedDriver] = useState<number | ''>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let isMounted = true;
+    
     if (isOpen && vehicle) {
       const fetchAvailableDrivers = async () => {
         try {
           setLoading(true);
           setError(null);
-
+          
           const response = await apiClient.get('/vehicles/drivers/available');
-
-          // ✅ FIX: The log confirms the server is sending a raw array.
-          // This code now handles that directly.
-          if (Array.isArray(response.data)) {
+          
+          if (isMounted && Array.isArray(response.data)) {
             const formattedDrivers = response.data.map((apiDriver: any) => ({
               id: apiDriver.id,
-              name: apiDriver.full_name, // Map API field to component field
+              name: apiDriver.full_name,
               status: apiDriver.status,
             }));
             setAvailableDrivers(formattedDrivers);
+            
+            if (formattedDrivers.length === 0) {
+              setSelectedDriver('');
+            }
           } else {
-            // This else block will likely not be hit, but it's good practice
-            console.warn("Received unexpected non-array data for available drivers:", response.data);
+            if (isMounted) {
+              console.warn("Received unexpected non-array data for available drivers:", response.data);
+              setAvailableDrivers([]);
+            }
+          }
+        } catch (err) {
+          if (isMounted) {
+            setError('Failed to fetch available drivers.');
+            console.error('Error fetching available drivers:', err);
             setAvailableDrivers([]);
           }
-
-        } catch (err) {
-          setError('Failed to fetch available drivers.');
-          console.error(err);
         } finally {
-          setLoading(false);
+          if (isMounted) {
+            setLoading(false);
+          }
         }
       };
 
       fetchAvailableDrivers();
-      setSelectedDriver(''); 
+      setSelectedDriver('');
     }
-  }, [isOpen, vehicle]);
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, vehicle?.id]);
 
   if (!isOpen || !vehicle) return null;
 
@@ -73,9 +86,19 @@ const AssignDriverModal: React.FC<Props> = ({ isOpen, onClose, vehicle, onSucces
     }
     try {
       setLoading(true);
-      // ✅ FIX 2: Use the correct payload key 'driver_id' that the backend expects.
-      // The path '/vehicles/...' is correct with your baseURL.
       await apiClient.patch(`/vehicles/${vehicle.id}/assign-driver`, { driver_id: selectedDriver });
+      
+      // Refresh available drivers list to ensure the assigned driver is removed
+      const response = await apiClient.get('/vehicles/drivers/available');
+      if (Array.isArray(response.data)) {
+        const formattedDrivers = response.data.map((apiDriver: any) => ({
+          id: apiDriver.id,
+          name: apiDriver.full_name,
+          status: apiDriver.status,
+        }));
+        setAvailableDrivers(formattedDrivers);
+      }
+      
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -90,8 +113,19 @@ const AssignDriverModal: React.FC<Props> = ({ isOpen, onClose, vehicle, onSucces
     if (window.confirm('Are you sure you want to remove the driver from this vehicle?')) {
       try {
         setLoading(true);
-        // ✅ FIX 2: Use the correct payload key 'driver_id'.
         await apiClient.patch(`/vehicles/${vehicle.id}/assign-driver`, { driver_id: null });
+        
+        // Refresh available drivers list to include the newly unassigned driver
+        const response = await apiClient.get('/vehicles/drivers/available');
+        if (Array.isArray(response.data)) {
+          const formattedDrivers = response.data.map((apiDriver: any) => ({
+            id: apiDriver.id,
+            name: apiDriver.full_name,
+            status: apiDriver.status,
+          }));
+          setAvailableDrivers(formattedDrivers);
+        }
+        
         onSuccess();
         onClose();
       } catch (err: any) {
@@ -134,28 +168,34 @@ const AssignDriverModal: React.FC<Props> = ({ isOpen, onClose, vehicle, onSucces
         <hr className="my-4"/>
 
         <div className="mb-4">
-            <label htmlFor="driver-select" className="block text-sm font-medium text-gray-700 mb-2">
-                Assign a New Driver
-            </label>
-            {loading && <p>Loading drivers...</p>}
-            {error && <p className="text-red-500">{error}</p>}
-            {!loading && !error && (
-                 <select
-                    id="driver-select"
-                    value={selectedDriver}
-                    onChange={(e) => setSelectedDriver(e.target.value)}
-                    className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
-                    disabled={loading || availableDrivers.length === 0}
-                >
-                    <option value="">-- Select an available driver --</option>
-                    {availableDrivers.map((driver) => (
-                    <option key={driver.id} value={driver.id}>
-                        {driver.name}
-                    </option>
-                    ))}
-                </select>
-            )}
-           
+          <label htmlFor="driver-select" className="block text-sm font-medium text-gray-700 mb-2">
+            Assign a New Driver
+          </label>
+          {loading && <p>Loading drivers...</p>}
+          {error && <p className="text-red-500">{error}</p>}
+          {!loading && !error && (
+            <>
+              <select
+                id="driver-select"
+                value={selectedDriver}
+                onChange={(e) => setSelectedDriver(e.target.value === '' ? '' : Number(e.target.value))}
+                className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+                disabled={loading || availableDrivers.length === 0}
+              >
+                <option value="">-- Select an available driver --</option>
+                {availableDrivers.map((driver) => (
+                  <option key={driver.id} value={driver.id}>
+                    {driver.name}
+                  </option>
+                ))}
+              </select>
+              {availableDrivers.length === 0 && (
+                <p className="text-sm text-gray-500 mt-2">
+                  No available drivers found. All drivers may be currently assigned to vehicles.
+                </p>
+              )}
+            </>
+          )}
         </div>
 
         <div className="mt-6 flex justify-end space-x-3">

@@ -259,53 +259,84 @@ exports.deleteVehicle = async (req, res, next) => {
 // ✅ FIXED: Assign driver to vehicle - parameter consistency
 exports.assignDriver = async (req, res, next) => {
   try {
-    const { id } = req.params; // ✅ FIXED: Use 'id' instead of 'vehicleId'
+    const { id } = req.params;  // ← Changed from vehicleId to id
     const { driver_id } = req.body;
-
-    const vehicle = await Vehicle.findByPk(id);
-    if (!vehicle) {
-      return res.status(404).json({
+    
+    // Debug logs
+    console.log('Assign driver request:');
+    console.log('Vehicle ID from params:', id);
+    console.log('Driver ID from body:', driver_id);
+    console.log('Vehicle ID type:', typeof id);
+    
+    // Validate vehicle ID parameter
+    if (!id || id === 'undefined') {
+      return res.status(400).json({ 
         success: false,
-        message: "Vehicle not found",
+        message: 'Vehicle ID is required in URL parameters'
+      });
+    }
+    
+    // Parse vehicle ID to number
+    const parsedVehicleId = parseInt(id, 10);
+    if (isNaN(parsedVehicleId)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid vehicle ID format. Must be a number.'
+      });
+    }
+    
+    const { Vehicle, DriverProfile } = require('../../models');
+
+    const vehicle = await Vehicle.findByPk(parsedVehicleId);
+    if (!vehicle) {
+      return res.status(404).json({ 
+        success: false,
+        message: `Vehicle with ID ${parsedVehicleId} not found`
       });
     }
 
-    if (driver_id) {
-      const driver = await User.findOne({
-        where: { id: driver_id, role: "driver" },
-        include: [
-          {
-            model: require("../../models").DriverProfile,
-            as: "driverProfile",
-            required: true,
-          },
-        ],
-      });
-
-      if (!driver) {
-        return res.status(400).json({
-          success: false,
-          message: "Driver not found or invalid",
-        });
+    // Rest of your assignment logic remains the same...
+    
+    if (driver_id === null) {
+      const oldDriverId = vehicle.driver_id;
+      await vehicle.update({ driver_id: null });
+      
+      if (oldDriverId) {
+        await DriverProfile.update(
+          { status: 'available' },
+          { where: { user_id: oldDriverId } }
+        );
+        console.log(`Driver ${oldDriverId} status updated to available`);
+      }
+      
+      console.log(`Driver unassigned from vehicle ${parsedVehicleId}`);
+    } else {
+      const oldDriverId = vehicle.driver_id;
+      if (oldDriverId) {
+        await DriverProfile.update(
+          { status: 'available' },
+          { where: { user_id: oldDriverId } }
+        );
+        console.log(`Old driver ${oldDriverId} status updated to available`);
       }
 
-      if (driver.driverProfile.status !== "available") {
-        return res.status(400).json({
-          success: false,
-          message: "Driver is not available",
-        });
-      }
+      await vehicle.update({ driver_id });
+      await DriverProfile.update(
+        { status: 'available' },
+        { where: { user_id: driver_id } }
+      );
+      
+      console.log(`Driver ${driver_id} assigned to vehicle ${parsedVehicleId}`);
     }
 
-    await vehicle.update({ driver_id });
-
-    res.json({
+    res.json({ 
       success: true,
-      message: "Driver assigned successfully",
-      data: vehicle,
+      message: 'Driver assignment updated successfully',
+      vehicle_id: parsedVehicleId,
+      driver_id: driver_id
     });
   } catch (err) {
-    console.error("Error in assignDriver:", err);
+    console.error('Error in assignDriver:', err);
     next(err);
   }
 };
@@ -313,33 +344,65 @@ exports.assignDriver = async (req, res, next) => {
 // Get available drivers
 exports.getAvailableDrivers = async (req, res, next) => {
   try {
-    const drivers = await User.findAll({
-      where: { role: "driver" },
-      include: [
-        {
-          model: require("../../models").DriverProfile,
-          as: "driverProfile",
-          where: { status: "available" },
-          required: true,
-        },
-      ],
-      order: [["driverProfile", "full_name", "ASC"]],
+    const { Op } = require('sequelize');
+    const { User, DriverProfile, Vehicle } = require('../../models');
+
+    // Get all driver IDs that are currently assigned to vehicles
+    const assignedVehicles = await Vehicle.findAll({
+      attributes: ['driver_id'],
+      where: {
+        driver_id: {
+          [Op.not]: null
+        }
+      },
+      raw: true
     });
 
-    const formattedDrivers = drivers.map((driver) => ({
+    const assignedDriverIds = assignedVehicles.map(vehicle => vehicle.driver_id);
+    
+    console.log('Assigned driver IDs:', assignedDriverIds);
+
+    // Build the where condition for User
+    const userWhereCondition = {
+      role: 'driver'
+    };
+
+    // Only add the NOT IN condition if there are assigned drivers
+    if (assignedDriverIds.length > 0) {
+      userWhereCondition.id = {
+        [Op.notIn]: assignedDriverIds
+      };
+    }
+
+    console.log('User where condition:', userWhereCondition);
+
+    const drivers = await User.findAll({
+      where: userWhereCondition,
+      include: [{
+        model: DriverProfile,
+        as: 'driverProfile',
+        where: { 
+          status: 'available' 
+        },
+        required: true
+      }],
+      order: [['driverProfile', 'full_name', 'ASC']]
+    });
+
+    const formattedDrivers = drivers.map(driver => ({
       id: driver.id,
       username: driver.username,
       full_name: driver.driverProfile.full_name,
       phone: driver.driverProfile.phone,
-      status: driver.driverProfile.status,
+      status: driver.driverProfile.status
     }));
 
-    res.json({
-      success: true,
-      data: formattedDrivers,
-    });
+    console.log('Available drivers found:', formattedDrivers.length);
+    console.log('Available drivers:', formattedDrivers);
+
+    res.json(formattedDrivers);
   } catch (err) {
-    console.error("Error in getAvailableDrivers:", err);
+    console.error('Error in getAvailableDrivers:', err);
     next(err);
   }
 };

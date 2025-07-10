@@ -3,7 +3,6 @@ import { useLocation } from 'react-router-dom';
 import apiClient from '../api/axiosConfig';
 import './TireManagement.css';
 
-
 // --- INTERFACES ---
 interface Vehicle {
   id: number;
@@ -19,7 +18,6 @@ interface Vehicle {
   driver_phone?: string;
   driver_status?: string;
 }
-
 
 interface TireData {
   id: number;
@@ -39,15 +37,14 @@ interface TireData {
   isTemperatureHigh?: boolean;
   needsReplacement?: boolean;
   updated_at: string;
+  notes?: string; // ✅ Add notes field
 }
-
 
 interface TireStatus {
   position: string;
   installed: boolean;
   tire: TireData | null;
 }
-
 
 interface TireInventory {
   id: number;
@@ -58,11 +55,10 @@ interface TireInventory {
   unit_price?: number;
 }
 
-
 interface TireInstance {
   id: number;
   tire_serial_number: string;
-  purchase_date: string; // <-- TAMBAHKAN INI
+  purchase_date: string;
   tireInventory: {
     tire_brand: string;
     tire_size: string;
@@ -74,7 +70,6 @@ interface TireInstance {
   total_mileage?: number;
 }
 
-
 interface TireUpdateData {
   current_pressure: number;
   temperature: number;
@@ -83,7 +78,6 @@ interface TireUpdateData {
   notes: string;
 }
 
-
 interface InstallData {
   tire_inventory_id: number | null;
   tire_instance_id: number | null;
@@ -91,7 +85,6 @@ interface InstallData {
   recommended_pressure: number;
   mileage_installed: number;
 }
-
 
 const TireManagementPage = () => {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -113,7 +106,7 @@ const TireManagementPage = () => {
   
   const [installModalOpen, setInstallModalOpen] = useState(false);
   const [selectedPosition, setSelectedPosition] = useState('');
-const [availableTires, setAvailableTires] = useState<TireInstance[]>([]);
+  const [availableTires, setAvailableTires] = useState<TireInstance[]>([]);
   const [availableInstances, setAvailableInstances] = useState<TireInstance[]>([]);
   const [installData, setInstallData] = useState<InstallData>({
     tire_inventory_id: null,
@@ -130,6 +123,23 @@ const [availableTires, setAvailableTires] = useState<TireInstance[]>([]);
   
   const location = useLocation();
 
+  // ✅ Add condition mapping for display
+  const conditionMapping: { [key: string]: string } = {
+    'new': 'Baru',
+    'good': 'Baik',
+    'fair': 'Cukup',
+    'poor': 'Buruk',
+    'damaged': 'Rusak',
+    'disposed': 'Dibuang',
+    'replace': 'Perlu Ganti',
+    'meledak': 'Meledak',
+    'bocor': 'Bocor',
+    'kampasa': 'Kampasa'
+  };
+
+  const getConditionDisplay = (condition: string): string => {
+    return conditionMapping[condition] || condition;
+  };
 
   // --- HELPER FUNCTIONS ---
   // Generate tire positions with A/B designation for dual tires
@@ -167,7 +177,6 @@ const [availableTires, setAvailableTires] = useState<TireInstance[]>([]);
     return positions;
   };
 
-
   // Group positions by type for better layout
   const groupTirePositions = (positions: string[]) => {
     return {
@@ -177,8 +186,7 @@ const [availableTires, setAvailableTires] = useState<TireInstance[]>([]);
     };
   };
 
-
-  // FIXED: Group rear tires by axle with A/B designation support (This function was already correct)
+  // FIXED: Group rear tires by axle with A/B designation support
   const groupRearTiresByAxle = (rearPositions: string[]) => {
     console.log('=== GROUPING DEBUG ===');
     console.log('Input rear positions:', rearPositions);
@@ -186,8 +194,7 @@ const [availableTires, setAvailableTires] = useState<TireInstance[]>([]);
     
     // If no rear positions, return empty array
     if (rearPositions.length === 0) {
-            console.log('No rear positions - returning empty array');
-
+      console.log('No rear positions - returning empty array');
       return axles;
     }
     
@@ -199,7 +206,7 @@ const [availableTires, setAvailableTires] = useState<TireInstance[]>([]);
       const axleMatch = pos.match(/(\d+)/);
       const axleNum = axleMatch ? parseInt(axleMatch[0]) : 1;
 
-          console.log(`Position ${pos} -> Axle ${axleNum}`);
+      console.log(`Position ${pos} -> Axle ${axleNum}`);
       
       if (!axleMap.has(axleNum)) {
         axleMap.set(axleNum, []);
@@ -207,7 +214,7 @@ const [availableTires, setAvailableTires] = useState<TireInstance[]>([]);
       axleMap.get(axleNum)!.push(pos);
     });
 
-      console.log('Axle map:', Array.from(axleMap.entries()));
+    console.log('Axle map:', Array.from(axleMap.entries()));
     
     // Convert to array of axles, properly sorted
     Array.from(axleMap.keys()).sort().forEach(axleNum => {
@@ -227,15 +234,14 @@ const [availableTires, setAvailableTires] = useState<TireInstance[]>([]);
       });
       
       // Add the entire axle as one group
-          console.log(`Axle ${axleNum} sorted tires:`, sortedTires);
+      console.log(`Axle ${axleNum} sorted tires:`, sortedTires);
       axles.push(sortedTires);
     });
     
-      console.log('Final axles result:', axles);
+    console.log('Final axles result:', axles);
     console.log('===================');
     return axles;
   };
-
 
   // --- API CALLS ---
   const fetchVehicles = useCallback(async () => {
@@ -248,7 +254,6 @@ const [availableTires, setAvailableTires] = useState<TireInstance[]>([]);
     }
   }, []);
 
-
   const fetchVehicleTireStatus = useCallback(async (vehicleId: number) => {
     try {
       const response = await apiClient.get(`/tires/vehicles/${vehicleId}/status`);
@@ -260,7 +265,6 @@ const [availableTires, setAvailableTires] = useState<TireInstance[]>([]);
     }
   }, []);
 
-
   const fetchAvailableTires = useCallback(async () => {
     try {
       const response = await apiClient.get('/tires/inventory-instances');
@@ -270,16 +274,14 @@ const [availableTires, setAvailableTires] = useState<TireInstance[]>([]);
     }
   }, []);
 
-
-const fetchAvailableInstances = useCallback(async () => {
-  try {
-    const response = await apiClient.get('/tires/tire-instances/available?status=removed');
-    setAvailableInstances(Array.isArray(response.data) ? response.data : []);
-  } catch (err) {
-    console.error('Failed to fetch available instances:', err);
-  }
-}, []);
-
+  const fetchAvailableInstances = useCallback(async () => {
+    try {
+      const response = await apiClient.get('/tires/tire-instances/available?status=removed');
+      setAvailableInstances(Array.isArray(response.data) ? response.data : []);
+    } catch (err) {
+      console.error('Failed to fetch available instances:', err);
+    }
+  }, []);
 
   // --- EFFECTS ---
   useEffect(() => {
@@ -304,7 +306,6 @@ const fetchAvailableInstances = useCallback(async () => {
     initialize();
   }, [location.search, fetchVehicles, fetchVehicleTireStatus]);
 
-
   // --- EVENT HANDLERS ---
   const handleVehicleChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const vehicleIdStr = e.target.value;
@@ -320,11 +321,9 @@ const fetchAvailableInstances = useCallback(async () => {
     }
   };
 
-
   const selectedVehicle = selectedVehicleId 
     ? vehicles.find(v => v.id === parseInt(selectedVehicleId)) || null 
     : null;
-
 
   const handleUpdateClick = (tire: TireData) => {
     setSelectedTire(tire);
@@ -333,11 +332,10 @@ const fetchAvailableInstances = useCallback(async () => {
       temperature: tire.temperature,
       tread_depth: tire.tread_depth,
       condition: tire.condition,
-      notes: ''
+      notes: tire.notes || '' // ✅ Load existing notes
     });
     setUpdateModalOpen(true);
   };
-
 
   const handleUpdateTire = async () => {
     if (!selectedTire || !selectedVehicle) return;
@@ -350,7 +348,6 @@ const fetchAvailableInstances = useCallback(async () => {
       alert('Gagal memperbarui data ban.');
     }
   };
-
 
   const handleInstallClick = async (position: string) => {
     setSelectedPosition(position);
@@ -366,7 +363,6 @@ const fetchAvailableInstances = useCallback(async () => {
     await fetchAvailableInstances();
     setInstallModalOpen(true);
   };
-
 
   const handleInstallTire = async () => {
     if (!selectedVehicle) return;
@@ -384,7 +380,6 @@ const fetchAvailableInstances = useCallback(async () => {
     }
   };
 
-
   const handleRemoveTire = (tire: TireData) => {
     setConfirmMessage(`Anda yakin ingin melepas ban S/N: ${tire.serial_number || 'N/A'}?`);
     setConfirmAction(() => async () => {
@@ -401,7 +396,6 @@ const fetchAvailableInstances = useCallback(async () => {
     });
     setConfirmModalOpen(true);
   };
-
 
   // --- RENDER FUNCTIONS ---
   // Enhanced tire rendering with A/B designation display
@@ -430,8 +424,7 @@ const fetchAvailableInstances = useCallback(async () => {
     );
   };
 
-
-  // Enhanced info box with A/B designation
+  // ✅ Enhanced info box with notes display
   const renderInfoBox = (tireStatus: TireStatus) => {
     const { position, installed, tire } = tireStatus;
 
@@ -474,8 +467,14 @@ const fetchAvailableInstances = useCallback(async () => {
           <div>Pasang: {new Date(tire.install_date).toLocaleDateString('id-ID')}</div>
           <div>Tekanan: {tire.current_pressure} PSI</div>
           <div>Tapak: {tire.tread_depth} mm</div>
-          <div>Kondisi: {tire.condition}</div>
+          <div>Kondisi: {getConditionDisplay(tire.condition)}</div>
           <div>Terakhir Update: {tire.updated_at ? new Date(tire.updated_at).toLocaleString('id-ID') : '-'}</div>
+          {/* ✅ Add notes display */}
+          {tire.notes && (
+            <div className="tire-notes">
+              <strong>Catatan:</strong> {tire.notes}
+            </div>
+          )}
         </div>
         <button 
           onClick={() => handleRemoveTire(tire)} 
@@ -487,141 +486,136 @@ const fetchAvailableInstances = useCallback(async () => {
     );
   };
 
-
   // Enhanced vehicle layout with better dual tire display
- const renderVehicleLayout = () => {
-  if (!selectedVehicle) return null;
+  const renderVehicleLayout = () => {
+    if (!selectedVehicle) return null;
 
-  const expectedPositions = selectedVehicle.tire_positions || 
-    generateTirePositions(selectedVehicle.tire_count, selectedVehicle.spare_tire_count);
+    const expectedPositions = selectedVehicle.tire_positions || 
+      generateTirePositions(selectedVehicle.tire_count, selectedVehicle.spare_tire_count);
 
-  const tireStatusMap = new Map<string, TireStatus>();
-  tireStatuses.forEach((status: TireStatus) => tireStatusMap.set(status.position, status));
+    const tireStatusMap = new Map<string, TireStatus>();
+    tireStatuses.forEach((status: TireStatus) => tireStatusMap.set(status.position, status));
 
-  const getTireByPosition = (pos: string): TireStatus => {
-    const tire = tireStatusMap.get(pos);
-    return tire || { position: pos, installed: false, tire: null };
-  };
+    const getTireByPosition = (pos: string): TireStatus => {
+      const tire = tireStatusMap.get(pos);
+      return tire || { position: pos, installed: false, tire: null };
+    };
 
-  const groupedPositions = groupTirePositions(expectedPositions);
-  const rearAxles = groupRearTiresByAxle(groupedPositions.rear);
+    const groupedPositions = groupTirePositions(expectedPositions);
+    const rearAxles = groupRearTiresByAxle(groupedPositions.rear);
 
-  // FIXED: Get unique left and right positions from grouped positions directly
-  const leftFrontPositions = groupedPositions.front.filter(pos => pos.includes('L'));
-  const rightFrontPositions = groupedPositions.front.filter(pos => pos.includes('R'));
-  
-  // FIXED: Get left and right rear positions directly from groupedPositions.rear
-  const leftRearPositions = groupedPositions.rear.filter(pos => pos.startsWith('RL'));
-  const rightRearPositions = groupedPositions.rear.filter(pos => pos.startsWith('RR'));
+    // Get unique left and right positions from grouped positions directly
+    const leftFrontPositions = groupedPositions.front.filter(pos => pos.includes('L'));
+    const rightFrontPositions = groupedPositions.front.filter(pos => pos.includes('R'));
+    
+    // Get left and right rear positions directly from groupedPositions.rear
+    const leftRearPositions = groupedPositions.rear.filter(pos => pos.startsWith('RL'));
+    const rightRearPositions = groupedPositions.rear.filter(pos => pos.startsWith('RR'));
 
-  return (
-    <div className="vehicle-layout">
-      <div className="vehicle-info">
-        <div>PLAT: {selectedVehicle.license_plate}</div>
-        <div>TIPE: {selectedVehicle.type}</div>
-        <div>BAN: {tireStatuses.filter(t => t.installed).length}/{expectedPositions.length} terpasang</div>
-      </div>
-
-      <div className="truck-layout-container">
-        {/* LEFT COLUMN */}
-        <div className="left-info-column">
-          {/* Front Left */}
-          {leftFrontPositions.map(pos => renderInfoBox(getTireByPosition(pos)))}
-          
-          {/* Rear Left */}
-          {leftRearPositions.map(pos => renderInfoBox(getTireByPosition(pos)))}
+    return (
+      <div className="vehicle-layout">
+        <div className="vehicle-info">
+          <div>PLAT: {selectedVehicle.license_plate}</div>
+          <div>TIPE: {selectedVehicle.type}</div>
+          <div>BAN: {tireStatuses.filter(t => t.installed).length}/{expectedPositions.length} terpasang</div>
         </div>
 
-        {/* CENTER - VISUAL ONLY */}
-        <div className="truck-visual-container">
-          <div className="truck-header">
-            <div className="truck-info-line">
-              <span>PLAT: {selectedVehicle.license_plate}</span>
-            </div>
-            <div className="truck-info-line">
-              <span>TYPE: {selectedVehicle.type}</span>
-            </div>
+        <div className="truck-layout-container">
+          {/* LEFT COLUMN */}
+          <div className="left-info-column">
+            {/* Front Left */}
+            {leftFrontPositions.map(pos => renderInfoBox(getTireByPosition(pos)))}
+            
+            {/* Rear Left */}
+            {leftRearPositions.map(pos => renderInfoBox(getTireByPosition(pos)))}
           </div>
 
-          <div className="truck-body">
-            {/* Front Axle Visual */}
-            <div className="axle-section front-axle">
-              <div className="tire-pair">
-                {leftFrontPositions.map(pos => renderTire(getTireByPosition(pos)))}
-                <div className="axle-line front-line"></div>
-                {rightFrontPositions.map(pos => renderTire(getTireByPosition(pos)))}
+          {/* CENTER - VISUAL ONLY */}
+          <div className="truck-visual-container">
+            <div className="truck-header">
+              <div className="truck-info-line">
+                <span>PLAT: {selectedVehicle.license_plate}</span>
+              </div>
+              <div className="truck-info-line">
+                <span>TYPE: {selectedVehicle.type}</span>
               </div>
             </div>
 
-            {/* Spare Tires - Only visual, no info boxes */}
-            {groupedPositions.spare.length > 0 && (
-              <div className="truck-chassis">
-                <div className="spare-section">
-                  <div className="spare-label">SEREP</div>
-                  <div className="spare-tires">
-                    {groupedPositions.spare.map(pos => 
-                      renderTire(getTireByPosition(pos))
-                    )}
+            <div className="truck-body">
+              {/* Front Axle Visual */}
+              <div className="axle-section front-axle">
+                <div className="tire-pair">
+                  {leftFrontPositions.map(pos => renderTire(getTireByPosition(pos)))}
+                  <div className="axle-line front-line"></div>
+                  {rightFrontPositions.map(pos => renderTire(getTireByPosition(pos)))}
+                </div>
+              </div>
+
+              {/* Spare Tires - Only visual, no info boxes */}
+              {groupedPositions.spare.length > 0 && (
+                <div className="truck-chassis">
+                  <div className="spare-section">
+                    <div className="spare-label">SEREP</div>
+                    <div className="spare-tires">
+                      {groupedPositions.spare.map(pos => 
+                        renderTire(getTireByPosition(pos))
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Rear Axles Visual */}
-            {rearAxles.map((axlePositions, axleIndex) => (
-              <div key={`axle-${axleIndex}`} className="axle-section rear-axle">
-                <div className="axle-label">As {axleIndex + 1}</div>
-                <div className="tire-pair dual-tire">
-                  <div className="dual-tire-group left">
-                    <div className="dual-tire-row">
-                        {['A', 'B'].map(suffix => {
-                        const pos = axlePositions.find(p => p.startsWith('RL') && p.endsWith(suffix));
-                        return pos ? renderTire(getTireByPosition(pos)) : <div className="tire-visual empty" key={suffix}></div>;
-                        })}
-                    </div>
-                    </div>
-                  
-                  <div className="axle-line rear-line"></div>
-                  
-                    <div className="dual-tire-group right">
-                        <div className="dual-tire-row">
-                            {['B', 'A'].map(suffix => {
-                            const pos = axlePositions.find(
-                                p => p.startsWith('RR') && p.endsWith(suffix)
-                            );
-                            return pos
-                                ? renderTire(getTireByPosition(pos))
-                                : <div className="tire-visual empty" key={suffix}></div>;
-                            })}
-                        </div>
-                    </div>
+              {/* Rear Axles Visual */}
+              {rearAxles.map((axlePositions, axleIndex) => (
+                <div key={`axle-${axleIndex}`} className="axle-section rear-axle">
+                  <div className="axle-label">As {axleIndex + 1}</div>
+                  <div className="tire-pair dual-tire">
+                    <div className="dual-tire-group left">
+                      <div className="dual-tire-row">
+                          {['A', 'B'].map(suffix => {
+                          const pos = axlePositions.find(p => p.startsWith('RL') && p.endsWith(suffix));
+                          return pos ? renderTire(getTireByPosition(pos)) : <div className="tire-visual empty" key={suffix}></div>;
+                          })}
+                      </div>
+                      </div>
+                    
+                    <div className="axle-line rear-line"></div>
+                    
+                      <div className="dual-tire-group right">
+                          <div className="dual-tire-row">
+                              {['B', 'A'].map(suffix => {
+                              const pos = axlePositions.find(
+                                  p => p.startsWith('RR') && p.endsWith(suffix)
+                              );
+                              return pos
+                                  ? renderTire(getTireByPosition(pos))
+                                  : <div className="tire-visual empty" key={suffix}></div>;
+                              })}
+                          </div>
+                      </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
+          </div>
+
+          {/* RIGHT COLUMN */}
+          <div className="right-info-column">
+            {/* Front Right */}
+            {rightFrontPositions.map(pos => renderInfoBox(getTireByPosition(pos)))}
+            
+            {/* Rear Right */}
+            {rightRearPositions.map(pos => renderInfoBox(getTireByPosition(pos)))}
+            
+            {/* Spare tire info boxes */}
+            {groupedPositions.spare.map(pos => 
+              renderInfoBox(getTireByPosition(pos))
+            )}
           </div>
         </div>
-
-        {/* RIGHT COLUMN */}
-        <div className="right-info-column">
-          {/* Front Right */}
-          {rightFrontPositions.map(pos => renderInfoBox(getTireByPosition(pos)))}
-          
-          {/* Rear Right */}
-          {rightRearPositions.map(pos => renderInfoBox(getTireByPosition(pos)))}
-          
-          {/* Spare tire info boxes */}
-          {groupedPositions.spare.map(pos => 
-            renderInfoBox(getTireByPosition(pos))
-          )}
-        </div>
       </div>
-    </div>
-  );
-};
-
-
-
-
+    );
+  };
 
   return (
     <>
@@ -725,7 +719,7 @@ const fetchAvailableInstances = useCallback(async () => {
                       >
                         <div>{instance.tireInventory.tire_brand} {instance.tireInventory.tire_size}</div>
                         <div>S/N: {instance.tire_serial_number} | Tapak: {instance.current_tread_depth}mm</div>
-                        <div>Kondisi: {instance.condition}</div>
+                        <div>Kondisi: {getConditionDisplay(instance.condition)}</div>
                       </div>
                     ))
                   )}
@@ -744,11 +738,10 @@ const fetchAvailableInstances = useCallback(async () => {
                       className={`tire-option ${installData.tire_instance_id === tire.id ? 'selected' : ''}`}
                       onClick={() => setInstallData(prev => ({ 
                         ...prev, 
-                        tire_instance_id: tire.id, // Gunakan instance_id
+                        tire_instance_id: tire.id,
                         tire_inventory_id: null 
                       }))}
                     >
-                      {/* KODE YANG SUDAH DIPERBAIKI */}
                       <div><strong>S/N:</strong> {tire.tire_serial_number}</div>
                       <div><strong>Merek:</strong> {tire.tireInventory.tire_brand}</div>
                       <div><strong>Ukuran:</strong> {tire.tireInventory.tire_size}</div>
@@ -806,7 +799,7 @@ const fetchAvailableInstances = useCallback(async () => {
         </div>
       )}
 
-      {/* Update Modal */}
+      {/* ✅ Updated Update Modal with complete conditions */}
       {updateModalOpen && selectedTire && (
         <div className="modal-overlay">
           <div className="modal">
@@ -866,10 +859,16 @@ const fetchAvailableInstances = useCallback(async () => {
                   condition: e.target.value
                 }))}
               >
+                <option value="new">Baru</option>
                 <option value="good">Baik</option>
                 <option value="fair">Cukup</option>
                 <option value="poor">Buruk</option>
                 <option value="replace">Perlu Ganti</option>
+                <option value="damaged">Rusak</option>
+                <option value="disposed">Dibuang</option>
+                <option value="meledak">Meledak</option>
+                <option value="bocor">Bocor</option>
+                <option value="kampasa">Kampasa</option>
               </select>
             </div>
 
@@ -881,9 +880,15 @@ const fetchAvailableInstances = useCallback(async () => {
                   ...prev, 
                   notes: e.target.value
                 }))}
-                rows={3}
-                placeholder="Tambahkan catatan inspeksi..."
+                rows={4}
+                maxLength={150}
+                placeholder="Tambahkan catatan inspeksi... (max 150 karakter)"
               />
+              <div className={`character-count ${
+                updateData.notes.length > 125 ? 'near-limit' : ''
+              } ${updateData.notes.length >= 150 ? 'at-limit' : ''}`}>
+                {updateData.notes.length}/150 karakter
+              </div>
             </div>
 
             <div className="modal-buttons">

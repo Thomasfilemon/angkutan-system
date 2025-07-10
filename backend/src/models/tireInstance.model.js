@@ -46,7 +46,7 @@ module.exports = (sequelize) => {
       defaultValue: 'new',
       validate: {
         isIn: {
-          args: [['new', 'good', 'fair', 'poor', 'damaged', 'disposed']],
+          args: [['new', 'good', 'fair', 'poor', 'damaged', 'disposed', 'replace', 'meledak', 'bocor', 'kampasa']],
           msg: 'Invalid condition'
         }
       }

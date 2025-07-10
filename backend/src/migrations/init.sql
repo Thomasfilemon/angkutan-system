@@ -77,7 +77,7 @@ CREATE TABLE tire_instances (
   purchase_price NUMERIC(15,2),
   total_mileage INTEGER DEFAULT 0,
   current_tread_depth NUMERIC(4,2) DEFAULT 10.0,
-  condition VARCHAR(20) DEFAULT 'new' CHECK(condition IN ('new','good','fair','poor','damaged','disposed')),
+  condition VARCHAR(20) DEFAULT 'new' CHECK (condition IN ('new', 'good', 'fair', 'poor', 'damaged', 'disposed', 'replace', 'meledak', 'bocor', 'kampasa')),
   status VARCHAR(20) DEFAULT 'in_stock' CHECK(status IN ('in_stock','installed','removed','disposed')),
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -99,7 +99,7 @@ CREATE TABLE vehicle_tires (
   recommended_pressure NUMERIC(5,2) DEFAULT 35,
   tread_depth NUMERIC(4,2) DEFAULT 10.0,
   temperature NUMERIC(4,1) DEFAULT 25.0,
-  condition VARCHAR(20) NOT NULL DEFAULT 'good' CHECK(condition IN ('good','fair','poor','replace')),
+  condition VARCHAR(20) NOT NULL DEFAULT 'good'CHECK (condition IN ('new', 'good', 'fair', 'poor', 'damaged', 'disposed', 'replace', 'meledak', 'bocor', 'kampasa')),
   status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK(status IN ('active','removed','damaged')),
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -114,7 +114,7 @@ CREATE TABLE tire_inspections (
   tread_depth NUMERIC(4,2),
   air_pressure NUMERIC(5,2),
   temperature NUMERIC(4,1),
-  condition VARCHAR(20) NOT NULL CHECK(condition IN ('good','fair','poor','replace')),
+  condition VARCHAR(20) NOT NULL CHECK (condition IN ('new', 'good', 'fair', 'poor', 'damaged', 'disposed', 'replace', 'meledak', 'bocor', 'kampasa')),
   notes TEXT,
   inspector_name VARCHAR(100),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -275,7 +275,7 @@ CREATE TABLE delivery_orders (
   unload_latitude DECIMAL(10, 8),
   unload_longitude DECIMAL(11, 8),
   
-  surat_jalan_photo_url VARCHAR(255),
+  surat_jalan_photo_url TEXT[],
 
   payment_status VARCHAR(30) NOT NULL DEFAULT 'proses_tagihan' 
     CHECK(payment_status IN ('awaiting_confirmation','lunas','deposit','proses_tagihan')),

@@ -50,7 +50,7 @@ module.exports = (sequelize) => {
       allowNull: false,
       validate: {
         isIn: {
-          args: [['good', 'fair', 'poor', 'replace']],
+          args: [['new', 'good', 'fair', 'poor', 'damaged', 'disposed', 'replace', 'meledak', 'bocor', 'kampasa']],
           msg: 'Condition must be one of: good, fair, poor, replace'
         }
       }

@@ -21,41 +21,6 @@ exports.getAllDrivers = async (req, res, next) => {
   }
 };
 
-// GET available drivers (NEW FUNCTION)
-exports.getAvailableDrivers = async (req, res, next) => {
-  try {
-    console.log('🎯 getAvailableDrivers endpoint hit!');
-    
-    const drivers = await User.findAll({
-      where: { role: 'driver' },
-      include: [{
-        model: DriverProfile,
-        as: 'driverProfile',
-        where: { status: 'available' },
-        required: true
-      }],
-      attributes: ['id', 'username'],
-      order: [[{ model: DriverProfile, as: 'driverProfile' }, 'full_name', 'ASC']]
-    });
-
-    console.log(`📊 Found ${drivers.length} available drivers`);
-
-    // FIXED: Wrap in success/data structure to match your other endpoints
-    res.json({
-      success: true,
-      data: drivers.map(driver => ({
-        id: driver.id,
-        username: driver.username,
-        full_name: driver.driverProfile.full_name,
-        phone: driver.driverProfile.phone,
-        status: driver.driverProfile.status
-      }))
-    });
-  } catch (err) {
-    console.error('❌ Error in getAvailableDrivers:', err);
-    next(err);
-  }
-};
 
 // POST a new driver
 exports.createDriver = async (req, res, next) => {

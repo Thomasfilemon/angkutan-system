@@ -519,7 +519,32 @@
 .tire-option:last-child {
   border-bottom: none;
 }
+.tire-notes {
+  margin-top: 8px;
+  padding: 6px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  font-size: 0.85em;
+  border-left: 3px solid #007bff;
+}
 
+.tire-notes strong {
+  color: #495057;
+}
+.character-count {
+  font-size: 0.75em;
+  color: #6c757d;
+  text-align: right;
+  margin-top: 4px;
+}
+
+.character-count.near-limit {
+  color: #fd7e14; /* Orange when approaching limit */
+}
+
+.character-count.at-limit {
+  color: #dc3545; /* Red when at limit */
+}
 .modal-buttons {
   display: flex;
   gap: 12px;

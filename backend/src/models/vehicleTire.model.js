@@ -24,21 +24,33 @@ module.exports = (sequelize) => {
         key: 'id'
       }
     },
-    position: {
-    type: DataTypes.STRING(20),
-    allowNull: false,
-    validate: {
-      isIn: {
-        // EXPANDED: Include A/B designations for dual tires
-        args: [['FL', 'FR', 'RL1', 'RR1', 'RL1A', 'RL1B', 'RR1A', 'RR1B', 'RL2A', 'RL2B', 'RR2A', 'RR2B', 'RL3A', 'RL3B', 'RR3A', 'RR3B', 'SPARE1', 'SPARE2', 'SPARE3', 'SPARE4']],
-        msg: 'Invalid tire position'
+    tire_instance_id: { // Make sure this field exists too
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'tire_instances',
+        key: 'id'
       }
-    }
-  },
+    },
+    position: {
+      type: DataTypes.STRING(20),
+      allowNull: false,
+      validate: {
+        isIn: {
+          args: [['FL', 'FR', 'RL1', 'RR1', 'RL1A', 'RL1B', 'RR1A', 'RR1B', 'RL2A', 'RL2B', 'RR2A', 'RR2B', 'RL3A', 'RL3B', 'RR3A', 'RR3B', 'SPARE1', 'SPARE2', 'SPARE3', 'SPARE4']],
+          msg: 'Invalid tire position'
+        }
+      }
+    },
     install_date: {
       type: DataTypes.DATEONLY,
       allowNull: false,
       defaultValue: DataTypes.NOW
+    },
+    // ✅ ADD THIS FIELD
+    remove_date: {
+      type: DataTypes.DATEONLY,
+      allowNull: true, // NULL when tire is active, set when removed
     },
     mileage_installed: {
       type: DataTypes.INTEGER,
@@ -111,8 +123,8 @@ module.exports = (sequelize) => {
       defaultValue: 'good',
       validate: {
         isIn: {
-          args: [['good', 'fair', 'poor', 'replace']],
-          msg: 'Condition must be one of: good, fair, poor, replace'
+          args: [['new', 'good', 'fair', 'poor', 'damaged', 'disposed', 'replace', 'meledak', 'bocor', 'kampasa']],
+          msg: 'Condition must be one of: good, fair, perlu ganti, poor, replace'
         }
       }
     },
