@@ -9,7 +9,8 @@ stockRouter.use(verifyToken);
 
 // Categories route MUST come BEFORE the /:id route
 stockRouter.get('/categories', stockController.getStockCategories);
-
+stockRouter.get('/:id/batches', stockController.getStockBatches);
+stockRouter.post('/consume', stockController.consumeStock);
 // Stock items routes
 stockRouter.get('/', stockController.getAllStockItems);
 stockRouter.post('/', stockController.createStockItem);

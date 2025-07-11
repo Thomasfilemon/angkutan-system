@@ -54,13 +54,6 @@ module.exports = (sequelize) => {
         min: 0
       }
     },
-    unit_price: {
-      type: DataTypes.DECIMAL(15, 2),
-      defaultValue: 0,
-      validate: {
-        min: 0
-      }
-    },
     notes: {
       type: DataTypes.TEXT,
       allowNull: true

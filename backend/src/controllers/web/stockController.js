@@ -1,140 +1,223 @@
 // src/controllers/web/stockController.js
 const db = require('../../models');
-const { StockItem, StockCategory, StockTransaction, ServiceItem, sequelize } = db;
+const { StockItem, StockCategory, StockTransaction, ServiceItem, StockBatch, sequelize } = db;
 const { Op } = require('sequelize');
 
 // Get all stock items
 const getAllStockItems = async (req, res, next) => {
-  try {
-    // Tambahkan startDate dan endDate dari query
-    const { category_id, low_stock, search, page = 1, limit = 10, startDate, endDate } = req.query;
-    const offset = (page - 1) * limit;
-    
-    let whereClause = {};
-    
-    if (category_id) {
-      whereClause.category_id = category_id;
-    }
-    
-    if (search) {
-      whereClause[Op.or] = [
-        { item_name: { [Op.iLike]: `%${search}%` } },
-        { item_code: { [Op.iLike]: `%${search}%` } },
-      ];
-    }
-    
-    // === LOGIKA BARU UNTUK FILTER TANGGAL ===
-    if (startDate && endDate) {
-        whereClause.created_at = {
-            [Op.between]: [new Date(startDate), new Date(endDate)],
-        };
-    }
-    // =====================================
-
-    if (low_stock === 'true') {
-        whereClause.current_stock = { [Op.lte]: db.sequelize.col('min_stock') };
-    }
-
-    const result = await StockItem.findAndCountAll({
-      where: whereClause,
-      include: [{ model: StockCategory, as: 'category', required: false }],
-      order: [['created_at', 'DESC']], // Urutkan dari yang terbaru
-      limit: parseInt(limit),
-      offset: offset
-    });
-
-    const enhancedItems = result.rows.map(item => {
-      const itemData = item.toJSON();
-      return {
-        ...itemData,
-        is_low_stock: parseFloat(item.current_stock) <= parseFloat(item.min_stock),
-        total_value: parseFloat(item.current_stock) * parseFloat(item.unit_price),
-        stock_status: parseFloat(item.current_stock) <= 0 ? 'out_of_stock' : 
-                     parseFloat(item.current_stock) <= parseFloat(item.min_stock) ? 'low_stock' : 'adequate'
-      };
-    });
-    
-    // Kirim kembali data beserta informasi pagination
-    res.json({
-        data: enhancedItems,
-        pagination: {
-            totalItems: result.count,
-            totalPages: Math.ceil(result.count / limit),
-            currentPage: parseInt(page),
+    try {
+        const { category_id, low_stock, search, page = 1, limit = 10 } = req.query;
+        const offset = (page - 1) * limit;
+        
+        let whereClause = {};
+        if (category_id) whereClause.category_id = category_id;
+        if (search) {
+            whereClause[Op.or] = [
+                { item_name: { [Op.iLike]: `%${search}%` } },
+                { item_code: { [Op.iLike]: `%${search}%` } }
+            ];
         }
-    });
 
-  } catch (err) {
-    console.error('Error in getAllStockItems:', err);
-    next(err);
-  }
+        const result = await StockItem.findAndCountAll({
+            where: whereClause,
+            include: [
+                { model: StockCategory, as: 'category' },
+                { 
+                    model: StockBatch, 
+                    as: 'batches',
+                    where: { remaining_quantity: { [Op.gt]: 0 } },
+                    required: false
+                }
+            ],
+            order: [['created_at', 'DESC']],
+            limit: parseInt(limit),
+            offset: offset
+        });
+
+        // Calculate weighted average prices
+        const enhancedItems = await Promise.all(result.rows.map(async (item) => {
+            const batches = await StockBatch.findAll({
+                where: { 
+                    item_id: item.id,
+                    remaining_quantity: { [Op.gt]: 0 }
+                }
+            });
+
+            let totalValue = 0;
+            let totalQuantity = 0;
+            
+            batches.forEach(batch => {
+                const qty = parseFloat(batch.remaining_quantity);
+                const price = parseFloat(batch.purchase_price);
+                totalValue += qty * price;
+                totalQuantity += qty;
+            });
+
+            const weightedAveragePrice = totalQuantity > 0 ? totalValue / totalQuantity : 0;
+
+            return {
+                ...item.toJSON(),
+                weighted_average_price: weightedAveragePrice,
+                total_value: totalValue,
+                batch_count: batches.length,
+                is_low_stock: parseFloat(item.current_stock) <= parseFloat(item.min_stock),
+                stock_status: parseFloat(item.current_stock) <= 0 ? 'out_of_stock' :
+                           parseFloat(item.current_stock) <= parseFloat(item.min_stock) ? 'low_stock' : 'adequate',
+                unit_price: weightedAveragePrice // Use weighted average as unit_price
+
+            };
+        }));
+
+        res.json({
+            data: enhancedItems,
+            pagination: {
+                totalItems: result.count,
+                totalPages: Math.ceil(result.count / limit),
+                currentPage: parseInt(page)
+            }
+        });
+    } catch (err) {
+        console.error('Error in getAllStockItems:', err);
+        next(err);
+    }
 };
 
 // Create new stock item
 const createStockItem = async (req, res, next) => {
-  try {
-    const stockItem = await StockItem.create(req.body);
-    
-    res.status(201).json({
-      success: true,
-      message: 'Stock item created successfully',
-      data: stockItem
-    });
-  } catch (err) {
-    console.error('Error in createStockItem:', err);
-    if (err.name === 'SequelizeValidationError') {
-      const messages = err.errors.map(e => e.message);
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: messages
-      });
+    const t = await sequelize.transaction();
+    try {
+        const { 
+            category_id, item_code, item_name, supplier, unit, 
+            current_stock, min_stock, unit_price, notes 
+        } = req.body;
+
+        // Create stock item
+        const stockItem = await StockItem.create({
+            category_id, item_code, item_name, supplier, unit,
+            current_stock: current_stock || 0,
+            min_stock: min_stock || 0,
+            notes
+        }, { transaction: t });
+
+        // Create initial batch if stock > 0
+        if (current_stock > 0 && unit_price > 0) {
+            const batchNumber = `BATCH-${item_code || stockItem.id}-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+            
+            await StockBatch.create({
+                item_id: stockItem.id,
+                batch_number: batchNumber,
+                purchase_price: unit_price,
+                initial_quantity: current_stock,
+                remaining_quantity: current_stock,
+                purchase_date: new Date(),
+                supplier,
+                notes: 'Initial stock batch'
+            }, { transaction: t });
+
+            // Record transaction
+            await StockTransaction.create({
+                item_id: stockItem.id,
+                transaction_type: 'in',
+                quantity: current_stock,
+                unit_price,
+                total_amount: current_stock * unit_price,
+                reference_type: 'initial_stock',
+                notes: 'Initial stock entry'
+            }, { transaction: t });
+        }
+
+        await t.commit();
+        res.status(201).json({
+            success: true,
+            message: 'Stock item created successfully',
+            data: stockItem
+        });
+    } catch (err) {
+        await t.rollback();
+        console.error('Error in createStockItem:', err);
+        next(err);
     }
-    next(err);
-  }
 };
 
 // Get stock item by ID
 // In src/controllers/web/stockController.js
 const getStockItemById = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    
-    // Add validation to ensure id is a number
-    if (isNaN(parseInt(id))) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid stock item ID. Must be a number.'
-      });
-    }
-    
-    const stockItem = await StockItem.findByPk(parseInt(id), {
-      include: [{
-        model: StockCategory,
-        as: 'category',
-        required: false
-      }]
-    });
+    try {
+        const { id } = req.params;
+        
+        const stockItem = await StockItem.findByPk(id, {
+            include: [
+                { model: StockCategory, as: 'category' },
+                { 
+                    model: StockBatch, 
+                    as: 'batches',
+                    where: { remaining_quantity: { [Op.gt]: 0 } },
+                    required: false,
+                    order: [['purchase_date', 'ASC']]
+                }
+            ]
+        });
 
-    if (!stockItem) {
-      return res.status(404).json({
-        success: false,
-        message: 'Stock item not found'
-      });
-    }
+        if (!stockItem) {
+            return res.status(404).json({
+                success: false,
+                message: 'Stock item not found'
+            });
+        }
 
-    res.json({
-      success: true,
-      data: {
-        ...stockItem.toJSON(),
-        is_low_stock: parseFloat(stockItem.current_stock) <= parseFloat(stockItem.min_stock),
-        total_value: parseFloat(stockItem.current_stock) * parseFloat(stockItem.unit_price)
-      }
-    });
-  } catch (err) {
-    console.error('Error in getStockItemById:', err);
-    next(err);
-  }
+        // Calculate weighted average price
+        const batches = await StockBatch.findAll({
+            where: { 
+                item_id: id,
+                remaining_quantity: { [Op.gt]: 0 }
+            }
+        });
+
+        let totalValue = 0;
+        let totalQuantity = 0;
+        
+        batches.forEach(batch => {
+            const qty = parseFloat(batch.remaining_quantity);
+            const price = parseFloat(batch.purchase_price);
+            totalValue += qty * price;
+            totalQuantity += qty;
+        });
+
+        const weightedAveragePrice = totalQuantity > 0 ? totalValue / totalQuantity : 0;
+
+        res.json({
+            success: true,
+            data: {
+                ...stockItem.toJSON(),
+                weighted_average_price: weightedAveragePrice,
+                total_value: totalValue,
+                is_low_stock: parseFloat(stockItem.current_stock) <= parseFloat(stockItem.min_stock)
+            }
+        });
+    } catch (err) {
+        console.error('Error in getStockItemById:', err);
+        next(err);
+    }
+};
+
+// Get batch details for an item
+const getStockBatches = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        
+        const batches = await StockBatch.findAll({
+            where: { item_id: id },
+            order: [['purchase_date', 'ASC']]
+        });
+
+        res.json({
+            success: true,
+            data: batches
+        });
+    } catch (err) {
+        console.error('Error in getStockBatches:', err);
+        next(err);
+    }
 };
 
 
@@ -166,55 +249,168 @@ const updateStockItem = async (req, res, next) => {
 
 // Add stock (restock)
 const addStock = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { quantity, unit_price, supplier, notes } = req.body;
-    
-    if (!quantity || parseFloat(quantity) <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Quantity must be greater than 0'
-      });
+    const t = await sequelize.transaction();
+    try {
+        const { id } = req.params;
+        const { quantity, unit_price, supplier, notes } = req.body;
+
+        if (!quantity || parseFloat(quantity) <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Quantity must be greater than 0'
+            });
+        }
+
+        const stockItem = await StockItem.findByPk(id, { transaction: t });
+        if (!stockItem) {
+            return res.status(404).json({
+                success: false,
+                message: 'Stock item not found'
+            });
+        }
+
+        // Create new batch
+        const batchNumber = `BATCH-${stockItem.item_code || id}-${Date.now()}`;
+        const batch = await StockBatch.create({
+            item_id: id,
+            batch_number: batchNumber,
+            purchase_price: unit_price,
+            initial_quantity: quantity,
+            remaining_quantity: quantity,
+            purchase_date: new Date(),
+            supplier,
+            notes
+        }, { transaction: t });
+
+        // Update stock item total
+        const newStock = parseFloat(stockItem.current_stock) + parseFloat(quantity);
+        await stockItem.update({ current_stock: newStock }, { transaction: t });
+
+        // Record transaction
+        await StockTransaction.create({
+            item_id: id,
+            batch_id: batch.id,
+            transaction_type: 'in',
+            quantity: parseFloat(quantity),
+            unit_price: parseFloat(unit_price),
+            total_amount: parseFloat(quantity) * parseFloat(unit_price),
+            reference_type: 'restock',
+            supplier,
+            notes
+        }, { transaction: t });
+
+        await t.commit();
+        res.json({
+            success: true,
+            message: 'Stock added successfully',
+            data: { stockItem, batch }
+        });
+    } catch (err) {
+        await t.rollback();
+        console.error('Error in addStock:', err);
+        next(err);
     }
+};
 
-    const stockItem = await StockItem.findByPk(id);
-    if (!stockItem) {
-      return res.status(404).json({
-        success: false,
-        message: 'Stock item not found'
-      });
+// FIFO stock consumption
+const consumeStock = async (req, res, next) => {
+    const t = await sequelize.transaction();
+    try {
+        const { item_id, quantity, reference_type, reference_id, notes } = req.body;
+
+        if (!quantity || parseFloat(quantity) <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Quantity must be greater than 0'
+            });
+        }
+
+        const stockItem = await StockItem.findByPk(item_id, { transaction: t });
+        if (!stockItem) {
+            return res.status(404).json({
+                success: false,
+                message: 'Stock item not found'
+            });
+        }
+
+        if (parseFloat(stockItem.current_stock) < parseFloat(quantity)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Insufficient stock available'
+            });
+        }
+
+        // Get batches ordered by purchase date (FIFO)
+        const batches = await StockBatch.findAll({
+            where: { 
+                item_id,
+                remaining_quantity: { [Op.gt]: 0 }
+            },
+            order: [['purchase_date', 'ASC']],
+            transaction: t
+        });
+
+        let remainingToConsume = parseFloat(quantity);
+        let totalCost = 0;
+        const consumedBatches = [];
+
+        // Consume from batches using FIFO
+        for (const batch of batches) {
+            if (remainingToConsume <= 0) break;
+
+            const batchAvailable = parseFloat(batch.remaining_quantity);
+            const consumeFromBatch = Math.min(remainingToConsume, batchAvailable);
+            
+            // Update batch remaining quantity
+            await batch.update({
+                remaining_quantity: batchAvailable - consumeFromBatch
+            }, { transaction: t });
+
+            // Record transaction for this batch
+            await StockTransaction.create({
+                item_id,
+                batch_id: batch.id,
+                transaction_type: 'out',
+                quantity: -consumeFromBatch,
+                unit_price: batch.purchase_price,
+                total_amount: -consumeFromBatch * batch.purchase_price,
+                reference_type,
+                reference_id,
+                notes: `${notes} - Consumed from ${batch.batch_number}`
+            }, { transaction: t });
+
+            totalCost += consumeFromBatch * batch.purchase_price;
+            consumedBatches.push({
+                batch_number: batch.batch_number,
+                quantity: consumeFromBatch,
+                price: batch.purchase_price,
+                cost: consumeFromBatch * batch.purchase_price
+            });
+
+            remainingToConsume -= consumeFromBatch;
+        }
+
+        // Update stock item total
+        const newStock = parseFloat(stockItem.current_stock) - parseFloat(quantity);
+        await stockItem.update({ current_stock: newStock }, { transaction: t });
+
+        await t.commit();
+        res.json({
+            success: true,
+            message: 'Stock consumed successfully using FIFO',
+            data: {
+                consumed_quantity: quantity,
+                total_cost: totalCost,
+                average_cost: totalCost / quantity,
+                consumed_batches: consumedBatches,
+                remaining_stock: newStock
+            }
+        });
+    } catch (err) {
+        await t.rollback();
+        console.error('Error in consumeStock:', err);
+        next(err);
     }
-
-    // Update stock quantity
-    const newStock = parseFloat(stockItem.current_stock) + parseFloat(quantity);
-    const newUnitPrice = unit_price ? parseFloat(unit_price) : parseFloat(stockItem.unit_price);
-    
-    await stockItem.update({ 
-      current_stock: newStock,
-      unit_price: newUnitPrice
-    });
-
-    // Record transaction
-    await StockTransaction.create({
-      item_id: id,
-      transaction_type: 'in',
-      quantity: parseFloat(quantity),
-      unit_price: newUnitPrice,
-      total_amount: parseFloat(quantity) * newUnitPrice,
-      reference_type: 'restock',
-      supplier: supplier,
-      notes: notes
-    });
-
-    res.json({
-      success: true,
-      message: 'Stock added successfully',
-      data: stockItem
-    });
-  } catch (err) {
-    console.error('Error in addStock:', err);
-    next(err);
-  }
 };
 
 // Get stock categories
@@ -234,15 +430,6 @@ const getStockCategories = async (req, res, next) => {
   }
 };
 
-// Export all functions
-module.exports = {
-  getAllStockItems,
-  createStockItem,
-  getStockItemById,
-  updateStockItem,
-  addStock,
-  getStockCategories
-};
 
 const deleteStockItem = async (req, res, next) => {
   try {
@@ -381,6 +568,8 @@ module.exports = {
   createStockItem,
   getStockItemById,
   updateStockItem,
+  consumeStock,
+  getStockBatches,
   addStock,
   deleteStockItem, // Add this line
   getStockCategories,

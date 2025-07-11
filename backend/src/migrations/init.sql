@@ -129,34 +129,49 @@ CREATE TABLE stock_categories (
 );
 
 CREATE TABLE stock_items (
-  id SERIAL PRIMARY KEY,
-  category_id INTEGER REFERENCES stock_categories(id),
-  item_code VARCHAR(50) UNIQUE,
-  item_name VARCHAR(255) NOT NULL,
-  supplier VARCHAR(255),
-  unit VARCHAR(20) NOT NULL DEFAULT 'Pcs',
-  current_stock NUMERIC(10,2) NOT NULL DEFAULT 0,
-  min_stock NUMERIC(10,2) NOT NULL DEFAULT 0,
-  unit_price NUMERIC(15,2) DEFAULT 0,
-  total_value NUMERIC(15,2) GENERATED ALWAYS AS (current_stock * unit_price) STORED,
-  notes TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    id SERIAL PRIMARY KEY,
+    category_id INTEGER REFERENCES stock_categories(id),
+    item_code VARCHAR(50) UNIQUE,
+    item_name VARCHAR(255) NOT NULL,
+    supplier VARCHAR(255),
+    unit VARCHAR(20) NOT NULL DEFAULT 'Pcs',
+    current_stock NUMERIC(10,2) NOT NULL DEFAULT 0,
+    min_stock NUMERIC(10,2) NOT NULL DEFAULT 0,
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- New stock_batches table for FIFO tracking
+CREATE TABLE stock_batches (
+    id SERIAL PRIMARY KEY,
+    item_id INTEGER REFERENCES stock_items(id) ON DELETE CASCADE,
+    batch_number VARCHAR(100) NOT NULL,
+    purchase_price NUMERIC(15,2) NOT NULL,
+    initial_quantity NUMERIC(10,2) NOT NULL,
+    remaining_quantity NUMERIC(10,2) NOT NULL,
+    purchase_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    supplier VARCHAR(255),
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CONSTRAINT check_quantities CHECK (remaining_quantity >= 0 AND remaining_quantity <= initial_quantity)
 );
 
 CREATE TABLE stock_transactions (
-  id SERIAL PRIMARY KEY,
-  item_id INTEGER REFERENCES stock_items(id) ON DELETE CASCADE,
-  transaction_type VARCHAR(20) NOT NULL CHECK(transaction_type IN ('in','out','adjustment')),
-  quantity NUMERIC(10,2) NOT NULL,
-  unit_price NUMERIC(15,2),
-  total_amount NUMERIC(15,2),
-  reference_type VARCHAR(50),
-  reference_id INTEGER,
-  supplier VARCHAR(255),
-  notes TEXT,
-  transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    id SERIAL PRIMARY KEY,
+    item_id INTEGER REFERENCES stock_items(id) ON DELETE CASCADE,
+    batch_id INTEGER REFERENCES stock_batches(id) ON DELETE SET NULL,
+    transaction_type VARCHAR(20) NOT NULL CHECK(transaction_type IN ('in','out','adjustment')),
+    quantity NUMERIC(10,2) NOT NULL,
+    unit_price NUMERIC(15,2),
+    total_amount NUMERIC(15,2),
+    reference_type VARCHAR(50),
+    reference_id INTEGER,
+    supplier VARCHAR(255),
+    notes TEXT,
+    transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- VEHICLE SERVICES TABLE
@@ -562,6 +577,10 @@ CREATE INDEX idx_vehicles_driver_id ON vehicles(driver_id);
 CREATE INDEX idx_vehicles_tire_count ON vehicles(tire_count);
 CREATE INDEX idx_stock_items_category ON stock_items(category_id);
 CREATE INDEX idx_stock_items_low_stock ON stock_items(current_stock, min_stock);
+CREATE INDEX idx_stock_batches_item_id ON stock_batches(item_id);
+CREATE INDEX idx_stock_batches_remaining ON stock_batches(remaining_quantity);
+CREATE INDEX idx_stock_batches_purchase_date ON stock_batches(purchase_date);
+CREATE INDEX idx_stock_transactions_batch_id ON stock_transactions(batch_id);
 CREATE INDEX idx_stock_transactions_item ON stock_transactions(item_id);
 CREATE INDEX idx_stock_transactions_date ON stock_transactions(transaction_date);
 CREATE INDEX idx_vehicle_services_vehicle ON vehicle_services(vehicle_id);
