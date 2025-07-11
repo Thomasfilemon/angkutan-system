@@ -1,5 +1,4 @@
 // mobile/components/LoadConfirmationModal.tsx
-
 import React, { useState } from "react";
 import {
   Modal,
@@ -12,6 +11,7 @@ import {
   ActivityIndicator,
   Platform,
   ScrollView,
+  Image
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -36,7 +36,7 @@ const LoadConfirmationModal: React.FC<LoadConfirmationModalProps> = ({
 }) => {
   const [actualQuantity, setActualQuantity] = useState("");
   const [suratJalanPhotos, setSuratJalanPhotos] = useState<any[]>([]);
-
+  
   const handleImagePicker = () => {
     if (Platform.OS === "web") {
       const input = document.createElement("input");
@@ -86,14 +86,13 @@ const LoadConfirmationModal: React.FC<LoadConfirmationModalProps> = ({
         Alert.alert("Error", "Permission to access camera was denied");
         return;
       }
-
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
         quality: 0.8,
       });
-
       if (!result.canceled && result.assets?.[0]) {
-        setSuratJalanPhotos([result.assets[0]]);
+        // ✅ Append new photo to existing array
+        setSuratJalanPhotos(prev => [...prev, result.assets[0]]);
       }
     } catch (error) {
       Alert.alert("Error", "Failed to take picture");
@@ -107,13 +106,11 @@ const LoadConfirmationModal: React.FC<LoadConfirmationModalProps> = ({
         Alert.alert("Error", "Permission to access gallery was denied");
         return;
       }
-
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         quality: 0.8,
       });
-
       if (!result.canceled && result.assets?.[0]) {
         setSuratJalanPhotos((prev) => [...prev, result.assets[0]]);
       }
@@ -124,12 +121,10 @@ const LoadConfirmationModal: React.FC<LoadConfirmationModalProps> = ({
 
   const handleConfirm = () => {
     const quantity = parseFloat(actualQuantity);
-
     if (!actualQuantity || isNaN(quantity)) {
       Alert.alert("Error", "Masukkan berat muatan aktual yang valid");
       return;
     }
-
     if (quantity < minimalQuantity) {
       Alert.alert(
         "Error",
@@ -137,17 +132,13 @@ const LoadConfirmationModal: React.FC<LoadConfirmationModalProps> = ({
       );
       return;
     }
-
     if (suratJalanPhotos.length === 0) {
       Alert.alert("Error", "Minimal 1 foto surat jalan harus diambil");
       return;
     }
-
-    console.log("Photos to upload:", suratJalanPhotos);
-
     onConfirm({
       actual_load_quantity: quantity,
-      surat_jalan_photo: suratJalanPhotos, // <-- send as array
+      surat_jalan_photo: suratJalanPhotos,
     });
   };
 
@@ -170,7 +161,7 @@ const LoadConfirmationModal: React.FC<LoadConfirmationModalProps> = ({
             <FontAwesome5 name="times" size={24} color="#666" />
           </TouchableOpacity>
         </View>
-
+        
         <ScrollView style={styles.content}>
           <View style={styles.infoSection}>
             <FontAwesome5 name="info-circle" size={20} color="#3498db" />
@@ -200,34 +191,46 @@ const LoadConfirmationModal: React.FC<LoadConfirmationModalProps> = ({
 
           <View style={styles.photoSection}>
             <Text style={styles.label}>Foto Surat Jalan *</Text>
+            
             {suratJalanPhotos.length > 0 ? (
-              <View>
+              <View style={styles.photoPreviewContainer}>
                 {suratJalanPhotos.map((photo, idx) => (
-                  <View key={idx} style={styles.photoPreview}>
-                    <Text>Foto {idx + 1}</Text>
-                    <TouchableOpacity
-                      onPress={() => {
-                        setSuratJalanPhotos(
-                          suratJalanPhotos.filter((_, i) => i !== idx)
-                        );
-                      }}
-                    >
-                      <Text style={{ color: "red" }}>Hapus</Text>
-                    </TouchableOpacity>
+                  <View key={idx} style={styles.photoCard}>
+                    {photo.uri && (
+                      <Image
+                        source={{ uri: photo.uri }}
+                        style={styles.previewImage}
+                      />
+                    )}
+                    <View style={styles.photoActions}>
+                      <TouchableOpacity
+                        style={styles.retakeButton}
+                        onPress={() => {
+                          setSuratJalanPhotos(
+                            suratJalanPhotos.filter((_, i) => i !== idx)
+                          );
+                        }}
+                      >
+                        <FontAwesome5 name="trash" size={16} color="#fff" />
+                        <Text style={styles.retakeButtonText}>Hapus</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 ))}
+                
                 <TouchableOpacity
-                  style={styles.changePhotoButton}
-                  onPress={handleImagePicker} // Changed to show choice again
+                  style={styles.addMoreButton}
+                  onPress={handleImagePicker}
                   disabled={isLoading}
                 >
-                  <Text style={styles.changePhotoText}>Tambah Foto</Text>
+                  <FontAwesome5 name="plus" size={16} color="#fff" />
+                  <Text style={styles.addMoreText}>Tambah Foto</Text>
                 </TouchableOpacity>
               </View>
             ) : (
               <TouchableOpacity
                 style={styles.photoButton}
-                onPress={handleImagePicker} // Now shows choice between camera/gallery
+                onPress={handleImagePicker}
                 disabled={isLoading}
               >
                 <FontAwesome5 name="camera" size={24} color="#3498db" />
@@ -236,7 +239,7 @@ const LoadConfirmationModal: React.FC<LoadConfirmationModalProps> = ({
                 </Text>
               </TouchableOpacity>
             )}
-        </View>
+          </View>
         </ScrollView>
 
         <View style={styles.actions}>
@@ -321,6 +324,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     textAlign: "center",
     fontWeight: "bold",
+    minHeight: 50,
   },
   unitText: {
     fontSize: 16,
@@ -334,38 +338,76 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: "#3498db",
-    borderStyle: "dashed",
-    borderRadius: 8,
+    borderRadius: 12,
     paddingVertical: 20,
-    backgroundColor: "#f8f9fa",
+    backgroundColor: "#ebf5fb",
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
   },
   photoButtonText: {
     fontSize: 16,
     color: "#3498db",
     marginLeft: 10,
-    fontWeight: "500",
+    fontWeight: "600",
   },
-  photoPreview: {
+  photoPreviewContainer: {
+    marginBottom: 15,
+  },
+  photoCard: {
+    backgroundColor: "#f8f9fa",
+    borderRadius: 10,
+    marginBottom: 12,
+    overflow: "hidden",
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  previewImage: {
+    width: "100%",
+    height: 120,
+    resizeMode: "cover",
+  },
+  photoActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    padding: 10,
+  },
+  retakeButton: {
+    flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#e8f5e8",
-    padding: 20,
-    borderRadius: 8,
+    backgroundColor: "#e74c3c",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
   },
-  photoSuccessText: {
-    fontSize: 16,
-    color: "#27ae60",
-    marginVertical: 10,
-    fontWeight: "500",
+  retakeButtonText: {
+    color: "#fff",
+    marginLeft: 6,
+    fontSize: 14,
+    fontWeight: "600",
   },
-  changePhotoButton: {
-    backgroundColor: "#6c757d",
-    paddingVertical: 8,
-    paddingHorizontal: 15,
-    borderRadius: 5,
+  addMoreButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#27ae60",
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginTop: 8,
   },
-  changePhotoText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+  addMoreText: {
+    color: "#fff",
+    marginLeft: 8,
+    fontSize: 14,
+    fontWeight: "600",
+  },
   actions: {
     flexDirection: "row",
     padding: 20,
@@ -379,6 +421,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ddd",
     alignItems: "center",
+    backgroundColor: "#f8f9fa",
   },
   cancelButtonText: { fontSize: 16, color: "#666", fontWeight: "600" },
   confirmButton: {
