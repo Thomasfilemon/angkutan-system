@@ -348,7 +348,7 @@ export default function VehicleScreen() {
       </View>
 
       {/* Service Information Card */}
-      <View style={styles.card}>
+      <View style={[styles.card, styles.lastCard]}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>Service Information</Text>
         </View>
@@ -380,7 +380,7 @@ export default function VehicleScreen() {
       </View>
 
       {/* Service History Card */}
-      <View style={styles.card}>
+      {/* <View style={styles.card}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>Recent Service History</Text>
         </View>
@@ -420,7 +420,7 @@ export default function VehicleScreen() {
             </View>
           )}
         </View>
-      </View>
+      </View> */}
     </ScrollView>
   );
 }
@@ -440,6 +440,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  lastCard: {
+    marginBottom: 32, // Add space at the bottom
   },
   cardHeader: {
     flexDirection: "row",

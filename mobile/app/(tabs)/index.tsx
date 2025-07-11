@@ -61,6 +61,7 @@ interface DeliveryOrder {
   };
   created_at: string;
   driver_name?: string;
+  unit: 'kilogram' | 'ton' | 'kubik';
 }
 
 const DriverDashboard = () => {
@@ -92,6 +93,15 @@ const DriverDashboard = () => {
       setIsLoading(false);
       setRefreshing(false);
     }
+  };
+
+  const getUnitDisplay = (unit: DeliveryOrder['unit']) => {
+    const unitMap = {
+      kilogram: "kg",
+      ton: "ton",
+      kubik: "m³",
+    };
+    return unitMap[unit] || unit;
   };
 
   const handleUpdateStatus = async (orderId: number, action: string) => {
@@ -304,9 +314,9 @@ const DriverDashboard = () => {
         <View style={styles.cardBody}>
           <Text style={styles.customerName}>{item.customer_name}</Text>
           <Text style={styles.itemDetails}>
-            {item.item_name} - {item.minimal_load_quantity} Ton (minimal)
+            {item.item_name} - {item.minimal_load_quantity} {getUnitDisplay(item.unit)} (minimal)
             {item.actual_load_quantity &&
-              ` → ${item.actual_load_quantity} Ton (aktual)`}
+              ` → ${item.actual_load_quantity} ${getUnitDisplay(item.unit)} (aktual)`}
           </Text>
           <View style={styles.locationContainer}>
             <FontAwesome5 name="arrow-up" size={14} color="#3498db" />
@@ -319,12 +329,7 @@ const DriverDashboard = () => {
         </View>
 
         {/* FINANCIAL SUMMARY */}
-        <View
-          style={[
-            styles.allowanceContainer,
-            isCompleted && styles.completedAllowanceContainer,
-          ]}
-        >
+        <View style={styles.allowanceContainer}>
           <View style={styles.allowanceItem}>
             <Text style={styles.allowanceLabel}>Uang Jalan</Text>
             <Text style={styles.allowanceValue}>
@@ -335,6 +340,13 @@ const DriverDashboard = () => {
             <Text style={styles.allowanceLabel}>Sisa Saldo</Text>
             <Text style={[styles.allowanceValue, styles.remainingValue]}>
               Rp {Number(item.remaining_allowance).toLocaleString("id-ID")}
+            </Text>
+          </View>
+          {/* Add unit display */}
+          <View style={styles.allowanceItem}>
+            <Text style={styles.allowanceLabel}>Satuan</Text>
+            <Text style={styles.allowanceValue}>
+              {getUnitDisplay(item.unit)}
             </Text>
           </View>
         </View>

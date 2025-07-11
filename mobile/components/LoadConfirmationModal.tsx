@@ -61,10 +61,20 @@ const LoadConfirmationModal: React.FC<LoadConfirmationModalProps> = ({
         "Pilih Foto Surat Jalan",
         "Bagaimana cara Anda ingin mengambil foto?",
         [
-          { text: "Kamera", onPress: takePicture },
-          { text: "Galeri", onPress: pickFromGallery },
-          { text: "Batal", style: "cancel" },
-        ]
+          { 
+            text: "Kamera", 
+            onPress: takePicture 
+          },
+          { 
+            text: "Galeri", 
+            onPress: pickFromGallery 
+          },
+          { 
+            text: "Batal", 
+            style: "cancel" 
+          },
+        ],
+        { cancelable: true }
       );
     }
   };
@@ -208,7 +218,7 @@ const LoadConfirmationModal: React.FC<LoadConfirmationModalProps> = ({
                 ))}
                 <TouchableOpacity
                   style={styles.changePhotoButton}
-                  onPress={pickFromGallery}
+                  onPress={handleImagePicker} // Changed to show choice again
                   disabled={isLoading}
                 >
                   <Text style={styles.changePhotoText}>Tambah Foto</Text>
@@ -217,7 +227,7 @@ const LoadConfirmationModal: React.FC<LoadConfirmationModalProps> = ({
             ) : (
               <TouchableOpacity
                 style={styles.photoButton}
-                onPress={pickFromGallery}
+                onPress={handleImagePicker} // Now shows choice between camera/gallery
                 disabled={isLoading}
               >
                 <FontAwesome5 name="camera" size={24} color="#3498db" />
@@ -226,7 +236,7 @@ const LoadConfirmationModal: React.FC<LoadConfirmationModalProps> = ({
                 </Text>
               </TouchableOpacity>
             )}
-          </View>
+        </View>
         </ScrollView>
 
         <View style={styles.actions}>
