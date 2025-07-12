@@ -22,6 +22,17 @@ interface DeliveryOrderData {
   gaji?: number;
 }
 
+const STATUS_OPTIONS = [
+  { value: "assigned", label: "Ditugaskan" },
+  { value: "otw_to_load_location", label: "Menuju Lokasi Muat" },
+  { value: "at_load_location", label: "Di Lokasi Muat" },
+  { value: "otw_to_unload_location", label: "Menuju Lokasi Bongkar" },
+  { value: "at_unload_location", label: "Di Lokasi Bongkar" },
+  { value: "otw_to_base", label: "Perjalanan Pulang" },
+  { value: "completed", label: "Selesai" },
+  { value: "cancelled", label: "Dibatalkan" },
+];
+
 const EditDeliveryOrder: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -49,12 +60,14 @@ const EditDeliveryOrder: React.FC = () => {
     notes: "",
     trip_allowance: 0,
     gaji: 0,
+    status: "assigned",
   });
 
   useEffect(() => {
     if (id) {
       fetchDeliveryOrder();
     }
+    // eslint-disable-next-line
   }, [id]);
 
   const fetchDeliveryOrder = async () => {
@@ -76,6 +89,7 @@ const EditDeliveryOrder: React.FC = () => {
         notes: data.notes || "",
         trip_allowance: data.trip_allowance || 0,
         gaji: data.gaji || 0,
+        status: data.status || "assigned",
       });
     } catch (err: any) {
       setError(err.response?.data?.message || "Failed to fetch delivery order");
@@ -111,7 +125,6 @@ const EditDeliveryOrder: React.FC = () => {
 
       await apiClient.put(`/delivery-orders/${id}`, formData);
 
-      // Success toast/notification here
       navigate("/delivery-orders", {
         state: { message: "Delivery Order updated successfully!" },
       });
@@ -181,13 +194,37 @@ const EditDeliveryOrder: React.FC = () => {
       <div className="mb-8">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">
-              Edit Delivery Order
+            <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
+              <span>Edit Delivery Order</span>
+              {deliveryOrder?.status === "completed" && (
+                <span className="px-2 py-1 rounded bg-green-100 text-green-700 text-xs font-semibold">
+                  Completed
+                </span>
+              )}
+              {deliveryOrder?.status === "cancelled" && (
+                <span className="px-2 py-1 rounded bg-red-100 text-red-700 text-xs font-semibold">
+                  Cancelled
+                </span>
+              )}
             </h1>
-            <p className="text-gray-600 mt-2">
-              DO Number:{" "}
-              <span className="font-medium">{deliveryOrder?.do_number}</span>
-            </p>
+            <div className="flex flex-wrap gap-4 mt-2 text-sm text-gray-600">
+              <span>
+                <span className="font-medium">DO Number:</span>{" "}
+                {deliveryOrder?.do_number}
+              </span>
+              {deliveryOrder?.driver_name && (
+                <span>
+                  <span className="font-medium">Driver:</span>{" "}
+                  {deliveryOrder.driver_name}
+                </span>
+              )}
+              {deliveryOrder?.vehicle_info && (
+                <span>
+                  <span className="font-medium">Vehicle:</span>{" "}
+                  {deliveryOrder.vehicle_info}
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex space-x-3">
             <button
@@ -219,7 +256,7 @@ const EditDeliveryOrder: React.FC = () => {
       {/* Form */}
       <form
         onSubmit={handleSubmit}
-        className="bg-white shadow-lg rounded-lg p-6"
+        className="bg-white shadow-lg rounded-lg p-8 border border-gray-100"
       >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Customer Name */}
@@ -349,6 +386,26 @@ const EditDeliveryOrder: React.FC = () => {
               min="0"
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+          </div>
+
+          {/* Status */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Status
+            </label>
+            <select
+              name="status"
+              value={formData.status}
+              onChange={handleInputChange}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              required
+            >
+              {STATUS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 

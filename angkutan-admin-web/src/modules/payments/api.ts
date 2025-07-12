@@ -31,6 +31,9 @@ export const paymentsApi = {
     order?: string;
   }) => apiClient.get("/payments/invoices", { params }),
 
+  confirmForBilling: (doId: number, body = {}) =>
+    apiClient.patch(`/payments/delivery-orders/${doId}/confirm`, body),
+
   // Create invoice for DO
   createInvoice: (
     doId: number,

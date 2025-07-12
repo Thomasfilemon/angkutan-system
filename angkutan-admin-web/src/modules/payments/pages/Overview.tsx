@@ -248,7 +248,7 @@ const PaymentsOverview: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-gray-900">
-                    Pending Deliveries
+                    Pending Delivery Order Invoices & Payments
                   </p>
                   <p className="text-sm text-gray-500">
                     Manage delivery orders awaiting payment

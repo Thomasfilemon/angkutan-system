@@ -202,7 +202,7 @@ module.exports = (sequelize) => {
       case "kilogram":
         return actualQuantity * unitPrice;
       case "ton":
-        return actualQuantity * 1000 * unitPrice; // Convert ton to kg
+        return actualQuantity * unitPrice; // Convert ton to kg
       case "kubik":
         return actualQuantity * unitPrice; // Direct kubik pricing
       default:
@@ -221,7 +221,8 @@ module.exports = (sequelize) => {
       actual_total_amount: actualTotalAmount,
       ongkosan: parseFloat(this.ongkosan) || 0,
       net_profit:
-        (parseFloat(this.ongkosan) || 0) - this.getTotalDriverPayment(),
+        (actualTotalAmount || parseFloat(this.ongkosan) || 0) -
+        this.getTotalDriverPayment(),
       unit: this.unit,
       unit_display: this.getUnitDisplay(),
     };

@@ -2,6 +2,7 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import apiClient from "../../api/axiosConfig";
+import toast from "react-hot-toast";
 
 interface DOPaymentData {
   delivery_order: {
@@ -179,12 +180,6 @@ const DOPaymentManagement: React.FC = () => {
     return `Rp ${safeNumber(value).toLocaleString("id-ID")}`;
   };
 
-  const formatQuantity = (
-    value: string | number | null | undefined
-  ): string => {
-    return `${safeNumber(value).toLocaleString("id-ID")} Ton`;
-  };
-
   const calculateUnitAwareAmount = (
     quantity: number,
     unit: string,
@@ -194,7 +189,7 @@ const DOPaymentManagement: React.FC = () => {
       case "kilogram":
         return quantity * unitPrice;
       case "ton":
-        return quantity * 1000 * unitPrice; // Convert ton to kg
+        return quantity * unitPrice; // Convert ton to kg
       case "kubik":
         return quantity * unitPrice; // Direct volume pricing
       default:
@@ -224,8 +219,8 @@ const DOPaymentManagement: React.FC = () => {
   const formatUnitPrice = (price: number, unit: string): string => {
     switch (unit) {
       case "ton":
-        return `${formatCurrency(price)}/kg (${formatCurrency(
-          price * 1000
+        return `${formatCurrency(price / 1000)}/kg (${formatCurrency(
+          price
         )}/ton)`;
       case "kilogram":
         return `${formatCurrency(price)}/kg`;
@@ -305,37 +300,34 @@ const DOPaymentManagement: React.FC = () => {
     fetchDOPaymentData();
   }, [fetchDOPaymentData]);
 
-  const handleConfirmForPayment = async () => {
-    if (!doData?.delivery_order) return;
+  const handleConfirmForBilling = async () => {
+    if (!doData?.delivery_order) {
+      toast.error("Delivery Order data not found!");
+      return;
+    }
 
     try {
       setSubmitting(true);
-      const do_item = doData.delivery_order;
-      const quantity = safeNumber(
-        do_item.actual_load_quantity || do_item.minimal_load_quantity
-      );
-      const unitPrice = safeNumber(
-        do_item.purchaseOrder?.unit_price || do_item.unit_price
-      );
-      const unit = do_item.unit || "ton"; // Get the unit from DO data
 
-      // 🔥 Use unit-aware calculation instead of buggy one
-      const calculatedAmount = calculateUnitAwareAmount(
-        quantity,
-        unit,
-        unitPrice
+      // ✅ FIXED: Use the correct endpoint format
+      await apiClient.post(
+        `/api/web/payments/delivery-orders/${doData.delivery_order.id}/confirm`,
+        {
+          action: "confirm_for_billing",
+          notes: "Confirmed for payment processing",
+        }
       );
 
-      await apiClient.post(`/ritase/delivery-orders/${doId}/confirm`, {
-        final_amount: calculatedAmount,
-        notes: "Confirmed for payment processing",
-      });
+      toast.success("Delivery Order confirmed for billing successfully!");
 
-      await fetchDOPaymentData(); // Refresh data
+      // ✅ FIXED: Refresh data after confirmation
+      await fetchDOPaymentData();
     } catch (err: any) {
-      setError(
-        err.response?.data?.message || "Failed to confirm DO for payment"
-      );
+      const errorMsg =
+        err.response?.data?.message ||
+        "Failed to confirm Delivery Order for billing";
+      toast.error(errorMsg);
+      console.error("Confirmation error:", err);
     } finally {
       setSubmitting(false);
     }
@@ -526,6 +518,21 @@ const DOPaymentManagement: React.FC = () => {
   );
   const unit = do_item.unit || "ton"; // Fallback to ton
 
+  const canConfirmBilling = () => {
+    const confirmationStatus = paymentSummary?.confirmation_status || "pending";
+    const deliveryStatus = do_item?.status || "pending";
+
+    return (
+      deliveryStatus === "completed" &&
+      ["pending", "awaiting_confirmation"].includes(confirmationStatus)
+    );
+  };
+
+  const canDoActions = () => {
+    const confirmationStatus = paymentSummary?.confirmation_status || "pending";
+    return confirmationStatus === "confirmed";
+  };
+
   const calculatedBillableAmount = calculateUnitAwareAmount(
     billableQuantity,
     unit,
@@ -534,7 +541,6 @@ const DOPaymentManagement: React.FC = () => {
   const paymentVariance =
     paymentSummary.total_paid - paymentSummary.calculated_bill;
   const isOverpaid = paymentVariance > 0;
-  const isUnderpaid = paymentVariance < 0;
 
   return (
     <div className="space-y-6 pb-8">
@@ -567,11 +573,65 @@ const DOPaymentManagement: React.FC = () => {
             <p className="text-gray-600">
               {do_item.do_number} • {do_item.customer_name}
             </p>
+
+            {/* ✅ NEW: Confirmation status indicator */}
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-sm text-gray-500">
+                Confirmation Status:
+              </span>
+              <span
+                className={`px-2 py-1 rounded-full text-xs font-medium ${
+                  paymentSummary?.confirmation_status === "confirmed"
+                    ? "bg-green-100 text-green-800"
+                    : paymentSummary?.confirmation_status ===
+                      "awaiting_confirmation"
+                    ? "bg-yellow-100 text-yellow-800"
+                    : "bg-gray-100 text-gray-800"
+                }`}
+              >
+                {paymentSummary?.confirmation_status
+                  ?.replace("_", " ")
+                  .toUpperCase() || "PENDING"}
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Quick Status */}
+        {/* ✅ ENHANCED: Smart action buttons in header */}
         <div className="flex items-center space-x-3">
+          {/* Confirmation button if needed */}
+          {canConfirmBilling() && (
+            <button
+              onClick={handleConfirmForBilling}
+              disabled={submitting}
+              className="bg-yellow-600 text-white px-6 py-2 rounded-lg hover:bg-yellow-700 transition-colors disabled:opacity-50 flex items-center gap-2 shadow-md"
+            >
+              {submitting ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  Confirming...
+                </>
+              ) : (
+                <>
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  Confirm for Billing
+                </>
+              )}
+            </button>
+          )}
+          {/* Quick Status */}
           <span
             className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(
               paymentSummary?.payment_status || "unknown"
@@ -607,7 +667,7 @@ const DOPaymentManagement: React.FC = () => {
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-purple-100">Quantity:</span>
+                    <span className="text-purple-100">Actual Quantity:</span>
                     <span className="text-white font-medium">
                       {formatQuantityWithUnit(billableQuantity, unit)}
                     </span>
@@ -630,7 +690,9 @@ const DOPaymentManagement: React.FC = () => {
                 </h3>
                 <div className="bg-white/10 rounded-lg p-4 space-y-3">
                   <div className="flex justify-between">
-                    <span className="text-purple-100">Calculated Bill:</span>
+                    <span className="text-purple-100">
+                      Calculated Minimum Bill:
+                    </span>
                     <span className="text-white font-bold">
                       {formatCurrency(paymentSummary.calculated_bill)}
                     </span>
@@ -759,12 +821,101 @@ const DOPaymentManagement: React.FC = () => {
       </div>
 
       {/* ✅ Confirmation Alert */}
-      {paymentSummary.confirmation_status === "awaiting_confirmation" && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
+      {canConfirmBilling() && (
+        <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 rounded-xl p-6 shadow-sm">
+          <div className="flex items-start justify-between">
+            <div className="flex items-start">
+              <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mr-4">
+                <svg
+                  className="h-6 w-6 text-yellow-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"
+                  />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-yellow-800 mb-2">
+                  🚨 Action Required: Confirm DO for Payment Processing
+                </h3>
+                <div className="text-yellow-700 space-y-1">
+                  <p className="font-medium">
+                    This Delivery Order is ready for payment processing but
+                    needs confirmation first.
+                  </p>
+                  <div className="text-sm space-y-1">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                      <span>
+                        DO Status:{" "}
+                        <strong>{do_item.status?.toUpperCase()}</strong>
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
+                      <span>
+                        Confirmation:{" "}
+                        <strong>
+                          {paymentSummary?.confirmation_status
+                            ?.replace("_", " ")
+                            .toUpperCase()}
+                        </strong>
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-sm mt-2 text-yellow-600">
+                    ⚠️ You won't be able to create invoices, record payments, or
+                    make adjustments until this DO is confirmed.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={handleConfirmForBilling}
+              disabled={submitting}
+              className="bg-yellow-600 text-white px-8 py-3 rounded-lg hover:bg-yellow-700 transition-colors disabled:opacity-50 font-semibold shadow-lg flex items-center gap-2"
+            >
+              {submitting ? (
+                <>
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                  Confirming...
+                </>
+              ) : (
+                <>
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  Confirm Now
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ ENHANCED: Success confirmation message */}
+      {canDoActions() && (
+        <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
               <svg
-                className="h-8 w-8 text-yellow-600 mr-3"
+                className="h-5 w-5 text-green-600"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -773,26 +924,19 @@ const DOPaymentManagement: React.FC = () => {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   strokeWidth={2}
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"
+                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
                 />
               </svg>
-              <div>
-                <h3 className="text-lg font-medium text-yellow-800">
-                  DO Ready for Payment
-                </h3>
-                <p className="text-yellow-700">
-                  This DO has been completed and needs confirmation for payment
-                  processing.
-                </p>
-              </div>
             </div>
-            <button
-              onClick={handleConfirmForPayment}
-              disabled={submitting}
-              className="bg-yellow-600 text-white px-6 py-3 rounded-lg hover:bg-yellow-700 transition-colors disabled:opacity-50"
-            >
-              {submitting ? "Confirming..." : "Confirm for Payment"}
-            </button>
+            <div className="flex-1">
+              <h4 className="font-semibold text-green-800">
+                ✅ DO Confirmed for Payment Processing
+              </h4>
+              <p className="text-sm text-green-700">
+                You can now create invoices, record payments, and make
+                adjustments.
+              </p>
+            </div>
           </div>
         </div>
       )}
@@ -840,6 +984,22 @@ const DOPaymentManagement: React.FC = () => {
                     {tab.count}
                   </span>
                 )}
+                {/* ✅ NEW: Lock icon for disabled actions */}
+                {tab.key !== "overview" && !canDoActions() && (
+                  <svg
+                    className="w-3 h-3 text-gray-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                    />
+                  </svg>
+                )}
               </button>
             ))}
           </nav>
@@ -852,40 +1012,125 @@ const DOPaymentManagement: React.FC = () => {
             <div className="space-y-6">
               <h3 className="text-lg font-semibold">Payment Overview</h3>
 
+              {canConfirmBilling() && (
+                <div className="bg-yellow-50 border-l-4 border-yellow-400 p-6 rounded-r-lg">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-lg font-semibold text-yellow-800 mb-2">
+                        🔐 Confirmation Required
+                      </h4>
+                      <p className="text-yellow-700 mb-4">
+                        This DO must be confirmed before you can perform any
+                        payment actions.
+                      </p>
+                      <div className="text-sm text-yellow-600 space-y-1">
+                        <div>• Create invoices</div>
+                        <div>• Record payments</div>
+                        <div>• Make price adjustments</div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleConfirmForBilling}
+                      disabled={submitting}
+                      className="bg-yellow-600 text-white px-8 py-3 rounded-lg text-lg font-semibold hover:bg-yellow-700 transition-colors disabled:opacity-50 shadow-lg"
+                    >
+                      {submitting ? "Confirming..." : "Confirm DO"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Quick Actions */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <button
-                  onClick={() => setShowInvoiceForm(true)}
-                  disabled={paymentSummary.confirmation_status !== "confirmed"}
-                  className="p-6 border-2 border-dashed border-blue-300 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                {/* Create Invoice Card */}
+                <div
+                  onClick={() => {
+                    if (!canDoActions()) {
+                      toast.error("Please confirm DO for billing first!");
+                      return;
+                    }
+                    setShowInvoiceForm(true);
+                  }}
+                  className={`cursor-pointer p-6 border-2 border-dashed rounded-lg transition-all ${
+                    canDoActions()
+                      ? "border-blue-300 hover:border-blue-400 hover:bg-blue-50"
+                      : "border-gray-200 bg-gray-50 cursor-not-allowed opacity-60"
+                  }`}
+                  role="button"
+                  tabIndex={0}
                 >
                   <div className="text-center">
-                    <svg
-                      className="h-12 w-12 mx-auto mb-3 text-blue-500"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
+                    <div className="relative">
+                      <svg
+                        className={`h-12 w-12 mx-auto mb-3 ${
+                          canDoActions() ? "text-blue-500" : "text-gray-400"
+                        }`}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                        />
+                      </svg>
+                      {!canDoActions() && (
+                        <div className="absolute -top-1 -right-1 w-6 h-6 bg-gray-500 rounded-full flex items-center justify-center">
+                          <svg
+                            className="w-3 h-3 text-white"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                            />
+                          </svg>
+                        </div>
+                      )}
+                    </div>
+                    <h4
+                      className={`font-medium ${
+                        canDoActions() ? "text-gray-900" : "text-gray-500"
+                      }`}
                     >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-                      />
-                    </svg>
-                    <h4 className="font-medium text-gray-900">
                       Create Invoice
                     </h4>
-                    <p className="text-sm text-gray-600">
-                      Generate new invoice
+                    <p
+                      className={`text-sm ${
+                        canDoActions() ? "text-gray-600" : "text-gray-400"
+                      }`}
+                    >
+                      {canDoActions()
+                        ? "Generate new invoice"
+                        : "Requires confirmation"}
                     </p>
                   </div>
-                </button>
+                </div>
 
-                <button
-                  onClick={() => setShowPaymentForm(true)}
-                  disabled={doData.invoices.length === 0}
-                  className="p-6 border-2 border-dashed border-green-300 rounded-lg hover:border-green-400 hover:bg-green-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                {/* Record Payment Card */}
+                <div
+                  onClick={() => {
+                    if (!canDoActions) {
+                      toast.error(
+                        "Please confirm for billing first before recording payment!"
+                      );
+                      return;
+                    }
+                    setShowPaymentForm(true);
+                  }}
+                  className={`cursor-pointer p-6 border-2 border-dashed border-green-300 rounded-lg hover:border-green-400 hover:bg-green-50 transition-all ${
+                    !canDoActions || doData.invoices.length === 0
+                      ? "opacity-50 cursor-not-allowed"
+                      : ""
+                  }`}
+                  role="button"
+                  tabIndex={0}
                 >
                   <div className="text-center">
                     <svg
@@ -906,33 +1151,78 @@ const DOPaymentManagement: React.FC = () => {
                     </h4>
                     <p className="text-sm text-gray-600">Add new payment</p>
                   </div>
-                </button>
+                </div>
 
-                <button
-                  onClick={() => setShowAdjustmentForm(true)}
-                  disabled={paymentSummary.confirmation_status !== "confirmed"}
-                  className="p-6 border-2 border-dashed border-yellow-300 rounded-lg hover:border-yellow-400 hover:bg-yellow-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                {/* Price Adjustment Card */}
+                <div
+                  onClick={() => {
+                    if (!canDoActions) {
+                      toast.error(
+                        "Please confirm for billing first before adjustment!"
+                      );
+                      return;
+                    }
+                    setShowAdjustmentForm(true);
+                  }}
+                  className={`cursor-pointer p-6 border-2 border-dashed border-yellow-300 rounded-lg hover:border-yellow-400 hover:bg-yellow-50 transition-all ${
+                    !canDoActions ? "opacity-50 cursor-not-allowed" : ""
+                  }`}
+                  role="button"
+                  tabIndex={0}
                 >
                   <div className="text-center">
-                    <svg
-                      className="h-12 w-12 mx-auto mb-3 text-yellow-500"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
+                    <div className="relative">
+                      <svg
+                        className={`h-12 w-12 mx-auto mb-3 ${
+                          canDoActions() ? "text-yellow-500" : "text-gray-400"
+                        }`}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                        />
+                      </svg>
+                      {!canDoActions() && (
+                        <div className="absolute -top-1 -right-1 w-6 h-6 bg-gray-500 rounded-full flex items-center justify-center">
+                          <svg
+                            className="w-3 h-3 text-white"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                            />
+                          </svg>
+                        </div>
+                      )}
+                    </div>
+                    <h4
+                      className={`font-medium ${
+                        canDoActions() ? "text-gray-900" : "text-gray-500"
+                      }`}
                     >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                      />
-                    </svg>
-                    <h4 className="font-medium text-gray-900">
                       Price Adjustment
                     </h4>
-                    <p className="text-sm text-gray-600">Modify pricing</p>
+                    <p
+                      className={`text-sm ${
+                        canDoActions() ? "text-gray-600" : "text-gray-400"
+                      }`}
+                    >
+                      {canDoActions()
+                        ? "Modify pricing"
+                        : "Requires confirmation"}
+                    </p>
                   </div>
-                </button>
+                </div>
               </div>
 
               {/* Recent Activity */}
@@ -1024,13 +1314,43 @@ const DOPaymentManagement: React.FC = () => {
               <div className="flex justify-between items-center">
                 <h3 className="text-lg font-semibold">Invoice Management</h3>
                 <button
-                  onClick={() => setShowInvoiceForm(true)}
-                  disabled={paymentSummary.confirmation_status !== "confirmed"}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  onClick={() => {
+                    if (!canDoActions()) {
+                      toast.error("Please confirm DO for billing first!");
+                      return;
+                    }
+                    setShowInvoiceForm(true);
+                  }}
+                  disabled={!canDoActions()}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   + Create Invoice
                 </button>
               </div>
+
+              {!canDoActions() && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-center gap-3">
+                    <svg
+                      className="w-5 h-5 text-gray-500"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                      />
+                    </svg>
+                    <span className="text-gray-600">
+                      Invoice management is locked until DO is confirmed for
+                      billing.
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {doData.invoices.length === 0 ? (
                 <div className="text-center py-12">
@@ -1144,92 +1464,299 @@ const DOPaymentManagement: React.FC = () => {
               <div className="flex justify-between items-center">
                 <h3 className="text-lg font-semibold">Payment Records</h3>
                 <button
-                  onClick={() => setShowPaymentForm(true)}
-                  disabled={doData.invoices.length === 0}
-                  className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+                  onClick={() => {
+                    if (!canDoActions()) {
+                      toast.error("Please confirm DO for billing first!");
+                      return;
+                    }
+                    if (doData.invoices.length === 0) {
+                      toast.error(
+                        "Create an invoice first before recording payment!"
+                      );
+                      return;
+                    }
+                    setShowPaymentForm(true);
+                  }}
+                  disabled={!canDoActions() || doData.invoices.length === 0}
+                  className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
+                  {!canDoActions() || doData.invoices.length === 0 ? (
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                      />
+                    </svg>
+                  ) : (
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                      />
+                    </svg>
+                  )}
                   + Record Payment
                 </button>
               </div>
 
+              {/* ✅ ENHANCED: Smart disabled state warnings */}
+              {!canDoActions() && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-center gap-3">
+                    <svg
+                      className="w-5 h-5 text-gray-500"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                      />
+                    </svg>
+                    <div>
+                      <p className="font-medium text-gray-700">
+                        Payment Recording Locked
+                      </p>
+                      <p className="text-sm text-gray-600">
+                        Please confirm DO for billing to enable payment
+                        recording.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ✅ ENHANCED: Invoice requirement warning */}
+              {canDoActions() && doData.invoices.length === 0 && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-center gap-3">
+                    <svg
+                      className="w-5 h-5 text-blue-500"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    <div>
+                      <p className="font-medium text-blue-700">
+                        Invoice Required
+                      </p>
+                      <p className="text-sm text-blue-600">
+                        Create an invoice first before recording payments.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setShowInvoiceForm(true)}
+                      className="ml-auto px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                    >
+                      Create Invoice
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {doData.payments.length === 0 ? (
                 <div className="text-center py-12">
-                  <svg
-                    className="h-16 w-16 text-gray-400 mx-auto mb-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"
-                    />
-                  </svg>
+                  <div className="relative">
+                    <svg
+                      className={`h-16 w-16 mx-auto mb-4 ${
+                        canDoActions() && doData.invoices.length > 0
+                          ? "text-gray-400"
+                          : "text-gray-300"
+                      }`}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"
+                      />
+                    </svg>
+                    {/* ✅ ENHANCED: Lock overlay for disabled state */}
+                    {(!canDoActions() || doData.invoices.length === 0) && (
+                      <div className="absolute top-4 right-1/2 transform translate-x-1/2">
+                        <div className="w-8 h-8 bg-gray-500 rounded-full flex items-center justify-center">
+                          <svg
+                            className="w-4 h-4 text-white"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                            />
+                          </svg>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <h3 className="text-lg font-medium text-gray-900 mb-2">
                     No Payments Recorded
                   </h3>
                   <p className="text-gray-500 mb-4">
-                    Record payments received from the customer.
+                    {!canDoActions()
+                      ? "Payment recording is locked until DO is confirmed for billing."
+                      : doData.invoices.length === 0
+                      ? "Create an invoice first to enable payment recording."
+                      : "Record payments received from the customer."}
                   </p>
                   <button
-                    onClick={() => setShowPaymentForm(true)}
-                    disabled={doData.invoices.length === 0}
-                    className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+                    onClick={() => {
+                      if (!canDoActions()) {
+                        toast.error("Please confirm DO for billing first!");
+                        return;
+                      }
+                      if (doData.invoices.length === 0) {
+                        toast.error(
+                          "Create an invoice first before recording payment!"
+                        );
+                        return;
+                      }
+                      setShowPaymentForm(true);
+                    }}
+                    disabled={!canDoActions() || doData.invoices.length === 0}
+                    className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Record First Payment
+                    {!canDoActions()
+                      ? "Locked - Confirm DO First"
+                      : doData.invoices.length === 0
+                      ? "Create Invoice First"
+                      : "Record First Payment"}
                   </button>
                 </div>
               ) : (
                 <div className="space-y-4">
+                  {/* ✅ ENHANCED: Payment summary stats */}
+                  <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-lg p-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-green-600">
+                          {doData.payments.length}
+                        </div>
+                        <div className="text-sm text-green-700">
+                          Total Payments
+                        </div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-green-600">
+                          {formatCurrency(
+                            doData.payments.reduce(
+                              (sum, p) => sum + p.payment_amount,
+                              0
+                            )
+                          )}
+                        </div>
+                        <div className="text-sm text-green-700">
+                          Total Received
+                        </div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-green-600">
+                          {formatCurrency(
+                            paymentSummary.total_invoiced -
+                              doData.payments.reduce(
+                                (sum, p) => sum + p.payment_amount,
+                                0
+                              )
+                          )}
+                        </div>
+                        <div className="text-sm text-green-700">
+                          Outstanding
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ✅ ENHANCED: Payment cards with better visual design */}
                   {doData.payments.map((payment) => (
                     <div
                       key={payment.id}
-                      className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow"
+                      className="border border-gray-200 rounded-xl p-6 hover:shadow-lg transition-all duration-200 bg-white"
                     >
                       <div className="flex justify-between items-start mb-4">
-                        <div className="flex items-center space-x-3">
-                          <div className="text-2xl">
-                            {getPaymentTypeIcon(payment.payment_type)}
+                        <div className="flex items-center space-x-4">
+                          <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                            <div className="text-2xl">
+                              {getPaymentTypeIcon(payment.payment_type)}
+                            </div>
                           </div>
                           <div>
-                            <h4 className="font-semibold text-gray-900">
+                            <h4 className="font-bold text-xl text-gray-900">
                               {formatCurrency(payment.payment_amount)}
                             </h4>
                             <p className="text-sm text-gray-600">
                               {payment.payment_type.charAt(0).toUpperCase() +
                                 payment.payment_type.slice(1)}{" "}
-                              •
+                              •{" "}
                               {new Date(
                                 payment.payment_date
                               ).toLocaleDateString("id-ID")}
                             </p>
                           </div>
                         </div>
-                        <div className="text-right text-sm text-gray-500">
-                          <p>
+                        <div className="text-right">
+                          <div className="text-sm text-gray-500">
                             Recorded:{" "}
                             {new Date(payment.created_at).toLocaleDateString(
                               "id-ID"
                             )}
-                          </p>
+                          </div>
+                          {/* ✅ ENHANCED: Payment status badge */}
+                          <div className="mt-1">
+                            <span className="inline-flex px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
+                              ✅ Confirmed
+                            </span>
+                          </div>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                      {/* ✅ ENHANCED: Better grid layout for payment details */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-4">
                         {payment.payment_reference && (
-                          <div>
-                            <span className="text-gray-600">Reference:</span>
-                            <p className="font-medium">
+                          <div className="bg-gray-50 p-3 rounded-lg">
+                            <span className="text-gray-600 font-medium">
+                              Reference:
+                            </span>
+                            <p className="font-semibold text-gray-900 mt-1">
                               {payment.payment_reference}
                             </p>
                           </div>
                         )}
                         {payment.bank_account && (
-                          <div>
-                            <span className="text-gray-600">Bank Account:</span>
-                            <p className="font-medium">
+                          <div className="bg-gray-50 p-3 rounded-lg">
+                            <span className="text-gray-600 font-medium">
+                              Bank Account:
+                            </span>
+                            <p className="font-semibold text-gray-900 mt-1">
                               {payment.bank_account}
                             </p>
                           </div>
@@ -1237,21 +1764,24 @@ const DOPaymentManagement: React.FC = () => {
                       </div>
 
                       {payment.notes && (
-                        <div className="mt-3 p-3 bg-gray-50 rounded text-sm">
-                          <strong>Notes:</strong> {payment.notes}
+                        <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm">
+                          <div className="font-medium text-blue-800 mb-1">
+                            Payment Notes:
+                          </div>
+                          <p className="text-blue-700">{payment.notes}</p>
                         </div>
                       )}
 
                       {payment.attachment_url && (
-                        <div className="mt-3">
+                        <div className="mt-4 flex items-center justify-between">
                           <a
                             href={payment.attachment_url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center px-3 py-1 bg-blue-100 text-blue-800 rounded text-sm hover:bg-blue-200 transition-colors"
+                            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-md"
                           >
                             <svg
-                              className="h-4 w-4 mr-1"
+                              className="h-4 w-4 mr-2"
                               fill="none"
                               viewBox="0 0 24 24"
                               stroke="currentColor"
@@ -1265,6 +1795,27 @@ const DOPaymentManagement: React.FC = () => {
                             </svg>
                             View Receipt
                           </a>
+                          {/* ✅ ENHANCED: Action buttons for payment */}
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => {
+                                // Handle edit payment
+                                console.log("Edit payment:", payment.id);
+                              }}
+                              className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => {
+                                // Handle delete payment
+                                console.log("Delete payment:", payment.id);
+                              }}
+                              className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition-colors"
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1280,93 +1831,309 @@ const DOPaymentManagement: React.FC = () => {
               <div className="flex justify-between items-center">
                 <h3 className="text-lg font-semibold">Price Adjustments</h3>
                 <button
-                  onClick={() => setShowAdjustmentForm(true)}
-                  disabled={paymentSummary.confirmation_status !== "confirmed"}
-                  className="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition-colors disabled:opacity-50"
+                  onClick={() => {
+                    if (!canDoActions()) {
+                      toast.error("Please confirm DO for billing first!");
+                      return;
+                    }
+                    setShowAdjustmentForm(true);
+                  }}
+                  disabled={!canDoActions()}
+                  className="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
+                  {!canDoActions() ? (
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                      />
+                    </svg>
+                  ) : (
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                      />
+                    </svg>
+                  )}
                   + Create Adjustment
                 </button>
               </div>
 
+              {/* ✅ ENHANCED: Smart disabled state warnings */}
+              {!canDoActions() && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-center gap-3">
+                    <svg
+                      className="w-5 h-5 text-gray-500"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                      />
+                    </svg>
+                    <div>
+                      <p className="font-medium text-gray-700">
+                        Price Adjustments Locked
+                      </p>
+                      <p className="text-sm text-gray-600">
+                        Please confirm DO for billing to enable price
+                        adjustments.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {doData.adjustments.length === 0 ? (
                 <div className="text-center py-12">
-                  <svg
-                    className="h-16 w-16 text-gray-400 mx-auto mb-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                    />
-                  </svg>
+                  <div className="relative">
+                    <svg
+                      className={`h-16 w-16 mx-auto mb-4 ${
+                        canDoActions() ? "text-gray-400" : "text-gray-300"
+                      }`}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                      />
+                    </svg>
+                    {/* ✅ ENHANCED: Lock overlay for disabled state */}
+                    {!canDoActions() && (
+                      <div className="absolute top-4 right-1/2 transform translate-x-1/2">
+                        <div className="w-8 h-8 bg-gray-500 rounded-full flex items-center justify-center">
+                          <svg
+                            className="w-4 h-4 text-white"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                            />
+                          </svg>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <h3 className="text-lg font-medium text-gray-900 mb-2">
                     No Adjustments
                   </h3>
                   <p className="text-gray-500 mb-4">
-                    Create adjustments for special cases like accidents or
-                    additional charges.
+                    {!canDoActions()
+                      ? "Price adjustments are locked until DO is confirmed for billing."
+                      : "Create adjustments for special cases like accidents or additional charges."}
                   </p>
                   <button
-                    onClick={() => setShowAdjustmentForm(true)}
-                    disabled={
-                      paymentSummary.confirmation_status !== "confirmed"
-                    }
-                    className="bg-yellow-600 text-white px-6 py-3 rounded-lg hover:bg-yellow-700 transition-colors disabled:opacity-50"
+                    onClick={() => {
+                      if (!canDoActions()) {
+                        toast.error("Please confirm DO for billing first!");
+                        return;
+                      }
+                      setShowAdjustmentForm(true);
+                    }}
+                    disabled={!canDoActions()}
+                    className="bg-yellow-600 text-white px-6 py-3 rounded-lg hover:bg-yellow-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Create First Adjustment
+                    {!canDoActions()
+                      ? "Locked - Confirm DO First"
+                      : "Create First Adjustment"}
                   </button>
                 </div>
               ) : (
                 <div className="space-y-4">
+                  {/* ✅ ENHANCED: Adjustment summary stats */}
+                  <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 rounded-lg p-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-yellow-600">
+                          {doData.adjustments.length}
+                        </div>
+                        <div className="text-sm text-yellow-700">
+                          Total Adjustments
+                        </div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-yellow-600">
+                          {formatCurrency(
+                            doData.adjustments.reduce(
+                              (sum, adj) => sum + adj.adjustment_amount,
+                              0
+                            )
+                          )}
+                        </div>
+                        <div className="text-sm text-yellow-700">
+                          Total Adjustments
+                        </div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-yellow-600">
+                          {formatCurrency(
+                            doData.adjustments.reduce(
+                              (sum, adj) => sum + adj.final_amount,
+                              0
+                            )
+                          )}
+                        </div>
+                        <div className="text-sm text-yellow-700">
+                          Final Amount
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ✅ ENHANCED: Adjustment cards with better visual design */}
                   {doData.adjustments.map((adjustment) => (
                     <div
                       key={adjustment.id}
-                      className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow"
+                      className="border border-gray-200 rounded-xl p-6 hover:shadow-lg transition-all duration-200 bg-white"
                     >
                       <div className="flex justify-between items-start mb-4">
-                        <div>
-                          <h4 className="font-semibold text-gray-900 capitalize">
-                            {safeReplace(
-                              adjustment?.adjustment_type,
-                              "_",
-                              " "
-                            ) || "Unknown"}
-                          </h4>
-                          <p className="text-sm text-gray-600">
-                            {new Date(adjustment.created_at).toLocaleDateString(
-                              "id-ID"
-                            )}
-                          </p>
+                        <div className="flex items-center space-x-4">
+                          <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center">
+                            <svg
+                              className="w-6 h-6 text-yellow-600"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                              />
+                            </svg>
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-lg text-gray-900 capitalize">
+                              {safeReplace(
+                                adjustment?.adjustment_type,
+                                "_",
+                                " "
+                              ) || "Unknown"}
+                            </h4>
+                            <p className="text-sm text-gray-600">
+                              {new Date(
+                                adjustment.created_at
+                              ).toLocaleDateString("id-ID")}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          {/* ✅ ENHANCED: Adjustment type badge */}
+                          <span
+                            className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                              adjustment.adjustment_amount > 0
+                                ? "bg-green-100 text-green-800"
+                                : "bg-red-100 text-red-800"
+                            }`}
+                          >
+                            {adjustment.adjustment_amount > 0
+                              ? "📈 Increase"
+                              : "📉 Decrease"}
+                          </span>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-4 text-sm mb-4">
-                        <div>
-                          <span className="text-gray-600">Original:</span>
-                          <p className="font-medium">
+                      {/* ✅ ENHANCED: Better financial overview with visual cards */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm mb-4">
+                        <div className="bg-gray-50 p-4 rounded-lg text-center">
+                          <span className="text-gray-600 font-medium block mb-2">
+                            Original Amount
+                          </span>
+                          <p className="font-bold text-xl text-gray-900">
                             {formatCurrency(adjustment.original_amount)}
                           </p>
                         </div>
-                        <div>
-                          <span className="text-gray-600">Adjusted:</span>
-                          <p className="font-medium">
+                        <div
+                          className={`p-4 rounded-lg text-center ${
+                            adjustment.adjustment_amount > 0
+                              ? "bg-green-50"
+                              : "bg-red-50"
+                          }`}
+                        >
+                          <span className="text-gray-600 font-medium block mb-2">
+                            Adjustment
+                          </span>
+                          <p
+                            className={`font-bold text-xl ${
+                              adjustment.adjustment_amount > 0
+                                ? "text-green-600"
+                                : "text-red-600"
+                            }`}
+                          >
+                            {adjustment.adjustment_amount > 0 ? "+" : ""}
                             {formatCurrency(adjustment.adjustment_amount)}
                           </p>
                         </div>
-                        <div>
-                          <span className="text-gray-600">Final:</span>
-                          <p className="font-medium text-blue-600">
+                        <div className="bg-blue-50 p-4 rounded-lg text-center">
+                          <span className="text-gray-600 font-medium block mb-2">
+                            Final Amount
+                          </span>
+                          <p className="font-bold text-xl text-blue-600">
                             {formatCurrency(adjustment.final_amount)}
                           </p>
                         </div>
                       </div>
 
-                      <div className="p-3 bg-gray-50 rounded text-sm">
-                        <strong>Reason:</strong> {adjustment.reason}
+                      {/* ✅ ENHANCED: Better reason display */}
+                      <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <div className="font-medium text-yellow-800 mb-2">
+                          Adjustment Reason:
+                        </div>
+                        <p className="text-yellow-700 text-sm leading-relaxed">
+                          {adjustment.reason}
+                        </p>
+                      </div>
+
+                      {/* ✅ ENHANCED: Action buttons for adjustment */}
+                      <div className="mt-4 flex justify-end gap-2">
+                        <button
+                          onClick={() => {
+                            // Handle edit adjustment
+                            console.log("Edit adjustment:", adjustment.id);
+                          }}
+                          className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => {
+                            // Handle delete adjustment
+                            console.log("Delete adjustment:", adjustment.id);
+                          }}
+                          className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition-colors"
+                        >
+                          Delete
+                        </button>
                       </div>
                     </div>
                   ))}

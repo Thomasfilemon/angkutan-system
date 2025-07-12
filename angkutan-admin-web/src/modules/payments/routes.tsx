@@ -4,6 +4,7 @@ import PaymentsOverview from "./pages/Overview";
 import DeliveryList from "./pages/DeliveryList";
 import InvoiceList from "./pages/InvoiceList";
 import BulkInvoiceWizard from "./pages/BulkInvoiceWizard";
+import CreateInvoice from "./pages/CreateInvoice"; // <-- Tambahkan ini
 
 const PaymentsRoutes: React.FC = () => {
   return (
@@ -12,6 +13,10 @@ const PaymentsRoutes: React.FC = () => {
       <Route path="deliveries" element={<DeliveryList />} />
       <Route path="invoices" element={<InvoiceList />} />
       <Route path="bulk" element={<BulkInvoiceWizard />} />
+      <Route
+        path="delivery-orders/:doId/invoices/create"
+        element={<CreateInvoice />}
+      />
     </Routes>
   );
 };

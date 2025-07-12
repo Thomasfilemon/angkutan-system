@@ -523,8 +523,8 @@ INSERT INTO purchase_orders (
   'Batu Split', 
   1000.00, 
   'ton', 
-  11000, -- Rp 11,000 per kg
-  11000000000, -- 1000 ton × Rp 11,000/kg × 1000  = Rp 11,000,000,000
+  110000, -- Rp 110,000 per ton
+  110000000, -- 1000 ton × Rp 110,000  = Rp 110,000,000
   'Gunung Kunyit, Bandar Lampung',
   'Proyek Pembangunan Smelter, Serang',
   '2025-01-01',
@@ -576,8 +576,8 @@ INSERT INTO delivery_orders (
   45.00, -- Target: 45 ton
   45.25, -- Actual: 45.25 ton (slight excess)
   'ton',
-  11000, -- Rp 11,000 per kg
-  497750000, -- 45.25 ton × Rp 11,000/kg × 1,000 = Rp 497,750,000
+  110000, -- Rp 110,000 per ton
+  4977500, -- 45.25 ton × Rp 110,000/ton = Rp 4,977,500
   'lunas',
   '2025-03-10',
   'Quarry Sukabumi, Jawa Barat',
@@ -593,7 +593,7 @@ INSERT INTO delivery_orders (
   '2025-01-10 18:00:00+07', -- Selesai trip
   2500000, -- Uang jalan Rp 2,500,000
   700000,  -- Gaji Rp 700,000
-  494550000, -- Ongkosan: 497,750,000 - 2,500,000 - 700,000 = 494,550,000
+  1777500, -- Ongkosan: 4,977,500 - 2,500,000 - 700,000 = 1,777,500
   '{uploads/surat_jalan/DO-250610-01-surat-jalan.jpg}',
   'confirmed',
   '2025-01-09 15:00:00+07' -- DO dibuat sehari sebelumnya
@@ -610,8 +610,8 @@ INSERT INTO delivery_orders (
   65.00, -- Target: 65 ton
   64.75, -- Actual: 64.75 ton (slight shortage)
   'ton',
-  11000, -- Rp 11,000 per kg
-  712250000, -- 64.75 ton × Rp 11,000/kg × 1,000 = Rp 712,250,000
+  110000, -- Rp 110,000 per ton
+  7122500, -- 64.75 ton × Rp 110,000/ton = Rp 7,122,500
   'lunas',
   '2025-02-10',
   'Quarry Sukabumi, Jawa Barat',
@@ -627,7 +627,7 @@ INSERT INTO delivery_orders (
   '2025-01-30 17:30:00+07', -- Selesai trip
   2300000, -- Uang jalan Rp 2,300,000 (sedikit lebih mahal)
   650000,  -- Gaji Rp 650,000
-  709300000, -- Ongkosan: 712,250,000 - 2,300,000 - 650,000 = 9,038,000
+  4172500, -- Ongkosan: 7,122,500 - 2,300,000 - 650,000 = 4,172,500
   '{uploads/surat_jalan/DO-250630-02-surat-jalan.jpg}',
   'confirmed',
   '2025-01-29 16:00:00+07' -- DO dibuat sehari sebelumnya
@@ -683,11 +683,11 @@ INSERT INTO delivery_order_invoices (
 ((SELECT id FROM delivery_orders WHERE do_number = 'DO-250110-01'),
  'INV/2025/01/010',
  '2025-01-11',
- 497750000, -- Gross amount
+ 4977500, -- Gross amount
  '2025-03-11',
  0.50, -- PPh 0.5%
- 2488750, -- PPh amount: 497,750,000 × 0.5%
- 500238750, -- Net: 497,750,000 + 2,488,750
+ 24887.5, -- PPh amount: 4,977,500 × 0.5%
+ 5002387.5, -- Net: 4,977,500 + 24,887.5
  'paid',
  'Invoice untuk pengiriman batu split batch 1',
  (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
@@ -697,11 +697,11 @@ INSERT INTO delivery_order_invoices (
 ((SELECT id FROM delivery_orders WHERE do_number = 'DO-250129-02'),
  'INV/2025/01/029',
  '2025-01-30',
- 712250000, -- Gross amount
+ 7122500, -- Gross amount
  '2025-05-30',
  0.50, -- PPh 0.5%
- 3561250, -- PPh amount: 712,250,000 × 0.5%
- 715811250, -- Net: 712,250,000 + 3,561,250
+ 35612.5, -- PPh amount: 7,122,500 × 0.5%
+ 7158112.5, -- Net: 7,122,500 + 35,612.5
  'paid',
  'Invoice untuk pengiriman batu split batch 2',
  (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
@@ -722,7 +722,7 @@ INSERT INTO delivery_order_payments (
  (SELECT id FROM delivery_order_invoices WHERE invoice_number = 'INV/2025/01/010'),
  'TRF-20250115-001',
  'transfer',
- 500238750,
+ 5002387.5,
  '2025-01-15',
  'Pembayaran lunas DO-250110-01 via transfer BCA'),
 
@@ -731,7 +731,7 @@ INSERT INTO delivery_order_payments (
  (SELECT id FROM delivery_order_invoices WHERE invoice_number = 'INV/2025/01/029'),
  'TRF-20250205-002',
  'transfer',
- 715811250,
+ 7158112.5,
  '2025-02-05',
  'Pembayaran lunas DO-250129-02 via transfer BCA');
 

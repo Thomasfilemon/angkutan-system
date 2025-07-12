@@ -578,7 +578,7 @@ const POSpecificRitaseTable: React.FC = () => {
                   <td className="px-6 py-4 text-right text-sm font-medium">
                     <div className="flex items-center justify-end space-x-2">
                       <Link
-                        to={`/delivery-orders/${do_.id}`}
+                        to={`/delivery-orders/${do_.id}/payment`}
                         className="text-indigo-600 hover:text-indigo-900 text-xs"
                       >
                         Details

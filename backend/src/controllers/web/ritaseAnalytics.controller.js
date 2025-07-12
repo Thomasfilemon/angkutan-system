@@ -247,7 +247,7 @@ exports.getComprehensiveRitaseTable = async (req, res, next) => {
         case "kilogram":
           return quantity * price;
         case "ton":
-          return quantity * 1000 * price; // ✅ Convert ton to kg pricing
+          return quantity * price; // ✅ Convert ton to kg pricing
         case "kubik":
           return quantity * price; // Direct volume pricing
         default:
@@ -312,9 +312,9 @@ exports.getComprehensiveRitaseTable = async (req, res, next) => {
           )}/${unitDisplay}`,
           total_calculation:
             orderUnit === "ton"
-              ? `${actualQuantity} ton × 1000 × Rp ${unitPrice.toLocaleString(
+              ? `${actualQuantity} ton × Rp ${unitPrice.toLocaleString(
                   "id-ID"
-                )}/kg`
+                )}/ton`
               : `${actualQuantity} ${unitDisplay} × Rp ${unitPrice.toLocaleString(
                   "id-ID"
                 )}/${unitDisplay}`,
@@ -554,7 +554,7 @@ exports.getDashboardMetrics = async (req, res, next) => {
         case "kilogram":
           return quantity * price;
         case "ton":
-          return quantity * 1000 * price; // 🎯 FIXED: Convert ton to kg
+          return quantity * price; // 🎯 FIXED: Convert ton to kg
         case "kubik":
           return quantity * price; // Direct kubik pricing
         default:
@@ -812,7 +812,7 @@ exports.getPOComprehensiveData = async (req, res, next) => {
         case "kilogram":
           return qty * price;
         case "ton":
-          return qty * 1000 * price; // Convert ton to kg for pricing
+          return qty * price; // Convert ton to kg for pricing
         case "kubik":
           return qty * price; // Direct kubik pricing
         default:

@@ -327,20 +327,6 @@ const ComprehensiveRitaseTable: React.FC = () => {
     setSearchParams(params);
   }, [filters, setSearchParams]);
 
-  // Status badge styling
-  const getStatusBadge = (status: string) => {
-    const config = {
-      lunas: "bg-green-100 text-green-800 border-green-200",
-      deposit: "bg-blue-100 text-blue-800 border-blue-200",
-      proses_tagihan: "bg-yellow-100 text-yellow-800 border-yellow-200",
-      awaiting_confirmation: "bg-orange-100 text-orange-800 border-orange-200",
-    };
-    return (
-      config[status as keyof typeof config] ||
-      "bg-gray-100 text-gray-800 border-gray-200"
-    );
-  };
-
   // Sorting handler
   const handleSort = (key: string) => {
     setSortConfig((prev) => ({
@@ -1102,6 +1088,8 @@ const ComprehensiveRitaseTable: React.FC = () => {
                           >
                             Detail DO
                           </button>
+                          {/* pemisah */}
+                          <span className="mx-2 text-gray-400">|</span>
                           <button
                             onClick={() =>
                               navigate(

@@ -1,7 +1,6 @@
 // src/pages/DeliveryOrderDetail.tsx
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import toast from "react-hot-toast";
 import apiClient from "../api/axiosConfig";
 
 interface DeliveryOrderDetail {
@@ -86,9 +85,7 @@ const DeliveryOrderDetailPage = () => {
       case "kilogram":
         return `${quantity} kg × Rp ${unitPrice.toLocaleString("id-ID")}/kg`;
       case "ton":
-        return `${quantity} ton × 1000 kg/ton × Rp ${unitPrice.toLocaleString(
-          "id-ID"
-        )}/kg`;
+        return `${quantity} ton × Rp ${unitPrice.toLocaleString("id-ID")}/ton`;
       case "kubik":
         return `${quantity} m³ × Rp ${unitPrice.toLocaleString("id-ID")}/m³`;
       default:
@@ -182,9 +179,6 @@ const DeliveryOrderDetailPage = () => {
     return <div className="text-center p-8">Delivery order not found.</div>;
 
   const unitDisplay = getUnitDisplay(deliveryOrder.unit);
-  const poUnitDisplay = getUnitDisplay(
-    deliveryOrder.purchaseOrder?.unit || deliveryOrder.unit
-  );
 
   return (
     <div className="max-w-7xl mx-auto p-6">
@@ -637,25 +631,26 @@ const DeliveryOrderDetailPage = () => {
         </div>
 
         {/* Surat Jalan Photo */}
-        {Array.isArray(deliveryOrder.surat_jalan_photo_url) && deliveryOrder.surat_jalan_photo_url.length > 0 && (
-          <div className="lg:col-span-3 bg-white shadow-md rounded-lg p-6">
-            <h2 className="text-xl font-semibold mb-4">Surat Jalan Photos</h2>
-            <div className="flex flex-wrap gap-4">
-              {deliveryOrder.surat_jalan_photo_url.map((url, idx) => (
-                <div key={idx} className="max-w-xs">
-                  <img
-                    src={`${process.env.REACT_APP_BACKEND_URL || ""}/${url}`}
-                    alt={`Surat Jalan ${idx + 1}`}
-                    className="w-full h-auto rounded-lg border border-gray-300"
-                  />
-                  <div className="text-xs text-gray-500 mt-1 text-center">
-                    Surat Jalan {idx + 1}
+        {Array.isArray(deliveryOrder.surat_jalan_photo_url) &&
+          deliveryOrder.surat_jalan_photo_url.length > 0 && (
+            <div className="lg:col-span-3 bg-white shadow-md rounded-lg p-6">
+              <h2 className="text-xl font-semibold mb-4">Surat Jalan Photos</h2>
+              <div className="flex flex-wrap gap-4">
+                {deliveryOrder.surat_jalan_photo_url.map((url, idx) => (
+                  <div key={idx} className="max-w-xs">
+                    <img
+                      src={`${process.env.REACT_APP_BACKEND_URL || ""}/${url}`}
+                      alt={`Surat Jalan ${idx + 1}`}
+                      className="w-full h-auto rounded-lg border border-gray-300"
+                    />
+                    <div className="text-xs text-gray-500 mt-1 text-center">
+                      Surat Jalan {idx + 1}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
       </div>
     </div>
   );

@@ -398,7 +398,6 @@ exports.getPurchaseOrderPaymentDetail = async (req, res, next) => {
         } else if (do_item.minimal_load_quantity) {
           quantityKg = parseFloat(do_item.minimal_load_quantity);
         }
-        // Jika satuan di DB adalah ton, tambahkan: quantityKg *= 1000;
 
         // 2. Ambil unit price dari PO
         const unitPrice = parseFloat(purchaseOrder.unit_price) || 0;
@@ -605,7 +604,7 @@ exports.getDeliveryOrderPaymentDetail = async (req, res, next) => {
         case "kilogram":
           return quantity * unitPrice;
         case "ton":
-          return quantity * 1000 * unitPrice; // Convert ton to kg
+          return quantity * unitPrice; // Convert ton to kg
         case "kubik":
           return quantity * unitPrice; // Direct volume pricing
         default:

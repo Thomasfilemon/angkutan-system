@@ -20,7 +20,7 @@ const calculateTotalAmount = (quantity, unitPrice, unit) => {
     case "kilogram":
       return qty * price;
     case "ton":
-      return qty * 1000 * price; // Convert ton to kg for pricing
+      return qty * price; // Convert ton to kg for pricing
     case "kubik":
       return qty * price; // Direct kubik pricing
     default:
