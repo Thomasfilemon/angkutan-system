@@ -92,9 +92,13 @@ module.exports = (sequelize) => {
 
       // === PAYMENT FIELDS ===
       payment_status: {
-        type: DataTypes.STRING(20),
+        type: DataTypes.STRING(30),
         defaultValue: "proses_tagihan",
-        validate: { isIn: [["lunas", "deposit", "proses_tagihan"]] },
+        validate: {
+          isIn: [
+            ["awaiting_confirmation", "lunas", "deposit", "proses_tagihan"],
+          ],
+        },
       },
       payment_type: {
         type: DataTypes.STRING(20),
@@ -103,6 +107,32 @@ module.exports = (sequelize) => {
       deposit_amount: { type: DataTypes.DECIMAL, defaultValue: 0 },
       invoice_amount: { type: DataTypes.DECIMAL },
       due_date: { type: DataTypes.DATE },
+
+      payment_confirmation_status: {
+        type: DataTypes.STRING(30),
+        defaultValue: "pending",
+        validate: {
+          isIn: [["pending", "awaiting_confirmation", "confirmed"]],
+        },
+        comment: "Status konfirmasi untuk billing process",
+      },
+      payment_confirmation_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        comment: "Timestamp when payment was confirmed for billing",
+      },
+      payment_confirmed_by: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        comment: "User ID who confirmed the payment for billing",
+      },
+
+      // ✅ ENHANCED: Add payment notes field (missing from your model)
+      payment_notes: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+        comment: "Additional payment notes",
+      },
 
       // === STATUS ===
       status: {
@@ -147,6 +177,71 @@ module.exports = (sequelize) => {
       },
     }
   );
+
+  // ✅ NEW: Payment confirmation methods
+  DeliveryOrder.prototype.canConfirmForBilling = function () {
+    return (
+      this.status === "completed" &&
+      this.payment_confirmation_status !== "confirmed"
+    );
+  };
+
+  DeliveryOrder.prototype.isConfirmedForBilling = function () {
+    return this.payment_confirmation_status === "confirmed";
+  };
+
+  DeliveryOrder.prototype.canCreateInvoice = function () {
+    return this.payment_confirmation_status === "confirmed";
+  };
+
+  DeliveryOrder.prototype.canRecordPayment = function () {
+    return (
+      this.payment_confirmation_status === "confirmed" &&
+      this.invoices &&
+      this.invoices.length > 0
+    );
+  };
+
+  // ✅ ENHANCED: Better financial summary with confirmation status
+  DeliveryOrder.prototype.getFinancialSummary = function () {
+    const actualTotalAmount = this.calculateActualTotalAmount();
+    const finalAmount =
+      parseFloat(this.final_amount) ||
+      parseFloat(this.ongkosan) ||
+      actualTotalAmount;
+
+    return {
+      trip_allowance: parseFloat(this.trip_allowance) || 0,
+      gaji: parseFloat(this.gaji) || 0,
+      total_for_driver: this.getTotalDriverPayment(),
+      minimal_total_amount: parseFloat(this.total_amount) || 0,
+      actual_total_amount: actualTotalAmount,
+      final_amount: finalAmount, // ✅ NEW: Include final amount
+      ongkosan: parseFloat(this.ongkosan) || 0,
+      net_profit: finalAmount - this.getTotalDriverPayment(),
+      unit: this.unit,
+      unit_display: this.getUnitDisplay(),
+
+      // ✅ NEW: Payment status info
+      payment_confirmation_status: this.payment_confirmation_status,
+      can_confirm_billing: this.canConfirmForBilling(),
+      can_create_invoice: this.canCreateInvoice(),
+      can_record_payment: this.canRecordPayment(),
+    };
+  };
+
+  // ✅ NEW: Get payment confirmation status display
+  DeliveryOrder.prototype.getPaymentConfirmationStatusText = function () {
+    const statusMap = {
+      pending: "Menunggu Konfirmasi",
+      awaiting_confirmation: "Menunggu Konfirmasi",
+      confirmed: "Dikonfirmasi untuk Tagihan",
+    };
+    return (
+      statusMap[this.payment_confirmation_status] ||
+      this.payment_confirmation_status
+    );
+  };
 
   // === INSTANCE METHODS ===
   DeliveryOrder.prototype.getStatusText = function () {

@@ -310,8 +310,8 @@ const DOPaymentManagement: React.FC = () => {
       setSubmitting(true);
 
       // ✅ FIXED: Use the correct endpoint format
-      await apiClient.post(
-        `/api/web/payments/delivery-orders/${doData.delivery_order.id}/confirm`,
+      await apiClient.patch(
+        `/payments/delivery-orders/${doData.delivery_order.id}/confirm`,
         {
           action: "confirm_for_billing",
           notes: "Confirmed for payment processing",

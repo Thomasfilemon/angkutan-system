@@ -153,6 +153,11 @@ Vehicle.hasMany(DeliveryOrder, {
 });
 DeliveryOrder.belongsTo(Vehicle, { foreignKey: "vehicle_id", as: "vehicle" });
 
+DeliveryOrder.belongsTo(User, {
+  foreignKey: "payment_confirmed_by",
+  as: "paymentConfirmedByUser",
+});
+
 // Vehicle <-> Driver (User) Assignments
 User.hasMany(Vehicle, {
   foreignKey: "driver_id",
@@ -211,23 +216,23 @@ StockItem.hasMany(StockTransaction, {
   as: "transactions",
 });
 StockItem.hasMany(StockBatch, {
-    foreignKey: "item_id",
-    as: "batches",
+  foreignKey: "item_id",
+  as: "batches",
 });
 
 StockBatch.belongsTo(StockItem, {
-    foreignKey: "item_id",
-    as: "stockItem",
+  foreignKey: "item_id",
+  as: "stockItem",
 });
 
 StockTransaction.belongsTo(StockBatch, {
-    foreignKey: "batch_id",
-    as: "batch",
+  foreignKey: "batch_id",
+  as: "batch",
 });
 
 StockBatch.hasMany(StockTransaction, {
-    foreignKey: "batch_id",
-    as: "transactions",
+  foreignKey: "batch_id",
+  as: "transactions",
 });
 StockTransaction.belongsTo(StockItem, {
   foreignKey: "item_id",
