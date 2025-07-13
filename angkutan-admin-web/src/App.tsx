@@ -46,8 +46,8 @@ import TempoManagementPage from "./pages/CashTempoManagement";
 import StockHistoryPage from "./pages/StockHistory";
 import VehicleServiceHistory from "./pages/VehicleServiceHistory";
 import PaymentsRoutes from "./modules/payments/routes";
-import { Toaster } from "react-hot-toast"; // <-- Added this import
-// <-- Import baru
+import InvoiceDetail from "./pages/Ritase/InvoiceDetail";
+import { Toaster } from "react-hot-toast";
 
 import ComprehensiveRitaseTable from "./pages/Ritase/ComprehensiveRitaseTable";
 import POSpecificRitaseTable from "./pages/Ritase/POSpecificRitaseTable";
@@ -87,6 +87,11 @@ function App() {
           <Route
             path="ritase/delivery-orders/:doId/payment"
             element={<DOPaymentManagement />}
+          />
+
+          <Route
+            path="ritase/delivery-orders/:doId/invoices/:invoiceId"
+            element={<InvoiceDetail />}
           />
 
           <Route path="payments/*" element={<PaymentsRoutes />} />

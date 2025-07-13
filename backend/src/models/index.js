@@ -65,18 +65,17 @@ db.DriverProfile = setupDriverProfileModel(sequelize);
 db.AdminProfile = setupAdminProfileModel(sequelize);
 db.PurchaseOrder = setupPurchaseOrderModel(sequelize);
 db.DeliveryOrder = setupDeliveryOrderModel(sequelize);
-db.BigDeliveryOrder = setupBigDeliveryOrderModel(sequelize); // <-- ADD THIS LINE
+db.BigDeliveryOrder = setupBigDeliveryOrderModel(sequelize);
 db.BigDoTambahan = setupBigDoTambahanModel(sequelize);
 db.DriverExpense = setupDriverExpenseModel(sequelize);
 db.VehicleService = setupVehicleServiceModel(sequelize);
 
-// NEW: Stock and Service Management Models
 db.StockCategory = setupStockCategoryModel(sequelize);
 db.StockItem = setupStockItemModel(sequelize);
 db.StockTransaction = setupStockTransactionModel(sequelize);
 db.StockBatch = setupStockBatchModel(sequelize);
 db.ServiceItem = setupServiceItemModel(sequelize);
-// WEB: Ritase
+
 db.DeliveryOrderPayments = setupDeliveryOrderPaymentsModel(sequelize);
 db.DeliveryOrderInvoices = setupDeliveryOrderInvoicesModel(sequelize);
 db.DeliveryOrderAdjustments = setupDeliveryOrderAdjustmentsModel(sequelize);
@@ -92,7 +91,6 @@ db.TireInstance = setupTireInstanceModel(sequelize);
 db.CashCategory = setupCashCategoryModel(sequelize);
 db.CashTransaction = setupCashTransactionModel(sequelize);
 
-// === Define All Model Associations ===
 const {
   User,
   DriverProfile,

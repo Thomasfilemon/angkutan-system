@@ -524,6 +524,145 @@ module.exports = {
   },
 
   /* ──────────────────────────────────────────────────────────────
+   * GET /api/web/payments/delivery-orders/:doId/invoices/:invoiceId
+   * Fetches detailed invoice data including linked DO and payments
+   * ──────────────────────────────────────────────────────────── */
+  async getInvoiceDetail(req, res, next) {
+    try {
+      const { doId, invoiceId } = req.params;
+
+      // Fetch the invoice, ensuring it belongs to the specified DO
+      const invoice = await DeliveryOrderInvoices.findOne({
+        where: {
+          id: invoiceId,
+          delivery_order_id: doId, // Security: prevent fetching unrelated invoices
+        },
+        include: [
+          {
+            model: DeliveryOrder,
+            as: "deliveryOrder", // Assuming alias in your model associations
+            attributes: [
+              "id",
+              "do_number",
+              "customer_name",
+              "item_name",
+              "load_location",
+              "unload_location",
+              "vehicle_id", // If you have vehicle/driver associations, populate them below
+              "driver_id",
+              "final_amount",
+            ],
+            include: [
+              // If you have Vehicle and Driver models associated, add them here
+              // Example:
+              // { model: Vehicle, as: "vehicle", attributes: ["license_plate", "type"] },
+              // { model: Driver, as: "driver", attributes: ["username", "full_name"] },
+            ],
+          },
+          {
+            model: DeliveryOrderPayments,
+            as: "payments", // Assuming association: DeliveryOrderInvoices.hasMany(DeliveryOrderPayments)
+            attributes: [
+              "id",
+              "payment_amount",
+              "payment_date",
+              "payment_type",
+              "payment_reference",
+              "notes",
+              "attachment_url", // If you have attachments
+            ],
+            order: [["payment_date", "DESC"]], // Newest payments first
+          },
+        ],
+      });
+
+      if (!invoice) {
+        return res.status(404).json({
+          success: false,
+          message: "Invoice not found or doesn't belong to this Delivery Order",
+        });
+      }
+
+      // Calculate some derived fields for your frontend (e.g., overdue status, totals)
+      const totalPaid = invoice.payments.reduce(
+        (sum, p) => sum + Number(p.payment_amount),
+        0
+      );
+      const remaining = Number(invoice.net_amount) - totalPaid;
+      const isOverdue =
+        invoice.due_date &&
+        new Date() > new Date(invoice.due_date) &&
+        invoice.status !== "paid";
+
+      // Shape response to match your frontend's InvoiceDetailData interface
+      const responseData = {
+        invoice: {
+          id: invoice.id,
+          invoice_number: invoice.invoice_number,
+          invoice_amount: Number(invoice.invoice_amount),
+          net_amount: Number(invoice.net_amount),
+          pph_amount: Number(invoice.pph_amount),
+          pph_percentage: Number(invoice.pph_percentage),
+          invoice_date: invoice.invoice_date,
+          due_date: invoice.due_date,
+          status: invoice.status,
+          notes: invoice.notes,
+          created_at: invoice.created_at,
+          updated_at: invoice.updated_at,
+        },
+        delivery_order: invoice.deliveryOrder
+          ? {
+              id: invoice.deliveryOrder.id,
+              do_number: invoice.deliveryOrder.do_number,
+              customer_name: invoice.deliveryOrder.customer_name,
+              item_name: invoice.deliveryOrder.item_name,
+              load_location: invoice.deliveryOrder.load_location,
+              unload_location: invoice.deliveryOrder.unload_location,
+              // Vehicle and driver if populated
+              vehicle: invoice.deliveryOrder.vehicle
+                ? {
+                    license_plate: invoice.deliveryOrder.vehicle.license_plate,
+                    type: invoice.deliveryOrder.vehicle.type,
+                  }
+                : null,
+              driver: invoice.deliveryOrder.driver
+                ? {
+                    username: invoice.deliveryOrder.driver.username,
+                    driverProfile: {
+                      full_name: invoice.deliveryOrder.driver.full_name,
+                    },
+                  }
+                : null,
+            }
+          : null,
+        payments: invoice.payments.map((p) => ({
+          id: p.id,
+          payment_amount: Number(p.payment_amount),
+          payment_date: p.payment_date,
+          payment_type: p.payment_type,
+          payment_reference: p.payment_reference || null,
+          notes: p.notes || null,
+        })),
+        // Bonus summary for your frontend to use directly
+        summary: {
+          total_paid: totalPaid,
+          remaining_amount: remaining,
+          is_fully_paid: totalPaid >= Number(invoice.net_amount),
+          is_overdue: isOverdue,
+        },
+      };
+
+      return res.json({
+        success: true,
+        data: responseData,
+      });
+    } catch (err) {
+      console.error("Invoice detail fetch error:", err); // Log it, you slacker
+      return next(err);
+    }
+  },
+
+  /* ──────────────────────────────────────────────────────────────
    * GET /api/web/payments/delivery-orders/bulk-eligible
    * Get delivery orders eligible for bulk invoicing
    * Query params: customer?, po_id?, limit?

@@ -1,0 +1,325 @@
+// src/pages/Ritase/InvoiceDetail.tsx
+import React, { useState, useEffect } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
+import apiClient from "../../api/axiosConfig";
+import toast from "react-hot-toast";
+
+interface InvoiceDetailData {
+  invoice: {
+    id: number;
+    invoice_number: string;
+    invoice_amount: number;
+    net_amount: number;
+    pph_amount: number;
+    pph_percentage: number;
+    invoice_date: string;
+    due_date?: string;
+    status: string;
+    notes?: string;
+    created_at: string;
+    updated_at: string;
+  };
+  delivery_order: {
+    id: number;
+    do_number: string;
+    customer_name: string;
+    item_name: string;
+    load_location: string;
+    unload_location: string;
+    vehicle?: {
+      license_plate: string;
+      type: string;
+    };
+    driver?: {
+      username: string;
+      driverProfile?: {
+        full_name: string;
+      };
+    };
+  };
+  payments: Array<{
+    id: number;
+    payment_amount: number;
+    payment_date: string;
+    payment_type: string;
+    payment_reference?: string;
+    notes?: string;
+  }>;
+}
+
+const InvoiceDetail: React.FC = () => {
+  const { doId, invoiceId } = useParams<{ doId: string; invoiceId: string }>();
+  const navigate = useNavigate();
+  const [invoiceData, setInvoiceData] = useState<InvoiceDetailData | null>(
+    null
+  );
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchInvoiceDetail = async () => {
+      try {
+        const response = await apiClient.get(
+          `/payments/delivery-orders/${doId}/invoices/${invoiceId}`
+        );
+        setInvoiceData(response.data.data);
+      } catch (error) {
+        console.error("Error fetching invoice detail:", error);
+        toast.error("Failed to load invoice details");
+        navigate(`/ritase/delivery-orders/${doId}/payment`);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (doId && invoiceId) {
+      fetchInvoiceDetail();
+    }
+  }, [doId, invoiceId, navigate]);
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat("id-ID", {
+      style: "currency",
+      currency: "IDR",
+    }).format(amount);
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status.toLowerCase()) {
+      case "paid":
+        return "bg-green-100 text-green-800";
+      case "pending":
+        return "bg-yellow-100 text-yellow-800";
+      case "overdue":
+        return "bg-red-100 text-red-800";
+      default:
+        return "bg-gray-100 text-gray-800";
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (!invoiceData) {
+    return (
+      <div className="text-center py-12">
+        <h2 className="text-xl font-semibold text-gray-900 mb-2">
+          Invoice Not Found
+        </h2>
+        <p className="text-gray-600 mb-4">
+          The requested invoice could not be found.
+        </p>
+        <Link
+          to={`/ritase/delivery-orders/${doId}/payment`}
+          className="text-blue-600 hover:text-blue-700"
+        >
+          ← Back to Payment Management
+        </Link>
+      </div>
+    );
+  }
+
+  const { invoice, delivery_order, payments } = invoiceData;
+
+  return (
+    <div className="max-w-4xl mx-auto p-6">
+      {/* Header */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <Link
+            to={`/ritase/delivery-orders/${doId}/payment`}
+            className="flex items-center text-blue-600 hover:text-blue-700 transition-colors"
+          >
+            <svg
+              className="w-5 h-5 mr-2"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 19l-7-7 7-7"
+              />
+            </svg>
+            Back to Payment Management
+          </Link>
+
+          <div className="flex gap-3">
+            <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+              Download PDF
+            </button>
+            <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+              Print Invoice
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">
+              {invoice.invoice_number}
+            </h1>
+            <p className="text-gray-600">
+              Invoice for DO #{delivery_order.do_number}
+            </p>
+          </div>
+          <span
+            className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(
+              invoice.status
+            )}`}
+          >
+            {invoice.status.toUpperCase()}
+          </span>
+        </div>
+      </div>
+
+      {/* Invoice Details Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        {/* Invoice Info */}
+        <div className="bg-white border border-gray-200 rounded-lg p-6">
+          <h3 className="text-lg font-semibold mb-4">Invoice Information</h3>
+          <div className="space-y-3">
+            <div>
+              <span className="text-sm text-gray-600">Invoice Date</span>
+              <p className="font-medium">
+                {new Date(invoice.invoice_date).toLocaleDateString("id-ID")}
+              </p>
+            </div>
+            {invoice.due_date && (
+              <div>
+                <span className="text-sm text-gray-600">Due Date</span>
+                <p className="font-medium">
+                  {new Date(invoice.due_date).toLocaleDateString("id-ID")}
+                  {new Date(invoice.due_date) < new Date() &&
+                    invoice.status !== "paid" && (
+                      <span className="ml-2 text-red-600 text-xs font-bold">
+                        OVERDUE
+                      </span>
+                    )}
+                </p>
+              </div>
+            )}
+            <div>
+              <span className="text-sm text-gray-600">Created</span>
+              <p className="font-medium">
+                {new Date(invoice.created_at).toLocaleDateString("id-ID")}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Delivery Order Info */}
+        <div className="bg-white border border-gray-200 rounded-lg p-6">
+          <h3 className="text-lg font-semibold mb-4">Delivery Order</h3>
+          <div className="space-y-3">
+            <div>
+              <span className="text-sm text-gray-600">DO Number</span>
+              <p className="font-medium">{delivery_order.do_number}</p>
+            </div>
+            <div>
+              <span className="text-sm text-gray-600">Customer</span>
+              <p className="font-medium">{delivery_order.customer_name}</p>
+            </div>
+            <div>
+              <span className="text-sm text-gray-600">Item</span>
+              <p className="font-medium">{delivery_order.item_name}</p>
+            </div>
+            {delivery_order.vehicle && (
+              <div>
+                <span className="text-sm text-gray-600">Vehicle</span>
+                <p className="font-medium">
+                  {delivery_order.vehicle.license_plate} (
+                  {delivery_order.vehicle.type})
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Amount Breakdown */}
+        <div className="bg-white border border-gray-200 rounded-lg p-6">
+          <h3 className="text-lg font-semibold mb-4">Amount Breakdown</h3>
+          <div className="space-y-3">
+            <div className="flex justify-between">
+              <span className="text-sm text-gray-600">Gross Amount</span>
+              <span className="font-medium">
+                {formatCurrency(invoice.invoice_amount)}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-sm text-gray-600">
+                PPH ({invoice.pph_percentage}%)
+              </span>
+              <span className="font-medium text-red-600">
+                -{formatCurrency(invoice.pph_amount)}
+              </span>
+            </div>
+            <div className="border-t pt-3 flex justify-between">
+              <span className="font-semibold">Net Amount</span>
+              <span className="font-bold text-lg">
+                {formatCurrency(invoice.net_amount)}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Notes Section */}
+      {invoice.notes && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 mb-8">
+          <h3 className="text-lg font-semibold mb-2">Notes</h3>
+          <p className="text-gray-700">{invoice.notes}</p>
+        </div>
+      )}
+
+      {/* Payment History */}
+      <div className="bg-white border border-gray-200 rounded-lg p-6">
+        <h3 className="text-lg font-semibold mb-4">Payment History</h3>
+        {payments.length === 0 ? (
+          <p className="text-gray-500 text-center py-8">
+            No payments recorded yet.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200">
+                  <th className="text-left py-2">Date</th>
+                  <th className="text-left py-2">Amount</th>
+                  <th className="text-left py-2">Type</th>
+                  <th className="text-left py-2">Reference</th>
+                  <th className="text-left py-2">Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payments.map((payment) => (
+                  <tr key={payment.id} className="border-b border-gray-100">
+                    <td className="py-3">
+                      {new Date(payment.payment_date).toLocaleDateString(
+                        "id-ID"
+                      )}
+                    </td>
+                    <td className="py-3 font-medium">
+                      {formatCurrency(payment.payment_amount)}
+                    </td>
+                    <td className="py-3">{payment.payment_type}</td>
+                    <td className="py-3">{payment.payment_reference || "-"}</td>
+                    <td className="py-3">{payment.notes || "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default InvoiceDetail;

@@ -1388,7 +1388,12 @@ const DOPaymentManagement: React.FC = () => {
                   {doData.invoices.map((invoice) => (
                     <div
                       key={invoice.id}
-                      className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow"
+                      className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow cursor-pointer hover:border-blue-300"
+                      onClick={() =>
+                        navigate(
+                          `/ritase/delivery-orders/${doId}/invoices/${invoice.id}`
+                        )
+                      }
                     >
                       <div className="flex justify-between items-start mb-4">
                         <div>
@@ -1509,7 +1514,7 @@ const DOPaymentManagement: React.FC = () => {
                       />
                     </svg>
                   )}
-                  + Record Payment
+                  Record Payment
                 </button>
               </div>
 

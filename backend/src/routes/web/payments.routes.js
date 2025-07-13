@@ -33,6 +33,14 @@ router.post(
   PaymentsCtrl.createInvoice
 );
 
+// NEW: Get single invoice details for a specific DO
+// GET /api/web/payments/delivery-orders/:doId/invoices/:invoiceId
+router.get(
+  "/delivery-orders/:doId/invoices/:invoiceId",
+  checkRole(["admin", "owner"]),
+  PaymentsCtrl.getInvoiceDetail // Assuming you add this method to your controller
+);
+
 // Update invoice (edit PPH %, amount, due date, notes, status)
 // PUT /api/web/payments/invoices/:invoiceId
 router.put(
