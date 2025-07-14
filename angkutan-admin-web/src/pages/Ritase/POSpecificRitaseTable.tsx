@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import apiClient from "../../api/axiosConfig";
 
 // Import the payments API we built earlier
@@ -92,6 +92,10 @@ const POSpecificRitaseTable: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedDOs, setSelectedDOs] = useState<number[]>([]);
+  const navigate = useNavigate();
+  const [allPOs, setAllPOs] = useState<
+    { id: number; po_number: string; customer_name: string }[]
+  >([]);
   const [showCreateInvoiceModal, setShowCreateInvoiceModal] = useState(false);
   const [showBulkInvoiceModal, setShowBulkInvoiceModal] = useState(false);
   const [activeTab, setActiveTab] = useState<
@@ -108,10 +112,12 @@ const POSpecificRitaseTable: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
+      const res = await apiClient.get("/ritase/purchase-orders/list");
 
       const response = await apiClient.get(
         `/ritase/purchase-orders/${poId}/comprehensive`
       );
+      setAllPOs(res.data.data || []);
       setData(response.data.data);
     } catch (err: any) {
       setError(err.response?.data?.message || "Failed to fetch PO data");
@@ -245,6 +251,30 @@ const POSpecificRitaseTable: React.FC = () => {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      <div className="bg-white shadow-xl rounded-lg p-2 mb-4">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => navigate("/ritase/comprehensive")}
+            className="px-4 py-2 border border-gray-300 rounded-lg bg-white hover:bg-gray-50 text-gray-700"
+          >
+            ← Back
+          </button>
+          {allPOs.length > 0 && (
+            <select
+              value={poId}
+              onChange={(e) => navigate(`/ritase/po/${e.target.value}/table`)}
+              className="px-3 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
+            >
+              {allPOs.map((po) => (
+                <option key={po.id} value={po.id}>
+                  {po.po_number} - {po.customer_name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      </div>
+
       {/* 🎯 SECTION 1: PO Summary Header (Excel-style) */}
       <div className="bg-white shadow-xl rounded-lg p-6 mb-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -576,36 +606,12 @@ const POSpecificRitaseTable: React.FC = () => {
                   </td>
 
                   <td className="px-6 py-4 text-right text-sm font-medium">
-                    <div className="flex items-center justify-end space-x-2">
-                      <Link
-                        to={`/delivery-orders/${do_.id}/payment`}
-                        className="text-indigo-600 hover:text-indigo-900 text-xs"
-                      >
-                        Details
-                      </Link>
-
-                      {do_.invoices.length === 0 &&
-                        do_.payment_status === "proses_tagihan" && (
-                          <button
-                            onClick={() => setShowCreateInvoiceModal(true)}
-                            className="text-green-600 hover:text-green-900 text-xs"
-                          >
-                            Invoice
-                          </button>
-                        )}
-
-                      {do_.invoices.length > 0 &&
-                        do_.payment_status !== "lunas" && (
-                          <button
-                            onClick={() => {
-                              /* Show payment modal */
-                            }}
-                            className="text-blue-600 hover:text-blue-900 text-xs"
-                          >
-                            Payment
-                          </button>
-                        )}
-                    </div>
+                    <Link
+                      to={`/ritase/delivery-orders/${do_.id}/payment`}
+                      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-semibold transition-colors"
+                    >
+                      Manage
+                    </Link>
                   </td>
                 </tr>
               ))}

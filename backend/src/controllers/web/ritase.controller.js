@@ -1586,6 +1586,22 @@ exports.exportRitaseExcel = async (req, res, next) => {
   }
 };
 
+// List all POs (simple, for dropdown)
+exports.getPurchaseOrderListSimple = async (req, res, next) => {
+  try {
+    const pos = await PurchaseOrder.findAll({
+      attributes: ["id", "po_number", "customer_name"],
+      order: [["created_at", "DESC"]],
+    });
+    res.json({
+      success: true,
+      data: pos,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   // Existing exports
   getRitaseDashboard: exports.getRitaseDashboard,
@@ -1597,6 +1613,7 @@ module.exports = {
   getPurchaseOrdersWithPaymentStatus:
     exports.getPurchaseOrdersWithPaymentStatus,
   getPurchaseOrderPaymentDetail: exports.getPurchaseOrderPaymentDetail,
+  getPurchaseOrderListSimple: exports.getPurchaseOrderListSimple,
   getDeliveryOrderPaymentDetail: exports.getDeliveryOrderPaymentDetail,
   confirmDeliveryOrderForPayment: exports.confirmDeliveryOrderForPayment,
   createDeliveryOrderInvoice: exports.createDeliveryOrderInvoice,

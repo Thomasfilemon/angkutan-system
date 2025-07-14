@@ -818,7 +818,7 @@ INSERT INTO delivery_orders (
   '61100000.00',
   'Quarry Cilegon, Banten',
   'Pabrik Kaca Tangerang, Banten',
-  'proses_tagihan', -- ✅ Ready for invoice
+  'awaiting_confirmation',
   'completed',
   '2025-07-02 06:00:00+07',
   '2025-07-02 06:30:00+07',
@@ -991,7 +991,7 @@ INSERT INTO delivery_orders (
   '39700000.00',
   'Quarry Cilegon, Banten',
   'Pabrik Kaca Tangerang, Banten',
-  'proses_tagihan', -- ✅ Ready for invoice
+  'awaiting_confirmation',
   'completed',
   '2025-07-05 05:30:00+07',
   '2025-07-05 06:00:00+07',
@@ -1030,7 +1030,7 @@ INSERT INTO delivery_orders (
   '63160000.00',
   'Quarry Cilegon, Banten',
   'Pabrik Kaca Tangerang, Banten',
-  'deposit', -- ✅ Partial payment received
+  'proses_penagihan', -- ✅ Partial payment received
   'completed',
   '2025-07-06 06:15:00+07',
   '2025-07-06 06:45:00+07',

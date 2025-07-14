@@ -16,6 +16,12 @@ interface DeliveryOrder {
   invoice_count: number;
   payment_count: number;
   total_paid: number;
+  invoices: {
+    id: number;
+    invoice_number: string;
+    net_amount: number;
+    status: string;
+  }[];
 }
 
 interface PaymentStats {
@@ -59,6 +65,12 @@ const DeliveryList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>(initialFilters);
+
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [selectedInvoices, setSelectedInvoices] = useState<
+    { id: number; invoice_number: string; net_amount: number; status: string }[]
+  >([]);
+  const [selectedDOId, setSelectedDOId] = useState<number | null>(null);
 
   useEffect(() => {
     fetchDeliveryOrders();
@@ -158,6 +170,35 @@ const DeliveryList: React.FC = () => {
     navigate(`/payments/delivery-orders/${doOrder.id}/invoices/create`);
   };
 
+  const handleViewInvoice = (doOrder: DeliveryOrder) => {
+    if (
+      doOrder.invoice_count === 1 &&
+      doOrder.invoices &&
+      doOrder.invoices.length === 1
+    ) {
+      // Langsung navigasi ke detail invoice jika hanya satu
+      navigate(
+        `/ritase/delivery-orders/${doOrder.id}/invoices/${doOrder.invoices[0].id}`
+      );
+    } else if (
+      doOrder.invoice_count > 1 &&
+      doOrder.invoices &&
+      doOrder.invoices.length > 1
+    ) {
+      // Tampilkan modal pilih invoice
+      setSelectedInvoices(
+        doOrder.invoices.map((inv) => ({
+          id: inv.id,
+          invoice_number: inv.invoice_number,
+          net_amount: inv.net_amount,
+          status: inv.status,
+        }))
+      );
+      setSelectedDOId(doOrder.id);
+      setShowInvoiceModal(true);
+    }
+  };
+
   const handleViewDetails = (doOrder: DeliveryOrder) => {
     navigate(`/ritase/delivery-orders/${doOrder.id}/payment`);
   };
@@ -206,16 +247,18 @@ const DeliveryList: React.FC = () => {
     }
 
     // View invoices for orders with invoices
-    if (doOrder.invoice_count > 0) {
+    if (
+      doOrder.invoice_count > 0 &&
+      doOrder.invoices &&
+      doOrder.invoices.length > 0
+    ) {
       actions.push(
         <button
-          key="view-invoices"
-          onClick={() =>
-            navigate(`/payments/delivery-orders/${doOrder.id}/invoices`)
-          }
+          key="view-invoice"
+          onClick={() => handleViewInvoice(doOrder)}
           className="px-3 py-1 text-xs bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
         >
-          View Invoices ({doOrder.invoice_count})
+          View Invoice{doOrder.invoice_count > 1 ? "s" : ""}
         </button>
       );
     }
@@ -832,6 +875,46 @@ const DeliveryList: React.FC = () => {
             </div>
           )}
         </div>
+        {showInvoiceModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+              <h3 className="text-lg font-semibold mb-4">Select Invoice</h3>
+              <ul className="divide-y divide-gray-200 mb-4">
+                {selectedInvoices.map((inv) => (
+                  <li
+                    key={inv.id}
+                    className="py-2 flex items-center justify-between"
+                  >
+                    <div>
+                      <div className="font-medium">{inv.invoice_number}</div>
+                      <div className="text-xs text-gray-500">
+                        {inv.status} • Rp{" "}
+                        {inv.net_amount.toLocaleString("id-ID")}
+                      </div>
+                    </div>
+                    <button
+                      className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs"
+                      onClick={() => {
+                        navigate(
+                          `/ritase/delivery-orders/${selectedDOId}/invoices/${inv.id}`
+                        );
+                        setShowInvoiceModal(false);
+                      }}
+                    >
+                      View
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <button
+                className="w-full py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                onClick={() => setShowInvoiceModal(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -16,6 +16,12 @@ router.get(
 );
 
 router.get(
+  "/purchase-orders/list",
+  checkRole(["admin", "owner"]),
+  ritaseController.getPurchaseOrderListSimple
+);
+
+router.get(
   "/purchase-orders/:po_id",
   checkRole(["admin", "owner"]),
   ritaseController.getPurchaseOrderPaymentDetail

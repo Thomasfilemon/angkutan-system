@@ -858,6 +858,18 @@ module.exports = {
 
       const userId = req.user?.id;
 
+      if (invoice_id) {
+        const invoice = await DeliveryOrderInvoices.findOne({
+          where: { id: invoice_id, delivery_order_id: doId },
+        });
+        if (!invoice) {
+          return res.status(400).json({
+            success: false,
+            message: "Selected invoice doesn't belong to this DO.",
+          });
+        }
+      }
+
       const payment = await DeliveryOrderPayments.create({
         delivery_order_id: doId,
         invoice_id: invoice_id || null,
@@ -1130,6 +1142,12 @@ module.exports = {
         total_paid:
           do_.payments?.reduce((sum, p) => sum + Number(p.payment_amount), 0) ||
           0,
+        invoices: (do_.invoices || []).map((inv) => ({
+          id: inv.id,
+          invoice_number: inv.invoice_number,
+          net_amount: Number(inv.net_amount),
+          status: inv.status,
+        })),
       }));
 
       return res.json({

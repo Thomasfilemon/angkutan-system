@@ -1,5 +1,5 @@
 // src/pages/Ritase/DOPaymentManagement.tsx
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import apiClient from "../../api/axiosConfig";
 import toast from "react-hot-toast";
@@ -109,6 +109,7 @@ interface NewPayment {
   payment_amount: number;
   payment_date: string;
   payment_type: string;
+  invoice_id: number;
   payment_reference: string;
   bank_account: string;
   notes: string;
@@ -148,6 +149,7 @@ const DOPaymentManagement: React.FC = () => {
     payment_amount: 0,
     payment_date: new Date().toISOString().split("T")[0],
     payment_type: "transfer",
+    invoice_id: 0,
     payment_reference: "",
     bank_account: "",
     notes: "",
@@ -158,6 +160,8 @@ const DOPaymentManagement: React.FC = () => {
     adjustment_amount: 0,
     reason: "",
   });
+
+  const [showCreateConfirm, setShowCreateConfirm] = useState(false);
 
   const safeReplace = (
     value: string | null | undefined,
@@ -241,6 +245,20 @@ const DOPaymentManagement: React.FC = () => {
   ): number => {
     return grossAmount - pphAmount;
   };
+
+  // ✅ NEW: Memoized check if everything's settled (lunas, all paid, no remaining)
+  const isFullySettled = useMemo(() => {
+    if (!doData || doData.invoices.length === 0) return false; // Don't lock if no invoices yet
+    const { payment_status } = doData.delivery_order;
+    const { remaining_amount } = doData.payment_summary;
+    const allInvoicesPaid = doData.invoices.every(
+      (inv) => inv.status === "paid"
+    );
+    // ✅ ADDED: Explicit check for partial to force false
+    return (
+      payment_status === "lunas" && allInvoicesPaid && remaining_amount <= 0
+    );
+  }, [doData]);
 
   const fetchDOPaymentData = useCallback(async () => {
     if (!doId) return;
@@ -335,7 +353,12 @@ const DOPaymentManagement: React.FC = () => {
 
   const handleCreateInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!doId) return;
+    if (newInvoice.invoice_amount > remainingAmount) {
+      toast.error(
+        `Amount exceeds remaining: max ${formatCurrency(remainingAmount)}`
+      );
+      return;
+    }
 
     try {
       setSubmitting(true);
@@ -364,18 +387,25 @@ const DOPaymentManagement: React.FC = () => {
     e.preventDefault();
     if (!doId) return;
 
+    if (!newPayment.invoice_id || newPayment.invoice_id === 0) {
+      toast.error("Please select an invoice to link this payment!");
+      return;
+    }
+
     try {
       setSubmitting(true);
       await apiClient.post(
         `/ritase/delivery-orders/${doId}/payment`,
         newPayment
       );
+      toast.success("Payment recorded!");
 
       setShowPaymentForm(false);
       setNewPayment({
         payment_amount: 0,
         payment_date: new Date().toISOString().split("T")[0],
         payment_type: "transfer",
+        invoice_id: 0,
         payment_reference: "",
         bank_account: "",
         notes: "",
@@ -518,6 +548,13 @@ const DOPaymentManagement: React.FC = () => {
   );
   const unit = do_item.unit || "ton"; // Fallback to ton
 
+  const totalInvoiced = doData.invoices.reduce(
+    (sum, inv) => sum + inv.invoice_amount,
+    0
+  );
+  const remainingAmount =
+    (do_item.final_amount || do_item.ongkosan || 0) - totalInvoiced;
+
   const canConfirmBilling = () => {
     const confirmationStatus = paymentSummary?.confirmation_status || "pending";
     const deliveryStatus = do_item?.status || "pending";
@@ -530,7 +567,11 @@ const DOPaymentManagement: React.FC = () => {
 
   const canDoActions = () => {
     const confirmationStatus = paymentSummary?.confirmation_status || "pending";
-    return confirmationStatus === "confirmed";
+    return (
+      confirmationStatus === "confirmed" &&
+      !isFullySettled &&
+      remainingAmount > 0
+    );
   };
 
   const calculatedBillableAmount = calculateUnitAwareAmount(
@@ -1045,16 +1086,22 @@ const DOPaymentManagement: React.FC = () => {
                 {/* Create Invoice Card */}
                 <div
                   onClick={() => {
+                    if (isFullySettled) {
+                      toast.error(
+                        "DO fully settled—can't create more invoices!"
+                      );
+                      return;
+                    }
                     if (!canDoActions()) {
-                      toast.error("Please confirm DO for billing first!");
+                      toast.error("Confirm DO first!");
                       return;
                     }
                     setShowInvoiceForm(true);
                   }}
                   className={`cursor-pointer p-6 border-2 border-dashed rounded-lg transition-all ${
-                    canDoActions()
-                      ? "border-blue-300 hover:border-blue-400 hover:bg-blue-50"
-                      : "border-gray-200 bg-gray-50 cursor-not-allowed opacity-60"
+                    !canDoActions() || isFullySettled
+                      ? "border-gray-200 bg-gray-50 opacity-60 cursor-not-allowed pointer-events-none" // ✅ Force unclickable
+                      : "border-blue-300 hover:border-blue-400 hover:bg-blue-50"
                   }`}
                   role="button"
                   tabIndex={0}
@@ -1108,7 +1155,7 @@ const DOPaymentManagement: React.FC = () => {
                     >
                       {canDoActions()
                         ? "Generate new invoice"
-                        : "Requires confirmation"}
+                        : "Already Settled or Requires confirmation"}
                     </p>
                   </div>
                 </div>
@@ -1116,18 +1163,26 @@ const DOPaymentManagement: React.FC = () => {
                 {/* Record Payment Card */}
                 <div
                   onClick={() => {
+                    if (isFullySettled) {
+                      toast.error(
+                        "DO fully settled—can't record more payments."
+                      );
+                      return;
+                    }
                     if (!canDoActions) {
                       toast.error(
-                        "Please confirm for billing first before recording payment!"
+                        "The DO is completed or Please confirm for billing first before recording payment!"
                       );
                       return;
                     }
                     setShowPaymentForm(true);
                   }}
                   className={`cursor-pointer p-6 border-2 border-dashed border-green-300 rounded-lg hover:border-green-400 hover:bg-green-50 transition-all ${
-                    !canDoActions || doData.invoices.length === 0
-                      ? "opacity-50 cursor-not-allowed"
-                      : ""
+                    !canDoActions ||
+                    doData.invoices.length === 0 ||
+                    isFullySettled
+                      ? "border-gray-200 bg-gray-50 opacity-60 cursor-not-allowed pointer-events-none"
+                      : "border-green-300 hover:border-green-400 hover:bg-green-50"
                   }`}
                   role="button"
                   tabIndex={0}
@@ -1156,9 +1211,15 @@ const DOPaymentManagement: React.FC = () => {
                 {/* Price Adjustment Card */}
                 <div
                   onClick={() => {
+                    if (isFullySettled) {
+                      toast.error(
+                        "DO fully settled—can't adjust prices, you overachiever!"
+                      );
+                      return;
+                    }
                     if (!canDoActions) {
                       toast.error(
-                        "Please confirm for billing first before adjustment!"
+                        "The DO is completed or Please confirm for billing first before adjustment!"
                       );
                       return;
                     }
@@ -1315,16 +1376,56 @@ const DOPaymentManagement: React.FC = () => {
                 <h3 className="text-lg font-semibold">Invoice Management</h3>
                 <button
                   onClick={() => {
-                    if (!canDoActions()) {
-                      toast.error("Please confirm DO for billing first!");
+                    if (isFullySettled) {
+                      toast(
+                        "DO fully settled—can't create more invoices, you overachiever!"
+                      );
                       return;
                     }
-                    setShowInvoiceForm(true);
+                    if (!canDoActions()) {
+                      toast.error(
+                        "The DO is completed or Please confirm DO for billing first!"
+                      );
+                      return;
+                    }
+                    if (remainingAmount <= 0) {
+                      toast.error(
+                        "No remaining amount to invoice! All billed: " +
+                          formatCurrency(totalInvoiced)
+                      );
+                      return;
+                    }
+                    if (doData.invoices.length > 0) {
+                      setShowCreateConfirm(true);
+                    } else {
+                      setShowInvoiceForm(true);
+                    }
                   }}
-                  disabled={!canDoActions()}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={
+                    !canDoActions() || isFullySettled || remainingAmount <= 0
+                  }
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
-                  + Create Invoice
+                  {isFullySettled ? (
+                    <>
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                        />
+                      </svg>
+                      Locked - Fully Settled
+                    </>
+                  ) : (
+                    "+ Create Invoice"
+                  )}
                 </button>
               </div>
 
@@ -1345,8 +1446,8 @@ const DOPaymentManagement: React.FC = () => {
                       />
                     </svg>
                     <span className="text-gray-600">
-                      Invoice management is locked until DO is confirmed for
-                      billing.
+                      Invoice management is locked. The DO is Fully settled or
+                      waiting until DO is confirmed for billing.
                     </span>
                   </div>
                 </div>
@@ -1376,7 +1477,9 @@ const DOPaymentManagement: React.FC = () => {
                   <button
                     onClick={() => setShowInvoiceForm(true)}
                     disabled={
-                      paymentSummary.confirmation_status !== "confirmed"
+                      paymentSummary.confirmation_status !== "confirmed" ||
+                      isFullySettled ||
+                      remainingAmount <= 0
                     }
                     className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                   >
@@ -1471,7 +1574,9 @@ const DOPaymentManagement: React.FC = () => {
                 <button
                   onClick={() => {
                     if (!canDoActions()) {
-                      toast.error("Please confirm DO for billing first!");
+                      toast.error(
+                        "The DO is completed or Please confirm DO for billing first!"
+                      );
                       return;
                     }
                     if (doData.invoices.length === 0) {
@@ -1637,7 +1742,9 @@ const DOPaymentManagement: React.FC = () => {
                   <button
                     onClick={() => {
                       if (!canDoActions()) {
-                        toast.error("Please confirm DO for billing first!");
+                        toast.error(
+                          "DO is completed or Please confirm DO for billing first!"
+                        );
                         return;
                       }
                       if (doData.invoices.length === 0) {
@@ -1838,7 +1945,9 @@ const DOPaymentManagement: React.FC = () => {
                 <button
                   onClick={() => {
                     if (!canDoActions()) {
-                      toast.error("Please confirm DO for billing first!");
+                      toast.error(
+                        "The DO is completed or Please confirm DO for billing first!"
+                      );
                       return;
                     }
                     setShowAdjustmentForm(true);
@@ -1959,7 +2068,9 @@ const DOPaymentManagement: React.FC = () => {
                   <button
                     onClick={() => {
                       if (!canDoActions()) {
-                        toast.error("Please confirm DO for billing first!");
+                        toast.error(
+                          "The DO is completed or Please confirm DO for billing first!"
+                        );
                         return;
                       }
                       setShowAdjustmentForm(true);
@@ -2234,8 +2345,10 @@ const DOPaymentManagement: React.FC = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
                 <p className="text-sm text-gray-500 mt-1">
-                  Calculated: {formatCurrency(calculatedBillableAmount)}
-                </p>
+                  Calculated: {formatCurrency(calculatedBillableAmount)} | Max
+                  invoice amount: {formatCurrency(remainingAmount)}
+                </p>{" "}
+                {/* ✅ Added: Prefill/info tampilkan */}
               </div>
 
               <div>
@@ -2338,6 +2451,41 @@ const DOPaymentManagement: React.FC = () => {
         </div>
       )}
 
+      {showCreateConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold mb-4">
+              Existing Invoices Detected
+            </h3>
+            <p className="text-gray-600 mb-4">
+              Sudah ada {doData.invoices.length} invoice existing dengan total
+              amount {formatCurrency(totalInvoiced)}. Sisa amount yang bisa
+              ditagih: {formatCurrency(remainingAmount)}.
+            </p>
+            <p className="text-sm text-gray-500 mb-6">
+              Yakin mau bikin invoice baru? Pastikan gak over-bill, chief!
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setShowCreateConfirm(false)}
+                className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setShowCreateConfirm(false);
+                  setShowInvoiceForm(true);
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Proceed
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ✅ RECORD PAYMENT MODAL */}
       {showPaymentForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -2428,6 +2576,34 @@ const DOPaymentManagement: React.FC = () => {
                   <option value="check">Check</option>
                   <option value="giro">Giro</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Link to Invoice <span className="text-red-500">*</span>
+                </label>
+                <select
+                  required
+                  value={newPayment.invoice_id || ""}
+                  onChange={(e) =>
+                    setNewPayment((prev) => ({
+                      ...prev,
+                      invoice_id: e.target.value ? parseInt(e.target.value) : 0,
+                    }))
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                >
+                  <option value="">-- Select Invoice --</option>
+                  {doData.invoices.map((inv) => (
+                    <option key={inv.id} value={inv.id}>
+                      {inv.invoice_number} - {formatCurrency(inv.net_amount)} (
+                      {inv.status})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-sm text-gray-500 mt-1">
+                  You must select an invoice to link this payment.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
