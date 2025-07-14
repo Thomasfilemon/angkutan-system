@@ -191,9 +191,12 @@ const CreateInvoice: React.FC = () => {
         notes: form.notes || null,
       };
 
-      await apiClient.post(`/delivery-order-invoices`, payload);
+      await apiClient.post(
+        `/payments/delivery-orders/${doId}/invoices`,
+        payload
+      );
       toast.success("Invoice created successfully!");
-      navigate("/payments/delivery-list", {
+      navigate("/payments/deliveries", {
         state: { message: "Invoice created successfully!" },
       });
     } catch (err: any) {
