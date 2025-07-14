@@ -57,6 +57,18 @@ router.post(
   ritaseController.createPriceAdjustment
 );
 
+router.patch(
+  "/delivery-orders/:do_id/adjustment/:adjustment_id",
+  checkRole(["admin", "owner"]),
+  ritaseController.updatePriceAdjustment
+);
+
+router.delete(
+  "/delivery-orders/:do_id/adjustment/:adjustment_id",
+  checkRole(["admin", "owner"]),
+  ritaseController.deletePriceAdjustment
+);
+
 // ✅ Existing Vehicle-focused Routes
 router.get(
   "/",

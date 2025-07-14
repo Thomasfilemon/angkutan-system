@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import apiClient from "../../api/axiosConfig";
-
-// Import the payments API we built earlier
+import Select from "react-select";
+import debounce from "lodash.debounce";
 import { paymentsApi } from "../../modules/payments/api";
 import EditablePphCell from "../../modules/payments/components/EditablePphCell";
 
@@ -101,10 +101,18 @@ const POSpecificRitaseTable: React.FC = () => {
   const [activeTab, setActiveTab] = useState<
     "deliveries" | "invoices" | "analytics"
   >("deliveries");
+  const [vehicleOptions, setVehicleOptions] = useState<
+    { value: string; label: string }[]
+  >([]);
+  const [selectedVehicle, setSelectedVehicle] = useState<{
+    value: string;
+    label: string;
+  } | null>(null);
 
   useEffect(() => {
     if (poId) {
       fetchPOData();
+      fetchVehicles();
     }
   }, [poId]);
 
@@ -125,6 +133,27 @@ const POSpecificRitaseTable: React.FC = () => {
       setLoading(false);
     }
   };
+
+  const fetchVehicles = async () => {
+    try {
+      const res = await apiClient.get("/vehicles"); // Dari routes lo, getAllVehicles
+      const vehicles = res.data.data.map((v: any) => ({
+        value: v.license_plate,
+        label: `${v.license_plate} (${v.type})`,
+      }));
+      setVehicleOptions(vehicles);
+    } catch (err) {
+      console.error("Failed to fetch vehicles:", err);
+    }
+  };
+
+  const processedDOs = useMemo(() => {
+    if (!data?.delivery_orders) return [];
+    if (!selectedVehicle) return data.delivery_orders;
+    return data.delivery_orders.filter(
+      (do_) => do_.vehicle.license_plate === selectedVehicle.value
+    );
+  }, [data, selectedVehicle]);
 
   const calculateVariance = () => {
     if (!data) return { quantity: 0, amount: 0, percentage: 0 };
@@ -218,6 +247,17 @@ const POSpecificRitaseTable: React.FC = () => {
     } catch (err: any) {
       console.error("Failed to record payment:", err);
       alert(err.response?.data?.message || "Failed to record payment");
+    }
+  };
+
+  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      const eligibleDOs = processedDOs
+        .filter((do_) => do_.invoices.length === 0)
+        .map((do_) => do_.id);
+      setSelectedDOs(eligibleDOs);
+    } else {
+      setSelectedDOs([]);
     }
   };
 
@@ -428,12 +468,12 @@ const POSpecificRitaseTable: React.FC = () => {
       {/* Deliveries Tab */}
       {activeTab === "deliveries" && (
         <div className="bg-white shadow-xl rounded-lg overflow-hidden">
-          {/* Action Bar */}
+          {/* Action Bar, tambah filter dropdown */}
           <div className="bg-gray-50 px-6 py-4 border-b">
             <div className="flex justify-between items-center">
               <div className="flex items-center space-x-4">
                 <h3 className="text-lg font-medium">
-                  Delivery Orders ({data.delivery_orders.length})
+                  Delivery Orders ({processedDOs.length})
                 </h3>
                 {selectedDOs.length > 0 && (
                   <span className="text-sm text-gray-600">
@@ -441,7 +481,15 @@ const POSpecificRitaseTable: React.FC = () => {
                   </span>
                 )}
               </div>
-              <div className="flex space-x-3">
+              <div className="flex space-x-3 items-center">
+                <Select
+                  options={vehicleOptions}
+                  value={selectedVehicle}
+                  onChange={setSelectedVehicle}
+                  placeholder="Filter by Vehicle"
+                  isClearable
+                  className="w-48"
+                />
                 {selectedDOs.length > 1 && (
                   <button
                     onClick={() => setShowBulkInvoiceModal(true)}
@@ -473,15 +521,7 @@ const POSpecificRitaseTable: React.FC = () => {
                   <input
                     type="checkbox"
                     className="h-4 w-4 text-blue-600 rounded border-gray-300"
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedDOs(
-                          data.delivery_orders.map((do_) => do_.id)
-                        );
-                      } else {
-                        setSelectedDOs([]);
-                      }
-                    }}
+                    onChange={handleSelectAll}
                   />
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -516,6 +556,14 @@ const POSpecificRitaseTable: React.FC = () => {
                       className="h-4 w-4 text-blue-600 rounded border-gray-300"
                       checked={selectedDOs.includes(do_.id)}
                       onChange={() => handleDOSelection(do_.id)}
+                      disabled={
+                        do_.invoices.length > 0 || do_.status !== "completed"
+                      }
+                      title={
+                        do_.invoices.length > 0
+                          ? "Sudah ada invoice, tidak bisa di-select untuk bulk"
+                          : ""
+                      }
                     />
                   </td>
 

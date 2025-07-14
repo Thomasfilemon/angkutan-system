@@ -1,16 +1,15 @@
 // src/pages/Ritase/ComprehensiveRitaseTable.tsx
-// 🎯 ENHANCED: Auto-load latest ritase sorted by vehicle license plate
 
 import React, { useState, useEffect, useMemo } from "react";
 import Select from "react-select";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import apiClient from "../../api/axiosConfig";
+import debounce from "lodash.debounce";
 import TableSkeleton from "../../components/ui/TableSkeleton";
 import SummaryCard from "../../components/ui/SummaryCard";
 import FilterChip from "../../components/ui/FilterChip";
 import StatusBadge from "../../components/ui/StatusBadge";
 
-// 🎯 ENHANCED: Add unit field to interface
 interface ComprehensiveRitaseData {
   id: number;
   do_number: string;
@@ -36,6 +35,7 @@ interface ComprehensiveRitaseData {
   trip_allowance: number;
   gaji: number;
   payment_status: string;
+  status: string;
   calculated: {
     actualQuantity: number;
     grossIncome: number;
@@ -77,6 +77,7 @@ const ComprehensiveRitaseTable: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [refreshing, setRefreshing] = useState(false);
+  const [globalSearch, setGlobalSearch] = useState("");
 
   // Purchase Orders and Vehicles state
   const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
@@ -108,7 +109,6 @@ const ComprehensiveRitaseTable: React.FC = () => {
     limit: 10,
   });
 
-  // Add this after your existing state declarations
   const activeFilters = useMemo(() => {
     const active = [];
     if (filters.vehicle && filters.vehicle !== "all") {
@@ -232,26 +232,16 @@ const ComprehensiveRitaseTable: React.FC = () => {
     });
   };
 
-  // ✅ CHANGE: Auto-fetch data on component mount
+  // Auto-fetch data on component mount
   const fetchData = async (showRefreshIndicator = false) => {
     try {
-      if (showRefreshIndicator) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
+      if (showRefreshIndicator) setRefreshing(true);
+      else setLoading(true);
       setError(null);
 
       const params = new URLSearchParams();
       Object.entries(filters).forEach(([key, value]) => {
-        if (
-          value !== "" &&
-          value !== "all" &&
-          value !== null &&
-          value !== undefined
-        ) {
-          params.append(key, value.toString());
-        }
+        if (value && value !== "all") params.append(key, value.toString());
       });
       params.append("page", currentPage.toString());
 
@@ -262,22 +252,62 @@ const ComprehensiveRitaseTable: React.FC = () => {
         ? response.data.data
         : response.data;
 
-      setData(responseData.records || []);
+      // Filter hanya 'completed' sebelum set state
+      const completedData = (responseData.records || []).filter(
+        (record: ComprehensiveRitaseData) => record.status === "completed"
+      );
+      setData(completedData);
       setSummary(responseData.summary || null);
-
-      if (responseData.pagination) {
-        setTotalPages(responseData.pagination.totalPages || 1);
-      }
+      setTotalPages(responseData.pagination?.totalPages || 1);
     } catch (err: any) {
-      setError("Failed to fetch ritase data. Please try again.");
+      setError(
+        "Gagal fetch data, bro. Cek koneksi atau API lo error? " +
+          (err.message || "Unknown error")
+      );
       console.error("Fetch error:", err);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
+  const debouncedSearch = useMemo(
+    () => debounce((value: string) => setGlobalSearch(value), 300),
+    []
+  );
 
-  // ✅ Fetch when filters or page change
+  const processedData = useMemo(() => {
+    let filtered = [...data];
+
+    // Global search filter
+    if (globalSearch) {
+      const lowerSearch = globalSearch.toLowerCase();
+      filtered = filtered.filter(
+        (record) =>
+          record.vehicle.license_plate.toLowerCase().includes(lowerSearch) ||
+          record.driver.driverProfile.full_name
+            .toLowerCase()
+            .includes(lowerSearch)
+        // Tambah field lain kalau mau
+      );
+    }
+
+    // Sorting dengan case-insensitive
+    filtered.sort((a, b) => {
+      const aVal = String(
+        a[sortConfig.key as keyof ComprehensiveRitaseData] || ""
+      ).toLowerCase();
+      const bVal = String(
+        b[sortConfig.key as keyof ComprehensiveRitaseData] || ""
+      ).toLowerCase();
+      if (aVal < bVal) return sortConfig.direction === "asc" ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    return filtered;
+  }, [data, globalSearch, sortConfig]);
+
+  // Fetch when filters or page change
   useEffect(() => {
     fetchData();
   }, [filters, currentPage]);
@@ -332,15 +362,6 @@ const ComprehensiveRitaseTable: React.FC = () => {
     setSortConfig((prev) => ({
       key,
       direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc",
-    }));
-
-    setFilters((prev) => ({
-      ...prev,
-      sortBy: key,
-      sortOrder:
-        sortConfig.key === key && sortConfig.direction === "asc"
-          ? "DESC"
-          : "ASC",
     }));
   };
 
@@ -559,6 +580,12 @@ const ComprehensiveRitaseTable: React.FC = () => {
                 </svg>
                 Filters & Search
               </h3>
+              <input
+                type="text"
+                placeholder="Search globally..."
+                onChange={(e) => debouncedSearch(e.target.value)}
+                className="px-4 py-2 rounded-lg"
+              />
               {activeFilters.length > 0 && (
                 <button
                   onClick={() =>
@@ -595,7 +622,7 @@ const ComprehensiveRitaseTable: React.FC = () => {
               )}
             </div>
 
-            {/* ✅ NEW: Active filter chips */}
+            {/* Active filter chips */}
             {activeFilters.length > 0 && (
               <div className="mb-6">
                 <p className="text-sm text-gray-600 mb-3 font-medium">
@@ -625,7 +652,7 @@ const ComprehensiveRitaseTable: React.FC = () => {
               </div>
             )}
 
-            {/* ✅ ENHANCED: Filter grid with better spacing */}
+            {/* Filter grid with better spacing */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Sort By */}
               <div>
@@ -781,11 +808,11 @@ const ComprehensiveRitaseTable: React.FC = () => {
           </div>
         </div>
 
-        {/* ✅ ENHANCED: Loading State */}
+        {/* Loading State */}
         {loading && !data.length ? (
           <TableSkeleton />
         ) : error ? (
-          /* ✅ ENHANCED: Error State */
+          /* Error State */
           <div className="bg-red-50 border border-red-200 rounded-xl p-6 mb-8">
             <div className="flex items-center">
               <svg
@@ -804,7 +831,7 @@ const ComprehensiveRitaseTable: React.FC = () => {
                 <p className="text-red-600 text-sm mt-1">{error}</p>
               </div>
             </div>
-            {/* ✅ FIXED: Refresh button with proper event handler */}
+            {/* Refresh button with proper event handler */}
             <button
               onClick={() => fetchData(true)}
               disabled={refreshing}
@@ -846,6 +873,12 @@ const ComprehensiveRitaseTable: React.FC = () => {
                     )}
                   </p>
                 </div>
+                <input
+                  type="text"
+                  placeholder="Search globally..."
+                  onChange={(e) => debouncedSearch(e.target.value)}
+                  className="px-4 py-2 rounded-lg"
+                />
                 {refreshing && (
                   <div className="flex items-center text-sm text-blue-600">
                     <svg
@@ -873,7 +906,7 @@ const ComprehensiveRitaseTable: React.FC = () => {
               </div>
             </div>
 
-            {/* ✅ ENHANCED: Responsive Table */}
+            {/* Responsive Table */}
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
@@ -951,7 +984,7 @@ const ComprehensiveRitaseTable: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-100">
-                  {data.map((record, index) => {
+                  {processedData.map((record, index) => {
                     const quantityDisplay = getQuantityDisplay(record);
                     const pricingContext = getPricingContext(
                       record.unit,
@@ -1108,7 +1141,7 @@ const ComprehensiveRitaseTable: React.FC = () => {
               </table>
             </div>
 
-            {/* ✅ ENHANCED: Pagination */}
+            {/* Pagination */}
             {totalPages > 1 && (
               <div className="bg-white px-6 py-4 border-t border-gray-200">
                 <div className="flex items-center justify-between">

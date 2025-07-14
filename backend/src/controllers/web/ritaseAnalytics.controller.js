@@ -15,7 +15,6 @@ const {
  * 🎯 COMPREHENSIVE RITASE TABLE - Auto-load latest ritase by vehicle plate
  * GET /ritase/comprehensive - Shows 10 latest ritase sorted by license plate DESC
  *
- * ✅ FIXED: Vehicle filtering, unit filtering, calculated field sorting, performance optimization
  */
 exports.getComprehensiveRitaseTable = async (req, res, next) => {
   try {

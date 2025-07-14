@@ -48,7 +48,6 @@ vehicleRouter.delete(
   vehicleController.deleteVehicle
 );
 
-// ✅ FIXED: Consistent parameter naming
 vehicleRouter.patch(
   "/:id/assign-driver",
   checkRole(["admin", "owner"]),

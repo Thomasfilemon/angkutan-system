@@ -1237,8 +1237,10 @@ const DOPaymentManagement: React.FC = () => {
                 <div
                   className={`p-6 border-2 border-dashed rounded-lg transition-all
                     ${
-                      canAdjust()
+                      canAdjust() && doData.adjustments.length === 0
                         ? "border-yellow-300 hover:border-yellow-400 hover:bg-yellow-50 cursor-pointer"
+                        : doData.adjustments.length > 0 && canAdjust()
+                        ? "border-yellow-400 bg-yellow-50 cursor-pointer"
                         : "border-gray-200 bg-gray-50 opacity-60 cursor-not-allowed pointer-events-none"
                     }
                   `}
@@ -1246,7 +1248,18 @@ const DOPaymentManagement: React.FC = () => {
                   tabIndex={0}
                   onClick={() => {
                     if (!canAdjust()) return;
-                    setShowAdjustmentForm(true);
+                    if (doData.adjustments.length === 0) {
+                      setShowAdjustmentForm(true); // Create
+                    } else {
+                      // Prefill form with existing adjustment for edit
+                      const adj = doData.adjustments[0];
+                      setNewAdjustment({
+                        adjustment_type: adj.adjustment_type,
+                        adjustment_amount: adj.adjustment_amount,
+                        reason: adj.reason,
+                      });
+                      setShowAdjustmentForm(true); // Edit
+                    }
                   }}
                   aria-disabled={!canAdjust()}
                 >
@@ -1254,7 +1267,11 @@ const DOPaymentManagement: React.FC = () => {
                     <div className="relative">
                       <svg
                         className={`h-12 w-12 mx-auto mb-3 ${
-                          canAdjust() ? "text-yellow-500" : "text-gray-400"
+                          canAdjust()
+                            ? doData.adjustments.length === 0
+                              ? "text-yellow-500"
+                              : "text-yellow-700"
+                            : "text-gray-400"
                         }`}
                         fill="none"
                         viewBox="0 0 24 24"
@@ -1287,22 +1304,39 @@ const DOPaymentManagement: React.FC = () => {
                     </div>
                     <h4
                       className={`font-medium ${
-                        canAdjust() ? "text-gray-900" : "text-gray-500"
+                        canAdjust()
+                          ? doData.adjustments.length === 0
+                            ? "text-gray-900"
+                            : "text-yellow-800"
+                          : "text-gray-500"
                       }`}
                     >
-                      Price Adjustment
+                      {doData.adjustments.length === 0
+                        ? "Price Adjustment"
+                        : "Edit Adjustment"}
                     </h4>
                     <p
                       className={`text-sm ${
-                        canAdjust() ? "text-gray-600" : "text-gray-400"
+                        canAdjust()
+                          ? doData.adjustments.length === 0
+                            ? "text-gray-600"
+                            : "text-yellow-700"
+                          : "text-gray-400"
                       }`}
                     >
                       {isFullySettled
                         ? "DO fully settled"
                         : !canAdjust()
                         ? "Requires confirmation"
-                        : "Modify pricing"}
+                        : doData.adjustments.length === 0
+                        ? "Modify pricing"
+                        : "Edit existing adjustment"}
                     </p>
+                    {doData.adjustments.length > 0 && canAdjust() && (
+                      <div className="mt-2 text-xs text-yellow-700">
+                        Adjustment already exists. Click to edit.
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -2024,7 +2058,6 @@ const DOPaymentManagement: React.FC = () => {
             </div>
           )}
 
-          {/* Price Adjustments Tab */}
           {/* Adjustments Tab */}
           {activeTab === "adjustments" && (
             <div className="space-y-6">
@@ -2034,14 +2067,21 @@ const DOPaymentManagement: React.FC = () => {
                   <button
                     onClick={() => {
                       if (isFullySettled) {
-                        toast.error(
-                          "DO fully settled—can't create more adjustments!"
-                        );
+                        toast.error("DO fully settled—can't edit adjustment!");
                         return;
                       }
                       if (!canDoActions()) {
                         toast.error("Please confirm DO for billing first!");
                         return;
+                      }
+                      // Prefill form jika sudah ada adjustment
+                      if (doData.adjustments.length > 0) {
+                        const adj = doData.adjustments[0];
+                        setNewAdjustment({
+                          adjustment_type: adj.adjustment_type,
+                          adjustment_amount: adj.adjustment_amount,
+                          reason: adj.reason,
+                        });
                       }
                       setShowAdjustmentForm(true);
                     }}
@@ -2077,13 +2117,15 @@ const DOPaymentManagement: React.FC = () => {
                         />
                       </svg>
                     )}
-                    + Create Adjustment
+                    {doData.adjustments.length > 0
+                      ? "Edit Adjustment"
+                      : "+ Create Adjustment"}
                   </button>
                   {/* Tooltip for disabled button */}
                   {(!canDoActions() || isFullySettled) && (
                     <div className="absolute left-1/2 transform -translate-x-1/2 mt-2 w-56 bg-gray-800 text-white text-xs rounded px-3 py-2 opacity-0 group-hover:opacity-100 pointer-events-none z-10 transition-opacity">
                       {isFullySettled
-                        ? "DO sudah lunas/settled. Tidak bisa membuat adjustment baru."
+                        ? "DO sudah lunas/settled. Tidak bisa edit adjustment."
                         : "Konfirmasi DO untuk billing terlebih dahulu."}
                     </div>
                   )}
@@ -2228,7 +2270,7 @@ const DOPaymentManagement: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Adjustment cards */}
+                  {/* Adjustment card (hanya satu) */}
                   {doData.adjustments.map((adjustment) => (
                     <div
                       key={adjustment.id}
@@ -2339,8 +2381,13 @@ const DOPaymentManagement: React.FC = () => {
                         <button
                           onClick={() => {
                             if (isFullySettled) return;
-                            // Handle edit adjustment
-                            console.log("Edit adjustment:", adjustment.id);
+                            // Prefill form for edit
+                            setNewAdjustment({
+                              adjustment_type: adjustment.adjustment_type,
+                              adjustment_amount: adjustment.adjustment_amount,
+                              reason: adjustment.reason,
+                            });
+                            setShowAdjustmentForm(true);
                           }}
                           disabled={isFullySettled}
                           className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors disabled:opacity-50"
@@ -2348,10 +2395,26 @@ const DOPaymentManagement: React.FC = () => {
                           Edit
                         </button>
                         <button
-                          onClick={() => {
+                          onClick={async () => {
                             if (isFullySettled) return;
-                            // Handle delete adjustment
-                            console.log("Delete adjustment:", adjustment.id);
+                            if (
+                              window.confirm(
+                                "Are you sure you want to delete this adjustment? This action cannot be undone."
+                              )
+                            ) {
+                              try {
+                                await apiClient.delete(
+                                  `/ritase/delivery-orders/${doId}/adjustment/${adjustment.id}`
+                                );
+                                toast.success("Adjustment deleted!");
+                                await fetchDOPaymentData();
+                              } catch (err: any) {
+                                toast.error(
+                                  err.response?.data?.message ||
+                                    "Failed to delete adjustment"
+                                );
+                              }
+                            }
                           }}
                           disabled={isFullySettled}
                           className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition-colors disabled:opacity-50"
@@ -2790,14 +2853,16 @@ const DOPaymentManagement: React.FC = () => {
         </div>
       )}
 
-      {/* ✅ CREATE ADJUSTMENT MODAL */}
+      {/* ✅ CREATE/EDIT ADJUSTMENT MODAL */}
       {showAdjustmentForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="px-6 py-4 border-b border-gray-200">
               <div className="flex justify-between items-center">
                 <h3 className="text-lg font-semibold">
-                  Create Price Adjustment
+                  {doData.adjustments.length > 0
+                    ? "Edit Price Adjustment"
+                    : "Create Price Adjustment"}
                 </h3>
                 <button
                   onClick={() => setShowAdjustmentForm(false)}
@@ -2820,7 +2885,48 @@ const DOPaymentManagement: React.FC = () => {
               </div>
             </div>
 
-            <form onSubmit={handleCreateAdjustment} className="p-6 space-y-6">
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!doId) return;
+                setSubmitting(true);
+                try {
+                  if (doData.adjustments.length > 0) {
+                    // Edit mode: PATCH/PUT
+                    const adjustmentId = doData.adjustments[0].id;
+                    await apiClient.patch(
+                      `/ritase/delivery-orders/${doId}/adjustment/${adjustmentId}`,
+                      newAdjustment
+                    );
+                    toast.success("Adjustment updated!");
+                  } else {
+                    // Create mode: POST
+                    await apiClient.post(
+                      `/ritase/delivery-orders/${doId}/adjustment`,
+                      newAdjustment
+                    );
+                    toast.success("Adjustment created!");
+                  }
+                  setShowAdjustmentForm(false);
+                  setNewAdjustment({
+                    adjustment_type: "price_override",
+                    adjustment_amount: 0,
+                    reason: "",
+                  });
+                  await fetchDOPaymentData();
+                } catch (err: any) {
+                  toast.error(
+                    err.response?.data?.message ||
+                      (doData.adjustments.length > 0
+                        ? "Failed to update adjustment"
+                        : "Failed to create adjustment")
+                  );
+                } finally {
+                  setSubmitting(false);
+                }
+              }}
+              className="p-6 space-y-6"
+            >
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Adjustment Type
@@ -2939,7 +3045,13 @@ const DOPaymentManagement: React.FC = () => {
                   disabled={submitting}
                   className="px-6 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-50"
                 >
-                  {submitting ? "Creating..." : "Create Adjustment"}
+                  {submitting
+                    ? doData.adjustments.length > 0
+                      ? "Updating..."
+                      : "Creating..."
+                    : doData.adjustments.length > 0
+                    ? "Update Adjustment"
+                    : "Create Adjustment"}
                 </button>
               </div>
             </form>

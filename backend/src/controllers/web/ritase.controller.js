@@ -828,8 +828,21 @@ exports.createPriceAdjustment = async (req, res, next) => {
     const { do_id } = req.params;
     const { adjustment_type, adjustment_amount, reason } = req.body;
     const userId = req.user.id;
+    const existing = await DeliveryOrderAdjustments.findOne({
+      where: { delivery_order_id: do_id },
+    });
 
     const deliveryOrder = await DeliveryOrder.findByPk(do_id);
+
+    if (existing) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message:
+            "Adjustment already exists for this DO. Please edit instead.",
+        });
+    }
     if (!deliveryOrder) {
       return res.status(404).json({
         success: false,
@@ -867,6 +880,91 @@ exports.createPriceAdjustment = async (req, res, next) => {
         old_amount: originalAmount,
         new_amount: finalAmount,
       },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Update Price Adjustment
+exports.updatePriceAdjustment = async (req, res, next) => {
+  try {
+    const { do_id, adjustment_id } = req.params;
+    const { adjustment_type, adjustment_amount, reason } = req.body;
+    const userId = req.user.id;
+
+    const adjustment = await DeliveryOrderAdjustments.findOne({
+      where: { id: adjustment_id, delivery_order_id: do_id },
+    });
+    if (!adjustment) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Adjustment not found" });
+    }
+
+    // Get DO for original_amount
+    const deliveryOrder = await DeliveryOrder.findByPk(do_id);
+    if (!deliveryOrder) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Delivery Order not found" });
+    }
+
+    const originalAmount =
+      parseFloat(deliveryOrder.final_amount) ||
+      parseFloat(deliveryOrder.ongkosan) ||
+      0;
+    const finalAmount = parseFloat(adjustment_amount);
+
+    await adjustment.update({
+      adjustment_type,
+      adjustment_amount: finalAmount,
+      final_amount: finalAmount,
+      reason,
+      original_amount: originalAmount,
+      approved_by: userId,
+    });
+
+    // Update DO final amount
+    await deliveryOrder.update({ final_amount: finalAmount });
+
+    res.json({
+      success: true,
+      message: "Adjustment updated successfully",
+      data: adjustment,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Delete Price Adjustment
+exports.deletePriceAdjustment = async (req, res, next) => {
+  try {
+    const { do_id, adjustment_id } = req.params;
+
+    const adjustment = await DeliveryOrderAdjustments.findOne({
+      where: { id: adjustment_id, delivery_order_id: do_id },
+    });
+    if (!adjustment) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Adjustment not found" });
+    }
+
+    await adjustment.destroy();
+
+    // Optional: Reset DO final_amount ke ongkosan jika adjustment dihapus
+    const deliveryOrder = await DeliveryOrder.findByPk(do_id);
+    if (deliveryOrder) {
+      await deliveryOrder.update({
+        final_amount: deliveryOrder.ongkosan,
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Adjustment deleted successfully",
     });
   } catch (err) {
     next(err);
@@ -1619,4 +1717,6 @@ module.exports = {
   createDeliveryOrderInvoice: exports.createDeliveryOrderInvoice,
   recordDeliveryOrderPayment: exports.recordDeliveryOrderPayment,
   createPriceAdjustment: exports.createPriceAdjustment,
+  updatePriceAdjustment: exports.updatePriceAdjustment,
+  deletePriceAdjustment: exports.deletePriceAdjustment,
 };
