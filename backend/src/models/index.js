@@ -19,6 +19,8 @@ const setupStockItemModel = require("./stockItem.model");
 const setupStockTransactionModel = require("./stockTransaction.model");
 const setupStockBatchModel = require("./stockBatch.model");
 const setupServiceItemModel = require("./serviceItem.model");
+const setupStockBatchModel = require("./stockBatch.model");
+
 // Create model files for new Ritase tables
 const setupDeliveryOrderPaymentsModel = require("./deliveryOrderPayments.model");
 const setupDeliveryOrderInvoicesModel = require("./deliveryOrderInvoices.model");
@@ -72,6 +74,7 @@ db.VehicleService = setupVehicleServiceModel(sequelize);
 
 db.StockCategory = setupStockCategoryModel(sequelize);
 db.StockItem = setupStockItemModel(sequelize);
+db.StockBatch = setupStockBatchModel(sequelize);
 db.StockTransaction = setupStockTransactionModel(sequelize);
 db.StockBatch = setupStockBatchModel(sequelize);
 db.ServiceItem = setupServiceItemModel(sequelize);
@@ -105,6 +108,7 @@ const {
   StockCategory,
   StockItem,
   StockTransaction,
+  StockBatch,
   ServiceItem,
   TireInventory,
   VehicleTire,

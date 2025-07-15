@@ -120,14 +120,15 @@ CREATE TABLE tire_inspections (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- STOCK MANAGEMENT TABLES
+
 CREATE TABLE stock_categories (
-  id SERIAL PRIMARY KEY,
-  category_name VARCHAR(100) NOT NULL,
-  description TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    id SERIAL PRIMARY KEY,
+    category_name VARCHAR(100) NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- CORRECTED: Removed current_stock column, will be calculated from batches
 CREATE TABLE stock_items (
     id SERIAL PRIMARY KEY,
     category_id INTEGER REFERENCES stock_categories(id),
@@ -135,8 +136,9 @@ CREATE TABLE stock_items (
     item_name VARCHAR(255) NOT NULL,
     supplier VARCHAR(255),
     unit VARCHAR(20) NOT NULL DEFAULT 'Pcs',
-    current_stock NUMERIC(10,2) NOT NULL DEFAULT 0,
     min_stock NUMERIC(10,2) NOT NULL DEFAULT 0,
+    average_unit_price NUMERIC(15,2) DEFAULT 0, -- Weighted average price
+    total_value NUMERIC(15,2) DEFAULT 0, -- Total value of all batches
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -158,6 +160,7 @@ CREATE TABLE stock_batches (
     CONSTRAINT check_quantities CHECK (remaining_quantity >= 0 AND remaining_quantity <= initial_quantity)
 );
 
+-- Modified stock_transactions table with batch tracking
 CREATE TABLE stock_transactions (
     id SERIAL PRIMARY KEY,
     item_id INTEGER REFERENCES stock_items(id) ON DELETE CASCADE,
@@ -576,11 +579,13 @@ CREATE INDEX idx_vehicles_stnk_expired ON vehicles(stnk_expired_date);
 CREATE INDEX idx_vehicles_driver_id ON vehicles(driver_id);
 CREATE INDEX idx_vehicles_tire_count ON vehicles(tire_count);
 CREATE INDEX idx_stock_items_category ON stock_items(category_id);
-CREATE INDEX idx_stock_items_low_stock ON stock_items(current_stock, min_stock);
 CREATE INDEX idx_stock_batches_item_id ON stock_batches(item_id);
-CREATE INDEX idx_stock_batches_remaining ON stock_batches(remaining_quantity);
 CREATE INDEX idx_stock_batches_purchase_date ON stock_batches(purchase_date);
 CREATE INDEX idx_stock_transactions_batch_id ON stock_transactions(batch_id);
+-- ✅ Corrected indexes for FIFO batch system
+CREATE INDEX idx_stock_items_min_stock ON stock_items(min_stock);
+CREATE INDEX idx_stock_batches_quantity ON stock_batches(quantity);
+CREATE INDEX idx_stock_batches_item_quantity ON stock_batches(item_id, quantity);
 CREATE INDEX idx_stock_transactions_item ON stock_transactions(item_id);
 CREATE INDEX idx_stock_transactions_date ON stock_transactions(transaction_date);
 CREATE INDEX idx_vehicle_services_vehicle ON vehicle_services(vehicle_id);

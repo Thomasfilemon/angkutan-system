@@ -14,5 +14,6 @@ serviceRouter.get('/stock-items', serviceController.getAvailableStockItems);
 serviceRouter.get('/:id', serviceController.getServiceById);
 serviceRouter.put('/:id', serviceController.updateService);
 serviceRouter.patch('/:id/cancel', serviceController.cancelService);
+serviceRouter.get('/stock/:id', serviceController.getStockItemDetails);
 
 module.exports = serviceRouter;

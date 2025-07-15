@@ -1,540 +1,643 @@
 // src/controllers/web/stockController.js
-const db = require('../../models');
-const { StockItem, StockCategory, StockTransaction, ServiceItem, StockBatch, sequelize } = db;
-const { Op } = require('sequelize');
+const db = require("../../models");
+const {
+  StockItem,
+  StockCategory,
+  StockTransaction,
+  StockBatch,
+  ServiceItem,
+  sequelize,
+} = db;
+const { Op } = require("sequelize");
 
-// Get all stock items
-const getAllStockItems = async (req, res, next) => {
-    try {
-        const { category_id, low_stock, search, page = 1, limit = 10 } = req.query;
-        const offset = (page - 1) * limit;
-        
-        let whereClause = {};
-        if (category_id) whereClause.category_id = category_id;
-        if (search) {
-            whereClause[Op.or] = [
-                { item_name: { [Op.iLike]: `%${search}%` } },
-                { item_code: { [Op.iLike]: `%${search}%` } }
-            ];
-        }
+// Helper function to generate batch number
+const generateBatchNumber = async (itemId, itemCode) => {
+  const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const prefix = `${itemCode || "ITM"}-${today}`;
 
-        const result = await StockItem.findAndCountAll({
-            where: whereClause,
-            include: [
-                { model: StockCategory, as: 'category' },
-                { 
-                    model: StockBatch, 
-                    as: 'batches',
-                    where: { remaining_quantity: { [Op.gt]: 0 } },
-                    required: false
-                }
-            ],
-            order: [['created_at', 'DESC']],
-            limit: parseInt(limit),
-            offset: offset
-        });
+  const lastBatch = await StockBatch.findOne({
+    where: {
+      item_id: itemId,
+      batch_number: {
+        [Op.like]: `${prefix}-%`,
+      },
+    },
+    order: [["batch_number", "DESC"]],
+  });
 
-        // Calculate weighted average prices
-        const enhancedItems = await Promise.all(result.rows.map(async (item) => {
-            const batches = await StockBatch.findAll({
-                where: { 
-                    item_id: item.id,
-                    remaining_quantity: { [Op.gt]: 0 }
-                }
-            });
+  let sequence = 1;
+  if (lastBatch) {
+    const lastSequence = parseInt(lastBatch.batch_number.split("-").pop()) || 0;
+    sequence = lastSequence + 1;
+  }
 
-            let totalValue = 0;
-            let totalQuantity = 0;
-            
-            batches.forEach(batch => {
-                const qty = parseFloat(batch.remaining_quantity);
-                const price = parseFloat(batch.purchase_price);
-                totalValue += qty * price;
-                totalQuantity += qty;
-            });
-
-            const weightedAveragePrice = totalQuantity > 0 ? totalValue / totalQuantity : 0;
-
-            return {
-                ...item.toJSON(),
-                weighted_average_price: weightedAveragePrice,
-                total_value: totalValue,
-                batch_count: batches.length,
-                is_low_stock: parseFloat(item.current_stock) <= parseFloat(item.min_stock),
-                stock_status: parseFloat(item.current_stock) <= 0 ? 'out_of_stock' :
-                           parseFloat(item.current_stock) <= parseFloat(item.min_stock) ? 'low_stock' : 'adequate',
-                unit_price: weightedAveragePrice // Use weighted average as unit_price
-
-            };
-        }));
-
-        res.json({
-            data: enhancedItems,
-            pagination: {
-                totalItems: result.count,
-                totalPages: Math.ceil(result.count / limit),
-                currentPage: parseInt(page)
-            }
-        });
-    } catch (err) {
-        console.error('Error in getAllStockItems:', err);
-        next(err);
-    }
+  return `${prefix}-${sequence.toString().padStart(3, "0")}`;
 };
 
-// Create new stock item
-const createStockItem = async (req, res, next) => {
-    const t = await sequelize.transaction();
-    try {
-        const { 
-            category_id, item_code, item_name, supplier, unit, 
-            current_stock, min_stock, unit_price, notes 
-        } = req.body;
+// Helper function to calculate current stock from batches
+const calculateCurrentStock = async (itemId) => {
+  const result = await StockBatch.findOne({
+    where: { item_id: itemId },
+    attributes: [
+      [sequelize.fn("SUM", sequelize.col("quantity")), "total_quantity"],
+      [
+        sequelize.fn("SUM", sequelize.literal("quantity * unit_price")),
+        "total_value",
+      ],
+    ],
+  });
 
-        // Create stock item
-        const stockItem = await StockItem.create({
-            category_id, item_code, item_name, supplier, unit,
-            current_stock: current_stock || 0,
-            min_stock: min_stock || 0,
-            notes
-        }, { transaction: t });
+  const totalQuantity = parseFloat(result?.dataValues?.total_quantity) || 0;
+  const totalValue = parseFloat(result?.dataValues?.total_value) || 0;
+  const averagePrice = totalQuantity > 0 ? totalValue / totalQuantity : 0;
 
-        // Create initial batch if stock > 0
-        if (current_stock > 0 && unit_price > 0) {
-            const batchNumber = `BATCH-${item_code || stockItem.id}-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}`;
-            
-            await StockBatch.create({
-                item_id: stockItem.id,
-                batch_number: batchNumber,
-                purchase_price: unit_price,
-                initial_quantity: current_stock,
-                remaining_quantity: current_stock,
-                purchase_date: new Date(),
-                supplier,
-                notes: 'Initial stock batch'
-            }, { transaction: t });
+  return { totalQuantity, totalValue, averagePrice };
+};
 
-            // Record transaction
-            await StockTransaction.create({
-                item_id: stockItem.id,
-                transaction_type: 'in',
-                quantity: current_stock,
-                unit_price,
-                total_amount: current_stock * unit_price,
-                reference_type: 'initial_stock',
-                notes: 'Initial stock entry'
-            }, { transaction: t });
-        }
+// Get all stock items with calculated current stock
+const getAllStockItems = async (req, res, next) => {
+  try {
+    const {
+      category_id,
+      low_stock,
+      search,
+      page = 1,
+      limit = 10,
+      startDate,
+      endDate,
+    } = req.query;
+    const offset = (page - 1) * limit;
 
-        await t.commit();
-        res.status(201).json({
-            success: true,
-            message: 'Stock item created successfully',
-            data: stockItem
-        });
-    } catch (err) {
-        await t.rollback();
-        console.error('Error in createStockItem:', err);
-        next(err);
+    let whereClause = {};
+    if (category_id) whereClause.category_id = category_id;
+    if (search) {
+      whereClause[Op.or] = [
+        { item_name: { [Op.iLike]: `%${search}%` } },
+        { item_code: { [Op.iLike]: `%${search}%` } },
+      ];
     }
+    if (startDate && endDate) {
+      whereClause.created_at = {
+        [Op.between]: [new Date(startDate), new Date(endDate)],
+      };
+    }
+
+    const result = await StockItem.findAndCountAll({
+      where: whereClause,
+      include: [
+        { model: StockCategory, as: "category", required: false },
+        {
+          model: StockBatch,
+          as: "batches",
+          attributes: [
+            "id",
+            "batch_number",
+            "quantity",
+            "unit_price",
+            "purchase_date",
+          ],
+          required: false,
+        },
+      ],
+      order: [["created_at", "DESC"]],
+      limit: parseInt(limit),
+      offset: offset,
+    });
+
+    const enhancedItems = await Promise.all(
+      result.rows.map(async (item) => {
+        const itemData = item.toJSON();
+        itemData.batches = (itemData.batches || []).filter(
+          (batch) => batch.quantity > 0
+        );
+        const { totalQuantity, totalValue, averagePrice } =
+          await calculateCurrentStock(item.id);
+
+        return {
+          ...itemData,
+          current_stock: totalQuantity,
+          total_value: totalValue,
+          average_unit_price: averagePrice,
+          is_low_stock: totalQuantity <= parseFloat(item.min_stock),
+          stock_status:
+            totalQuantity <= 0
+              ? "out_of_stock"
+              : totalQuantity <= parseFloat(item.min_stock)
+              ? "low_stock"
+              : "adequate",
+        };
+      })
+    );
+
+    const filteredItems =
+      low_stock === "true"
+        ? enhancedItems.filter((item) => item.is_low_stock)
+        : enhancedItems;
+
+    res.json({
+      data: filteredItems,
+      pagination: {
+        totalItems: low_stock === "true" ? filteredItems.length : result.count,
+        totalPages: Math.ceil(
+          (low_stock === "true" ? filteredItems.length : result.count) / limit
+        ),
+        currentPage: parseInt(page),
+      },
+    });
+  } catch (err) {
+    console.error("Error in getAllStockItems:", err);
+    next(err);
+  }
+};
+
+// Create new stock item with initial batch
+const createStockItem = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const {
+      category_id,
+      item_code,
+      item_name,
+      supplier,
+      unit,
+      min_stock,
+      unit_price,
+      initial_stock,
+      notes,
+    } = req.body;
+
+    const stockItem = await StockItem.create(
+      {
+        category_id: category_id || null,
+        item_code,
+        item_name,
+        supplier,
+        unit: unit || "Pcs",
+        min_stock: parseFloat(min_stock) || 0,
+        notes,
+      },
+      { transaction }
+    );
+
+    if (initial_stock && parseFloat(initial_stock) > 0) {
+      const batchNumber = await generateBatchNumber(stockItem.id, item_code);
+      const quantity = parseFloat(initial_stock);
+      const price = parseFloat(unit_price) || 0;
+
+      await StockBatch.create(
+        {
+          item_id: stockItem.id,
+          batch_number: batchNumber,
+          quantity: quantity,
+          original_quantity: quantity,
+          unit_price: price,
+          supplier,
+          notes: "Initial stock batch",
+        },
+        { transaction }
+      );
+
+      await StockTransaction.create(
+        {
+          item_id: stockItem.id,
+          transaction_type: "in",
+          quantity: quantity,
+          unit_price: price,
+          total_amount: quantity * price,
+          reference_type: "initial_stock",
+          notes: "Initial stock creation",
+        },
+        { transaction }
+      );
+
+      await stockItem.update(
+        {
+          average_unit_price: price,
+          total_value: quantity * price,
+        },
+        { transaction }
+      );
+    }
+
+    await transaction.commit();
+
+    res.status(201).json({
+      success: true,
+      message: "Stock item created successfully",
+      data: stockItem,
+    });
+  } catch (err) {
+    await transaction.rollback();
+    console.error("Error in createStockItem:", err);
+    next(err);
+  }
 };
 
 // Get stock item by ID
-// In src/controllers/web/stockController.js
 const getStockItemById = async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        
-        const stockItem = await StockItem.findByPk(id, {
-            include: [
-                { model: StockCategory, as: 'category' },
-                { 
-                    model: StockBatch, 
-                    as: 'batches',
-                    where: { remaining_quantity: { [Op.gt]: 0 } },
-                    required: false,
-                    order: [['purchase_date', 'ASC']]
-                }
-            ]
-        });
+  try {
+    const { id } = req.params;
 
-        if (!stockItem) {
-            return res.status(404).json({
-                success: false,
-                message: 'Stock item not found'
-            });
-        }
-
-        // Calculate weighted average price
-        const batches = await StockBatch.findAll({
-            where: { 
-                item_id: id,
-                remaining_quantity: { [Op.gt]: 0 }
-            }
-        });
-
-        let totalValue = 0;
-        let totalQuantity = 0;
-        
-        batches.forEach(batch => {
-            const qty = parseFloat(batch.remaining_quantity);
-            const price = parseFloat(batch.purchase_price);
-            totalValue += qty * price;
-            totalQuantity += qty;
-        });
-
-        const weightedAveragePrice = totalQuantity > 0 ? totalValue / totalQuantity : 0;
-
-        res.json({
-            success: true,
-            data: {
-                ...stockItem.toJSON(),
-                weighted_average_price: weightedAveragePrice,
-                total_value: totalValue,
-                is_low_stock: parseFloat(stockItem.current_stock) <= parseFloat(stockItem.min_stock)
-            }
-        });
-    } catch (err) {
-        console.error('Error in getStockItemById:', err);
-        next(err);
+    if (isNaN(parseInt(id))) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid stock item ID. Must be a number.",
+      });
     }
-};
 
-// Get batch details for an item
-const getStockBatches = async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        
-        const batches = await StockBatch.findAll({
-            where: { item_id: id },
-            order: [['purchase_date', 'ASC']]
-        });
+    const stockItem = await StockItem.findByPk(parseInt(id), {
+      include: [
+        { model: StockCategory, as: "category", required: false },
+        {
+          model: StockBatch,
+          as: "batches",
+          where: { quantity: { [Op.gt]: 0 } },
+          required: false,
+          order: [["purchase_date", "ASC"]],
+        },
+      ],
+    });
 
-        res.json({
-            success: true,
-            data: batches
-        });
-    } catch (err) {
-        console.error('Error in getStockBatches:', err);
-        next(err);
+    if (!stockItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Stock item not found",
+      });
     }
-};
 
+    const { totalQuantity, totalValue, averagePrice } =
+      await calculateCurrentStock(id);
+
+    res.json({
+      success: true,
+      data: {
+        ...stockItem.toJSON(),
+        current_stock: totalQuantity,
+        total_value: totalValue,
+        average_unit_price: averagePrice,
+        is_low_stock: totalQuantity <= parseFloat(stockItem.min_stock),
+      },
+    });
+  } catch (err) {
+    console.error("Error in getStockItemById:", err);
+    next(err);
+  }
+};
 
 // Update stock item
 const updateStockItem = async (req, res, next) => {
   try {
     const { id } = req.params;
     const stockItem = await StockItem.findByPk(id);
-    
+
     if (!stockItem) {
       return res.status(404).json({
         success: false,
-        message: 'Stock item not found'
+        message: "Stock item not found",
       });
     }
 
     await stockItem.update(req.body);
-
     res.json({
       success: true,
-      message: 'Stock item updated successfully',
-      data: stockItem
+      message: "Stock item updated successfully",
+      data: stockItem,
     });
   } catch (err) {
-    console.error('Error in updateStockItem:', err);
+    console.error("Error in updateStockItem:", err);
     next(err);
   }
 };
 
-// Add stock (restock)
-const addStock = async (req, res, next) => {
-    const t = await sequelize.transaction();
-    try {
-        const { id } = req.params;
-        const { quantity, unit_price, supplier, notes } = req.body;
+// FIFO Stock Adjustment (this replaces your adjustStock function)
+const adjustStock = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
 
-        if (!quantity || parseFloat(quantity) <= 0) {
-            return res.status(400).json({
-                success: false,
-                message: 'Quantity must be greater than 0'
-            });
-        }
+  try {
+    const {
+      itemId,
+      adjustmentType,
+      quantity,
+      unit_price,
+      supplier,
+      notes,
+      create_new_batch,
+    } = req.body;
 
-        const stockItem = await StockItem.findByPk(id, { transaction: t });
-        if (!stockItem) {
-            return res.status(404).json({
-                success: false,
-                message: 'Stock item not found'
-            });
-        }
-
-        // Create new batch
-        const batchNumber = `BATCH-${stockItem.item_code || id}-${Date.now()}`;
-        const batch = await StockBatch.create({
-            item_id: id,
-            batch_number: batchNumber,
-            purchase_price: unit_price,
-            initial_quantity: quantity,
-            remaining_quantity: quantity,
-            purchase_date: new Date(),
-            supplier,
-            notes
-        }, { transaction: t });
-
-        // Update stock item total
-        const newStock = parseFloat(stockItem.current_stock) + parseFloat(quantity);
-        await stockItem.update({ current_stock: newStock }, { transaction: t });
-
-        // Record transaction
-        await StockTransaction.create({
-            item_id: id,
-            batch_id: batch.id,
-            transaction_type: 'in',
-            quantity: parseFloat(quantity),
-            unit_price: parseFloat(unit_price),
-            total_amount: parseFloat(quantity) * parseFloat(unit_price),
-            reference_type: 'restock',
-            supplier,
-            notes
-        }, { transaction: t });
-
-        await t.commit();
-        res.json({
-            success: true,
-            message: 'Stock added successfully',
-            data: { stockItem, batch }
-        });
-    } catch (err) {
-        await t.rollback();
-        console.error('Error in addStock:', err);
-        next(err);
+    if (!itemId || !adjustmentType || !quantity || parseFloat(quantity) <= 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Item ID, adjustment type, and positive quantity are required",
+      });
     }
+
+    const stockItem = await StockItem.findByPk(itemId, { transaction });
+    if (!stockItem) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: "Stock item not found",
+      });
+    }
+
+    const adjustmentQuantity = parseFloat(quantity);
+    const price = parseFloat(unit_price) || 0;
+
+    if (adjustmentType === "add") {
+      let shouldCreateNewBatch = create_new_batch;
+
+      if (!shouldCreateNewBatch && price > 0) {
+        const existingBatch = await StockBatch.findOne({
+          where: {
+            item_id: itemId,
+            unit_price: price,
+          },
+          order: [["created_at", "DESC"]],
+          transaction,
+        });
+
+        shouldCreateNewBatch = !existingBatch;
+      }
+
+      if (shouldCreateNewBatch) {
+        const batchNumber = await generateBatchNumber(
+          itemId,
+          stockItem.item_code
+        );
+
+        await StockBatch.create(
+          {
+            item_id: itemId,
+            batch_number: batchNumber,
+            quantity: adjustmentQuantity,
+            original_quantity: adjustmentQuantity,
+            unit_price: price,
+            supplier,
+            notes,
+          },
+          { transaction }
+        );
+      } else {
+        const targetBatch = await StockBatch.findOne({
+          where: {
+            item_id: itemId,
+            unit_price: price,
+          },
+          order: [["created_at", "DESC"]],
+          transaction,
+        });
+
+        if (targetBatch) {
+          await targetBatch.update(
+            {
+              quantity: parseFloat(targetBatch.quantity) + adjustmentQuantity,
+              original_quantity:
+                parseFloat(targetBatch.original_quantity) + adjustmentQuantity,
+            },
+            { transaction }
+          );
+        }
+      }
+
+      await StockTransaction.create(
+        {
+          item_id: itemId,
+          transaction_type: "in",
+          quantity: adjustmentQuantity,
+          unit_price: price,
+          total_amount: adjustmentQuantity * price,
+          reference_type: "adjustment",
+          notes: notes || "Stock adjustment - increase",
+        },
+        { transaction }
+      );
+    } else if (adjustmentType === "deduct") {
+      let remainingToDeduct = adjustmentQuantity;
+
+      const batches = await StockBatch.findAll({
+        where: {
+          item_id: itemId,
+          quantity: { [Op.gt]: 0 },
+        },
+        order: [
+          ["purchase_date", "ASC"],
+          ["created_at", "ASC"],
+        ],
+        transaction,
+      });
+
+      const totalAvailable = batches.reduce(
+        (sum, batch) => sum + parseFloat(batch.quantity),
+        0
+      );
+      if (remainingToDeduct > totalAvailable) {
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: `Insufficient stock. Available: ${totalAvailable}, Requested: ${remainingToDeduct}`,
+        });
+      }
+
+      for (const batch of batches) {
+        if (remainingToDeduct <= 0) break;
+
+        const batchQuantity = parseFloat(batch.quantity);
+        const deductFromBatch = Math.min(remainingToDeduct, batchQuantity);
+
+        await batch.update(
+          {
+            quantity: batchQuantity - deductFromBatch,
+          },
+          { transaction }
+        );
+
+        await StockTransaction.create(
+          {
+            item_id: itemId,
+            batch_id: batch.id,
+            transaction_type: "out",
+            quantity: deductFromBatch,
+            unit_price: batch.unit_price,
+            total_amount: deductFromBatch * batch.unit_price,
+            reference_type: "adjustment",
+            notes:
+              notes ||
+              `Stock adjustment - decrease from batch ${batch.batch_number}`,
+          },
+          { transaction }
+        );
+
+        remainingToDeduct -= deductFromBatch;
+      }
+    }
+
+    const { totalQuantity, totalValue, averagePrice } =
+      await calculateCurrentStock(itemId);
+    await stockItem.update(
+      {
+        average_unit_price: averagePrice,
+        total_value: totalValue,
+        updated_at: new Date(),
+      },
+      { transaction }
+    );
+
+    await transaction.commit();
+
+    res.json({
+      success: true,
+      message: "Stock adjusted successfully",
+      data: {
+        item_id: itemId,
+        adjustment_type: adjustmentType,
+        quantity: adjustmentQuantity,
+        new_total_stock: totalQuantity,
+      },
+    });
+  } catch (err) {
+    await transaction.rollback();
+    console.error("Error in adjustStock:", err);
+    next(err);
+  }
 };
 
-// FIFO stock consumption
-const consumeStock = async (req, res, next) => {
-    const t = await sequelize.transaction();
-    try {
-        const { item_id, quantity, reference_type, reference_id, notes } = req.body;
+// Get stock item batches
+const getStockBatches = async (req, res, next) => {
+  try {
+    const { id } = req.params;
 
-        if (!quantity || parseFloat(quantity) <= 0) {
-            return res.status(400).json({
-                success: false,
-                message: 'Quantity must be greater than 0'
-            });
-        }
+    console.log("Getting batches for item ID:", id); // Debug log
 
-        const stockItem = await StockItem.findByPk(item_id, { transaction: t });
-        if (!stockItem) {
-            return res.status(404).json({
-                success: false,
-                message: 'Stock item not found'
-            });
-        }
-
-        if (parseFloat(stockItem.current_stock) < parseFloat(quantity)) {
-            return res.status(400).json({
-                success: false,
-                message: 'Insufficient stock available'
-            });
-        }
-
-        // Get batches ordered by purchase date (FIFO)
-        const batches = await StockBatch.findAll({
-            where: { 
-                item_id,
-                remaining_quantity: { [Op.gt]: 0 }
-            },
-            order: [['purchase_date', 'ASC']],
-            transaction: t
-        });
-
-        let remainingToConsume = parseFloat(quantity);
-        let totalCost = 0;
-        const consumedBatches = [];
-
-        // Consume from batches using FIFO
-        for (const batch of batches) {
-            if (remainingToConsume <= 0) break;
-
-            const batchAvailable = parseFloat(batch.remaining_quantity);
-            const consumeFromBatch = Math.min(remainingToConsume, batchAvailable);
-            
-            // Update batch remaining quantity
-            await batch.update({
-                remaining_quantity: batchAvailable - consumeFromBatch
-            }, { transaction: t });
-
-            // Record transaction for this batch
-            await StockTransaction.create({
-                item_id,
-                batch_id: batch.id,
-                transaction_type: 'out',
-                quantity: -consumeFromBatch,
-                unit_price: batch.purchase_price,
-                total_amount: -consumeFromBatch * batch.purchase_price,
-                reference_type,
-                reference_id,
-                notes: `${notes} - Consumed from ${batch.batch_number}`
-            }, { transaction: t });
-
-            totalCost += consumeFromBatch * batch.purchase_price;
-            consumedBatches.push({
-                batch_number: batch.batch_number,
-                quantity: consumeFromBatch,
-                price: batch.purchase_price,
-                cost: consumeFromBatch * batch.purchase_price
-            });
-
-            remainingToConsume -= consumeFromBatch;
-        }
-
-        // Update stock item total
-        const newStock = parseFloat(stockItem.current_stock) - parseFloat(quantity);
-        await stockItem.update({ current_stock: newStock }, { transaction: t });
-
-        await t.commit();
-        res.json({
-            success: true,
-            message: 'Stock consumed successfully using FIFO',
-            data: {
-                consumed_quantity: quantity,
-                total_cost: totalCost,
-                average_cost: totalCost / quantity,
-                consumed_batches: consumedBatches,
-                remaining_stock: newStock
-            }
-        });
-    } catch (err) {
-        await t.rollback();
-        console.error('Error in consumeStock:', err);
-        next(err);
+    // ✅ Input validation
+    if (!id || isNaN(parseInt(id))) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid stock item ID",
+      });
     }
+
+    const batches = await StockBatch.findAll({
+      where: {
+        item_id: parseInt(id),
+        quantity: { [Op.gt]: 0 }, // Only show batches with remaining stock
+      },
+      order: [
+        ["purchase_date", "ASC"],
+        ["created_at", "ASC"],
+      ],
+    });
+
+    console.log(`Found ${batches.length} batches for item ${id}`); // Debug log
+    console.log(
+      "Batch data:",
+      batches.map((b) => ({
+        id: b.id,
+        batch_number: b.batch_number,
+        quantity: b.quantity,
+      }))
+    );
+
+    res.json({
+      success: true,
+      data: batches,
+    });
+  } catch (err) {
+    console.error("Error in getStockBatches:", err);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: err.message,
+    });
+  }
+};
+
+// Delete stock item
+const deleteStockItem = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+
+    if (isNaN(parseInt(id))) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Invalid stock item ID. Must be a number.",
+      });
+    }
+
+    const stockItem = await StockItem.findByPk(parseInt(id), { transaction });
+    if (!stockItem) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: "Stock item not found",
+      });
+    }
+
+    const usedInServices = await ServiceItem.count({
+      where: { stock_item_id: id },
+    });
+
+    if (usedInServices > 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete stock item. It has been used in ${usedInServices} service(s).`,
+      });
+    }
+
+    await StockBatch.destroy({
+      where: { item_id: id },
+      transaction,
+    });
+
+    await stockItem.destroy({ transaction });
+
+    await transaction.commit();
+
+    res.json({
+      success: true,
+      message: "Stock item deleted successfully",
+    });
+  } catch (err) {
+    await transaction.rollback();
+    console.error("Error in deleteStockItem:", err);
+    next(err);
+  }
 };
 
 // Get stock categories
 const getStockCategories = async (req, res, next) => {
   try {
     const categories = await StockCategory.findAll({
-      order: [['category_name', 'ASC']]
+      order: [["category_name", "ASC"]],
     });
-
     res.json({
       success: true,
-      data: categories
+      data: categories,
     });
   } catch (err) {
-    console.error('Error in getStockCategories:', err);
+    console.error("Error in getStockCategories:", err);
     next(err);
   }
 };
 
-
-const deleteStockItem = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    
-    // Add validation to ensure id is a number
-    if (isNaN(parseInt(id))) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid stock item ID. Must be a number.'
-      });
-    }
-    
-    const stockItem = await StockItem.findByPk(parseInt(id));
-    
-    if (!stockItem) {
-      return res.status(404).json({
-        success: false,
-        message: 'Stock item not found'
-      });
-    }
-
-    // Check if item is used in any services
-    const { ServiceItem } = require('../../models');
-    const usedInServices = await ServiceItem.count({
-      where: { stock_item_id: id }
-    });
-
-    if (usedInServices > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Cannot delete stock item. It has been used in ${usedInServices} service(s).`
-      });
-    }
-
-    // Delete the stock item
-    await stockItem.destroy();
-
-    res.json({
-      success: true,
-      message: 'Stock item deleted successfully'
-    });
-  } catch (err) {
-    console.error('Error in deleteStockItem:', err);
-    next(err);
-  }
-};
-
-const adjustStock = async (req, res) => {
-  const { itemId, quantity, notes } = req.body;
-
-  if (!itemId || quantity === undefined) {
-    return res.status(400).json({ message: 'Item ID dan kuantitas diperlukan.' });
-  }
-
-  const t = await sequelize.transaction();
-
-  try {
-    const item = await StockItem.findByPk(itemId, { transaction: t });
-    if (!item) {
-      await t.rollback();
-      return res.status(404).json({ message: 'Item stok tidak ditemukan.' });
-    }
-
-    // Buat transaksi stok dengan tipe 'adjustment'
-    await StockTransaction.create({
-      item_id: itemId,
-      transaction_type: 'adjustment',
-      quantity: quantity, // quantity bisa positif (menambah) atau negatif (mengurangi)
-      notes: notes,
-      // unit_price dan total_amount bisa dikosongkan untuk adjustment
-    }, { transaction: t });
-
-    // Update kuantitas saat ini di tabel stock_items
-    const newStock = parseFloat(item.current_stock) + parseFloat(quantity);
-    item.current_stock = newStock;
-    await item.save({ transaction: t });
-
-    await t.commit();
-    res.status(200).json({ message: 'Stok berhasil disesuaikan.', data: item });
-
-  } catch (error) {
-    await t.rollback();
-    console.error('Error saat penyesuaian stok:', error);
-    res.status(500).json({ message: 'Terjadi kesalahan pada server.', error: error.message });
-  }
-};
-
+// Get stock item history
 const getStockItemHistory = async (req, res, next) => {
   try {
     const { id } = req.params;
-    // Ambil parameter query untuk filter dan pagination
     const { search, page = 1, limit = 10, startDate, endDate } = req.query;
     const offset = (page - 1) * limit;
 
-    let whereClause = {
-      item_id: id, // Tetap filter berdasarkan ID item
-    };
+    let whereClause = { item_id: id };
 
-    // Tambahkan filter pencarian di kolom 'notes'
     if (search) {
       whereClause.notes = { [Op.iLike]: `%${search}%` };
     }
 
-    // Tambahkan filter rentang tanggal
     if (startDate && endDate) {
       whereClause.transaction_date = {
         [Op.between]: [new Date(startDate), new Date(endDate)],
@@ -543,12 +646,24 @@ const getStockItemHistory = async (req, res, next) => {
 
     const result = await StockTransaction.findAndCountAll({
       where: whereClause,
-      order: [['transaction_date', 'DESC'], ['created_at', 'DESC']],
+      include: [
+        {
+          model: StockBatch,
+          as: "batch",
+          attributes: ["batch_number", "unit_price"],
+          required: false,
+        },
+      ],
+      order: [
+        ["transaction_date", "DESC"],
+        ["created_at", "DESC"],
+      ],
       limit: parseInt(limit),
       offset: offset,
     });
 
-    res.status(200).json({
+    res.json({
+      success: true,
       data: result.rows,
       pagination: {
         totalItems: result.count,
@@ -556,23 +671,26 @@ const getStockItemHistory = async (req, res, next) => {
         currentPage: parseInt(page),
       },
     });
-  } catch (error) {
-    console.error('Error fetching stock history:', error);
-    next(error);
+  } catch (err) {
+    console.error("Error in getStockItemHistory:", err);
+    next(err);
   }
 };
 
-// Update your module.exports to include the delete function
+// Add stock (for compatibility)
+const addStock = async (req, res, next) => {
+  return adjustStock(req, res, next);
+};
+
 module.exports = {
   getAllStockItems,
   createStockItem,
   getStockItemById,
   updateStockItem,
-  consumeStock,
-  getStockBatches,
-  addStock,
-  deleteStockItem, // Add this line
-  getStockCategories,
   adjustStock,
-  getStockItemHistory // <-- Pastikan fungsi baru diekspor
+  getStockBatches,
+  deleteStockItem,
+  getStockCategories,
+  getStockItemHistory,
+  addStock,
 };

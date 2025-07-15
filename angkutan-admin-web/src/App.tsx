@@ -41,6 +41,7 @@ import TireInventoryPage from "./pages/TireInventory";
 import TireInventoryCreatePage from "./pages/TireInventoryCreate";
 import TireInventoryEditPage from "./pages/TireInventoryEdit";
 import RemovedTiresPage from "./pages/RemovedTires";
+import StockBatchesPage from "./pages/StockBatches";
 import CashManagementPage from "./pages/CashManagement";
 import TempoManagementPage from "./pages/CashTempoManagement";
 import StockHistoryPage from "./pages/StockHistory";
@@ -154,6 +155,8 @@ function App() {
           {/* === PERBAIKAN DI SINI === */}
           {/* Path dibuat relatif dengan menghapus '/' di awal */}
           <Route path="stock/history/:id" element={<StockHistoryPage />} />
+          <Route path="stock/:id/batches" element={<StockBatchesPage />} />
+
           {/* ========================= */}
 
           {/* Service Management Routes */}
