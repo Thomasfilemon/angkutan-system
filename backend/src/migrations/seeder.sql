@@ -267,7 +267,8 @@ INSERT INTO purchase_orders (
   '2025-06-01',
   'completed', -- Status completed karena semua DO selesai
   'Pasir urug untuk proyek perumahan fase 2'
-);
+)
+ON CONFLICT (po_number) DO NOTHING;
 
 -- 🚛 DELIVERY ORDER 1 (Completed: 10 Juni 2025)
 INSERT INTO delivery_orders (
@@ -500,7 +501,7 @@ INSERT INTO delivery_order_payment_history (
 -- ===============================================
 -- 🎯 NEW SEEDER: PO January 2025 + 2 Completed DOs + 3 On-Going DOs (To be created)
 -- Unit: ton (weight-based pricing)
--- Driver: Dedi (supir_yoyo)
+-- Driver: Yoyo (supir_yoyo)
 -- ===============================================
 
 -- 🏗️ NEW PURCHASE ORDER (Unit: kubik)
@@ -530,7 +531,8 @@ INSERT INTO purchase_orders (
   '2025-01-01',
   'partial', -- Status completed karena semua DO selesai
   'Batu Split Untuk Pembangunan Smelter'
-);
+)
+ON CONFLICT (po_number) DO NOTHING;
 
 -- 🚛 DELIVERY ORDER 1 (Completed: 10 Juni 2025)
 INSERT INTO delivery_orders (
@@ -786,7 +788,8 @@ INSERT INTO purchase_orders (
   'partial',
   'Testing data untuk sistem payment - BIG CONTRACT 1700 ton!',
   '2025-07-01 08:00:00+07'
-);
+)
+ON CONFLICT (po_number) DO NOTHING;
 
 -- 2️⃣ DELIVERY ORDERS WITH REALISTIC QUANTITIES
 
@@ -1030,7 +1033,7 @@ INSERT INTO delivery_orders (
   '63160000.00',
   'Quarry Cilegon, Banten',
   'Pabrik Kaca Tangerang, Banten',
-  'proses_penagihan', -- ✅ Partial payment received
+  'proses_tagihan', -- ✅ Partial payment received
   'completed',
   '2025-07-06 06:15:00+07',
   '2025-07-06 06:45:00+07',

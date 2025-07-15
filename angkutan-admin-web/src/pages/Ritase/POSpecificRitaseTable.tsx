@@ -253,7 +253,9 @@ const POSpecificRitaseTable: React.FC = () => {
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
       const eligibleDOs = processedDOs
-        .filter((do_) => do_.invoices.length === 0)
+        .filter(
+          (do_) => do_.invoices.length === 0 || do_.status === "completed"
+        )
         .map((do_) => do_.id);
       setSelectedDOs(eligibleDOs);
     } else {

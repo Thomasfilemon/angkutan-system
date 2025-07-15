@@ -642,43 +642,23 @@ DECLARE
   total_paid NUMERIC(15,2);
   final_amount NUMERIC(15,2);
 BEGIN
-  -- Get DO record
   SELECT * INTO do_record FROM delivery_orders WHERE id = NEW.delivery_order_id;
-  
-  -- Calculate total paid
-  SELECT COALESCE(SUM(payment_amount), 0) INTO total_paid 
-  FROM delivery_order_payments 
-  WHERE delivery_order_id = NEW.delivery_order_id;
-  
-  -- Get final amount (use final_amount if set, otherwise ongkosan)
-  final_amount := COALESCE(do_record.final_amount, do_record.ongkosan, 0);
-  
-  -- Update payment status based on payment completion
-  IF total_paid >= final_amount THEN
-    UPDATE delivery_orders 
-    SET payment_status = 'lunas',
-        payment_confirmation_at = CASE 
-          WHEN payment_confirmation_status = 'awaiting_confirmation' 
-          THEN NOW() 
-          ELSE payment_confirmation_at 
-        END,
-        payment_confirmation_status = 'confirmed'
-    WHERE id = NEW.delivery_order_id;
+  SELECT COALESCE(SUM(payment_amount), 0) INTO total_paid FROM delivery_order_payments WHERE delivery_order_id = NEW.delivery_order_id;
+  final_amount := COALESCE(do_record.final_amount, do_record.total_amount, 0); -- Fix: Pakai total_amount kalau final null
+  RAISE NOTICE 'Calc for DO %: paid % vs final %', NEW.delivery_order_id, total_paid, final_amount; -- Log buat debug
+  IF total_paid + 0.01 >= final_amount THEN  -- Tolerance rounding
+    UPDATE delivery_orders SET payment_status = 'lunas', payment_confirmation_status = 'confirmed' WHERE id = NEW.delivery_order_id;
   ELSIF total_paid > 0 THEN
-    UPDATE delivery_orders 
-    SET payment_status = 'deposit'
-    WHERE id = NEW.delivery_order_id;
+    UPDATE delivery_orders SET payment_status = 'deposit' WHERE id = NEW.delivery_order_id;
   END IF;
-  
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
 -- Create trigger
-CREATE TRIGGER trigger_update_payment_status
-  AFTER INSERT OR UPDATE ON delivery_order_payments
-  FOR EACH ROW
-  EXECUTE FUNCTION update_delivery_order_payment_status();
+CREATE TRIGGER trigger_update_payment_status AFTER INSERT 
+  OR UPDATE ON delivery_order_payments 
+  FOR EACH ROW EXECUTE FUNCTION update_delivery_order_payment_status();
 
 -- Function untuk auto-set payment confirmation ketika DO completed
 CREATE OR REPLACE FUNCTION auto_set_payment_confirmation()
