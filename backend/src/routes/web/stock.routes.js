@@ -14,6 +14,7 @@ stockRouter.get('/categories', stockController.getStockCategories);
 stockRouter.get('/', stockController.getAllStockItems);
 stockRouter.post('/', stockController.createStockItem);
 stockRouter.post('/adjust', stockController.adjustStock);
+stockRouter.get('/:id/batches', stockController.getStockBatches);
 
 stockRouter.get('/:id', stockController.getStockItemById);
 stockRouter.put('/:id', stockController.updateStockItem);

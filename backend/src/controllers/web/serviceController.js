@@ -6,15 +6,103 @@ const {
   VehicleService, 
   StockItem, 
   StockTransaction, 
+  StockBatch, // ✅ ADD: Import StockBatch model
   StockCategory,
-  CashTransaction 
+  CashTransaction,
+  sequelize
 } = db;
 const { Op } = require('sequelize');
 
 console.log('Available models:', Object.keys(db));
 console.log('ServiceItem model:', ServiceItem);
 
+// ✅ NEW: Helper function to calculate current stock from batches
+const calculateCurrentStock = async (itemId) => {
+  const result = await StockBatch.findOne({
+    where: { item_id: itemId },
+    attributes: [
+      [sequelize.fn('SUM', sequelize.col('quantity')), 'total_quantity']
+    ]
+  });
+  
+  return parseFloat(result?.dataValues?.total_quantity) || 0;
+};
 
+// ✅ NEW: FIFO stock deduction function (integrates with stock controller logic)
+const deductStockFIFO = async (itemId, quantity, serviceDescription, serviceId, transaction) => {
+  let remainingToDeduct = parseFloat(quantity);
+  
+  // Get all batches ordered by purchase date (FIFO)
+  const batches = await StockBatch.findAll({
+    where: {
+      item_id: itemId,
+      quantity: { [Op.gt]: 0 }
+    },
+    order: [['purchase_date', 'ASC'], ['created_at', 'ASC']],
+    transaction
+  });
+
+  // Check if we have enough stock
+  const totalAvailable = batches.reduce((sum, batch) => sum + parseFloat(batch.quantity), 0);
+  if (remainingToDeduct > totalAvailable) {
+    throw new Error(`Insufficient stock. Available: ${totalAvailable}, Requested: ${remainingToDeduct}`);
+  }
+
+  // Deduct from batches using FIFO
+  for (const batch of batches) {
+    if (remainingToDeduct <= 0) break;
+
+    const batchQuantity = parseFloat(batch.quantity);
+    const deductFromBatch = Math.min(remainingToDeduct, batchQuantity);
+
+    await batch.update({
+      quantity: batchQuantity - deductFromBatch
+    }, { transaction });
+
+    // Record transaction for this batch
+    await StockTransaction.create({
+      item_id: itemId,
+      batch_id: batch.id,
+      transaction_type: 'out',
+      quantity: deductFromBatch,
+      unit_price: batch.unit_price,
+      total_amount: deductFromBatch * batch.unit_price,
+      reference_type: 'service',
+      reference_id: serviceId,
+      notes: `Used in service: ${serviceDescription} (Batch: ${batch.batch_number})`
+    }, { transaction });
+
+    remainingToDeduct -= deductFromBatch;
+  }
+
+  // Update stock item averages
+  const { totalQuantity, totalValue, averagePrice } = await calculateStockItemAverages(itemId);
+  const stockItem = await StockItem.findByPk(itemId, { transaction });
+  if (stockItem) {
+    await stockItem.update({
+      average_unit_price: averagePrice,
+      total_value: totalValue,
+      updated_at: new Date()
+    }, { transaction });
+  }
+};
+
+// ✅ NEW: Helper function to calculate stock item averages
+const calculateStockItemAverages = async (itemId) => {
+  const result = await StockBatch.findOne({
+    where: { item_id: itemId },
+    attributes: [
+      [sequelize.fn('SUM', sequelize.col('quantity')), 'total_quantity'],
+      [sequelize.fn('SUM', sequelize.literal('quantity * unit_price')), 'total_value']
+    ]
+  });
+  
+  const totalQuantity = parseFloat(result?.dataValues?.total_quantity) || 0;
+  const totalValue = parseFloat(result?.dataValues?.total_value) || 0;
+  const averagePrice = totalQuantity > 0 ? totalValue / totalQuantity : 0;
+  
+  return { totalQuantity, totalValue, averagePrice };
+};
 
 // Get all services
 exports.getAllServices = async (req, res, next) => {
@@ -125,7 +213,7 @@ exports.getServiceById = async (req, res, next) => {
   }
 };
 
-// Create new service
+// ✅ UPDATED: Create new service with FIFO integration
 exports.createService = async (req, res, next) => {
   const transaction = await db.sequelize.transaction();
   let serviceId;
@@ -175,6 +263,22 @@ exports.createService = async (req, res, next) => {
       });
     }
 
+    // ✅ UPDATED: Validate stock availability using FIFO logic
+    if (items && items.length > 0) {
+      for (const item of items) {
+        if (item.from_stock && item.stock_item_id) {
+          const currentStock = await calculateCurrentStock(item.stock_item_id);
+          if (parseFloat(item.quantity) > currentStock) {
+            await transaction.rollback();
+            return res.status(400).json({
+              success: false,
+              message: `Insufficient stock for ${item.item_name}. Available: ${currentStock}, Requested: ${item.quantity}`
+            });
+          }
+        }
+      }
+    }
+
     // Calculate parts cost
     let totalItemsCost = 0;
     if (items && items.length > 0) {
@@ -197,7 +301,7 @@ exports.createService = async (req, res, next) => {
 
     serviceId = service.id;
 
-    // Process service items if any
+    // ✅ UPDATED: Process service items with FIFO deduction
     if (items && items.length > 0) {
       for (const item of items) {
         await ServiceItem.create({
@@ -209,25 +313,15 @@ exports.createService = async (req, res, next) => {
           from_stock: item.from_stock || false
         }, { transaction });
 
-        // Update stock if item is from stock
+        // ✅ UPDATED: Use FIFO deduction instead of direct stock update
         if (item.from_stock && item.stock_item_id) {
-          const stockItem = await StockItem.findByPk(item.stock_item_id, { transaction });
-          if (stockItem) {
-            const newStock = parseFloat(stockItem.current_stock) - parseFloat(item.quantity);
-            await stockItem.update({ current_stock: Math.max(0, newStock) }, { transaction });
-            
-            // Record stock transaction
-            await StockTransaction.create({
-              item_id: item.stock_item_id,
-              transaction_type: 'out',
-              quantity: parseFloat(item.quantity),
-              unit_price: parseFloat(item.unit_price),
-              total_amount: parseFloat(item.quantity) * parseFloat(item.unit_price),
-              reference_type: 'service',
-              reference_id: service.id,
-              notes: `Used in service: ${description}`
-            }, { transaction });
-          }
+          await deductStockFIFO(
+            item.stock_item_id,
+            item.quantity,
+            description,
+            service.id,
+            transaction
+          );
         }
       }
     }
@@ -270,7 +364,10 @@ exports.createService = async (req, res, next) => {
       });
     }
     
-    return next(err);
+    return res.status(400).json({
+      success: false,
+      message: err.message || 'Service creation failed'
+    });
   }
 
   // Fetch complete service data AFTER successful commit
@@ -278,7 +375,7 @@ exports.createService = async (req, res, next) => {
     const completeService = await VehicleService.findByPk(serviceId, {
       include: [
         { model: Vehicle, as: 'vehicle' },
-        { model: ServiceItem, as: 'items' }
+        { model: ServiceItem, as: 'serviceItems' }
       ]
     });
 
@@ -297,8 +394,6 @@ exports.createService = async (req, res, next) => {
     });
   }
 };
-
-
 
 // Update service
 exports.updateService = async (req, res, next) => {
@@ -332,8 +427,10 @@ exports.updateService = async (req, res, next) => {
   }
 };
 
-// Cancel service
+// ✅ UPDATED: Cancel service with FIFO restoration
 exports.cancelService = async (req, res, next) => {
+  const transaction = await db.sequelize.transaction();
+  
   try {
     const { id } = req.params;
     const service = await VehicleService.findByPk(id, {
@@ -346,6 +443,7 @@ exports.cancelService = async (req, res, next) => {
     });
     
     if (!service) {
+      await transaction.rollback();
       return res.status(404).json({
         success: false,
         message: 'Service not found'
@@ -353,36 +451,51 @@ exports.cancelService = async (req, res, next) => {
     }
 
     if (service.status === 'cancelled') {
+      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: 'Service is already cancelled'
       });
     }
 
-    // Restore stock for items taken from stock
+    // ✅ UPDATED: Restore stock using stock adjustment API instead of direct manipulation
     for (const item of service.serviceItems) {
       if (item.from_stock && item.stock_item_id) {
-        const stockItem = await StockItem.findByPk(item.stock_item_id);
-        if (stockItem) {
-          const newStock = parseFloat(stockItem.current_stock) + parseFloat(item.quantity);
-          await stockItem.update({ current_stock: newStock });
+        // Use the existing stock adjustment function from stockController
+        const stockController = require('./stockController');
+        
+        // Create a mock request object for the adjustStock function
+        const mockReq = {
+          body: {
+            itemId: item.stock_item_id,
+            adjustmentType: 'add',
+            quantity: parseFloat(item.quantity),
+            unit_price: parseFloat(item.unit_price),
+            notes: `Restored from cancelled service ${service.service_number || service.id}`,
+            create_new_batch: false // Add to existing batch with same price
+          }
+        };
 
-          // Record reverse stock transaction
-          await StockTransaction.create({
-            item_id: item.stock_item_id,
-            transaction_type: 'in',
-            quantity: item.quantity,
-            unit_price: item.unit_price,
-            total_amount: item.quantity * item.unit_price,
-            reference_type: 'service_cancel',
-            reference_id: service.id,
-            notes: `Restored from cancelled service ${service.service_number}`
+        // Create a mock response object
+        const mockRes = {
+          json: () => {},
+          status: () => ({ json: () => {} })
+        };
+
+        // Call the stock adjustment function
+        try {
+          await stockController.adjustStock(mockReq, mockRes, (err) => {
+            if (err) throw err;
           });
+        } catch (adjustErr) {
+          console.error('Error adjusting stock during service cancellation:', adjustErr);
+          // Continue with cancellation even if stock adjustment fails
         }
       }
     }
 
-    await service.update({ status: 'cancelled' });
+    await service.update({ status: 'cancelled' }, { transaction });
+    await transaction.commit();
 
     res.json({
       success: true,
@@ -390,30 +503,103 @@ exports.cancelService = async (req, res, next) => {
       data: service
     });
   } catch (err) {
+    await transaction.rollback();
+    console.error('Error in cancelService:', err);
     next(err);
   }
 };
 
-// Get available stock items for service
+// ✅ UPDATED: Get available stock items using FIFO calculated stock
 exports.getAvailableStockItems = async (req, res, next) => {
   try {
     const stockItems = await StockItem.findAll({
-      where: {
-        current_stock: { [Op.gt]: 0 }
-      },
-      include: [{
-        model: StockCategory,  // Now this will work because StockCategory is imported
-        as: 'category',
-        required: false
-      }],
+      include: [
+        {
+          model: StockCategory,
+          as: 'category',
+          required: false
+        },
+        {
+          model: StockBatch,
+          as: 'batches',
+          where: { quantity: { [Op.gt]: 0 } },
+          required: false,
+          attributes: ['id', 'quantity', 'unit_price', 'purchase_date']
+        }
+      ],
       order: [['item_name', 'ASC']]
     });
 
+    // ✅ Calculate current stock from batches for each item
+    const enhancedItems = await Promise.all(stockItems.map(async (item) => {
+      const itemData = item.toJSON();
+      const currentStock = await calculateCurrentStock(item.id);
+      
+      return {
+        ...itemData,
+        current_stock: currentStock,
+        is_available: currentStock > 0,
+        batch_count: itemData.batches ? itemData.batches.length : 0
+      };
+    }));
+
+    // Filter to only show items with available stock
+    const availableItems = enhancedItems.filter(item => item.current_stock > 0);
+
     res.json({
       success: true,
-      data: stockItems
+      data: availableItems
     });
   } catch (err) {
+    console.error('Error in getAvailableStockItems:', err);
+    next(err);
+  }
+};
+
+// ✅ NEW: Get stock item details with batches for service selection
+exports.getStockItemDetails = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    
+    const stockItem = await StockItem.findByPk(id, {
+      include: [
+        {
+          model: StockCategory,
+          as: 'category',
+          required: false
+        },
+        {
+          model: StockBatch,
+          as: 'batches',
+          where: { quantity: { [Op.gt]: 0 } },
+          required: false,
+          order: [['purchase_date', 'ASC'], ['created_at', 'ASC']]
+        }
+      ]
+    });
+
+    if (!stockItem) {
+      return res.status(404).json({
+        success: false,
+        message: 'Stock item not found'
+      });
+    }
+
+    const currentStock = await calculateCurrentStock(id);
+    const { totalQuantity, totalValue, averagePrice } = await calculateStockItemAverages(id);
+
+    res.json({
+      success: true,
+      data: {
+        ...stockItem.toJSON(),
+        current_stock: currentStock,
+        total_value: totalValue,
+        average_unit_price: averagePrice,
+        is_available: currentStock > 0
+      }
+    });
+  } catch (err) {
+    console.error('Error in getStockItemDetails:', err);
     next(err);
   }
 };

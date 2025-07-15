@@ -18,6 +18,8 @@ const setupStockCategoryModel = require("./stockCategory.model");
 const setupStockItemModel = require("./stockItem.model");
 const setupStockTransactionModel = require("./stockTransaction.model");
 const setupServiceItemModel = require("./serviceItem.model");
+const setupStockBatchModel = require("./stockBatch.model");
+
 // Create model files for new Ritase tables
 const setupDeliveryOrderPaymentsModel = require("./deliveryOrderPayments.model");
 const setupDeliveryOrderInvoicesModel = require("./deliveryOrderInvoices.model");
@@ -72,6 +74,7 @@ db.VehicleService = setupVehicleServiceModel(sequelize);
 // NEW: Stock and Service Management Models
 db.StockCategory = setupStockCategoryModel(sequelize);
 db.StockItem = setupStockItemModel(sequelize);
+db.StockBatch = setupStockBatchModel(sequelize);
 db.StockTransaction = setupStockTransactionModel(sequelize);
 db.ServiceItem = setupServiceItemModel(sequelize);
 // WEB: Ritase
@@ -105,6 +108,7 @@ const {
   StockCategory,
   StockItem,
   StockTransaction,
+  StockBatch,
   ServiceItem,
   TireInventory,
   VehicleTire,
@@ -206,6 +210,26 @@ StockItem.belongsTo(StockCategory, {
 StockItem.hasMany(StockTransaction, {
   foreignKey: "item_id",
   as: "transactions",
+});
+// Add these associations in the associations section
+StockItem.hasMany(StockBatch, {
+    foreignKey: "item_id",
+    as: "batches"
+});
+
+StockBatch.belongsTo(StockItem, {
+    foreignKey: "item_id",
+    as: "stockItem"
+});
+
+StockTransaction.belongsTo(StockBatch, {
+    foreignKey: "batch_id",
+    as: "batch"
+});
+
+StockBatch.hasMany(StockTransaction, {
+    foreignKey: "batch_id",
+    as: "transactions"
 });
 StockTransaction.belongsTo(StockItem, {
   foreignKey: "item_id",

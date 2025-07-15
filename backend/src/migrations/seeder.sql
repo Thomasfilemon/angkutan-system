@@ -23,7 +23,7 @@ INSERT INTO driver_profiles (user_id, full_name, phone, address, id_card_number,
 ((SELECT id FROM users WHERE username = 'supir_eko'), 'Eko Prasetyo', '085555555555', 'Jl. Kemakmuran 5', '3201555555550005', '5555-5555-555555', 'B2 Umum', 'available'),
 ((SELECT id FROM users WHERE username = 'supir_yoyo'), 'Yoyo Karyo', '08101010101010', 'Jl. Ikan Sebelah no 22', '320994488009921', '5555-3344-123', 'B1', 'available');
 
--- 2. STOCK CATEGORIES
+-- 1. Create stock categories FIRST
 INSERT INTO stock_categories (category_name, description) VALUES
 ('Oli & Pelumas', 'Oli mesin, oli transmisi, dan pelumas lainnya'),
 ('Filter', 'Filter oli, filter solar, filter udara'),
@@ -32,28 +32,68 @@ INSERT INTO stock_categories (category_name, description) VALUES
 ('Sistem Rem', 'Kampas rem, minyak rem, dan komponen rem lainnya'),
 ('Ban & Velg', 'Ban, velg, dan aksesoris roda');
 
--- 3. STOCK ITEMS
-INSERT INTO stock_items (category_id, item_code, item_name, supplier, unit, current_stock, min_stock, unit_price, notes) VALUES
+-- 2. Create stock items SECOND (without current_stock - calculated from batches)
+INSERT INTO stock_items (category_id, item_code, item_name, supplier, unit, min_stock, average_unit_price, total_value, notes) VALUES
 -- Oli & Pelumas
-((SELECT id FROM stock_categories WHERE category_name = 'Oli & Pelumas'), 'OLI-001', 'Oli Mesin Meditran SX SAE 15W-40', 'PT Pertamina Lubricants', 'Liter', 132.00, 20, 55000, 'Oli mesin untuk truck diesel'),
-((SELECT id FROM stock_categories WHERE category_name = 'Oli & Pelumas'), 'OLI-002', 'Oli Transmisi ATF Dexron III', 'PT Shell Indonesia', 'Liter', 25.00, 10, 75000, 'Oli transmisi otomatis'),
-
+((SELECT id FROM stock_categories WHERE category_name = 'Oli & Pelumas'), 'OLI-001', 'Oli Mesin Meditran SX SAE 15W-40', 'PT Pertamina Lubricants', 'Liter', 20, 0, 0, 'Oli mesin untuk truck diesel'),
+((SELECT id FROM stock_categories WHERE category_name = 'Oli & Pelumas'), 'OLI-002', 'Oli Transmisi ATF Dexron III', 'PT Shell Indonesia', 'Liter', 10, 0, 0, 'Oli transmisi otomatis'),
 -- Filter
-((SELECT id FROM stock_categories WHERE category_name = 'Filter'), 'FLT-001', 'Filter Solar Hino Dutro', 'Hino Motors', 'Pcs', 19.00, 5, 120000, 'Filter solar original Hino'),
-((SELECT id FROM stock_categories WHERE category_name = 'Filter'), 'FLT-002', 'Filter Oli Mitsubishi Fuso', 'Mitsubishi Motors', 'Pcs', 14.00, 5, 95000, 'Filter oli original Mitsubishi'),
-((SELECT id FROM stock_categories WHERE category_name = 'Filter'), 'FLT-003', 'Filter Udara Universal', 'Mann Filter', 'Pcs', 12.00, 3, 150000, 'Filter udara untuk berbagai jenis truck'),
-
--- Bahan Bakar & Aditif
-((SELECT id FROM stock_categories WHERE category_name = 'Bahan Bakar & Aditif'), 'FUL-001', 'Solar Dex B30', 'Pertamina', 'Liter', 500.00, 100, 15000, 'Solar subsidi B30'),
-((SELECT id FROM stock_categories WHERE category_name = 'Bahan Bakar & Aditif'), 'FUL-002', 'Aditif Solar STP', 'STP Corporation', 'Botol', 14.00, 5, 85000, 'Aditif pembersih sistem bahan bakar'),
-
--- Sistem Rem
-((SELECT id FROM stock_categories WHERE category_name = 'Sistem Rem'), 'BRK-001', 'Kampas Rem Depan Hino', 'Hino Motors', 'Set', 5.00, 2, 850000, 'Kampas rem depan original Hino'),
-((SELECT id FROM stock_categories WHERE category_name = 'Sistem Rem'), 'BRK-002', 'Minyak Rem DOT 4', 'Castrol', 'Botol', 9.00, 3, 125000, 'Minyak rem DOT 4 premium'),
-
+((SELECT id FROM stock_categories WHERE category_name = 'Filter'), 'FLT-001', 'Filter Solar Hino Dutro', 'Hino Motors', 'Pcs', 5, 0, 0, 'Filter solar original Hino'),
+((SELECT id FROM stock_categories WHERE category_name = 'Filter'), 'FLT-002', 'Filter Oli Mitsubishi Fuso', 'Mitsubishi Motors', 'Pcs', 5, 0, 0, 'Filter oli original Mitsubishi'),
 -- Spare Parts
-((SELECT id FROM stock_categories WHERE category_name = 'Spare Parts'), 'SPR-001', 'Busi Iridium NGK', 'NGK Spark Plugs', 'Pcs', 20.00, 8, 45000, 'Busi iridium untuk mesin bensin'),
-((SELECT id FROM stock_categories WHERE category_name = 'Spare Parts'), 'SPR-002', 'V-Belt Fan Belt', 'Gates Corporation', 'Pcs', 8.00, 3, 180000, 'V-belt untuk kipas radiator');
+((SELECT id FROM stock_categories WHERE category_name = 'Spare Parts'), 'SPR-001', 'Busi Iridium NGK', 'NGK Spark Plugs', 'Pcs', 8, 0, 0, 'Busi iridium untuk mesin bensin'),
+((SELECT id FROM stock_categories WHERE category_name = 'Spare Parts'), 'SPR-002', 'V-Belt Fan Belt', 'Gates Corporation', 'Pcs', 3, 0, 0, 'V-belt untuk kipas radiator'),
+-- Bahan Bakar & Aditif
+((SELECT id FROM stock_categories WHERE category_name = 'Bahan Bakar & Aditif'), 'FUL-002', 'Aditif Solar STP', 'STP Corporation', 'Botol', 10, 0, 0, 'Aditif untuk solar'),
+-- Sistem Rem
+((SELECT id FROM stock_categories WHERE category_name = 'Sistem Rem'), 'BRK-001', 'Kampas Rem Depan Hino', 'Hino Motors', 'Set', 5, 0, 0, 'Kampas rem original Hino'),
+((SELECT id FROM stock_categories WHERE category_name = 'Sistem Rem'), 'BRK-002', 'Minyak Rem DOT 4', 'Shell Indonesia', 'Botol', 8, 0, 0, 'Minyak rem DOT 4');
+
+-- 3. Create FIFO batches THIRD (now stock_items exist)
+INSERT INTO stock_batches (item_id, batch_number, quantity, original_quantity, unit_price, purchase_date, supplier, notes) VALUES
+-- OLI-001: Multiple batches with different prices and dates
+((SELECT id FROM stock_items WHERE item_code = 'OLI-001'), 'OLI-001-20240101-001', 50.00, 50.00, 52000, '2024-01-01', 'PT Pertamina Lubricants', 'Batch pertama - harga lama'),
+((SELECT id FROM stock_items WHERE item_code = 'OLI-001'), 'OLI-001-20240201-001', 60.00, 60.00, 55000, '2024-02-01', 'PT Pertamina Lubricants', 'Batch kedua - harga naik'),
+((SELECT id FROM stock_items WHERE item_code = 'OLI-001'), 'OLI-001-20240301-001', 22.00, 30.00, 58000, '2024-03-01', 'PT Pertamina Lubricants', 'Batch ketiga - harga naik lagi, sudah dipakai 8 liter'),
+
+-- OLI-002: Single batch
+((SELECT id FROM stock_items WHERE item_code = 'OLI-002'), 'OLI-002-20240115-001', 25.00, 25.00, 75000, '2024-01-15', 'PT Shell Indonesia', 'Batch pertama oli transmisi'),
+
+-- FLT-001: Multiple batches showing price changes
+((SELECT id FROM stock_items WHERE item_code = 'FLT-001'), 'FLT-001-20240110-001', 8.00, 15.00, 115000, '2024-01-10', 'Hino Motors', 'Batch pertama - 7 sudah dipakai'),
+((SELECT id FROM stock_items WHERE item_code = 'FLT-001'), 'FLT-001-20240220-001', 11.00, 12.00, 125000, '2024-02-20', 'Hino Motors', 'Batch kedua - harga naik, 1 sudah dipakai'),
+
+-- FLT-002: Single batch
+((SELECT id FROM stock_items WHERE item_code = 'FLT-002'), 'FLT-002-20240105-001', 14.00, 14.00, 95000, '2024-01-05', 'Mitsubishi Motors', 'Batch pertama filter oli'),
+
+-- SPR-001: Multiple batches
+((SELECT id FROM stock_items WHERE item_code = 'SPR-001'), 'SPR-001-20240120-001', 12.00, 20.00, 42000, '2024-01-20', 'NGK Spark Plugs', 'Batch pertama - 8 sudah dipakai'),
+((SELECT id FROM stock_items WHERE item_code = 'SPR-001'), 'SPR-001-20240315-001', 8.00, 10.00, 48000, '2024-03-15', 'NGK Spark Plugs', 'Batch kedua - harga naik, 2 sudah dipakai'),
+
+-- SPR-002: Single batch
+((SELECT id FROM stock_items WHERE item_code = 'SPR-002'), 'SPR-002-20240125-001', 8.00, 8.00, 180000, '2024-01-25', 'Gates Corporation', 'Batch pertama V-belt'),
+
+-- FUL-002: Single batch
+((SELECT id FROM stock_items WHERE item_code = 'FUL-002'), 'FUL-002-20240201-001', 15.00, 15.00, 85000, '2024-02-01', 'STP Corporation', 'Batch pertama aditif solar'),
+
+-- BRK-001: Single batch
+((SELECT id FROM stock_items WHERE item_code = 'BRK-001'), 'BRK-001-20240215-001', 6.00, 6.00, 850000, '2024-02-15', 'Hino Motors', 'Batch pertama kampas rem'),
+
+-- BRK-002: Single batch
+((SELECT id FROM stock_items WHERE item_code = 'BRK-002'), 'BRK-002-20240220-001', 12.00, 12.00, 125000, '2024-02-20', 'Shell Indonesia', 'Batch pertama minyak rem');
+
+-- 4. Update stock_items with calculated values FOURTH
+UPDATE stock_items SET 
+    average_unit_price = (
+        SELECT COALESCE(SUM(quantity * unit_price) / NULLIF(SUM(quantity), 0), 0)
+        FROM stock_batches 
+        WHERE stock_batches.item_id = stock_items.id
+    ),
+    total_value = (
+        SELECT COALESCE(SUM(quantity * unit_price), 0)
+        FROM stock_batches 
+        WHERE stock_batches.item_id = stock_items.id
+    );
 
 -- 4. TIRE INVENTORY
 INSERT INTO tire_inventory (tire_brand, tire_size, tire_type, current_stock, min_stock, unit_price) VALUES
@@ -219,29 +259,127 @@ INSERT INTO service_items (service_id, stock_item_id, item_name, quantity, unit_
  (SELECT id FROM stock_items WHERE item_code = 'BRK-002'), 'Minyak Rem DOT 4', 1.00, 125000, true);
 
 -- 13. STOCK TRANSACTIONS
-INSERT INTO stock_transactions (item_id, transaction_type, quantity, unit_price, total_amount, reference_type, reference_id, notes, transaction_date) VALUES
--- Initial stock entries
-((SELECT id FROM stock_items WHERE item_code = 'OLI-001'), 'in', 150.00, 55000, 8250000, 'restock', NULL, 'Pembelian awal stok oli mesin', '2024-06-01'),
-((SELECT id FROM stock_items WHERE item_code = 'OLI-002'), 'in', 25.00, 75000, 1875000, 'restock', NULL, 'Pembelian awal oli transmisi', '2024-06-01'),
-((SELECT id FROM stock_items WHERE item_code = 'FLT-001'), 'in', 20.00, 120000, 2400000, 'restock', NULL, 'Pembelian awal filter solar', '2024-06-01'),
-((SELECT id FROM stock_items WHERE item_code = 'FLT-002'), 'in', 15.00, 95000, 1425000, 'restock', NULL, 'Pembelian awal filter oli', '2024-06-01'),
-((SELECT id FROM stock_items WHERE item_code = 'FLT-003'), 'in', 12.00, 150000, 1800000, 'restock', NULL, 'Pembelian awal filter udara', '2024-06-01'),
-((SELECT id FROM stock_items WHERE item_code = 'FUL-001'), 'in', 500.00, 15000, 7500000, 'restock', NULL, 'Pembelian awal solar', '2024-06-01'),
-((SELECT id FROM stock_items WHERE item_code = 'FUL-002'), 'in', 15.00, 85000, 1275000, 'restock', NULL, 'Pembelian awal aditif solar', '2024-06-01'),
-((SELECT id FROM stock_items WHERE item_code = 'BRK-001'), 'in', 6.00, 850000, 5100000, 'restock', NULL, 'Pembelian kampas rem', '2024-06-01'),
-((SELECT id FROM stock_items WHERE item_code = 'BRK-002'), 'in', 10.00, 125000, 1250000, 'restock', NULL, 'Pembelian minyak rem', '2024-06-01'),
-((SELECT id FROM stock_items WHERE item_code = 'SPR-001'), 'in', 20.00, 45000, 900000, 'restock', NULL, 'Pembelian busi', '2024-06-01'),
-((SELECT id FROM stock_items WHERE item_code = 'SPR-002'), 'in', 8.00, 180000, 1440000, 'restock', NULL, 'Pembelian v-belt', '2024-06-01'),
+-- 5. Create stock transactions LAST (now everything exists) - CORRECTED FORMAT
+INSERT INTO stock_transactions (item_id, batch_id, transaction_type, quantity, unit_price, total_amount, reference_type, reference_id, notes, transaction_date) VALUES
+-- OLI-001 transactions
+((SELECT id FROM stock_items WHERE item_code = 'OLI-001'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'OLI-001-20240101-001'), 
+ 'in', 50.00, 52000, 2600000, 'initial_stock', NULL, 'Pembelian batch pertama', '2024-01-01'),
 
--- Service-related stock movements
-((SELECT id FROM stock_items WHERE item_code = 'OLI-001'), 'out', 10.00, 55000, 550000, 'service', (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20240715-001'), 'Digunakan untuk servis B 1234 ABC', '2024-07-15'),
-((SELECT id FROM stock_items WHERE item_code = 'FLT-002'), 'out', 1.00, 95000, 95000, 'service', (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20240715-001'), 'Digunakan untuk servis B 1234 ABC', '2024-07-15'),
-((SELECT id FROM stock_items WHERE item_code = 'FLT-001'), 'out', 1.00, 120000, 120000, 'service', (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20240820-001'), 'Digunakan untuk servis B 5678 DEF', '2024-08-20'),
-((SELECT id FROM stock_items WHERE item_code = 'OLI-001'), 'out', 8.00, 55000, 440000, 'service', (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20240820-001'), 'Digunakan untuk servis B 5678 DEF', '2024-08-20'),
-((SELECT id FROM stock_items WHERE item_code = 'FUL-002'), 'out', 1.00, 85000, 85000, 'service', (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20240820-001'), 'Digunakan untuk servis B 5678 DEF', '2024-08-20'),
-((SELECT id FROM stock_items WHERE item_code = 'BRK-001'), 'out', 1.00, 850000, 850000, 'service', (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20241201-001'), 'Digunakan untuk servis BE 9090 AC', '2024-12-01'),
-((SELECT id FROM stock_items WHERE item_code = 'BRK-002'), 'out', 1.00, 125000, 125000, 'service', (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20241201-001'), 'Digunakan untuk servis BE 9090 AC', '2024-12-01');
+((SELECT id FROM stock_items WHERE item_code = 'OLI-001'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'OLI-001-20240201-001'), 
+ 'in', 60.00, 55000, 3300000, 'initial_stock', NULL, 'Pembelian batch kedua', '2024-02-01'),
 
+((SELECT id FROM stock_items WHERE item_code = 'OLI-001'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'OLI-001-20240301-001'), 
+ 'in', 30.00, 58000, 1740000, 'initial_stock', NULL, 'Pembelian batch ketiga', '2024-03-01'),
+
+-- Usage from oldest batch first (FIFO)
+((SELECT id FROM stock_items WHERE item_code = 'OLI-001'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'OLI-001-20240301-001'), 
+ 'out', 8.00, 58000, 464000, 'service', NULL, 'Digunakan untuk service kendaraan', '2024-03-15'),
+
+-- FLT-001 transactions
+((SELECT id FROM stock_items WHERE item_code = 'FLT-001'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'FLT-001-20240110-001'), 
+ 'in', 15.00, 115000, 1725000, 'initial_stock', NULL, 'Pembelian batch pertama', '2024-01-10'),
+
+((SELECT id FROM stock_items WHERE item_code = 'FLT-001'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'FLT-001-20240110-001'), 
+ 'out', 7.00, 115000, 805000, 'service', NULL, 'Digunakan untuk service - FIFO dari batch terlama', '2024-01-25'),
+
+((SELECT id FROM stock_items WHERE item_code = 'FLT-001'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'FLT-001-20240220-001'), 
+ 'in', 12.00, 125000, 1500000, 'initial_stock', NULL, 'Pembelian batch kedua', '2024-02-20'),
+
+((SELECT id FROM stock_items WHERE item_code = 'FLT-001'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'FLT-001-20240220-001'), 
+ 'out', 1.00, 125000, 125000, 'service', NULL, 'Digunakan untuk service', '2024-02-25'),
+
+-- FLT-002 transactions
+((SELECT id FROM stock_items WHERE item_code = 'FLT-002'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'FLT-002-20240105-001'), 
+ 'in', 14.00, 95000, 1330000, 'initial_stock', NULL, 'Pembelian batch pertama', '2024-01-05'),
+
+-- SPR-001 transactions
+((SELECT id FROM stock_items WHERE item_code = 'SPR-001'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'SPR-001-20240120-001'), 
+ 'in', 20.00, 42000, 840000, 'initial_stock', NULL, 'Pembelian batch pertama', '2024-01-20'),
+
+((SELECT id FROM stock_items WHERE item_code = 'SPR-001'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'SPR-001-20240120-001'), 
+ 'out', 8.00, 42000, 336000, 'service', NULL, 'Digunakan untuk service - FIFO', '2024-02-10'),
+
+((SELECT id FROM stock_items WHERE item_code = 'SPR-001'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'SPR-001-20240315-001'), 
+ 'in', 10.00, 48000, 480000, 'initial_stock', NULL, 'Pembelian batch kedua', '2024-03-15'),
+
+((SELECT id FROM stock_items WHERE item_code = 'SPR-001'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'SPR-001-20240315-001'), 
+ 'out', 2.00, 48000, 96000, 'service', NULL, 'Digunakan untuk service', '2024-03-20'),
+
+-- SPR-002 transactions
+((SELECT id FROM stock_items WHERE item_code = 'SPR-002'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'SPR-002-20240125-001'), 
+ 'in', 8.00, 180000, 1440000, 'initial_stock', NULL, 'Pembelian batch pertama', '2024-01-25'),
+
+-- FUL-002 transactions
+((SELECT id FROM stock_items WHERE item_code = 'FUL-002'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'FUL-002-20240201-001'), 
+ 'in', 15.00, 85000, 1275000, 'initial_stock', NULL, 'Pembelian batch pertama', '2024-02-01'),
+
+-- BRK-001 transactions
+((SELECT id FROM stock_items WHERE item_code = 'BRK-001'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'BRK-001-20240215-001'), 
+ 'in', 6.00, 850000, 5100000, 'initial_stock', NULL, 'Pembelian batch pertama', '2024-02-15'),
+
+-- BRK-002 transactions
+((SELECT id FROM stock_items WHERE item_code = 'BRK-002'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'BRK-002-20240220-001'), 
+ 'in', 12.00, 125000, 1500000, 'initial_stock', NULL, 'Pembelian batch pertama', '2024-02-20'),
+
+-- Service-related stock movements (with proper batch references)
+((SELECT id FROM stock_items WHERE item_code = 'OLI-001'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'OLI-001-20240101-001'), 
+ 'out', 10.00, 52000, 520000, 'service', 
+ (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20240715-001'), 
+ 'Digunakan untuk servis B 1234 ABC', '2024-07-15'),
+
+((SELECT id FROM stock_items WHERE item_code = 'FLT-002'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'FLT-002-20240105-001'), 
+ 'out', 1.00, 95000, 95000, 'service', 
+ (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20240715-001'), 
+ 'Digunakan untuk servis B 1234 ABC', '2024-07-15'),
+
+((SELECT id FROM stock_items WHERE item_code = 'FLT-001'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'FLT-001-20240110-001'), 
+ 'out', 1.00, 115000, 115000, 'service', 
+ (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20240820-001'), 
+ 'Digunakan untuk servis B 5678 DEF', '2024-08-20'),
+
+((SELECT id FROM stock_items WHERE item_code = 'OLI-001'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'OLI-001-20240201-001'), 
+ 'out', 8.00, 55000, 440000, 'service', 
+ (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20240820-001'), 
+ 'Digunakan untuk servis B 5678 DEF', '2024-08-20'),
+
+((SELECT id FROM stock_items WHERE item_code = 'FUL-002'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'FUL-002-20240201-001'), 
+ 'out', 1.00, 85000, 85000, 'service', 
+ (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20240820-001'), 
+ 'Digunakan untuk servis B 5678 DEF', '2024-08-20'),
+
+((SELECT id FROM stock_items WHERE item_code = 'BRK-001'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'BRK-001-20240215-001'), 
+ 'out', 1.00, 850000, 850000, 'service', 
+ (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20241201-001'), 
+ 'Digunakan untuk servis BE 9090 AC', '2024-12-01'),
+
+((SELECT id FROM stock_items WHERE item_code = 'BRK-002'), 
+ (SELECT id FROM stock_batches WHERE batch_number = 'BRK-002-20240220-001'), 
+ 'out', 1.00, 125000, 125000, 'service', 
+ (SELECT id FROM vehicle_services WHERE service_number = 'SRV-20241201-001'), 
+ 'Digunakan untuk servis BE 9090 AC', '2024-12-01');
 -- 15. OFFICE EXPENSES
 INSERT INTO office_expenses (kategori, description, amount, expense_date) VALUES
 ('Listrik & Internet', 'Pembayaran Tagihan Listrik Kantor Bulan September', 1500000, '2024-09-25'),
