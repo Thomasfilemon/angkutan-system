@@ -6,33 +6,61 @@ const {
   VehicleService, 
   StockItem, 
   StockTransaction, 
-  StockBatch, // ✅ ADD: Import StockBatch model
+  StockBatch,
   StockCategory,
   CashTransaction,
+  CashCategory, // ✅ ADD: Import CashCategory for proper kas integration
   sequelize
 } = db;
 const { Op } = require('sequelize');
 
-console.log('Available models:', Object.keys(db));
-console.log('ServiceItem model:', ServiceItem);
+// ===============================
+// HELPER FUNCTIONS
+// ===============================
 
-// ✅ NEW: Helper function to calculate current stock from batches
+// Calculate current stock from FIFO batches
 const calculateCurrentStock = async (itemId) => {
-  const result = await StockBatch.findOne({
-    where: { item_id: itemId },
-    attributes: [
-      [sequelize.fn('SUM', sequelize.col('quantity')), 'total_quantity']
-    ]
-  });
-  
-  return parseFloat(result?.dataValues?.total_quantity) || 0;
+  try {
+    const result = await StockBatch.findOne({
+      where: { item_id: itemId },
+      attributes: [
+        [sequelize.fn('SUM', sequelize.col('quantity')), 'total_quantity']
+      ]
+    });
+    
+    return parseFloat(result?.dataValues?.total_quantity) || 0;
+  } catch (error) {
+    console.error('Error calculating current stock:', error);
+    return 0;
+  }
 };
 
-// ✅ NEW: FIFO stock deduction function (integrates with stock controller logic)
-const deductStockFIFO = async (itemId, quantity, serviceDescription, serviceId, transaction) => {
+// Calculate stock item averages and totals
+const calculateStockItemAverages = async (itemId) => {
+  try {
+    const result = await StockBatch.findOne({
+      where: { item_id: itemId },
+      attributes: [
+        [sequelize.fn('SUM', sequelize.col('quantity')), 'total_quantity'],
+        [sequelize.fn('SUM', sequelize.literal('quantity * unit_price')), 'total_value']
+      ]
+    });
+    
+    const totalQuantity = parseFloat(result?.dataValues?.total_quantity) || 0;
+    const totalValue = parseFloat(result?.dataValues?.total_value) || 0;
+    const averagePrice = totalQuantity > 0 ? totalValue / totalQuantity : 0;
+    
+    return { totalQuantity, totalValue, averagePrice };
+  } catch (error) {
+    console.error('Error calculating stock averages:', error);
+    return { totalQuantity: 0, totalValue: 0, averagePrice: 0 };
+  }
+};
+
+// FIFO stock deduction with proper transaction handling
+const deductStockFIFO = async (itemId, quantity, serviceId, transaction) => {
   let remainingToDeduct = parseFloat(quantity);
   
-  // Get all batches ordered by purchase date (FIFO)
   const batches = await StockBatch.findAll({
     where: {
       item_id: itemId,
@@ -42,13 +70,12 @@ const deductStockFIFO = async (itemId, quantity, serviceDescription, serviceId, 
     transaction
   });
 
-  // Check if we have enough stock
   const totalAvailable = batches.reduce((sum, batch) => sum + parseFloat(batch.quantity), 0);
+  
   if (remainingToDeduct > totalAvailable) {
     throw new Error(`Insufficient stock. Available: ${totalAvailable}, Requested: ${remainingToDeduct}`);
   }
 
-  // Deduct from batches using FIFO
   for (const batch of batches) {
     if (remainingToDeduct <= 0) break;
 
@@ -59,7 +86,6 @@ const deductStockFIFO = async (itemId, quantity, serviceDescription, serviceId, 
       quantity: batchQuantity - deductFromBatch
     }, { transaction });
 
-    // Record transaction for this batch
     await StockTransaction.create({
       item_id: itemId,
       batch_id: batch.id,
@@ -68,44 +94,39 @@ const deductStockFIFO = async (itemId, quantity, serviceDescription, serviceId, 
       unit_price: batch.unit_price,
       total_amount: deductFromBatch * batch.unit_price,
       reference_type: 'service',
-      reference_id: serviceId,
-      notes: `Used in service: ${serviceDescription} (Batch: ${batch.batch_number})`
+      reference_id: serviceId,  // ✅ FIXED: Pass service ID (integer) instead of service number (string)
+      notes: `Used in service ID ${serviceId} from batch ${batch.batch_number}`
     }, { transaction });
 
     remainingToDeduct -= deductFromBatch;
   }
-
-  // Update stock item averages
-  const { totalQuantity, totalValue, averagePrice } = await calculateStockItemAverages(itemId);
-  const stockItem = await StockItem.findByPk(itemId, { transaction });
-  if (stockItem) {
-    await stockItem.update({
-      average_unit_price: averagePrice,
-      total_value: totalValue,
-      updated_at: new Date()
-    }, { transaction });
-  }
 };
-
-// ✅ NEW: Helper function to calculate stock item averages
-const calculateStockItemAverages = async (itemId) => {
-  const result = await StockBatch.findOne({
-    where: { item_id: itemId },
-    attributes: [
-      [sequelize.fn('SUM', sequelize.col('quantity')), 'total_quantity'],
-      [sequelize.fn('SUM', sequelize.literal('quantity * unit_price')), 'total_value']
-    ]
+// Generate unique service number
+const generateServiceNumber = async (transaction) => {
+  const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const lastService = await VehicleService.findOne({
+    where: {
+      service_number: { [Op.like]: `SRV-${today}-%` }
+    },
+    order: [["service_number", "DESC"]],
+    transaction
   });
+
+  let sequence = 1;
+  if (lastService) {
+    const lastSequence = parseInt(lastService.service_number.split("-").pop()) || 0;
+    sequence = lastSequence + 1;
+  }
   
-  const totalQuantity = parseFloat(result?.dataValues?.total_quantity) || 0;
-  const totalValue = parseFloat(result?.dataValues?.total_value) || 0;
-  const averagePrice = totalQuantity > 0 ? totalValue / totalQuantity : 0;
-  
-  return { totalQuantity, totalValue, averagePrice };
+  return `SRV-${today}-${sequence.toString().padStart(3, "0")}`;
 };
 
-// Get all services
-exports.getAllServices = async (req, res, next) => {
+// ===============================
+// MAIN CONTROLLER FUNCTIONS
+// ===============================
+
+// Get all services with pagination and filtering
+const getAllServices = async (req, res, next) => {
   try {
     const { vehicle_id, service_type, status, page = 1, limit = 20 } = req.query;
     const offset = (page - 1) * limit;
@@ -150,12 +171,13 @@ exports.getAllServices = async (req, res, next) => {
       }
     });
   } catch (err) {
+    console.error('Error in getAllServices:', err);
     next(err);
   }
 };
 
-// Get service by ID
-exports.getServiceById = async (req, res, next) => {
+// Get service by ID with complete details
+const getServiceById = async (req, res, next) => {
   try {
     const { id } = req.params;
     
@@ -185,41 +207,38 @@ exports.getServiceById = async (req, res, next) => {
       });
     }
 
-    // Convert to plain object and ensure all fields exist
+    // Ensure all numeric fields are properly formatted
     const serviceData = service.toJSON();
-    
-    // Ensure cost fields are numbers, not null/undefined
     serviceData.labor_cost = parseFloat(serviceData.labor_cost) || 0;
     serviceData.parts_cost = parseFloat(serviceData.parts_cost) || 0;
     serviceData.total_cost = serviceData.labor_cost + serviceData.parts_cost;
     
-    // Ensure serviceItems is an array and clean up any null items
-    serviceData.serviceItems = (serviceData.serviceItems || []).filter(item => item != null);
-    
-    // Validate each service item
-    serviceData.serviceItems = serviceData.serviceItems.map(item => ({
-      ...item,
-      quantity: parseFloat(item.quantity) || 0,
-      unit_price: parseFloat(item.unit_price) || 0,
-      from_stock: Boolean(item.from_stock)
-    }));
+    // Clean and validate service items
+    serviceData.serviceItems = (serviceData.serviceItems || [])
+      .filter(item => item != null)
+      .map(item => ({
+        ...item,
+        quantity: parseFloat(item.quantity) || 0,
+        unit_price: parseFloat(item.unit_price) || 0,
+        from_stock: Boolean(item.from_stock)
+      }));
 
     res.json({
       success: true,
       data: serviceData
     });
   } catch (err) {
+    console.error('Error in getServiceById:', err);
     next(err);
   }
 };
 
-// ✅ UPDATED: Create new service with FIFO integration
-exports.createService = async (req, res, next) => {
-  const transaction = await db.sequelize.transaction();
-  let serviceId;
+// ✅ FIXED: Create service with proper zero-price kas transaction handling
+const createService = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
   
   try {
-    // Add validation for req.body
+    // Validate request body
     if (!req.body) {
       await transaction.rollback();
       return res.status(400).json({ 
@@ -240,13 +259,10 @@ exports.createService = async (req, res, next) => {
     } = req.body;
 
     // Parse JSON strings from FormData
-    const items = req.body.items ? JSON.parse(req.body.items) : [];
+    const serviceItems = req.body.items ? JSON.parse(req.body.items) : [];
     const cashSettings = req.body.cash_settings ? JSON.parse(req.body.cash_settings) : {};
-    
-    // Handle file upload
-    const attachment_url = req.file ? `uploads/receipts/${req.file.filename}` : null;
 
-    // Validation
+    // Basic validation
     if (!vehicle_id) {
       await transaction.rollback();
       return res.status(400).json({
@@ -263,96 +279,152 @@ exports.createService = async (req, res, next) => {
       });
     }
 
-    // ✅ UPDATED: Validate stock availability using FIFO logic
-    if (items && items.length > 0) {
-      for (const item of items) {
-        if (item.from_stock && item.stock_item_id) {
-          const currentStock = await calculateCurrentStock(item.stock_item_id);
-          if (parseFloat(item.quantity) > currentStock) {
-            await transaction.rollback();
-            return res.status(400).json({
-              success: false,
-              message: `Insufficient stock for ${item.item_name}. Available: ${currentStock}, Requested: ${item.quantity}`
-            });
-          }
+    // Generate service number
+    const serviceNumber = await generateServiceNumber(transaction);
+
+    // Validate stock availability for items from stock
+    for (const item of serviceItems) {
+      if (item.from_stock && item.stock_item_id) {
+        const currentStock = await calculateCurrentStock(item.stock_item_id);
+        if (parseFloat(item.quantity) > currentStock) {
+          await transaction.rollback();
+          return res.status(400).json({
+            success: false,
+            message: `Insufficient stock for ${item.item_name}. Available: ${currentStock}, Requested: ${item.quantity}`
+          });
         }
       }
     }
 
-    // Calculate parts cost
-    let totalItemsCost = 0;
-    if (items && items.length > 0) {
-      totalItemsCost = items.reduce((sum, item) => {
-        return sum + (parseFloat(item.quantity) * parseFloat(item.unit_price));
-      }, 0);
+    // Calculate costs
+    const laborCostAmount = parseFloat(labor_cost) || 0;
+    let totalPartsCost = 0;
+
+    // Process service items and calculate total parts cost
+    for (const item of serviceItems) {
+      totalPartsCost += (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price) || 0);
     }
 
-    // Create VehicleService record
+    // Create service record
     const service = await VehicleService.create({
+      service_number: serviceNumber,
       vehicle_id: parseInt(vehicle_id),
       service_date: service_date || new Date(),
       service_type: service_type || 'regular',
       description: description.trim(),
       workshop_name: workshop_name || '',
-      labor_cost: parseFloat(labor_cost) || 0,
-      parts_cost: totalItemsCost,
-      notes: notes || ''
+      labor_cost: laborCostAmount,
+      parts_cost: totalPartsCost,
+      notes: notes || '',
+      status: 'completed'
     }, { transaction });
 
-    serviceId = service.id;
+    // Create service items and deduct stock
+    for (const item of serviceItems) {
+      await ServiceItem.create({
+        service_id: service.id,
+        stock_item_id: item.stock_item_id || null,
+        item_name: item.item_name,
+        quantity: parseFloat(item.quantity),
+        unit_price: parseFloat(item.unit_price),
+        from_stock: item.from_stock || false
+      }, { transaction });
 
-    // ✅ UPDATED: Process service items with FIFO deduction
-    if (items && items.length > 0) {
-      for (const item of items) {
-        await ServiceItem.create({
-          service_id: service.id,
-          stock_item_id: item.stock_item_id || null,
-          item_name: item.item_name,
-          quantity: parseFloat(item.quantity),
-          unit_price: parseFloat(item.unit_price),
-          from_stock: item.from_stock || false
-        }, { transaction });
-
-        // ✅ UPDATED: Use FIFO deduction instead of direct stock update
-        if (item.from_stock && item.stock_item_id) {
-          await deductStockFIFO(
-            item.stock_item_id,
-            item.quantity,
-            description,
-            service.id,
-            transaction
-          );
-        }
+      // Deduct from stock using FIFO if item is from stock
+      if (item.from_stock && item.stock_item_id) {
+        await deductStockFIFO(
+          item.stock_item_id,
+          item.quantity,
+          service.id,
+          transaction
+        );
       }
     }
 
-    // Create cash transaction if required
+    // ✅ FIXED: Create kas transaction even for zero-price items
     if (cashSettings.save_to_cash) {
-      const totalServiceCost = parseFloat(labor_cost || 0) + totalItemsCost;
+      const totalServiceCost = laborCostAmount + totalPartsCost;
       
-      if (totalServiceCost > 0) {
-        const transactionType = cashSettings.is_tempo ? 'kredit_tempo' : 'kredit';
-        const serviceDescription = `Servis ${service_type}: ${description}${totalItemsCost > 0 ? ` + Suku cadang: ${totalItemsCost.toLocaleString()}` : ''}`;
+      // Create kas transaction if there are ANY service items OR labor cost > 0
+      if (totalServiceCost > 0 || serviceItems.length > 0) {
+        const transactionType = cashSettings.is_tempo ? "debit_tempo" : "debit";
+        
+        // Enhanced description with item details
+        let description_parts = [`Service ${serviceNumber} - Vehicle ${vehicle_id}`];
+        if (laborCostAmount > 0) {
+          description_parts.push(`Labor: Rp ${laborCostAmount.toLocaleString('id-ID')}`);
+        }
+        if (totalPartsCost > 0) {
+          description_parts.push(`Parts: Rp ${totalPartsCost.toLocaleString('id-ID')}`);
+        }
+        if (serviceItems.length > 0) {
+          description_parts.push(`Items used: ${serviceItems.length} items`);
+          
+          // Add zero-price items to description for tracking
+          const zeroPriceItems = serviceItems.filter(item => parseFloat(item.unit_price) === 0);
+          if (zeroPriceItems.length > 0) {
+            description_parts.push(`Zero-price items: ${zeroPriceItems.map(item => `${item.item_name} (${item.quantity})`).join(', ')}`);
+          }
+        }
 
-        await CashTransaction.create({
+        const kasDescription = description_parts.join('\n');
+
+        // Find or create appropriate cash category
+        let cashCategory = await CashCategory.findOne({
+          where: { category_name: 'Biaya Operasional', category_type: 'expense' },
+          transaction
+        });
+
+        if (!cashCategory) {
+          cashCategory = await CashCategory.create({
+            category_name: 'Biaya Operasional',
+            category_type: 'expense',
+            description: 'Biaya operasional kendaraan dan maintenance'
+          }, { transaction });
+        }
+
+        // Create cash transaction data
+        const cashTransactionData = {
           transaction_type: transactionType,
-          amount: totalServiceCost,
-          description: serviceDescription,
+          category_id: cashCategory.id,
+          amount: Math.max(totalServiceCost, 0.01), // Minimum 0.01 for tracking even zero-cost services
+          description: kasDescription,
+          reference_number: serviceNumber,
           account: cashSettings.account || 'General',
-          transaction_date: service_date || new Date(),
-          attachment_url: attachment_url
-        }, { transaction });
+          transaction_date: service_date
+        };
+
+        // Handle file attachment if present
+        if (req.file) {
+          cashTransactionData.attachment_url = req.file.path;
+        }
+
+        await CashTransaction.create(cashTransactionData, { transaction });
       }
     }
 
-    // Commit transaction - all database operations successful
     await transaction.commit();
 
+    // Fetch complete service data for response
+    const completeService = await VehicleService.findByPk(service.id, {
+      include: [
+        { model: Vehicle, as: 'vehicle' },
+        { 
+          model: ServiceItem, 
+          as: 'serviceItems',
+          include: [{ model: StockItem, as: 'stockItem', required: false }]
+        }
+      ]
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Service created successfully',
+      data: completeService
+    });
+
   } catch (err) {
-    // Only rollback if transaction hasn't been finished
-    if (!transaction.finished) {
-      await transaction.rollback();
-    }
+    await transaction.rollback();
     console.error('Error in createService:', err);
     
     if (err.name === 'SequelizeValidationError') {
@@ -369,34 +441,10 @@ exports.createService = async (req, res, next) => {
       message: err.message || 'Service creation failed'
     });
   }
-
-  // Fetch complete service data AFTER successful commit
-  try {
-    const completeService = await VehicleService.findByPk(serviceId, {
-      include: [
-        { model: Vehicle, as: 'vehicle' },
-        { model: ServiceItem, as: 'serviceItems' }
-      ]
-    });
-
-    res.status(201).json({
-      success: true,
-      message: 'Service created successfully',
-      data: completeService
-    });
-  } catch (fetchError) {
-    // If fetch fails, data is already saved, return minimal response
-    console.error('Error fetching complete service data:', fetchError);
-    res.status(201).json({
-      success: true,
-      message: 'Service created successfully',
-      data: { id: serviceId }
-    });
-  }
 };
 
-// Update service
-exports.updateService = async (req, res, next) => {
+// Update service (basic info only, not items)
+const updateService = async (req, res, next) => {
   try {
     const { id } = req.params;
     const service = await VehicleService.findByPk(id);
@@ -423,13 +471,14 @@ exports.updateService = async (req, res, next) => {
       data: service
     });
   } catch (err) {
+    console.error('Error in updateService:', err);
     next(err);
   }
 };
 
-// ✅ UPDATED: Cancel service with FIFO restoration
-exports.cancelService = async (req, res, next) => {
-  const transaction = await db.sequelize.transaction();
+// Cancel service with proper stock restoration
+const cancelService = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
   
   try {
     const { id } = req.params;
@@ -458,13 +507,12 @@ exports.cancelService = async (req, res, next) => {
       });
     }
 
-    // ✅ UPDATED: Restore stock using stock adjustment API instead of direct manipulation
+    // Restore stock for items that were from stock
     for (const item of service.serviceItems) {
       if (item.from_stock && item.stock_item_id) {
-        // Use the existing stock adjustment function from stockController
+        // Use the stock adjustment logic to restore stock
         const stockController = require('./stockController');
         
-        // Create a mock request object for the adjustStock function
         const mockReq = {
           body: {
             itemId: item.stock_item_id,
@@ -472,17 +520,15 @@ exports.cancelService = async (req, res, next) => {
             quantity: parseFloat(item.quantity),
             unit_price: parseFloat(item.unit_price),
             notes: `Restored from cancelled service ${service.service_number || service.id}`,
-            create_new_batch: false // Add to existing batch with same price
+            create_new_batch: false
           }
         };
 
-        // Create a mock response object
         const mockRes = {
           json: () => {},
           status: () => ({ json: () => {} })
         };
 
-        // Call the stock adjustment function
         try {
           await stockController.adjustStock(mockReq, mockRes, (err) => {
             if (err) throw err;
@@ -509,8 +555,8 @@ exports.cancelService = async (req, res, next) => {
   }
 };
 
-// ✅ UPDATED: Get available stock items using FIFO calculated stock
-exports.getAvailableStockItems = async (req, res, next) => {
+// Get available stock items with current FIFO-calculated stock
+const getAvailableStockItems = async (req, res, next) => {
   try {
     const stockItems = await StockItem.findAll({
       include: [
@@ -530,14 +576,17 @@ exports.getAvailableStockItems = async (req, res, next) => {
       order: [['item_name', 'ASC']]
     });
 
-    // ✅ Calculate current stock from batches for each item
+    // Calculate current stock from batches for each item
     const enhancedItems = await Promise.all(stockItems.map(async (item) => {
       const itemData = item.toJSON();
       const currentStock = await calculateCurrentStock(item.id);
+      const { totalValue, averagePrice } = await calculateStockItemAverages(item.id);
       
       return {
         ...itemData,
         current_stock: currentStock,
+        unit_price: averagePrice, // Use weighted average price
+        total_value: totalValue,
         is_available: currentStock > 0,
         batch_count: itemData.batches ? itemData.batches.length : 0
       };
@@ -556,8 +605,8 @@ exports.getAvailableStockItems = async (req, res, next) => {
   }
 };
 
-// ✅ NEW: Get stock item details with batches for service selection
-exports.getStockItemDetails = async (req, res, next) => {
+// Get detailed stock item information for service selection
+const getStockItemDetails = async (req, res, next) => {
   try {
     const { id } = req.params;
     
@@ -602,4 +651,18 @@ exports.getStockItemDetails = async (req, res, next) => {
     console.error('Error in getStockItemDetails:', err);
     next(err);
   }
+};
+
+// ===============================
+// EXPORTS
+// ===============================
+
+module.exports = {
+  getAllServices,
+  getServiceById,
+  createService,
+  updateService,
+  cancelService,
+  getAvailableStockItems,
+  getStockItemDetails
 };

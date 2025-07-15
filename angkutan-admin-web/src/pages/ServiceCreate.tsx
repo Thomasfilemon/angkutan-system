@@ -31,7 +31,6 @@ const ServiceCreatePage = () => {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [serviceItems, setServiceItems] = useState<ServiceItem[]>([]);
-  
   const [formData, setFormData] = useState({
     vehicle_id: '',
     service_date: new Date().toISOString().split('T')[0],
@@ -41,8 +40,7 @@ const ServiceCreatePage = () => {
     labor_cost: '',
     notes: ''
   });
-
-  const [saveToCash, setSaveToCash] = useState(true); // Default to saving to cash
+  const [saveToCash, setSaveToCash] = useState(true);
   const [isTempo, setIsTempo] = useState(false);
   const [cashAccount, setCashAccount] = useState('General');
   const [notaFile, setNotaFile] = useState<File | null>(null);
@@ -64,7 +62,7 @@ const ServiceCreatePage = () => {
   const fetchStockItems = async () => {
     try {
       const response = await apiClient.get('/services/stock-items');
-      setStockItems(response.data);
+      setStockItems(response.data.data || response.data);
     } catch (err) {
       console.error('Failed to fetch stock items:', err);
     }
@@ -125,7 +123,6 @@ const ServiceCreatePage = () => {
     setLoading(true);
 
     try {
-      // Use FormData approach for file upload support
       const submissionData = new FormData();
       
       // Append form fields
@@ -136,16 +133,20 @@ const ServiceCreatePage = () => {
       submissionData.append('workshop_name', formData.workshop_name);
       submissionData.append('labor_cost', formData.labor_cost || '0');
       submissionData.append('notes', formData.notes);
-      
-      // Append service items as JSON string
-      const itemsToSubmit = serviceItems.filter(item => item.item_name && item.quantity > 0);
+
+      // ✅ FIXED: Allow zero-price items to be submitted
+      const itemsToSubmit = serviceItems.filter(item => 
+        item.item_name && item.quantity > 0 
+        // Removed price validation: && item.unit_price > 0
+      );
       submissionData.append('items', JSON.stringify(itemsToSubmit));
 
-      // Append cash settings as JSON string
+      // ✅ ENHANCED: Cash settings with zero-price handling
       const cashSettings = saveToCash ? {
         save_to_cash: true,
         is_tempo: isTempo,
-        account: cashAccount
+        account: cashAccount,
+        include_zero_price_items: true // This flag tells backend to handle zero-price items
       } : {
         save_to_cash: false
       };
@@ -161,7 +162,7 @@ const ServiceCreatePage = () => {
           'Content-Type': 'multipart/form-data'
         }
       });
-      
+
       navigate('/services');
     } catch (err) {
       console.error('Failed to create service:', err);
@@ -171,18 +172,15 @@ const ServiceCreatePage = () => {
     }
   };
 
-
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-800">Tambah Servis Kendaraan</h1>
-        <p className="text-gray-600 mt-2">Catat servis kendaraan dan penggunaan suku cadang</p>
-      </div>
+    <div className="container mx-auto p-4">
+      <div className="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
+        <h1 className="text-2xl font-bold mb-4">Tambah Servis Kendaraan</h1>
+        <p className="text-gray-600 mb-6">Catat servis kendaraan dan penggunaan suku cadang (termasuk yang harga 0)</p>
 
-      <form onSubmit={handleSubmit} className="bg-white shadow-md rounded-lg p-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+        <form onSubmit={handleSubmit}>
           {/* Vehicle Selection */}
-          <div>
+          <div className="mb-4">
             <label className="block text-gray-700 text-sm font-bold mb-2">
               Kendaraan *
             </label>
@@ -190,7 +188,7 @@ const ServiceCreatePage = () => {
               name="vehicle_id"
               value={formData.vehicle_id}
               onChange={handleInputChange}
-              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+              className="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
               required
             >
               <option value="">Pilih Kendaraan</option>
@@ -203,7 +201,7 @@ const ServiceCreatePage = () => {
           </div>
 
           {/* Service Date */}
-          <div>
+          <div className="mb-4">
             <label className="block text-gray-700 text-sm font-bold mb-2">
               Tanggal Servis *
             </label>
@@ -218,7 +216,7 @@ const ServiceCreatePage = () => {
           </div>
 
           {/* Service Type */}
-          <div>
+          <div className="mb-4">
             <label className="block text-gray-700 text-sm font-bold mb-2">
               Tipe Servis *
             </label>
@@ -226,8 +224,7 @@ const ServiceCreatePage = () => {
               name="service_type"
               value={formData.service_type}
               onChange={handleInputChange}
-              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-              required
+              className="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
             >
               <option value="regular">Servis Reguler</option>
               <option value="with_parts">Servis dengan Suku Cadang</option>
@@ -235,7 +232,7 @@ const ServiceCreatePage = () => {
           </div>
 
           {/* Workshop Name */}
-          <div>
+          <div className="mb-4">
             <label className="block text-gray-700 text-sm font-bold mb-2">
               Nama Bengkel
             </label>
@@ -244,13 +241,13 @@ const ServiceCreatePage = () => {
               name="workshop_name"
               value={formData.workshop_name}
               onChange={handleInputChange}
-              placeholder="Bengkel Internal"
+              placeholder="Nama bengkel (opsional)"
               className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
             />
           </div>
 
           {/* Labor Cost */}
-          <div>
+          <div className="mb-4">
             <label className="block text-gray-700 text-sm font-bold mb-2">
               Biaya Jasa
             </label>
@@ -263,233 +260,236 @@ const ServiceCreatePage = () => {
               className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
             />
           </div>
-        </div>
 
-        {/* Description */}
-        <div className="mb-6">
-          <label className="block text-gray-700 text-sm font-bold mb-2">
-            Deskripsi Servis *
-          </label>
-          <textarea
-            name="description"
-            value={formData.description}
-            onChange={handleInputChange}
-            rows={3}
-            placeholder="Jelaskan jenis servis yang dilakukan..."
-            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-            required
-          />
-        </div>
-
-        {/* Cash Management Settings */}
-        <div className="mb-6 p-4 border rounded-lg bg-gray-50">
-          <div className="flex items-center mb-4">
-            <input
-              type="checkbox"
-              id="saveToCash"
-              checked={saveToCash}
-              onChange={(e) => setSaveToCash(e.target.checked)}
-              className="h-4 w-4 text-blue-600 rounded"
-            />
-            <label htmlFor="saveToCash" className="ml-2 font-bold text-gray-700">
-              Simpan ke Kas
+          {/* Description */}
+          <div className="mb-4">
+            <label className="block text-gray-700 text-sm font-bold mb-2">
+              Deskripsi Servis *
             </label>
+            <textarea
+              name="description"
+              value={formData.description}
+              onChange={handleInputChange}
+              rows={4}
+              placeholder="Jelaskan pekerjaan yang dilakukan..."
+              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+              required
+            />
           </div>
 
-          {saveToCash && (
-            <div className="ml-6 space-y-4">
-              <div className="flex items-center">
+          {/* Cash Management Settings */}
+          <div className="mb-6 p-4 border rounded-lg bg-gray-50">
+            <h3 className="text-lg font-semibold mb-3">Pengaturan Kas</h3>
+            
+            <div className="mb-3">
+              <label className="flex items-center">
                 <input
                   type="checkbox"
-                  id="isTempo"
-                  checked={isTempo}
-                  onChange={(e) => setIsTempo(e.target.checked)}
+                  checked={saveToCash}
+                  onChange={(e) => setSaveToCash(e.target.checked)}
                   className="h-4 w-4 text-blue-600 rounded"
                 />
-                <label htmlFor="isTempo" className="ml-2 text-gray-700">
-                  Transaksi Tempo
-                </label>
-              </div>
-
-              <div>
-                <label className="block text-gray-700 text-sm font-bold mb-2">
-                  Akun Kas
-                </label>
-                <select
-                  value={cashAccount}
-                  onChange={(e) => setCashAccount(e.target.value)}
-                  className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                >
-                  <option value="Ewaldo">Ewaldo</option>
-                  <option value="Malvin">Malvin</option>
-                  <option value="Company">Company</option>
-                  <option value="General">General</option>
-                </select>
-              </div>
-
-              {/* TAMBAHAN: FILE UPLOAD SECTION */}
-              <div>
-                <label className="block text-gray-700 text-sm font-bold mb-2">
-                  Foto Nota (Opsional)
-                </label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileChange}
-                  className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                />
-                {notaFile && (
-                  <p className="text-sm text-green-600 mt-1">
-                    File dipilih: {notaFile.name}
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Service Items */}
-        {formData.service_type === 'with_parts' && (
-          <div className="mb-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold text-gray-800">Suku Cadang yang Digunakan</h3>
-              <button
-                type="button"
-                onClick={addServiceItem}
-                className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded text-sm"
-              >
-                + Tambah Item
-              </button>
+                <span className="ml-2">Simpan ke Kas (termasuk item harga 0)</span>
+              </label>
             </div>
 
-            {serviceItems.map((item, index) => (
-              <div key={index} className="border rounded p-4 mb-4 bg-gray-50">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  {/* Stock Item Selection */}
-                  <div>
-                    <label className="block text-gray-700 text-sm font-bold mb-2">
-                      Dari Stok
-                    </label>
-                    <select
-                      value={item.stock_item_id || ''}
-                      onChange={(e) => updateServiceItem(index, 'stock_item_id', e.target.value ? parseInt(e.target.value) : undefined)}
-                      className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                    >
-                      <option value="">Pilih dari stok (opsional)</option>
-                      {stockItems.map(stockItem => (
-                        <option key={stockItem.id} value={stockItem.id}>
-                          {stockItem.item_name} (Stok: {stockItem.current_stock} {stockItem.unit})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Item Name */}
-                  <div>
-                    <label className="block text-gray-700 text-sm font-bold mb-2">
-                      Nama Item
-                    </label>
+            {saveToCash && (
+              <div>
+                <div className="mb-3">
+                  <label className="flex items-center">
                     <input
-                      type="text"
-                      value={item.item_name}
-                      onChange={(e) => updateServiceItem(index, 'item_name', e.target.value)}
-                      placeholder="Nama suku cadang"
-                      className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                      required
+                      type="checkbox"
+                      checked={isTempo}
+                      onChange={(e) => setIsTempo(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 rounded"
                     />
-                  </div>
-
-                  {/* Quantity */}
-                  <div>
-                    <label className="block text-gray-700 text-sm font-bold mb-2">
-                      Jumlah
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={item.quantity}
-                      onChange={(e) => updateServiceItem(index, 'quantity', parseFloat(e.target.value) || 0)}
-                      placeholder="0"
-                      className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                      required
-                    />
-                  </div>
-
-                  {/* Unit Price */}
-                  <div>
-                    <label className="block text-gray-700 text-sm font-bold mb-2">
-                      Harga Satuan
-                    </label>
-                    <div className="flex">
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={item.unit_price}
-                        onChange={(e) => updateServiceItem(index, 'unit_price', parseFloat(e.target.value) || 0)}
-                        placeholder="0"
-                        className="shadow appearance-none border rounded-l w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                        required
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeServiceItem(index)}
-                        className="bg-red-500 hover:bg-red-700 text-white px-3 rounded-r"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  </div>
+                    <span className="ml-2">Transaksi Tempo</span>
+                  </label>
                 </div>
 
-                {/* Total Price Display */}
-                <div className="mt-2 text-right">
-                  <span className="text-sm text-gray-600">
-                    Total: Rp {(item.quantity * item.unit_price).toLocaleString('id-ID')}
-                  </span>
-                  {item.from_stock && (
-                    <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
-                      Dari Stok
-                    </span>
+                <div className="mb-3">
+                  <label className="block text-gray-700 text-sm font-bold mb-2">
+                    Akun Kas
+                  </label>
+                  <select
+                    value={cashAccount}
+                    onChange={(e) => setCashAccount(e.target.value)}
+                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                  >
+                    <option value="Ewaldo">Ewaldo</option>
+                    <option value="Malvin">Malvin</option>
+                    <option value="Company">Company</option>
+                    <option value="General">General</option>
+                  </select>
+                </div>
+
+                <div className="mb-3">
+                  <label className="block text-gray-700 text-sm font-bold mb-2">
+                    Foto Nota (Opsional)
+                  </label>
+                  <input
+                    type="file"
+                    onChange={handleFileChange}
+                    accept="image/*"
+                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                  />
+                  {notaFile && (
+                    <p className="text-sm text-green-600 mt-1">
+                      File dipilih: {notaFile.name}
+                    </p>
                   )}
                 </div>
               </div>
-            ))}
+            )}
           </div>
-        )}
 
-        {/* Notes */}
-        <div className="mb-6">
-          <label className="block text-gray-700 text-sm font-bold mb-2">
-            Catatan
-          </label>
-          <textarea
-            name="notes"
-            value={formData.notes}
-            onChange={handleInputChange}
-            rows={3}
-            placeholder="Catatan tambahan..."
-            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-          />
-        </div>
+          {/* Service Items */}
+          {formData.service_type === 'with_parts' && (
+            <div className="mb-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold">Suku Cadang yang Digunakan</h3>
+                <button
+                  type="button"
+                  onClick={addServiceItem}
+                  className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                >
+                  + Tambah Item
+                </button>
+              </div>
 
-        {/* Submit Buttons */}
-        <div className="flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => navigate('/services')}
-            className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
-          >
-            Batal
-          </button>
-          <button
-            type="submit"
-            disabled={loading}
-            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50"
-          >
-            {loading ? 'Menyimpan...' : 'Simpan Servis'}
-          </button>
-        </div>
-      </form>
+              {serviceItems.map((item, index) => (
+                <div key={index} className="border p-4 mb-4 rounded-lg">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {/* Stock Item Selection */}
+                    <div>
+                      <label className="block text-gray-700 text-sm font-bold mb-2">
+                        Dari Stok
+                      </label>
+                      <select
+                        value={item.stock_item_id || ''}
+                        onChange={(e) => updateServiceItem(index, 'stock_item_id', e.target.value ? parseInt(e.target.value) : undefined)}
+                        className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                      >
+                        <option value="">Pilih dari stok (opsional)</option>
+                        {stockItems.map(stockItem => (
+                          <option key={stockItem.id} value={stockItem.id}>
+                            {stockItem.item_name} (Stok: {stockItem.current_stock} {stockItem.unit})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Item Name */}
+                    <div>
+                      <label className="block text-gray-700 text-sm font-bold mb-2">
+                        Nama Item
+                      </label>
+                      <input
+                        type="text"
+                        value={item.item_name}
+                        onChange={(e) => updateServiceItem(index, 'item_name', e.target.value)}
+                        placeholder="Nama suku cadang"
+                        className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                        required
+                      />
+                    </div>
+
+                    {/* Quantity */}
+                    <div>
+                      <label className="block text-gray-700 text-sm font-bold mb-2">
+                        Jumlah
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={item.quantity}
+                        onChange={(e) => updateServiceItem(index, 'quantity', parseFloat(e.target.value) || 0)}
+                        placeholder="0"
+                        className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                        required
+                      />
+                    </div>
+
+                    {/* Unit Price */}
+                    <div>
+                      <label className="block text-gray-700 text-sm font-bold mb-2">
+                        Harga Satuan (boleh 0)
+                      </label>
+                      <div className="flex">
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={item.unit_price}
+                          onChange={(e) => updateServiceItem(index, 'unit_price', parseFloat(e.target.value) || 0)}
+                          placeholder="0"
+                          className="shadow appearance-none border rounded-l w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeServiceItem(index)}
+                          className="bg-red-500 hover:bg-red-700 text-white px-3 rounded-r"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Total Price Display */}
+                  <div className="mt-2 text-right">
+                    <span className="text-lg font-semibold">
+                      Total: Rp {(item.quantity * item.unit_price).toLocaleString('id-ID')}
+                    </span>
+                    {item.from_stock && (
+                      <span className="ml-2 bg-green-100 text-green-800 text-xs px-2 py-1 rounded">
+                        Dari Stok
+                      </span>
+                    )}
+                    {item.unit_price === 0 && (
+                      <span className="ml-2 bg-yellow-100 text-yellow-800 text-xs px-2 py-1 rounded">
+                        Gratis/Internal
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Notes */}
+          <div className="mb-6">
+            <label className="block text-gray-700 text-sm font-bold mb-2">
+              Catatan
+            </label>
+            <textarea
+              name="notes"
+              value={formData.notes}
+              onChange={handleInputChange}
+              rows={3}
+              placeholder="Catatan tambahan..."
+              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+            />
+          </div>
+
+          {/* Submit Buttons */}
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => navigate('/services')}
+              className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+            >
+              {loading ? 'Menyimpan...' : 'Simpan Servis'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 };
