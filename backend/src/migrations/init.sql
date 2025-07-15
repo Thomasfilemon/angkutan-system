@@ -584,8 +584,8 @@ CREATE INDEX idx_stock_batches_purchase_date ON stock_batches(purchase_date);
 CREATE INDEX idx_stock_transactions_batch_id ON stock_transactions(batch_id);
 -- ✅ Corrected indexes for FIFO batch system
 CREATE INDEX idx_stock_items_min_stock ON stock_items(min_stock);
-CREATE INDEX idx_stock_batches_quantity ON stock_batches(quantity);
-CREATE INDEX idx_stock_batches_item_quantity ON stock_batches(item_id, quantity);
+CREATE INDEX idx_stock_batches_quantity ON stock_batches(remaining_quantity);
+CREATE INDEX idx_stock_batches_item_quantity ON stock_batches(item_id, remaining_quantity);
 CREATE INDEX idx_stock_transactions_item ON stock_transactions(item_id);
 CREATE INDEX idx_stock_transactions_date ON stock_transactions(transaction_date);
 CREATE INDEX idx_vehicle_services_vehicle ON vehicle_services(vehicle_id);
