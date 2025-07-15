@@ -824,149 +824,173 @@ exports.recordDeliveryOrderPayment = async (req, res, next) => {
 
 // ✅ 7. Create Price Adjustment (for special cases like accidents)
 exports.createPriceAdjustment = async (req, res, next) => {
+  const transaction = await Sequelize.transaction();
   try {
     const { do_id } = req.params;
     const { adjustment_type, adjustment_amount, reason } = req.body;
     const userId = req.user.id;
-    const existing = await DeliveryOrderAdjustments.findOne({
-      where: { delivery_order_id: do_id },
-    });
+
+    const existing = await DeliveryOrderAdjustments.findOne({ where: { delivery_order_id: do_id } });
+    
+    if (existing) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: "Adjustment already exists for this DO. Please edit instead." });
+    }
 
     const deliveryOrder = await DeliveryOrder.findByPk(do_id);
-
-    if (existing) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message:
-            "Adjustment already exists for this DO. Please edit instead.",
-        });
-    }
     if (!deliveryOrder) {
-      return res.status(404).json({
-        success: false,
-        message: "Delivery Order not found",
-      });
+      await transaction.rollback();
+      return res.status(404).json({ success: false, message: "Delivery Order not found" });
     }
 
-    const originalAmount =
-      parseFloat(deliveryOrder.final_amount) ||
-      parseFloat(deliveryOrder.ongkosan) ||
-      0;
-    const finalAmount = parseFloat(adjustment_amount);
+        // Prevent adjustment if already billed/confirmed
+    if (deliveryOrder.payment_confirmation_status === 'confirmed') {
+      await transaction.rollback();
+      return res.status(403).json({ success: false, message: "Cannot adjust price after billing confirmation" });
+    }
+
+    const originalAmount = parseFloat(deliveryOrder.final_amount) || parseFloat(deliveryOrder.ongkosan) || 0;
+    const delta = parseFloat(adjustment_amount);
+    if (isNaN(delta)) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: "Invalid adjustment_amount - must be numeric" });
+    }
+
+    // Validate delta sign based on type (flex your schema types)
+    if (['penalty', 'incident'].includes(adjustment_type) && delta >= 0) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: "Penalty/incident adjustments must be negative" });
+    }
+    if (['bonus', 'uj_tambahan'].includes(adjustment_type) && delta <= 0) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: "Bonus/uj_tambahan adjustments must be positive" });
+    }
+
+    const finalAmount = originalAmount + delta;
 
     const adjustment = await DeliveryOrderAdjustments.create({
       delivery_order_id: do_id,
       adjustment_type,
       original_amount: originalAmount,
-      adjustment_amount: parseFloat(adjustment_amount),
+      adjustment_amount: delta,
       final_amount: finalAmount,
       reason,
       approved_by: userId,
       created_by: userId,
-    });
+    }, { transaction });
 
-    // Update DO final amount
-    await deliveryOrder.update({
-      final_amount: finalAmount,
-    });
+    // Update DO final_amount
+    await deliveryOrder.update({ final_amount: finalAmount }, { transaction });
 
+    // Recalc existing invoices (assumes one per DO; loop if multiple)
+    const invoices = await DeliveryOrderInvoices.findAll({ where: { delivery_order_id: do_id } });
+    for (const invoice of invoices) {
+      await invoice.update({ invoice_amount: finalAmount }, { transaction });  // Triggers trg_recalc_pph
+    }
+
+    await transaction.commit();
     res.status(201).json({
       success: true,
-      message: "Price adjustment created successfully",
-      data: {
-        adjustment,
-        old_amount: originalAmount,
-        new_amount: finalAmount,
-      },
+      message: "Price adjustment created successfully - amounts recalculated",
+      data: { adjustment, old_amount: originalAmount, new_amount: finalAmount },
     });
   } catch (err) {
+    await transaction.rollback();
     next(err);
   }
 };
 
 // Update Price Adjustment
 exports.updatePriceAdjustment = async (req, res, next) => {
+  const transaction = await Sequelize.transaction();
   try {
     const { do_id, adjustment_id } = req.params;
     const { adjustment_type, adjustment_amount, reason } = req.body;
     const userId = req.user.id;
 
-    const adjustment = await DeliveryOrderAdjustments.findOne({
-      where: { id: adjustment_id, delivery_order_id: do_id },
-    });
+    const adjustment = await DeliveryOrderAdjustments.findOne({ where: { id: adjustment_id, delivery_order_id: do_id } });
     if (!adjustment) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Adjustment not found" });
+      await transaction.rollback();
+      return res.status(404).json({ success: false, message: "Adjustment not found" });
     }
 
-    // Get DO for original_amount
     const deliveryOrder = await DeliveryOrder.findByPk(do_id);
     if (!deliveryOrder) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Delivery Order not found" });
+      await transaction.rollback();
+      return res.status(404).json({ success: false, message: "Delivery Order not found" });
     }
 
-    const originalAmount =
-      parseFloat(deliveryOrder.final_amount) ||
-      parseFloat(deliveryOrder.ongkosan) ||
-      0;
-    const finalAmount = parseFloat(adjustment_amount);
+    if (deliveryOrder.payment_confirmation_status === 'confirmed') {
+      await transaction.rollback();
+      return res.status(403).json({ success: false, message: "Cannot adjust price after billing confirmation" });
+    }
+
+    const originalAmount = parseFloat(deliveryOrder.final_amount) || parseFloat(deliveryOrder.ongkosan) || 0;  // Use current final as base
+    const delta = parseFloat(adjustment_amount);
+    if (isNaN(delta)) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: "Invalid adjustment_amount - must be numeric" });
+    }
+
+    // Same type validation as create...
+
+    const finalAmount = originalAmount + delta;
 
     await adjustment.update({
       adjustment_type,
-      adjustment_amount: finalAmount,
+      adjustment_amount: delta,
       final_amount: finalAmount,
       reason,
       original_amount: originalAmount,
       approved_by: userId,
-    });
+    }, { transaction });
 
-    // Update DO final amount
-    await deliveryOrder.update({ final_amount: finalAmount });
+    await deliveryOrder.update({ final_amount: finalAmount }, { transaction });
 
-    res.json({
-      success: true,
-      message: "Adjustment updated successfully",
-      data: adjustment,
-    });
+    // Recalc invoices (same as create)
+    const invoices = await DeliveryOrderInvoices.findAll({ where: { delivery_order_id: do_id } });
+    for (const invoice of invoices) {
+      await invoice.update({ invoice_amount: finalAmount }, { transaction });
+    }
+
+    await transaction.commit();
+    res.json({ success: true, message: "Adjustment updated successfully - amounts recalculated", data: adjustment });
   } catch (err) {
+    await transaction.rollback();
     next(err);
   }
 };
 
 // Delete Price Adjustment
 exports.deletePriceAdjustment = async (req, res, next) => {
+  const transaction = await Sequelize.transaction();
   try {
     const { do_id, adjustment_id } = req.params;
 
-    const adjustment = await DeliveryOrderAdjustments.findOne({
-      where: { id: adjustment_id, delivery_order_id: do_id },
-    });
+    const adjustment = await DeliveryOrderAdjustments.findOne({ where: { id: adjustment_id, delivery_order_id: do_id } });
     if (!adjustment) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Adjustment not found" });
+      await transaction.rollback();
+      return res.status(404).json({ success: false, message: "Adjustment not found" });
     }
 
-    await adjustment.destroy();
+    await adjustment.destroy({ transaction });
 
-    // Optional: Reset DO final_amount ke ongkosan jika adjustment dihapus
     const deliveryOrder = await DeliveryOrder.findByPk(do_id);
     if (deliveryOrder) {
-      await deliveryOrder.update({
-        final_amount: deliveryOrder.ongkosan,
-      });
+      const resetAmount = deliveryOrder.ongkosan;  // Reset to original ongkosan
+      await deliveryOrder.update({ final_amount: resetAmount }, { transaction });
+
+      // Recalc invoices to resetAmount
+      const invoices = await DeliveryOrderInvoices.findAll({ where: { delivery_order_id: do_id } });
+      for (const invoice of invoices) {
+        await invoice.update({ invoice_amount: resetAmount }, { transaction });
+      }
     }
 
-    res.json({
-      success: true,
-      message: "Adjustment deleted successfully",
-    });
+    await transaction.commit();
+    res.json({ success: true, message: "Adjustment deleted successfully - amounts reset and recalculated" });
   } catch (err) {
+    await transaction.rollback();
     next(err);
   }
 };

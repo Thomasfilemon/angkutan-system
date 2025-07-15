@@ -19,7 +19,6 @@ const setupStockItemModel = require("./stockItem.model");
 const setupStockTransactionModel = require("./stockTransaction.model");
 const setupStockBatchModel = require("./stockBatch.model");
 const setupServiceItemModel = require("./serviceItem.model");
-const setupStockBatchModel = require("./stockBatch.model");
 
 // Create model files for new Ritase tables
 const setupDeliveryOrderPaymentsModel = require("./deliveryOrderPayments.model");
@@ -113,7 +112,6 @@ const {
   TireInventory,
   VehicleTire,
   TireInspection,
-  StockBatch,
   TireInstance,
   CashCategory,
   CashTransaction,

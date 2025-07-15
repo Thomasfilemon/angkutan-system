@@ -340,6 +340,8 @@ const DOPaymentManagement: React.FC = () => {
 
       // ✅ FIXED: Refresh data after confirmation
       await fetchDOPaymentData();
+      // Refresh the page
+      navigate(`/ritase/delivery-orders/${doData.delivery_order.id}/payment`);
     } catch (err: any) {
       const errorMsg =
         err.response?.data?.message ||
