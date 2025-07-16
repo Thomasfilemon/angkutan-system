@@ -19,6 +19,8 @@ tireRouter.delete('/tires/:tireId', tireController.removeTire); // tireId here i
 
 // --- Tire Data & Inspection ---
 tireRouter.put('/tires/:tireId', tireController.updateTireData); // tireId here is vehicle_tires.id
+tireRouter.put('/tire-instances/:instanceId', tireController.editTireInstance);
+tireRouter.delete('/tire-instances/:instanceId', tireController.deleteTireInstance);
 tireRouter.get('/tires/:tireId/inspections', tireController.getTireInspectionHistory);
 
 // --- Tire Inventory Management (Brands/Types) ---

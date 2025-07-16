@@ -8,7 +8,7 @@ interface TireInventoryData {
   tire_brand: string;
   tire_size: string;
   tire_type: string;
-  min_stock: number;
+  condition: string; // ✅ Changed from min_stock to condition
   serial_numbers: string[];
   purchase_price: number;
   purchase_date: string;
@@ -19,7 +19,7 @@ const TireInventoryCreatePage = () => {
     tire_brand: '',
     tire_size: '',
     tire_type: '',
-    min_stock: 0,
+    condition: 'new', // ✅ Default condition is 'new'
     serial_numbers: [''],
     purchase_price: 0,
     purchase_date: new Date().toISOString().split('T')[0]
@@ -33,11 +33,24 @@ const TireInventoryCreatePage = () => {
   const [selectedAccount, setSelectedAccount] = useState("General");
   const [notaFile, setNotaFile] = useState<File | null>(null);
 
+  // ✅ Condition mapping for display
+  const conditionOptions = [
+    { value: 'new', label: 'Baru' },
+    { value: 'good', label: 'Baik' },
+    { value: 'fair', label: 'Cukup' },
+    { value: 'poor', label: 'Buruk' },
+    { value: 'damaged', label: 'Rusak' },
+    { value: 'replace', label: 'Perlu Ganti' },
+    { value: 'meledak', label: 'Meledak' },
+    { value: 'bocor', label: 'Bocor' },
+    { value: 'kampasa', label: 'Kampasa' }
+  ];
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: name === 'min_stock' || name === 'purchase_price' ? Number(value) : value
+      [name]: name === 'purchase_price' ? Number(value) : value // ✅ Removed min_stock number conversion
     }));
   };
 
@@ -81,20 +94,23 @@ const TireInventoryCreatePage = () => {
     }
 
     try {
+      // ✅ Updated inventory creation - removed min_stock
       const inventoryResponse = await apiClient.post('/tires/tire-inventory', {
         tire_brand: formData.tire_brand,
         tire_size: formData.tire_size,
         tire_type: formData.tire_type,
-        min_stock: formData.min_stock,
         unit_price: formData.purchase_price
+        // ✅ Removed min_stock from here
       });
       const inventoryId = inventoryResponse.data?.data?.id || inventoryResponse.data?.id;
 
+      // ✅ Updated tire instances creation - added condition
       await apiClient.post('/tires/tire-instances', {
         tire_inventory_id: inventoryId,
         serial_numbers: validSerialNumbers,
         purchase_price: formData.purchase_price,
-        purchase_date: formData.purchase_date
+        purchase_date: formData.purchase_date,
+        condition: formData.condition // ✅ Pass condition to tire instances
       });
 
       if (saveToCash) {
@@ -161,9 +177,22 @@ const TireInventoryCreatePage = () => {
               <option value="Tube Type">Tube Type</option>
             </select>
           </div>
+          {/* ✅ Changed from min_stock to condition */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Minimum Stok *</label>
-            <input type="number" name="min_stock" value={formData.min_stock} onChange={handleChange} required min="0" className="w-full px-3 py-2 border border-gray-300 rounded-md" />
+            <label className="block text-sm font-medium text-gray-700 mb-2">Kondisi Ban *</label>
+            <select 
+              name="condition" 
+              value={formData.condition} 
+              onChange={handleChange} 
+              required 
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+            >
+              {conditionOptions.map(option => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
@@ -242,6 +271,7 @@ const TireInventoryCreatePage = () => {
             <h4 className="text-sm font-medium text-blue-900 mb-2">Ringkasan:</h4>
             <ul className="text-sm text-blue-800 space-y-1">
               <li>• {formData.serial_numbers.filter(sn => sn.trim()).length} ban akan dibuat.</li>
+              <li>• Kondisi ban: {conditionOptions.find(opt => opt.value === formData.condition)?.label}</li>
               <li>• Total investasi: Rp {(formData.purchase_price * formData.serial_numbers.filter(sn => sn.trim()).length).toLocaleString('id-ID')}</li>
             </ul>
           </div>

@@ -49,14 +49,12 @@ exports.updateTireData = async (req, res, next) => {
   }
 };
 
-// REMOVED: The old installTire function is deprecated in favor of installTireInstance.
-
 // Remove tire from vehicle
 exports.removeTire = async (req, res, next) => {
   try {
     const { tireId } = req.params;
     const { reason, notes } = req.body;
-    
+
     const vehicleTire = await VehicleTire.findByPk(tireId, {
       include: [
         {
@@ -67,11 +65,11 @@ exports.removeTire = async (req, res, next) => {
           model: TireInspection,
           as: 'inspections',
           order: [['inspection_date', 'DESC']],
-          limit: 3 // Only get last 3 inspections
+          limit: 3
         }
       ]
     });
-    
+
     if (!vehicleTire) {
       return res.status(404).json({
         success: false,
@@ -80,43 +78,75 @@ exports.removeTire = async (req, res, next) => {
     }
 
     if (vehicleTire.status === 'removed') {
-        return res.status(400).json({
-            success: false,
-            message: 'This tire has already been removed.'
-        });
+      return res.status(400).json({
+        success: false,
+        message: 'This tire has already been removed.'
+      });
     }
 
-    // ✅ CLEAN APPROACH: Only get meaningful user notes
-    const meaningfulNotes = [];
-    
-    // Get inspection notes (filter out system-generated ones)
+    // ✅ SMART NOTES MANAGEMENT
+    const smartNotesManager = (existingNotes) => {
+      if (!existingNotes) return '';
+      
+      const lines = existingNotes.split('\n\n');
+      const installLines = lines.filter(line => line.includes('Dipasang:'));
+      const removeLines = lines.filter(line => line.includes('Dilepas:'));
+      const otherLines = lines.filter(line => 
+        !line.includes('Dipasang:') && 
+        !line.includes('Dilepas:') && 
+        line.trim().length > 0
+      );
+
+      // Keep only meaningful notes and summarize history
+      const meaningfulNotes = [];
+      
+      // Keep user notes
+      if (otherLines.length > 0) {
+        meaningfulNotes.push(...otherLines.slice(-2)); // Keep last 2 user notes
+      }
+      
+      // Summarize installation history
+      if (installLines.length > 0 || removeLines.length > 0) {
+        const totalCycles = Math.max(installLines.length, removeLines.length);
+        if (totalCycles > 1) {
+          meaningfulNotes.push(`[Riwayat: ${totalCycles} kali pemasangan]`);
+        }
+        
+        // Keep only the last installation info
+        if (installLines.length > 0) {
+          meaningfulNotes.push(installLines[installLines.length - 1]);
+        }
+      }
+
+      return meaningfulNotes.join('\n\n');
+    };
+
+    // Get inspection notes
+    const inspectionNotes = [];
     if (vehicleTire.inspections) {
       vehicleTire.inspections.forEach(inspection => {
-        if (inspection.notes && 
-            !inspection.notes.startsWith('Inspection:') && 
+        if (inspection.notes &&
+            !inspection.notes.startsWith('Inspection:') &&
             !inspection.notes.includes('Removed from vehicle') &&
             !inspection.notes.includes('Installed on') &&
             inspection.notes.trim().length > 0) {
-          meaningfulNotes.push(`${new Date(inspection.inspection_date).toLocaleDateString('id-ID')}: ${inspection.notes.trim()}`);
+          inspectionNotes.push(`${new Date(inspection.inspection_date).toLocaleDateString('id-ID')}: ${inspection.notes.trim()}`);
         }
       });
     }
 
-    // Get existing vehicle notes (filter out system messages)
-    if (vehicleTire.notes && 
-        !vehicleTire.notes.includes('Removed from vehicle') &&
-        !vehicleTire.notes.includes('Installed on') &&
-        vehicleTire.notes.trim().length > 0) {
-      meaningfulNotes.push(vehicleTire.notes.trim());
-    }
-
-    // ✅ Simple removal note
+    // Process existing notes
+    const processedNotes = smartNotesManager(vehicleTire.notes);
+    
+    // Add current removal info
     const removalInfo = `Dilepas: ${new Date().toLocaleDateString('id-ID')}${reason && reason !== 'Manual removal' ? ` (${reason})` : ''}${notes ? ` - ${notes}` : ''}`;
-
-    // ✅ Combine cleanly
-    const finalNotes = meaningfulNotes.length > 0 ? 
-      `${meaningfulNotes.join('\n\n')}\n\n${removalInfo}` : 
-      removalInfo;
+    
+    // Combine smartly
+    const finalNotes = [
+      ...inspectionNotes.slice(-1), // Keep only last inspection note
+      processedNotes,
+      removalInfo
+    ].filter(note => note.trim().length > 0).join('\n\n');
 
     // Update vehicle tire status to removed
     await vehicleTire.update({
@@ -125,7 +155,7 @@ exports.removeTire = async (req, res, next) => {
       notes: finalNotes
     });
 
-    // Update tire instance with clean notes
+    // Update tire instance
     if (vehicleTire.tireInstance) {
       await vehicleTire.tireInstance.update({
         status: 'removed',
@@ -139,6 +169,7 @@ exports.removeTire = async (req, res, next) => {
       success: true,
       message: 'Tire removed successfully and is now available in used tire inventory.'
     });
+
   } catch (err) {
     next(err);
   }
@@ -324,7 +355,7 @@ exports.getVehiclesForTireManagement = async (req, res, next) => {
 
 exports.createTireInstances = async (req, res, next) => {
   try {
-    const { tire_inventory_id, serial_numbers, purchase_price, purchase_date } = req.body;
+    const { tire_inventory_id, serial_numbers, purchase_price, purchase_date, condition } = req.body; // ✅ Added condition
 
     // --- VALIDATION ---
     if (!tire_inventory_id || !Array.isArray(serial_numbers) || serial_numbers.length === 0) {
@@ -364,8 +395,8 @@ exports.createTireInstances = async (req, res, next) => {
       tire_inventory_id,
       tire_serial_number: serial,
       purchase_date: purchase_date || new Date(),
-      purchase_price: purchase_price || inventory.unit_price, // Fallback to inventory unit_price
-      condition: 'new',
+      purchase_price: purchase_price || inventory.unit_price,
+      condition: condition || 'new', // ✅ Use provided condition or default to 'new'
       status: 'in_stock'
     }));
 
@@ -379,15 +410,17 @@ exports.createTireInstances = async (req, res, next) => {
       message: `${serial_numbers.length} tire instances created successfully`,
       data: createdInstances
     });
+
   } catch (err) {
     // Handle potential unique constraint errors during bulkCreate
     if (err.name === 'SequelizeUniqueConstraintError') {
-        return res.status(409).json({
-            success: false,
-            message: 'One or more serial numbers already exist. Please provide unique serial numbers.',
-            details: err.errors.map(e => e.message)
-        });
+      return res.status(409).json({
+        success: false,
+        message: 'One or more serial numbers already exist. Please provide unique serial numbers.',
+        details: err.errors.map(e => e.message)
+      });
     }
+
     next(err);
   }
 };
@@ -455,7 +488,7 @@ exports.installTireInstance = async (req, res, next) => {
   try {
     const { vehicleId } = req.params;
     const { tire_instance_id, position, recommended_pressure, mileage_installed } = req.body;
-    
+
     const vehicle = await Vehicle.findByPk(vehicleId);
     if (!vehicle) {
       return res.status(404).json({
@@ -467,7 +500,7 @@ exports.installTireInstance = async (req, res, next) => {
     const tireInstance = await TireInstance.findByPk(tire_instance_id, {
       include: [{ model: TireInventory, as: 'tireInventory' }]
     });
-    
+
     if (!tireInstance) {
       return res.status(404).json({
         success: false,
@@ -479,6 +512,14 @@ exports.installTireInstance = async (req, res, next) => {
       return res.status(400).json({
         success: false,
         message: 'Tire instance is not available for installation (current status: ' + tireInstance.status + ')'
+      });
+    }
+
+    // ✅ ADD CONDITION CHECK - Only allow fair or good tires
+    if (!['fair', 'good', 'new'].includes(tireInstance.condition)) {
+      return res.status(400).json({
+        success: false,
+        message: `Ban tidak dapat dipasang. Kondisi ban: ${tireInstance.condition}. Hanya ban dengan kondisi 'Baik', 'Cukup', atau 'Baru' yang dapat dipasang.`
       });
     }
 
@@ -763,6 +804,87 @@ exports.getInventoryTireInstances = async (req, res, next) => {
       success: true,
       data: instances
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Edit tire instance condition and notes
+exports.editTireInstance = async (req, res, next) => {
+  try {
+    const { instanceId } = req.params;
+    const { condition, notes } = req.body;
+
+    const tireInstance = await TireInstance.findByPk(instanceId);
+    if (!tireInstance) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tire instance not found'
+      });
+    }
+
+    // Validate condition
+    const validConditions = ['new', 'good', 'fair', 'poor', 'damaged', 'disposed', 'replace', 'meledak', 'bocor', 'kampasa'];
+    if (condition && !validConditions.includes(condition)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid tire condition'
+      });
+    }
+
+    // Update tire instance
+    await tireInstance.update({
+      condition: condition || tireInstance.condition,
+      notes: notes !== undefined ? notes : tireInstance.notes
+    });
+
+    res.json({
+      success: true,
+      message: 'Tire instance updated successfully',
+      data: tireInstance
+    });
+
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.deleteTireInstance = async (req, res, next) => {
+  try {
+    const { instanceId } = req.params;
+
+    const tireInstance = await TireInstance.findByPk(instanceId);
+    if (!tireInstance) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tire instance not found'
+      });
+    }
+
+    // Check if tire is currently installed
+    if (tireInstance.status === 'installed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete tire that is currently installed on a vehicle'
+      });
+    }
+
+    // Get inventory to update stock
+    const inventory = await TireInventory.findByPk(tireInstance.tire_inventory_id);
+    
+    // Delete the tire instance
+    await tireInstance.destroy();
+
+    // Update inventory stock only if tire was in stock
+    if (inventory && tireInstance.status === 'in_stock') {
+      await inventory.decrement('current_stock', { by: 1 });
+    }
+
+    res.json({
+      success: true,
+      message: 'Tire instance deleted successfully'
+    });
+
   } catch (err) {
     next(err);
   }

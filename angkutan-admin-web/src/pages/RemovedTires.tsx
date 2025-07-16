@@ -9,7 +9,7 @@ interface RemovedTire {
   condition: string;
   current_tread_depth: number;
   status: string;
-  notes?: string; // ✅ ADD THIS LINE
+  notes?: string;
   tireInventory: {
     tire_brand: string;
     tire_size: string;
@@ -24,10 +24,49 @@ interface RemovedTire {
   }>;
 }
 
+interface EditModalData {
+  condition: string;
+  notes: string;
+}
+
+interface SearchFilters {
+  searchTerm: string;
+  conditionFilter: string;
+  brandFilter: string;
+  sizeFilter: string;
+  statusFilter: string;
+  vehicleFilter: string;
+}
+
 const RemovedTiresPage = () => {
   const [removedTires, setRemovedTires] = useState<RemovedTire[]>([]);
+  const [filteredTires, setFilteredTires] = useState<RemovedTire[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [selectedTire, setSelectedTire] = useState<RemovedTire | null>(null);
+  const [editData, setEditData] = useState<EditModalData>({
+    condition: '',
+    notes: ''
+  });
+
+  // ✅ ADD SEARCH FILTERS STATE
+  const [filters, setFilters] = useState<SearchFilters>({
+    searchTerm: '',
+    conditionFilter: '',
+    brandFilter: '',
+    sizeFilter: '',
+    statusFilter: '',
+    vehicleFilter: ''
+  });
+
+  // ✅ ADD FILTER OPTIONS
+  const [filterOptions, setFilterOptions] = useState({
+    conditions: [] as string[],
+    brands: [] as string[],
+    sizes: [] as string[],
+    vehicles: [] as string[]
+  });
 
   // Condition mapping object for better maintainability
   const conditionMapping: { [key: string]: string } = {
@@ -47,11 +86,20 @@ const RemovedTiresPage = () => {
     fetchRemovedTires();
   }, []);
 
+  // ✅ ADD FILTER EFFECT
+  useEffect(() => {
+    applyFilters();
+  }, [removedTires, filters]);
+
   const fetchRemovedTires = async () => {
     try {
       setLoading(true);
       const response = await apiClient.get('/tires/tire-instances/available?status=removed');
-      setRemovedTires(response.data?.data || response.data || []);
+      const tires = response.data?.data || response.data || [];
+      setRemovedTires(tires);
+      
+      // ✅ EXTRACT FILTER OPTIONS
+      extractFilterOptions(tires);
     } catch (err) {
       setError('Failed to fetch removed tires');
       console.error(err);
@@ -60,29 +108,133 @@ const RemovedTiresPage = () => {
     }
   };
 
-  // Safe date formatting function to handle null/invalid dates
+  // ✅ ADD FILTER OPTIONS EXTRACTION
+  // ✅ FIXED - Replace spread operator with Array.from() for Set conversion
+  const extractFilterOptions = (tires: RemovedTire[]) => {
+    const conditions = Array.from(new Set(tires.map(tire => tire.condition)));
+    const brands = Array.from(new Set(tires.map(tire => tire.tireInventory.tire_brand)));
+    const sizes = Array.from(new Set(tires.map(tire => tire.tireInventory.tire_size)));
+    const vehicles = Array.from(new Set(tires.flatMap(tire => 
+      tire.installations.map(inst => inst.vehicle.license_plate)
+    )));
+
+    setFilterOptions({
+      conditions: conditions.sort(),
+      brands: brands.sort(),
+      sizes: sizes.sort(),
+      vehicles: vehicles.sort()
+    });
+  };
+
+
+  // ✅ ADD FILTER LOGIC
+  const applyFilters = () => {
+    let filtered = [...removedTires];
+
+    // Search term filter (searches in serial number, notes, and vehicle plate)
+    if (filters.searchTerm) {
+      const searchLower = filters.searchTerm.toLowerCase();
+      filtered = filtered.filter(tire => 
+        tire.tire_serial_number.toLowerCase().includes(searchLower) ||
+        tire.notes?.toLowerCase().includes(searchLower) ||
+        tire.installations.some(inst => 
+          inst.vehicle.license_plate.toLowerCase().includes(searchLower)
+        )
+      );
+    }
+
+    // Condition filter
+    if (filters.conditionFilter) {
+      filtered = filtered.filter(tire => tire.condition === filters.conditionFilter);
+    }
+
+    // Brand filter
+    if (filters.brandFilter) {
+      filtered = filtered.filter(tire => tire.tireInventory.tire_brand === filters.brandFilter);
+    }
+
+    // Size filter
+    if (filters.sizeFilter) {
+      filtered = filtered.filter(tire => tire.tireInventory.tire_size === filters.sizeFilter);
+    }
+
+    // Status filter (available/not available for installation)
+    if (filters.statusFilter) {
+      if (filters.statusFilter === 'available') {
+        filtered = filtered.filter(tire => ['new', 'good', 'fair'].includes(tire.condition));
+      } else if (filters.statusFilter === 'not_available') {
+        filtered = filtered.filter(tire => !['new', 'good', 'fair'].includes(tire.condition));
+      }
+    }
+
+    // Vehicle filter
+    if (filters.vehicleFilter) {
+      filtered = filtered.filter(tire => 
+        tire.installations.some(inst => inst.vehicle.license_plate === filters.vehicleFilter)
+      );
+    }
+
+    setFilteredTires(filtered);
+  };
+
+  // ✅ ADD FILTER HANDLERS
+  const handleFilterChange = (filterType: keyof SearchFilters, value: string) => {
+    setFilters(prev => ({
+      ...prev,
+      [filterType]: value
+    }));
+  };
+
+  const clearFilters = () => {
+    setFilters({
+      searchTerm: '',
+      conditionFilter: '',
+      brandFilter: '',
+      sizeFilter: '',
+      statusFilter: '',
+      vehicleFilter: ''
+    });
+  };
+
+  const handleEditClick = (tire: RemovedTire) => {
+    setSelectedTire(tire);
+    setEditData({
+      condition: tire.condition,
+      notes: tire.notes || ''
+    });
+    setEditModalOpen(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!selectedTire) return;
+
+    try {
+      await apiClient.put(`/tires/tire-instances/${selectedTire.id}`, editData);
+      setEditModalOpen(false);
+      await fetchRemovedTires(); // Refresh the list
+    } catch (error) {
+      console.error('Failed to update tire:', error);
+      alert('Gagal memperbarui data ban.');
+    }
+  };
+
   const formatRemoveDate = (tire: RemovedTire): string => {
-    // Check if installations array exists and has data
     if (!tire.installations || tire.installations.length === 0) {
       return 'Tanggal tidak tersedia';
     }
     
     const removeDate = tire.installations[0].remove_date;
     
-    // Check if remove_date exists and is not null/undefined
     if (!removeDate) {
       return 'Tanggal tidak tersedia';
     }
     
-    // Create date object and validate it
     const date = new Date(removeDate);
     
-    // Check if the date is valid (not NaN)
     if (isNaN(date.getTime())) {
       return 'Tanggal tidak valid';
     }
     
-    // Check if it's not the Unix epoch (1970-01-01)
     if (date.getFullYear() === 1970) {
       return 'Tanggal tidak tersedia';
     }
@@ -93,22 +245,21 @@ const RemovedTiresPage = () => {
   const getConditionColor = (condition: string) => {
     switch (condition) {
       case 'new':
-        return 'bg-blue-100 text-blue-800';
       case 'good':
         return 'bg-green-100 text-green-800';
       case 'fair':
         return 'bg-yellow-100 text-yellow-800';
       case 'poor':
         return 'bg-orange-100 text-orange-800';
+      case 'replace':
+      case 'kampasa':
+        return 'bg-purple-100 text-purple-800';
       case 'damaged':
       case 'meledak':
       case 'bocor':
         return 'bg-red-100 text-red-800';
       case 'disposed':
         return 'bg-gray-100 text-gray-800';
-      case 'replace':
-      case 'kampasa':
-        return 'bg-purple-100 text-purple-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
@@ -118,9 +269,9 @@ const RemovedTiresPage = () => {
     return conditionMapping[condition] || condition;
   };
 
-  // Helper function to get condition counts for statistics
+  // ✅ UPDATE TO USE FILTERED TIRES
   const getConditionCount = (conditions: string[]) => {
-    return removedTires.filter(t => conditions.includes(t.condition)).length;
+    return filteredTires.filter(t => conditions.includes(t.condition)).length;
   };
 
   if (loading) return <div className="text-center p-8">Loading removed tires...</div>;
@@ -137,45 +288,177 @@ const RemovedTiresPage = () => {
         </Link>
       </div>
 
-      {/* Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-sm font-medium text-gray-500">Total Ban Bekas</h3>
-          <p className="text-2xl font-bold text-blue-600">{removedTires.length}</p>
+      {/* ✅ ADD SEARCH AND FILTER SECTION */}
+      <div className="bg-white p-6 rounded-lg shadow">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-semibold text-gray-800">Filter & Pencarian</h2>
+          <button
+            onClick={clearFilters}
+            className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+          >
+            Hapus Semua Filter
+          </button>
         </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-sm font-medium text-gray-500">Baru & Baik</h3>
-          <p className="text-2xl font-bold text-green-600">
-            {getConditionCount(['new', 'good'])}
-          </p>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+          {/* Search Term */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Pencarian
+            </label>
+            <input
+              type="text"
+              value={filters.searchTerm}
+              onChange={(e) => handleFilterChange('searchTerm', e.target.value)}
+              placeholder="Serial, catatan, plat nomor..."
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            />
+          </div>
+
+          {/* Condition Filter */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Kondisi
+            </label>
+            <select
+              value={filters.conditionFilter}
+              onChange={(e) => handleFilterChange('conditionFilter', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            >
+              <option value="">Semua Kondisi</option>
+              {filterOptions.conditions.map(condition => (
+                <option key={condition} value={condition}>
+                  {getConditionDisplay(condition)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Brand Filter */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Merek
+            </label>
+            <select
+              value={filters.brandFilter}
+              onChange={(e) => handleFilterChange('brandFilter', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            >
+              <option value="">Semua Merek</option>
+              {filterOptions.brands.map(brand => (
+                <option key={brand} value={brand}>
+                  {brand}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Size Filter */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Ukuran
+            </label>
+            <select
+              value={filters.sizeFilter}
+              onChange={(e) => handleFilterChange('sizeFilter', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            >
+              <option value="">Semua Ukuran</option>
+              {filterOptions.sizes.map(size => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Status Filter */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Status Pemasangan
+            </label>
+            <select
+              value={filters.statusFilter}
+              onChange={(e) => handleFilterChange('statusFilter', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            >
+              <option value="">Semua Status</option>
+              <option value="available">Tersedia untuk Dipasang</option>
+              <option value="not_available">Tidak Dapat Dipasang</option>
+            </select>
+          </div>
+
+          {/* Vehicle Filter */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Kendaraan
+            </label>
+            <select
+              value={filters.vehicleFilter}
+              onChange={(e) => handleFilterChange('vehicleFilter', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            >
+              <option value="">Semua Kendaraan</option>
+              {filterOptions.vehicles.map(vehicle => (
+                <option key={vehicle} value={vehicle}>
+                  {vehicle}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-sm font-medium text-gray-500">Kondisi Cukup</h3>
-          <p className="text-2xl font-bold text-yellow-600">
-            {getConditionCount(['fair'])}
-          </p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-sm font-medium text-gray-500">Perlu Ganti</h3>
-          <p className="text-2xl font-bold text-purple-600">
-            {getConditionCount(['replace', 'kampasa'])}
-          </p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-sm font-medium text-gray-500">Buruk</h3>
-          <p className="text-2xl font-bold text-orange-600">
-            {getConditionCount(['poor'])}
-          </p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-sm font-medium text-gray-500">Rusak</h3>
-          <p className="text-2xl font-bold text-red-600">
-            {getConditionCount(['damaged', 'meledak', 'bocor'])}
-          </p>
+
+        {/* ✅ ADD RESULT COUNT */}
+        <div className="mt-4 text-sm text-gray-600">
+          Menampilkan {filteredTires.length} dari {removedTires.length} ban bekas
         </div>
       </div>
 
-      {/* Removed Tires Table */}
+      {/* ✅ UPDATED STATISTICS - Using filtered tires */}
+      <div className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-10 gap-4">
+        <div className="bg-white p-3 rounded-lg shadow text-center">
+          <h3 className="text-xs font-medium text-gray-500">Total</h3>
+          <p className="text-xl font-bold text-blue-600">{filteredTires.length}</p>
+        </div>
+        <div className="bg-green-50 p-3 rounded-lg shadow border border-green-200 text-center">
+          <h3 className="text-xs font-medium text-green-600">Baru</h3>
+          <p className="text-xl font-bold text-green-700">{getConditionCount(['new'])}</p>
+        </div>
+        <div className="bg-green-50 p-3 rounded-lg shadow border border-green-200 text-center">
+          <h3 className="text-xs font-medium text-green-600">Baik</h3>
+          <p className="text-xl font-bold text-green-700">{getConditionCount(['good'])}</p>
+        </div>
+        <div className="bg-yellow-50 p-3 rounded-lg shadow border border-yellow-200 text-center">
+          <h3 className="text-xs font-medium text-yellow-600">Cukup</h3>
+          <p className="text-xl font-bold text-yellow-700">{getConditionCount(['fair'])}</p>
+        </div>
+        <div className="bg-orange-50 p-3 rounded-lg shadow border border-orange-200 text-center">
+          <h3 className="text-xs font-medium text-orange-600">Buruk</h3>
+          <p className="text-xl font-bold text-orange-700">{getConditionCount(['poor'])}</p>
+        </div>
+        <div className="bg-purple-50 p-3 rounded-lg shadow border border-purple-200 text-center">
+          <h3 className="text-xs font-medium text-purple-600">Perlu Ganti</h3>
+          <p className="text-xl font-bold text-purple-700">{getConditionCount(['replace'])}</p>
+        </div>
+        <div className="bg-purple-50 p-3 rounded-lg shadow border border-purple-200 text-center">
+          <h3 className="text-xs font-medium text-purple-600">Kampasa</h3>
+          <p className="text-xl font-bold text-purple-700">{getConditionCount(['kampasa'])}</p>
+        </div>
+        <div className="bg-red-50 p-3 rounded-lg shadow border border-red-200 text-center">
+          <h3 className="text-xs font-medium text-red-600">Rusak</h3>
+          <p className="text-xl font-bold text-red-700">{getConditionCount(['damaged'])}</p>
+        </div>
+        <div className="bg-red-50 p-3 rounded-lg shadow border border-red-200 text-center">
+          <h3 className="text-xs font-medium text-red-600">Meledak</h3>
+          <p className="text-xl font-bold text-red-700">{getConditionCount(['meledak'])}</p>
+        </div>
+        <div className="bg-red-50 p-3 rounded-lg shadow border border-red-200 text-center">
+          <h3 className="text-xs font-medium text-red-600">Bocor</h3>
+          <p className="text-xl font-bold text-red-700">{getConditionCount(['bocor'])}</p>
+        </div>
+      </div>
+
+      {/* ✅ UPDATE TABLE TO USE FILTERED TIRES */}
       <div className="bg-white shadow-md rounded-lg overflow-x-auto">
         <table className="min-w-full leading-normal">
          <thead>
@@ -187,11 +470,12 @@ const RemovedTiresPage = () => {
             <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Catatan</th>
             <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Terakhir di Kendaraan</th>
             <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
+            <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Aksi</th>
           </tr>
         </thead>
           <tbody>
-            {removedTires.length > 0 ? (
-              removedTires.map((tire) => (
+            {filteredTires.length > 0 ? (
+              filteredTires.map((tire) => (
                 <tr key={tire.id}>
                   <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
                     <p className="text-gray-900 whitespace-no-wrap font-mono">{tire.tire_serial_number}</p>
@@ -210,7 +494,6 @@ const RemovedTiresPage = () => {
                   <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
                     <p className="text-gray-900 whitespace-no-wrap">{tire.current_tread_depth}</p>
                   </td>
-                  {/* ✅ Add notes column */}
                   <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
                     <div className="max-w-xs">
                       {tire.notes ? (
@@ -225,8 +508,7 @@ const RemovedTiresPage = () => {
                             <button 
                               className="text-blue-600 hover:text-blue-800 text-xs mt-1"
                               onClick={() => {
-                                // Show full notes in modal or expand inline
-                                alert(tire.notes); // Simple implementation
+                                alert(tire.notes);
                               }}
                             >
                               Lihat Selengkapnya
@@ -261,18 +543,88 @@ const RemovedTiresPage = () => {
                         : 'Tidak Dapat Dipasang'}
                     </span>
                   </td>
+                  <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
+                    <button
+                      onClick={() => handleEditClick(tire)}
+                      className="text-blue-600 hover:text-blue-800 text-xs font-medium"
+                    >
+                      Edit
+                    </button>
+                  </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={7} className="text-center py-10 text-gray-500">
-                  Belum ada ban bekas yang tersedia
+                <td colSpan={8} className="text-center py-10 text-gray-500">
+                  {removedTires.length === 0 ? 'Belum ada ban bekas yang tersedia' : 'Tidak ada ban yang sesuai dengan filter'}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {/* Edit Modal - Same as before */}
+      {editModalOpen && selectedTire && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-bold mb-4">
+              Edit Ban S/N: {selectedTire.tire_serial_number}
+            </h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Kondisi Ban
+                </label>
+                <select
+                  value={editData.condition}
+                  onChange={(e) => setEditData(prev => ({ ...prev, condition: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="new">Baru</option>
+                  <option value="good">Baik</option>
+                  <option value="fair">Cukup</option>
+                  <option value="poor">Buruk</option>
+                  <option value="replace">Perlu Ganti</option>
+                  <option value="damaged">Rusak</option>
+                  <option value="meledak">Meledak</option>
+                  <option value="bocor">Bocor</option>
+                  <option value="kampasa">Kampasa</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Catatan
+                </label>
+                <textarea
+                  value={editData.notes}
+                  onChange={(e) => setEditData(prev => ({ ...prev, notes: e.target.value }))}
+                  rows={4}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Tambahkan catatan..."
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={() => setEditModalOpen(false)}
+                className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleSaveEdit}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                Simpan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
