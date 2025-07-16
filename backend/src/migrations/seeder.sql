@@ -50,7 +50,7 @@ INSERT INTO stock_items (category_id, item_code, item_name, supplier, unit, min_
 ((SELECT id FROM stock_categories WHERE category_name = 'Sistem Rem'), 'BRK-002', 'Minyak Rem DOT 4', 'Shell Indonesia', 'Botol', 8, 0, 0, 'Minyak rem DOT 4');
 
 -- 3. Create FIFO batches THIRD (now stock_items exist)
-INSERT INTO stock_batches (item_id, batch_number, remaining_quantity, initial_quantity, purchase_price, purchase_date, supplier, notes) VALUES
+INSERT INTO stock_batches (item_id, batch_number, quantity, original_quantity, unit_price, purchase_date, supplier, notes) VALUES
 -- OLI-001: Multiple batches with different prices and dates
 ((SELECT id FROM stock_items WHERE item_code = 'OLI-001'), 'OLI-001-20240101-001', 50.00, 50.00, 52000, '2024-01-01', 'PT Pertamina Lubricants', 'Batch pertama - harga lama'),
 ((SELECT id FROM stock_items WHERE item_code = 'OLI-001'), 'OLI-001-20240201-001', 60.00, 60.00, 55000, '2024-02-01', 'PT Pertamina Lubricants', 'Batch kedua - harga naik'),
@@ -85,12 +85,12 @@ INSERT INTO stock_batches (item_id, batch_number, remaining_quantity, initial_qu
 -- 4. Update stock_items with calculated values FOURTH
 UPDATE stock_items SET 
     average_unit_price = (
-        SELECT COALESCE(SUM(remaining_quantity * purchase_price) / NULLIF(SUM(remaining_quantity), 0), 0)
+        SELECT COALESCE(SUM(quantity * unit_price) / NULLIF(SUM(quantity), 0), 0)
         FROM stock_batches 
         WHERE stock_batches.item_id = stock_items.id
     ),
     total_value = (
-        SELECT COALESCE(SUM(remaining_quantity * purchase_price), 0)
+        SELECT COALESCE(SUM(quantity * unit_price), 0)
         FROM stock_batches 
         WHERE stock_batches.item_id = stock_items.id
     );

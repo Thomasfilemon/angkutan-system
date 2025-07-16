@@ -149,16 +149,17 @@ CREATE TABLE stock_batches (
     id SERIAL PRIMARY KEY,
     item_id INTEGER REFERENCES stock_items(id) ON DELETE CASCADE,
     batch_number VARCHAR(100) NOT NULL,
-    purchase_price NUMERIC(15,2) NOT NULL,
-    initial_quantity NUMERIC(10,2) NOT NULL,
-    remaining_quantity NUMERIC(10,2) NOT NULL,
+    quantity NUMERIC(10,2) NOT NULL DEFAULT 0,
+    original_quantity NUMERIC(10,2) NOT NULL, -- Original quantity when batch was created
+    unit_price NUMERIC(15,2) NOT NULL,
     purchase_date DATE NOT NULL DEFAULT CURRENT_DATE,
     supplier VARCHAR(255),
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    CONSTRAINT check_quantities CHECK (remaining_quantity >= 0 AND remaining_quantity <= initial_quantity)
+    UNIQUE(item_id, batch_number)
 );
+
 
 -- Modified stock_transactions table with batch tracking
 CREATE TABLE stock_transactions (
@@ -584,8 +585,8 @@ CREATE INDEX idx_stock_batches_purchase_date ON stock_batches(purchase_date);
 CREATE INDEX idx_stock_transactions_batch_id ON stock_transactions(batch_id);
 -- ✅ Corrected indexes for FIFO batch system
 CREATE INDEX idx_stock_items_min_stock ON stock_items(min_stock);
-CREATE INDEX idx_stock_batches_quantity ON stock_batches(remaining_quantity);
-CREATE INDEX idx_stock_batches_item_quantity ON stock_batches(item_id, remaining_quantity);
+CREATE INDEX idx_stock_batches_quantity ON stock_batches(quantity);
+CREATE INDEX idx_stock_batches_item_quantity ON stock_batches(item_id, quantity);
 CREATE INDEX idx_stock_transactions_item ON stock_transactions(item_id);
 CREATE INDEX idx_stock_transactions_date ON stock_transactions(transaction_date);
 CREATE INDEX idx_vehicle_services_vehicle ON vehicle_services(vehicle_id);
