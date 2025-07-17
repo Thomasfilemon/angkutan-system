@@ -152,13 +152,18 @@ CREATE TABLE stock_batches (
     quantity NUMERIC(10,2) NOT NULL DEFAULT 0,
     original_quantity NUMERIC(10,2) NOT NULL, -- Original quantity when batch was created
     unit_price NUMERIC(15,2) NOT NULL,
+    quantity NUMERIC(10,2) NOT NULL DEFAULT 0,
+    original_quantity NUMERIC(10,2) NOT NULL, -- Original quantity when batch was created
+    unit_price NUMERIC(15,2) NOT NULL,
     purchase_date DATE NOT NULL DEFAULT CURRENT_DATE,
     supplier VARCHAR(255),
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE(item_id, batch_number)
+    UNIQUE(item_id, batch_number)
 );
+
 
 -- Modified stock_transactions table with batch tracking
 CREATE TABLE stock_transactions (
@@ -651,28 +656,13 @@ BEGIN
   SELECT * INTO do_record FROM delivery_orders WHERE id = NEW.delivery_order_id;
   
   -- Calculate total paid
-  SELECT COALESCE(SUM(payment_amount), 0) INTO total_paid 
-  FROM delivery_order_payments 
-  WHERE delivery_order_id = NEW.delivery_order_id;
-  
-  -- Get final amount (use final_amount if set, otherwise ongkosan)
-  final_amount := COALESCE(do_record.final_amount, do_record.ongkosan, 0);
-  
-  -- Update payment status based on payment completion
-  IF total_paid >= final_amount THEN
-    UPDATE delivery_orders 
-    SET payment_status = 'lunas',
-        payment_confirmation_at = CASE 
-          WHEN payment_confirmation_status = 'awaiting_confirmation' 
-          THEN NOW() 
-          ELSE payment_confirmation_at 
-        END,
-        payment_confirmation_status = 'confirmed'
-    WHERE id = NEW.delivery_order_id;
+  SELECT COALESCE(SUM(payment_amount), 0) INTO total_paid FROM delivery_order_payments WHERE delivery_order_id = NEW.delivery_order_id;
+  final_amount := COALESCE(do_record.final_amount, do_record.total_amount, 0); -- Fix: Pakai total_amount kalau final null
+  RAISE NOTICE 'Calc for DO %: paid % vs final %', NEW.delivery_order_id, total_paid, final_amount; -- Log buat debug
+  IF total_paid + 0.01 >= final_amount THEN  -- Tolerance rounding
+    UPDATE delivery_orders SET payment_status = 'lunas', payment_confirmation_status = 'confirmed' WHERE id = NEW.delivery_order_id;
   ELSIF total_paid > 0 THEN
-    UPDATE delivery_orders 
-    SET payment_status = 'deposit'
-    WHERE id = NEW.delivery_order_id;
+  UPDATE delivery_orders SET payment_status = 'deposit' WHERE id = NEW.delivery_order_id;
   END IF;
   
   RETURN NEW;

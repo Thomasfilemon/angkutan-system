@@ -1,9 +1,9 @@
 // src/routes/web/stock.routes.js
-const express = require('express');
+const express = require("express");
 const stockRouter = express.Router();
-const stockController = require('../../controllers/web/stockController');
-const { verifyToken } = require('../../middlewares/auth.middleware');
-const upload = require('../../middlewares/upload.middleware'); // 👈 Import the middleware
+const stockController = require("../../controllers/web/stockController");
+const { verifyToken } = require("../../middlewares/auth.middleware");
+const upload = require("../../middlewares/upload.middleware"); // 👈 Import the middleware
 
 stockRouter.use(verifyToken);
 

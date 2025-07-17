@@ -373,13 +373,6 @@ INSERT INTO cash_categories (category_name, category_type, description) VALUES
 ('Biaya Operasional', 'expense', 'Biaya BBM, maintenance, dll'),
 ('Pengeluaran Lain-lain', 'expense', 'Pengeluaran di luar kategori utama');
 
--- ===============================================
--- 🎯 NEW SEEDER: PO + 2 Completed DOs (June 2025)
--- Unit: kubik (volume-based pricing)
--- Driver: Dedi (supir_dedi)
--- ===============================================
-
--- 🏗️ NEW PURCHASE ORDER (Unit: kubik)
 INSERT INTO purchase_orders (
   po_number, 
   customer_name, 
@@ -564,7 +557,7 @@ INSERT INTO delivery_order_invoices (
  '2025-07-11',
  0.50, -- PPh 0.5%
  52031.25, -- PPh amount: 10,406,250 × 0.5%
- 10458281.25, -- Net: 10,406,250 + 52,031.25
+ 10354218.8, -- Net: 10,406,250 - 52,031.25
  'paid',
  'Invoice untuk pengiriman pasir urug batch 1',
  (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
@@ -578,7 +571,7 @@ INSERT INTO delivery_order_invoices (
  '2025-07-31',
  0.50, -- PPh 0.5%
  59940, -- PPh amount: 11,988,000 × 0.5%
- 12047940, -- Net: 11,988,000 + 59,940
+ 11928060, -- Net: 11,988,000 - 59,940
  'paid',
  'Invoice untuk pengiriman pasir urug batch 2',
  (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
@@ -599,7 +592,7 @@ INSERT INTO delivery_order_payments (
  (SELECT id FROM delivery_order_invoices WHERE invoice_number = 'INV/2025/06/010'),
  'TRF-20250615-001',
  'transfer',
- 10458281.25,
+ 10354218.8,
  '2025-06-15',
  'Pembayaran lunas DO-250610-01 via transfer BCA'),
 
@@ -608,7 +601,7 @@ INSERT INTO delivery_order_payments (
  (SELECT id FROM delivery_order_invoices WHERE invoice_number = 'INV/2025/06/030'),
  'TRF-20250705-002',
  'transfer',
- 12047940,
+ 11928060,
  '2025-07-05',
  'Pembayaran lunas DO-250630-02 via transfer BCA');
 
@@ -659,7 +652,7 @@ INSERT INTO purchase_orders (
   notes
 ) VALUES (
   'PO/ADRO/07/2025-01', 
-  'PT ADARO MINERAL', 
+  'PT ADARO MINERALS', 
   'Batu Split', 
   1000.00, 
   'ton', 
@@ -713,7 +706,7 @@ INSERT INTO delivery_orders (
   (SELECT id FROM vehicles WHERE license_plate = 'BE 9090 AC'),
   'DO-250110-01',
   'PT ADARO MINERALS',
-  'BATU SPLIT',
+  'Batu Split',
   45.00, -- Target: 45 ton
   45.25, -- Actual: 45.25 ton (slight excess)
   'ton',
@@ -721,10 +714,10 @@ INSERT INTO delivery_orders (
   4977500, -- 45.25 ton × Rp 110,000/ton = Rp 4,977,500
   'lunas',
   '2025-03-10',
-  'Quarry Sukabumi, Jawa Barat',
-  -6.9175, 106.9270, -- Sukabumi coordinates
-  'Proyek Perumahan Serpong, Tangerang Selatan',
-  -6.2615, 106.6900, -- Serpong coordinates
+  'Gunung Kunyit, Bandar Lampung',
+  -5.45, 105.27,
+  'Proyek Pembangunan Smelter, Serang',
+  -6.00, 106.00,
   'completed',
   '2025-01-10 06:00:00+07', -- Berangkat pagi
   '2025-01-10 09:30:00+07', -- Sampai lokasi muat
@@ -752,13 +745,13 @@ INSERT INTO delivery_orders (
   64.75, -- Actual: 64.75 ton (slight shortage)
   'ton',
   110000, -- Rp 110,000 per ton
-  7122500, -- 64.75 ton × Rp 110,000/ton = Rp 7,122,500
+  7122500, -- 64.75 ton × Rp 110,000/ton = Rp 7,122,500 
   'lunas',
   '2025-02-10',
-  'Quarry Sukabumi, Jawa Barat',
-  -6.9175, 106.9270, -- Sukabumi coordinates
-  'Proyek Perumahan Serpong, Tangerang Selatan',
-  -6.2615, 106.6900, -- Serpong coordinates
+  'Gunung Kunyit, Bandar Lampung',
+  -5.45, 105.27,
+  'Proyek Pembangunan Smelter, Serang',
+  -6.00, 106.00,
   'completed',
   '2025-01-30 05:30:00+07', -- Berangkat lebih pagi
   '2025-01-30 09:00:00+07', -- Sampai lokasi muat
@@ -799,11 +792,11 @@ INSERT INTO driver_expenses (delivery_order_id, driver_id, jenis, amount, notes)
  'makan', 140000, 'Makan siang + snack di perjalanan'),
 
 ((SELECT id FROM delivery_orders WHERE do_number = 'DO-250129-02'), 
- (SELECT id FROM users WHERE username = 'supir_dedi'), 
+ (SELECT id FROM users WHERE username = 'supir_yoyo'), 
  'tol', 80000, 'Tol Jagorawi + Serpong (tarif naik)'),
 
 ((SELECT id FROM delivery_orders WHERE do_number = 'DO-250129-02'), 
- (SELECT id FROM users WHERE username = 'supir_dedi'), 
+ (SELECT id FROM users WHERE username = 'supir_yoyo'), 
  'parkir', 25000, 'Parkir di lokasi proyek');
 
 -- 🧾 SAMPLE INVOICE DATA (opsional, untuk testing payment system)
@@ -820,7 +813,7 @@ INSERT INTO delivery_order_invoices (
   notes,
   created_by
 ) VALUES
--- Invoice untuk DO-250610-01
+-- Invoice untuk DO-250110-01
 ((SELECT id FROM delivery_orders WHERE do_number = 'DO-250110-01'),
  'INV/2025/01/010',
  '2025-01-11',
@@ -828,7 +821,7 @@ INSERT INTO delivery_order_invoices (
  '2025-03-11',
  0.50, -- PPh 0.5%
  24887.5, -- PPh amount: 4,977,500 × 0.5%
- 5002387.5, -- Net: 4,977,500 + 24,887.5
+ 4952612.5, -- Net: 4,977,500 - 24,887.5
  'paid',
  'Invoice untuk pengiriman batu split batch 1',
  (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
@@ -842,7 +835,7 @@ INSERT INTO delivery_order_invoices (
  '2025-05-30',
  0.50, -- PPh 0.5%
  35612.5, -- PPh amount: 7,122,500 × 0.5%
- 7158112.5, -- Net: 7,122,500 + 35,612.5
+ 7086887.5, -- Net: 7,122,500 - 35,612.5
  'paid',
  'Invoice untuk pengiriman batu split batch 2',
  (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
@@ -863,7 +856,7 @@ INSERT INTO delivery_order_payments (
  (SELECT id FROM delivery_order_invoices WHERE invoice_number = 'INV/2025/01/010'),
  'TRF-20250115-001',
  'transfer',
- 5002387.5,
+ 4952612.5,
  '2025-01-15',
  'Pembayaran lunas DO-250110-01 via transfer BCA'),
 
@@ -872,7 +865,7 @@ INSERT INTO delivery_order_payments (
  (SELECT id FROM delivery_order_invoices WHERE invoice_number = 'INV/2025/01/029'),
  'TRF-20250205-002',
  'transfer',
- 7158112.5,
+ 7086887.5,
  '2025-02-05',
  'Pembayaran lunas DO-250129-02 via transfer BCA');
 
