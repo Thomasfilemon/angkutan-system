@@ -152,15 +152,11 @@ CREATE TABLE stock_batches (
     quantity NUMERIC(10,2) NOT NULL DEFAULT 0,
     original_quantity NUMERIC(10,2) NOT NULL, -- Original quantity when batch was created
     unit_price NUMERIC(15,2) NOT NULL,
-    quantity NUMERIC(10,2) NOT NULL DEFAULT 0,
-    original_quantity NUMERIC(10,2) NOT NULL, -- Original quantity when batch was created
-    unit_price NUMERIC(15,2) NOT NULL,
     purchase_date DATE NOT NULL DEFAULT CURRENT_DATE,
     supplier VARCHAR(255),
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(item_id, batch_number)
     UNIQUE(item_id, batch_number)
 );
 

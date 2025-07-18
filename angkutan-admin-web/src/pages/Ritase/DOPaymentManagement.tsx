@@ -578,8 +578,7 @@ const DOPaymentManagement: React.FC = () => {
     return (
       paymentSummary?.confirmation_status === "confirmed" &&
       !isFullySettled &&
-      doData.invoices.length > 0 &&
-      remainingAmount > 0
+      doData.invoices.length > 0
     );
   };
   const canAdjust = () => {
