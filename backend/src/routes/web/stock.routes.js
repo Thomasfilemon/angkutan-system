@@ -11,10 +11,10 @@ stockRouter.use(verifyToken);
 stockRouter.get("/categories", stockController.getStockCategories);
 stockRouter.get("/:id/batches", stockController.getStockBatches);
 // Stock items routes
-stockRouter.get(
-  "/batches/:batchId/history",
-  stockController.getStockBatchHistory
-);
+// stockRouter.get(
+//   "/batches/:batchId/history",
+//   stockController.getStockBatchHistory
+// );
 stockRouter.get("/", stockController.getAllStockItems);
 stockRouter.post("/", stockController.createStockItem);
 stockRouter.post("/adjust", stockController.adjustStock);
