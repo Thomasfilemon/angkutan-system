@@ -3,6 +3,17 @@ const db = require('../../models');
 const { CashTransaction, CashCategory } = db;
 const { Op } = require('sequelize');
 
+const parseCategoryId = (id) => {
+  if (id === '' || id === null || id === undefined) {
+    return null; // Convert empty string, null, or undefined to null
+  }
+  const parsed = parseInt(id, 10); // Convert string to integer
+  if (isNaN(parsed)) {
+    throw new Error('Invalid category_id'); // Handle invalid numbers
+  }
+  return parsed;
+};
+
 // Get all cash transactions with summary
 exports.getAllCashTransactions = async (req, res, next) => {
   try {
@@ -252,8 +263,8 @@ exports.getAllTempoTransactions = async (req, res, next) => {
 // Create new cash transaction
 exports.createCashTransaction = async (req, res, next) => {
   if (!req.body) {
-        return res.status(400).json({ success: false, message: 'Invalid request format' });
-    }
+    return res.status(400).json({ success: false, message: 'Invalid request format' });
+  }
   const transaction = await db.sequelize.transaction();
   
   try {
@@ -267,8 +278,11 @@ exports.createCashTransaction = async (req, res, next) => {
       account
     } = req.body;
 
-    // Get attachment URL if a file was uploaded
-    const attachment_url = req.file ? `uploads/receipts/${req.file.filename}` : null;
+    // Handle multiple file uploads
+    let attachment_urls = [];
+    if (req.files && req.files.length > 0) {
+      attachment_urls = req.files.map(file => `uploads/receipts/${file.filename}`);
+    }
 
     // Validation
     if (!transaction_type || !['debit', 'kredit', 'debit_tempo', 'kredit_tempo'].includes(transaction_type)) {
@@ -292,7 +306,7 @@ exports.createCashTransaction = async (req, res, next) => {
       reference_number: reference_number || null,
       transaction_date: transaction_date || new Date(),
       account,
-      attachment_url // Save the file path
+      attachment_urls: attachment_urls.length > 0 ? attachment_urls : null // Set as array
     }, { transaction });
 
     const createdTransaction = await CashTransaction.findByPk(cashTransaction.id, {
@@ -305,7 +319,10 @@ exports.createCashTransaction = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Cash transaction created successfully',
-      data: createdTransaction
+      data: {
+        ...createdTransaction.toJSON(),
+        attachment_urls: createdTransaction.attachment_urls || []
+      }
     });
   } catch (err) {
     await transaction.rollback();
@@ -352,91 +369,54 @@ exports.getCashTransactionById = async (req, res, next) => {
 };
 
 // Update cash transaction
-exports.updateCashTransaction = async (req, res, next) => {
-  const dbTransaction = await db.sequelize.transaction();
-  
+// Update cash transaction
+exports.updateCashTransaction = async (req, res) => {
+  const { id } = req.params;
+  const {
+    transaction_type,
+    category_id,
+    amount,
+    description,
+    reference_number,
+    transaction_date,
+    account,
+  } = req.body;
+
+  // Define parseCategoryId locally
+  const parseCategoryId = (id) => {
+    if (id === '' || id === null || id === undefined) {
+      return null; // Convert empty string, null, or undefined to null
+    }
+    const parsed = parseInt(id, 10); // Convert string to integer
+    if (isNaN(parsed)) {
+      throw new Error('Invalid category_id'); // Handle invalid numbers
+    }
+    return parsed;
+  };
+
   try {
-    const { id } = req.params;
-    const {
-      transaction_type,
-      category_id,
-      amount,
-      description,
-      reference_number,
-      transaction_date,
-      account
-    } = req.body;
-
-    if (isNaN(parseInt(id))) {
-      await dbTransaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid transaction ID. Must be a number.'
-      });
-    }
-
-    const cashTransaction = await CashTransaction.findByPk(parseInt(id), {
-      transaction: dbTransaction
-    });
-    
+    const cashTransaction = await CashTransaction.findByPk(id);
     if (!cashTransaction) {
-      await dbTransaction.rollback();
-      return res.status(404).json({
-        success: false,
-        message: 'Cash transaction not found'
-      });
-    }
-    let attachment_url = cashTransaction.attachment_url; // Keep existing if no new file
-      if (req.file) {
-        attachment_url = `uploads/receipts/${req.file.filename}`;
-      }
-
-    // Validation
-    if (transaction_type && !['debit', 'kredit', 'debit_tempo', 'kredit_tempo'].includes(transaction_type)) {
-      await dbTransaction.rollback();
-      return res.status(400).json({ success: false, message: 'Invalid transaction type' });
+      return res.status(404).json({ message: 'Transaction not found' });
     }
 
-    if (amount && parseFloat(amount) <= 0) {
-      await dbTransaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: 'Amount must be greater than 0'
-      });
-    }
+    const categoryId = category_id !== undefined ? parseCategoryId(category_id) : cashTransaction.category_id;
 
     await cashTransaction.update({
       transaction_type: transaction_type || cashTransaction.transaction_type,
-      category_id: category_id !== undefined ? category_id : cashTransaction.category_id,
+      category_id: categoryId,
       amount: amount ? parseFloat(amount) : cashTransaction.amount,
       description: description ? description.trim() : cashTransaction.description,
       reference_number: reference_number !== undefined ? reference_number : cashTransaction.reference_number,
       transaction_date: transaction_date || cashTransaction.transaction_date,
       account: account || cashTransaction.account,
-      attachment_url: attachment_url
-    }, { transaction: dbTransaction });
-
-    // Get updated transaction with category
-    const updatedTransaction = await CashTransaction.findByPk(parseInt(id), {
-      include: [{
-        model: CashCategory,
-        as: 'category',
-        required: false
-      }],
-      transaction: dbTransaction
+      // Handle attachment_urls if needed
     });
 
-    await dbTransaction.commit();
-
-    res.json({
-      success: true,
-      message: 'Cash transaction updated successfully',
-      data: updatedTransaction
-    });
-  } catch (err) {
-    await dbTransaction.rollback();
-    console.error('Error in updateCashTransaction:', err);
-    next(err);
+    return res.status(200).json({ message: 'Transaction updated successfully', data: cashTransaction });
+  } catch (error) {
+    console.error('Error in updateCashTransaction:', error);
+    return res.status(500).json({ message: 'Failed to update transaction', error: error.message });
   }
 };
 

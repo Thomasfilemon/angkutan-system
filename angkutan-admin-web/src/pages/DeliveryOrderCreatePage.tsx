@@ -62,6 +62,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
 
   const [formData, setFormData] = useState({
+    do_name: "", // New field
     purchase_order_id: "",
     driver_id: "",
     vehicle_id: "",
@@ -116,7 +117,11 @@ const DeliveryOrderCreatePage: React.FC = () => {
     try {
       setLoading(true);
       const [poResponse, driverResponse, vehicleResponse] = await Promise.all([
-        apiClient.get("/purchase-orders?status[]=confirmed&status[]=partial"),
+        apiClient.get("/purchase-orders", {
+          params: {
+            status: ["confirmed", "partial"]
+          }
+        }),
         apiClient.get("/drivers"),
         apiClient.get("/vehicles"),
       ]);
@@ -225,6 +230,11 @@ const DeliveryOrderCreatePage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!formData.do_name.trim()) {
+      toast.error("Please enter a delivery order name");
+      return;
+    }
+
     if (
       !formData.driver_id ||
       !formData.vehicle_id ||
@@ -244,6 +254,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
       );
 
       const payload = {
+        do_name: formData.do_name.trim(),
         purchase_order_id: formData.purchase_order_id || null,
         driver_id: parseInt(formData.driver_id),
         vehicle_id: parseInt(formData.vehicle_id),
@@ -341,6 +352,24 @@ const DeliveryOrderCreatePage: React.FC = () => {
         onSubmit={handleSubmit}
         className="bg-white shadow rounded-lg p-6 space-y-6"
       >
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Delivery Order Name *
+          </label>
+          <input
+            type="text"
+            value={formData.do_name}
+            onChange={(e) => 
+              setFormData({ ...formData, do_name: e.target.value })
+            }
+            className="w-full border border-gray-300 rounded-md px-3 py-2"
+            placeholder="e.g., Pengiriman Pasir ke Proyek XYZ"
+            required
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Give a descriptive name for this delivery order
+          </p>
+        </div>
         {/* PO Selection (Optional) */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">

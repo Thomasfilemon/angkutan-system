@@ -79,10 +79,9 @@ module.exports = (sequelize) => {
         allowNull: true,
         comment: "Additional payment notes",
       },
-      attachment_url: {
-        type: DataTypes.TEXT,
-        allowNull: true,
-        comment: "Receipt or proof of payment file URL",
+      attachment_urls: {
+        type: DataTypes.ARRAY(DataTypes.STRING),
+        allowNull: true
       },
       created_by: {
         type: DataTypes.INTEGER,

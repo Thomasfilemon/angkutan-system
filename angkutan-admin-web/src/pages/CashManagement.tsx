@@ -22,7 +22,7 @@ interface CashTransaction {
   running_balance?: number;
   category?: CashCategory;
   account: string;
-  attachment_url?: string;
+  attachment_urls?: Array<string>;
 }
 
 interface CashSummary {
@@ -71,7 +71,7 @@ const CashManagementPage = () => {
     account: 'General',
     transaction_date: new Date().toISOString().split('T')[0]
   });
-  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
 
   const fetchTransactions = useCallback(async () => {
     try {
@@ -114,36 +114,40 @@ const CashManagementPage = () => {
   }, [fetchTransactions, fetchCategories]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setAttachmentFile(e.target.files[0]);
-    } else {
-      setAttachmentFile(null);
+    if (e.target.files) {
+      const newFiles = Array.from(e.target.files);
+      setAttachmentFiles(prev => [...prev, ...newFiles]);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (formData.category_id === 'inventory_redirect' || formData.category_id === 'service_redirect') {
-      navigate(formData.category_id === 'inventory_redirect' ? '/stock/create' : '/services/create');
+    if (isSpecialCategory) {
       setShowModal(false);
-      resetForm();
-      return;
+      if (formData.category_id === 'inventory_redirect') {
+        navigate('/inventory/purchase');
+      } else {
+        navigate('/services');
+      }
+      return; // Exit early
     }
-    
+
     const submissionData = new FormData();
+
+    // Append other fields
     Object.entries(formData).forEach(([key, value]) => {
-        submissionData.append(key, value);
+      submissionData.append(key, value);
     });
-    if (attachmentFile) {
-        submissionData.append('attachment', attachmentFile);
-    }
+
+    // Append multiple files
+    attachmentFiles.forEach(file => {
+      submissionData.append('attachments', file); // Use plural 'attachments'
+    });
 
     try {
       const config = {
-          headers: {
-              'Content-Type': 'multipart/form-data'
-          }
+        headers: { 'Content-Type': 'multipart/form-data' }
       };
 
       if (editingTransaction) {
@@ -151,7 +155,7 @@ const CashManagementPage = () => {
       } else {
         await apiClient.post('/cash/transactions', submissionData, config);
       }
-      
+
       setShowModal(false);
       fetchTransactions();
     } catch (err) {
@@ -177,7 +181,7 @@ const CashManagementPage = () => {
       transaction_date: transaction.transaction_date,
       account: transaction.account || 'General'
     });
-    setAttachmentFile(null);
+    setAttachmentFiles([]);
     setShowModal(true);
   };
 
@@ -205,7 +209,7 @@ const CashManagementPage = () => {
       account: 'General',
       transaction_date: new Date().toISOString().split('T')[0]
     });
-    setAttachmentFile(null);
+    setAttachmentFiles([]);
   };
 
   const formatCurrency = (amount: number) => {
@@ -365,6 +369,23 @@ const CashManagementPage = () => {
         </div>
       </div>
 
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Akun
+        </label>
+        <select
+          value={filters.account}
+          onChange={(e) => setFilters(prev => ({ ...prev, account: e.target.value }))}
+          className="w-full border border-gray-300 rounded-md px-3 py-2"
+        >
+          <option value="All">Semua Akun</option>
+          <option value="Ewaldo">Ewaldo</option>
+          <option value="Malvin">Malvin</option>
+          <option value="Company">Company</option>
+          <option value="General">General</option>
+        </select>
+      </div>
+
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
@@ -423,20 +444,21 @@ const CashManagementPage = () => {
                       {transaction.reference_number && (
                         <div className="text-xs text-gray-500">Ref: {transaction.reference_number}</div>
                       )}
-                       {transaction.attachment_url ? (
-                        <div>
-                          <span className="text-green-500">Ada file: {transaction.attachment_url}</span>
-                          <br />
-                          <a href={`${process.env.REACT_APP_BACKEND_URL}/${transaction.attachment_url}`} 
-                            target="_blank" 
-                            rel="noopener noreferrer" 
-                            className="text-xs text-blue-500 hover:underline">
-                            Lihat Nota
-                          </a>
-                        </div>
-                      ) : (
-                        <span className="text-red-500">Tidak ada file</span>
-                      )}
+                       {transaction.attachment_urls && transaction.attachment_urls.length > 0 ? (
+                          <div className="space-y-1">
+                            {transaction.attachment_urls.map((url, index) => (
+                              <div key={index}>
+                                <a
+                                  href={`${process.env.REACT_APP_BACKEND_URL}/${url}`}
+                                  target="_blank"
+                                  className="text-blue-500 hover:underline"
+                                >
+                                  Nota {index + 1}
+                                </a>
+                              </div>
+                            ))}
+                          </div>
+                        ) : 'Tidak ada file'}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
@@ -697,7 +719,7 @@ const CashManagementPage = () => {
                       />
                     </div>
                     
-                    <div>
+                    {/* <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Foto Nota (Opsional)
                       </label>
@@ -707,7 +729,68 @@ const CashManagementPage = () => {
                         onChange={handleFileChange}
                         className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                       />
+                    </div> */}
+
+                    <div className="mt-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Upload Nota</label>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          id="fileInput"
+                          type="file"
+                          multiple
+                          accept="image/*"
+                          onChange={handleFileChange}
+                          className="hidden"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => document.getElementById('fileInput')?.click()}
+                          className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded flex items-center"
+                        >
+                          <span>+</span> <span className="ml-1">Tambah Nota</span>
+                        </button>
+                        {attachmentFiles.length > 0 && (
+                          <span className="text-sm text-gray-600">
+                            {attachmentFiles.length} file{attachmentFiles.length > 1 ? 's' : ''} dipilih
+                          </span>
+                        )}
+                      </div>
                     </div>
+
+                    {/* Show existing attachments */}
+                    {editingTransaction?.attachment_urls && 
+                      editingTransaction.attachment_urls.length > 0 && (
+                        <div className="mt-2">
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Existing Files</label>
+                          <ul className="space-y-1">
+                            {editingTransaction.attachment_urls.map((url, index) => (
+                              <li key={index}>
+                                <a
+                                  href={`${process.env.REACT_APP_BACKEND_URL}/${url}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-500 hover:underline"
+                                >
+                                  Nota {index + 1}
+                                </a>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    {/* Show new files being uploaded */}
+                    {attachmentFiles.length > 0 && (
+                      <div className="mt-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">New Files</label>
+                        <ul className="space-y-1">
+                          {attachmentFiles.map((file, index) => (
+                            <li key={index} className="text-sm text-gray-600">
+                              {file.name}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </>
                 )}
 

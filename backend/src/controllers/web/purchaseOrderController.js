@@ -18,9 +18,13 @@ exports.getAllPurchaseOrders = async (req, res, next) => {
     let whereClause = {};
 
     if (status) {
-      whereClause.status = status;
+      if (Array.isArray(status)) {
+        whereClause.status = { [Op.in]: status };
+      } else {
+        whereClause.status = status;
+      }
     }
-
+    
     if (search) {
       whereClause[Op.or] = [
         { po_number: { [Op.iLike]: `%${search}%` } },

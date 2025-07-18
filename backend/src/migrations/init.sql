@@ -269,7 +269,7 @@ CREATE TABLE delivery_orders (
   purchase_order_id INTEGER REFERENCES purchase_orders(id) ON DELETE SET NULL,
   driver_id INTEGER REFERENCES users(id),
   vehicle_id INTEGER REFERENCES vehicles(id),
-
+  do_name VARCHAR(100),
   do_number VARCHAR(50) UNIQUE NOT NULL,
   customer_name VARCHAR(100) NOT NULL,
   item_name VARCHAR(100),
@@ -488,7 +488,7 @@ CREATE TABLE delivery_order_payments (
   received_by INTEGER REFERENCES users(id), -- Who processed the payment
   bank_account VARCHAR(100), -- If transfer
   notes TEXT,
-  attachment_url TEXT, -- Receipt/proof of payment
+  attachment_urls TEXT[], -- Receipt/proof of payment
   created_by INTEGER REFERENCES users(id),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -511,7 +511,7 @@ CREATE TABLE cash_transactions (
   reference_number VARCHAR(50),
   account VARCHAR(20) NOT NULL CHECK(account IN ('Ewaldo', 'Malvin', 'Company', 'General')),
   transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
-  attachment_url VARCHAR(255), -- <<< NEW COLUMN to store the photo path
+  attachment_urls TEXT[], -- <<< NEW COLUMN to store the photo path
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -713,3 +713,20 @@ CREATE TRIGGER trg_recalc_pph
 BEFORE INSERT OR UPDATE ON delivery_order_invoices
 FOR EACH ROW
 EXECUTE FUNCTION recalc_do_invoice_pph();
+
+-- DEPOSIT GROUP TABLES
+CREATE TABLE deposit_groups (
+  id SERIAL PRIMARY KEY,
+  group_name VARCHAR(255) NOT NULL,
+  balance NUMERIC(15,2) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE deposit_group_members (
+  id SERIAL PRIMARY KEY,
+  group_id INTEGER NOT NULL REFERENCES deposit_groups(id) ON DELETE CASCADE,
+  delivery_order_id INTEGER NOT NULL REFERENCES delivery_orders(id) ON DELETE CASCADE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE (group_id, delivery_order_id) -- Prevent duplicate DO in same group
+);

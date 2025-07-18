@@ -8,6 +8,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 interface DeliveryOrder {
   id: number;
   do_number: string;
+  do_name?: string; // Add the new field
   customer_name: string;
   item_name: string;
   minimal_load_quantity: number;
@@ -44,6 +45,7 @@ const DeliveryOrdersPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState<string>(""); // Add search state
   const [stats, setStats] = useState({
     total: 0,
     assigned: 0,
@@ -55,7 +57,7 @@ const DeliveryOrdersPage = () => {
 
   const poId = searchParams.get("po_id");
 
-  // 🎯 NEW: Unit display helper
+  // 🎯 Unit display helper
   const getUnitDisplay = (unit: string) => {
     const unitMap = {
       kilogram: "kg",
@@ -65,14 +67,14 @@ const DeliveryOrdersPage = () => {
     return unitMap[unit as keyof typeof unitMap] || unit;
   };
 
-  // 🎯 NEW: Get unit with fallback
+  // 🎯 Get unit with fallback
   const getOrderUnit = (order: DeliveryOrder) => {
     return order.unit || order.purchaseOrder?.unit || "ton";
   };
 
   useEffect(() => {
     fetchDeliveryOrders();
-  }, [statusFilter, poId]);
+  }, [statusFilter, poId, searchQuery]); // Add searchQuery to dependencies
 
   const fetchDeliveryOrders = async () => {
     try {
@@ -88,19 +90,23 @@ const DeliveryOrdersPage = () => {
         params.append("po_id", poId);
       }
 
+      if (searchQuery) {
+        params.append("search", searchQuery); // Add search parameter
+      }
+
       if (params.toString()) {
         url += `?${params.toString()}`;
       }
 
       const response = await apiClient.get(url);
 
-      // ✅ FIX: Handle full response format
+      // Handle full response format
       const orders = response.data.success
         ? response.data.data
         : response.data || [];
       const stats = response.data.success ? response.data.stats : null;
 
-      // 🎯 NEW: Ensure unit field exists with fallback
+      // Ensure unit field exists with fallback
       const processedOrders = orders.map((order: DeliveryOrder) => ({
         ...order,
         unit: order.unit || order.purchaseOrder?.unit || "ton",
@@ -108,7 +114,7 @@ const DeliveryOrdersPage = () => {
 
       setDeliveryOrders(processedOrders);
 
-      // ✅ FIX: Use extracted stats
+      // Use extracted stats
       if (stats) {
         setStats(stats);
       }
@@ -172,6 +178,42 @@ const DeliveryOrdersPage = () => {
         </Link>
       </div>
 
+      {/* Search and Status Filter */}
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:space-x-4">
+        <div className="flex-1 mb-4 sm:mb-0">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Search:
+          </label>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by DO number, name, customer, or item..."
+            className="border border-gray-300 rounded-md px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Filter by Status:
+          </label>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="all">All Status</option>
+            <option value="assigned">Assigned</option>
+            <option value="otw_to_load_location">On Way to Load</option>
+            <option value="at_load_location">At Load Location</option>
+            <option value="otw_to_unload_location">On Way to Unload</option>
+            <option value="at_unload_location">At Unload Location</option>
+            <option value="otw_to_base">Returning to Base</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+      </div>
+
       {/* Statistics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
         <div className="bg-white p-4 rounded-lg shadow">
@@ -198,35 +240,16 @@ const DeliveryOrdersPage = () => {
         </div>
       </div>
 
-      {/* Status Filter */}
-      <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Filter by Status:
-        </label>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="all">All Status</option>
-          <option value="assigned">Assigned</option>
-          <option value="otw_to_load_location">On Way to Load</option>
-          <option value="at_load_location">At Load Location</option>
-          <option value="otw_to_unload_location">On Way to Unload</option>
-          <option value="at_unload_location">At Unload Location</option>
-          <option value="otw_to_base">Returning to Base</option>
-          <option value="completed">Completed</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
-      </div>
-
-      {/* 🎯 ENHANCED: Delivery Orders List with Unit Support */}
+      {/* Delivery Orders Table */}
       <div className="bg-white shadow-xl rounded-lg overflow-hidden">
         <table className="min-w-full leading-normal">
           <thead>
             <tr className="bg-gray-50 border-b-2 border-gray-200">
               <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                 DO Number
+              </th>
+              <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                Name
               </th>
               <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                 PO Number
@@ -249,11 +272,9 @@ const DeliveryOrdersPage = () => {
               <th className="px-4 py-4 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">
                 Total Amount
               </th>
-              {/* 🎯 NARROW: Document column */}
               <th className="w-12 px-2 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">
                 Doc
               </th>
-              {/* 🎯 NARROW: Actions column */}
               <th className="w-16 px-2 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">
                 Actions
               </th>
@@ -279,6 +300,13 @@ const DeliveryOrdersPage = () => {
                     <td className="px-4 py-4 whitespace-nowrap">
                       <div className="text-sm font-semibold text-gray-900">
                         {dOrder.do_number}
+                      </div>
+                    </td>
+
+                    {/* Name */}
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-700">
+                        {dOrder.do_name || "N/A"}
                       </div>
                     </td>
 
@@ -315,7 +343,7 @@ const DeliveryOrdersPage = () => {
                       </div>
                     </td>
 
-                    {/* 🎯 IMPROVED: Quantity & Unit Column */}
+                    {/* Quantity & Unit Column */}
                     <td className="px-4 py-4">
                       <div className="space-y-1">
                         {/* Target quantity */}
@@ -399,7 +427,7 @@ const DeliveryOrdersPage = () => {
                       </div>
                     </td>
 
-                    {/* 🎯 IMPROVED: Status Column */}
+                    {/* Status Column */}
                     <td className="px-4 py-4 text-center">
                       <span
                         className={`inline-flex px-3 py-1 text-xs font-semibold rounded-full ${getStatusColor(
@@ -410,7 +438,7 @@ const DeliveryOrdersPage = () => {
                       </span>
                     </td>
 
-                    {/* 🎯 IMPROVED: Total Amount (Right-aligned for numbers) */}
+                    {/* Total Amount */}
                     <td className="px-4 py-4 text-right">
                       <div>
                         <div className="text-sm font-semibold text-gray-900">
@@ -442,7 +470,7 @@ const DeliveryOrdersPage = () => {
                       </div>
                     </td>
 
-                    {/* 🎯 NARROW: Document Column */}
+                    {/* Document Column */}
                     <td className="w-12 px-2 py-4 text-center">
                       {Array.isArray(dOrder.surat_jalan_photo_url) &&
                       dOrder.surat_jalan_photo_url.length > 0 ? (
@@ -494,7 +522,7 @@ const DeliveryOrdersPage = () => {
                       )}
                     </td>
 
-                    {/* 🎯 NARROW: Actions Column */}
+                    {/* Actions Column */}
                     <td className="w-16 px-2 py-4">
                       <div className="flex items-center justify-center space-x-1">
                         {/* View Details */}
@@ -518,7 +546,7 @@ const DeliveryOrdersPage = () => {
                           </svg>
                         </Link>
 
-                        {/* Quick Edit (only for non-completed orders) */}
+                        {/* Quick Edit */}
                         {dOrder.status !== "completed" &&
                           dOrder.status !== "cancelled" && (
                             <button
@@ -551,7 +579,7 @@ const DeliveryOrdersPage = () => {
             ) : (
               <tr>
                 <td
-                  colSpan={10}
+                  colSpan={11} // Updated to account for new Name column
                   className="px-4 py-12 text-center text-gray-500"
                 >
                   <div className="flex flex-col items-center">
@@ -572,7 +600,7 @@ const DeliveryOrdersPage = () => {
                       No delivery orders found
                     </p>
                     <p className="text-sm">
-                      Try adjusting your filters to see more results.
+                      Try adjusting your filters or search to see more results.
                     </p>
                   </div>
                 </td>
@@ -582,7 +610,7 @@ const DeliveryOrdersPage = () => {
         </table>
       </div>
 
-      {/* 🎯 NEW: Unit Summary Stats */}
+      {/* Unit Summary Stats */}
       {deliveryOrders.length > 0 && (
         <div className="mt-6 bg-white p-4 rounded-lg shadow">
           <h3 className="text-lg font-semibold text-gray-800 mb-3">

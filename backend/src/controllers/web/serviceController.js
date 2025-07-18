@@ -214,17 +214,18 @@ exports.getServiceById = async (req, res, next) => {
 };
 
 // ✅ UPDATED: Create new service with FIFO integration
+// ✅ UPDATED: Create new service with multiple attachments support
 exports.createService = async (req, res, next) => {
   const transaction = await db.sequelize.transaction();
   let serviceId;
-  
+
   try {
     // Add validation for req.body
     if (!req.body) {
       await transaction.rollback();
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid request format' 
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid request format',
       });
     }
 
@@ -236,22 +237,24 @@ exports.createService = async (req, res, next) => {
       description,
       workshop_name,
       labor_cost,
-      notes
+      notes,
     } = req.body;
 
     // Parse JSON strings from FormData
     const items = req.body.items ? JSON.parse(req.body.items) : [];
     const cashSettings = req.body.cash_settings ? JSON.parse(req.body.cash_settings) : {};
-    
-    // Handle file upload
-    const attachment_url = req.file ? `uploads/receipts/${req.file.filename}` : null;
+
+    // ✅ UPDATED: Handle multiple file uploads
+    const attachment_urls = req.files
+      ? req.files.map((file) => `uploads/receipts/${file.filename}`)
+      : [];
 
     // Validation
     if (!vehicle_id) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: 'Vehicle ID is required'
+        message: 'Vehicle ID is required',
       });
     }
 
@@ -259,11 +262,11 @@ exports.createService = async (req, res, next) => {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: 'Service description is required'
+        message: 'Service description is required',
       });
     }
 
-    // ✅ UPDATED: Validate stock availability using FIFO logic
+    // Validate stock availability using FIFO logic
     if (items && items.length > 0) {
       for (const item of items) {
         if (item.from_stock && item.stock_item_id) {
@@ -272,7 +275,7 @@ exports.createService = async (req, res, next) => {
             await transaction.rollback();
             return res.status(400).json({
               success: false,
-              message: `Insufficient stock for ${item.item_name}. Available: ${currentStock}, Requested: ${item.quantity}`
+              message: `Insufficient stock for ${item.item_name}. Available: ${currentStock}, Requested: ${item.quantity}`,
             });
           }
         }
@@ -283,45 +286,44 @@ exports.createService = async (req, res, next) => {
     let totalItemsCost = 0;
     if (items && items.length > 0) {
       totalItemsCost = items.reduce((sum, item) => {
-        return sum + (parseFloat(item.quantity) * parseFloat(item.unit_price));
+        return sum + parseFloat(item.quantity) * parseFloat(item.unit_price);
       }, 0);
     }
 
     // Create VehicleService record
-    const service = await VehicleService.create({
-      vehicle_id: parseInt(vehicle_id),
-      service_date: service_date || new Date(),
-      service_type: service_type || 'regular',
-      description: description.trim(),
-      workshop_name: workshop_name || '',
-      labor_cost: parseFloat(labor_cost) || 0,
-      parts_cost: totalItemsCost,
-      notes: notes || ''
-    }, { transaction });
+    const service = await VehicleService.create(
+      {
+        vehicle_id: parseInt(vehicle_id),
+        service_date: service_date || new Date(),
+        service_type: service_type || 'regular',
+        description: description.trim(),
+        workshop_name: workshop_name || '',
+        labor_cost: parseFloat(labor_cost) || 0,
+        parts_cost: totalItemsCost,
+        notes: notes || '',
+      },
+      { transaction }
+    );
 
     serviceId = service.id;
 
-    // ✅ UPDATED: Process service items with FIFO deduction
+    // Process service items with FIFO deduction
     if (items && items.length > 0) {
       for (const item of items) {
-        await ServiceItem.create({
-          service_id: service.id,
-          stock_item_id: item.stock_item_id || null,
-          item_name: item.item_name,
-          quantity: parseFloat(item.quantity),
-          unit_price: parseFloat(item.unit_price),
-          from_stock: item.from_stock || false
-        }, { transaction });
+        await ServiceItem.create(
+          {
+            service_id: service.id,
+            stock_item_id: item.stock_item_id || null,
+            item_name: item.item_name,
+            quantity: parseFloat(item.quantity),
+            unit_price: parseFloat(item.unit_price),
+            from_stock: item.from_stock || false,
+          },
+          { transaction }
+        );
 
-        // ✅ UPDATED: Use FIFO deduction instead of direct stock update
         if (item.from_stock && item.stock_item_id) {
-          await deductStockFIFO(
-            item.stock_item_id,
-            item.quantity,
-            description,
-            service.id,
-            transaction
-          );
+          await deductStockFIFO(item.stock_item_id, item.quantity, description, service.id, transaction);
         }
       }
     }
@@ -329,68 +331,59 @@ exports.createService = async (req, res, next) => {
     // Create cash transaction if required
     if (cashSettings.save_to_cash) {
       const totalServiceCost = parseFloat(labor_cost || 0) + totalItemsCost;
-      
+
       if (totalServiceCost > 0) {
         const transactionType = cashSettings.is_tempo ? 'kredit_tempo' : 'kredit';
-        const serviceDescription = `Servis ${service_type}: ${description}${totalItemsCost > 0 ? ` + Suku cadang: ${totalItemsCost.toLocaleString()}` : ''}`;
+        const serviceDescription = `Servis ${service_type}: ${description}${
+          totalItemsCost > 0 ? ` + Suku cadang: ${totalItemsCost.toLocaleString()}` : ''
+        }`;
 
-        await CashTransaction.create({
-          transaction_type: transactionType,
-          amount: totalServiceCost,
-          description: serviceDescription,
-          account: cashSettings.account || 'General',
-          transaction_date: service_date || new Date(),
-          attachment_url: attachment_url
-        }, { transaction });
+        await CashTransaction.create(
+          {
+            transaction_type: transactionType,
+            amount: totalServiceCost,
+            description: serviceDescription,
+            account: cashSettings.account || 'General',
+            transaction_date: service_date || new Date(),
+            attachment_urls: attachment_urls, // ✅ Store array of URLs
+          },
+          { transaction }
+        );
       }
     }
 
-    // Commit transaction - all database operations successful
+    // Commit transaction
     await transaction.commit();
 
+    // Fetch complete service data AFTER successful commit
+    const completeService = await VehicleService.findByPk(serviceId, {
+      include: [{ model: Vehicle, as: 'vehicle' }, { model: ServiceItem, as: 'serviceItems' }],
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Service created successfully',
+      data: completeService,
+    });
   } catch (err) {
     // Only rollback if transaction hasn't been finished
     if (!transaction.finished) {
       await transaction.rollback();
     }
     console.error('Error in createService:', err);
-    
+
     if (err.name === 'SequelizeValidationError') {
-      const messages = err.errors.map(e => e.message);
+      const messages = err.errors.map((e) => e.message);
       return res.status(400).json({
         success: false,
         message: 'Validation failed',
-        errors: messages
+        errors: messages,
       });
     }
-    
+
     return res.status(400).json({
       success: false,
-      message: err.message || 'Service creation failed'
-    });
-  }
-
-  // Fetch complete service data AFTER successful commit
-  try {
-    const completeService = await VehicleService.findByPk(serviceId, {
-      include: [
-        { model: Vehicle, as: 'vehicle' },
-        { model: ServiceItem, as: 'serviceItems' }
-      ]
-    });
-
-    res.status(201).json({
-      success: true,
-      message: 'Service created successfully',
-      data: completeService
-    });
-  } catch (fetchError) {
-    // If fetch fails, data is already saved, return minimal response
-    console.error('Error fetching complete service data:', fetchError);
-    res.status(201).json({
-      success: true,
-      message: 'Service created successfully',
-      data: { id: serviceId }
+      message: err.message || 'Service creation failed',
     });
   }
 };

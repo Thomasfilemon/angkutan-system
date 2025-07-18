@@ -1,4 +1,3 @@
-// src/pages/TempoManagement.tsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import apiClient from '../api/axiosConfig';
@@ -37,13 +36,13 @@ const TempoManagementPage = () => {
   const [summary, setSummary] = useState<CashSummary>({
     total_debit_tempo: 0,
     total_kredit_tempo: 0,
-    saldo: 0
+    saldo: 0,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSpecialCategory, setIsSpecialCategory] = useState(false);
   const navigate = useNavigate();
-  
+
   // Filters
   const [filters, setFilters] = useState({
     transaction_type: '',
@@ -51,18 +50,18 @@ const TempoManagementPage = () => {
     date_from: '',
     date_to: '',
     search: '',
-    account: 'All'
+    account: 'All',
   });
-  
+
   // Pagination
   const [pagination, setPagination] = useState({
     page: 1,
     limit: 20,
     total: 0,
-    totalPages: 0
+    totalPages: 0,
   });
 
-  // Modal state
+  // Modal state for add/edit
   const [showModal, setShowModal] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<CashTransaction | null>(null);
   const [formData, setFormData] = useState({
@@ -72,56 +71,67 @@ const TempoManagementPage = () => {
     description: '',
     reference_number: '',
     account: 'General',
-    transaction_date: new Date().toISOString().split('T')[0]
+    transaction_date: new Date().toISOString().split('T')[0],
   });
 
-  const handleLunasi = async (id: number, currentType: 'debit_tempo' | 'kredit_tempo') => {
+  // New states for lunasi modal
+  const [showLunasiModal, setShowLunasiModal] = useState(false);
+  const [selectedTransaction, setSelectedTransaction] = useState<CashTransaction | null>(null);
+  const [selectedAccount, setSelectedAccount] = useState<string>('');
+
+  const handleLunasi = (transaction: CashTransaction) => {
+    setSelectedTransaction(transaction);
+    setSelectedAccount(transaction.account);
+    setShowLunasiModal(true);
+  };
+
+  const confirmLunasi = async () => {
+    if (!selectedTransaction || !selectedAccount) {
+      toast.error('Silakan pilih akun');
+      return;
+    }
+    const currentType = selectedTransaction.transaction_type;
     const newType = currentType === 'debit_tempo' ? 'debit' : 'kredit';
-
-    // 🔥 Add confirmation and log
-    const confirmMessage = `Apakah Anda yakin ingin melunasi transaksi ini sebagai "${newType}"? Tindakan ini tidak dapat dibatalkan.`;
-    if (!window.confirm(confirmMessage)) return;
-
-    console.log('✅ Lunasi confirmed for ID:', id); // Simple console confirmation
-
     try {
-        await apiClient.put(`/cash/transactions/${id}`, {
-        transaction_type: newType
-        });
-
-        await fetchTransactions();
-        toast.success('Transaksi berhasil diperbarui');
+      await apiClient.put(`/cash/transactions/${selectedTransaction.id}`, {
+        transaction_type: newType,
+        account: selectedAccount,
+      });
+      setShowLunasiModal(false);
+      setSelectedTransaction(null);
+      setSelectedAccount('');
+      fetchTransactions();
+      toast.success('Transaksi berhasil dilunasi');
     } catch (err) {
-        console.error('Failed to lunasi transaction:', err);
-        toast.error('Gagal memperbarui transaksi');
+      console.error('Failed to lunasi transaction:', err);
+      toast.error('Gagal melunasi transaksi');
     }
   };
 
   const fetchTransactions = useCallback(async () => {
     try {
-        setLoading(true);
-        const filteredFilters = Object.fromEntries(
+      setLoading(true);
+      const filteredFilters = Object.fromEntries(
         Object.entries(filters).filter(([_, v]) => v !== '')
-    );
-    const paramsObject = {
+      );
+      const paramsObject = {
         page: pagination.page.toString(),
         limit: pagination.limit.toString(),
         ...filteredFilters,
-        transaction_type: filters.transaction_type || 'debit_tempo,kredit_tempo'
-    };
-    const params = new URLSearchParams(paramsObject);
-    const response = await apiClient.get(`/cash/tempo-transactions?${params}`);
-      
+        transaction_type: filters.transaction_type || 'debit_tempo,kredit_tempo',
+      };
+      const params = new URLSearchParams(paramsObject);
+      const response = await apiClient.get(`/cash/tempo-transactions?${params}`);
       setTransactions(response.data.data || []);
       setSummary({
         total_debit_tempo: response.data.summary?.total_debit || 0,
         total_kredit_tempo: response.data.summary?.total_kredit || 0,
-        saldo: response.data.summary?.saldo || 0
+        saldo: response.data.summary?.saldo || 0,
       });
-      setPagination(prev => ({
+      setPagination((prev) => ({
         ...prev,
         total: response.data.pagination?.total || 0,
-        totalPages: response.data.pagination?.totalPages || 0
+        totalPages: response.data.pagination?.totalPages || 0,
       }));
     } catch (err) {
       setError('Failed to fetch tempo transactions.');
@@ -150,29 +160,24 @@ const TempoManagementPage = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // Check for special categories first
     if (formData.category_id === 'inventory_redirect') {
       navigate('/stock/create');
       setShowModal(false);
       resetForm();
       return;
     }
-    
     if (formData.category_id === 'service_redirect') {
       navigate('/services/create');
       setShowModal(false);
       resetForm();
       return;
     }
-    
     try {
       if (editingTransaction) {
         await apiClient.put(`/cash/transactions/${editingTransaction.id}`, formData);
       } else {
         await apiClient.post('/cash/transactions', formData);
       }
-      
       setShowModal(false);
       setEditingTransaction(null);
       resetForm();
@@ -185,7 +190,7 @@ const TempoManagementPage = () => {
 
   const handleCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
-    setFormData(prev => ({ ...prev, category_id: value }));
+    setFormData((prev) => ({ ...prev, category_id: value }));
     setIsSpecialCategory(value === 'inventory_redirect' || value === 'service_redirect');
   };
 
@@ -198,7 +203,7 @@ const TempoManagementPage = () => {
       description: transaction.description,
       reference_number: transaction.reference_number || '',
       transaction_date: transaction.transaction_date,
-      account: transaction.account || 'General'
+      account: transaction.account || 'General',
     });
     setShowModal(true);
   };
@@ -207,7 +212,6 @@ const TempoManagementPage = () => {
     if (!window.confirm('Apakah Anda yakin ingin menghapus transaksi ini?')) {
       return;
     }
-
     try {
       await apiClient.delete(`/cash/transactions/${id}`);
       fetchTransactions();
@@ -225,7 +229,7 @@ const TempoManagementPage = () => {
       description: '',
       reference_number: '',
       account: 'General',
-      transaction_date: new Date().toISOString().split('T')[0]
+      transaction_date: new Date().toISOString().split('T')[0],
     });
   };
 
@@ -233,7 +237,7 @@ const TempoManagementPage = () => {
     return new Intl.NumberFormat('id-ID', {
       style: 'currency',
       currency: 'IDR',
-      minimumFractionDigits: 0
+      minimumFractionDigits: 0,
     }).format(amount);
   };
 
@@ -241,7 +245,7 @@ const TempoManagementPage = () => {
     return new Date(dateString).toLocaleDateString('id-ID', {
       year: 'numeric',
       month: 'short',
-      day: 'numeric'
+      day: 'numeric',
     });
   };
 
@@ -298,7 +302,7 @@ const TempoManagementPage = () => {
             <label className="block text-sm font-medium text-gray-700 mb-1">Tipe</label>
             <select
               value={filters.transaction_type}
-              onChange={(e) => setFilters(prev => ({ ...prev, transaction_type: e.target.value }))}
+              onChange={(e) => setFilters((prev) => ({ ...prev, transaction_type: e.target.value }))}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             >
               <option value="">Semua Tipe</option>
@@ -307,27 +311,24 @@ const TempoManagementPage = () => {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Kategori
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Kategori</label>
             <select
               value={formData.category_id}
-              onChange={(e) => setFormData(prev => ({ ...prev, category_id: e.target.value }))}
+              onChange={(e) => setFormData((prev) => ({ ...prev, category_id: e.target.value }))}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             >
               <option value="">Pilih Kategori</option>
               {categories
-                .filter(cat => 
-                  (formData.transaction_type === 'debit_tempo' && cat.category_type === 'income') ||
-                  (formData.transaction_type === 'kredit_tempo' && cat.category_type === 'expense')
+                .filter(
+                  (cat) =>
+                    (formData.transaction_type === 'debit_tempo' && cat.category_type === 'income') ||
+                    (formData.transaction_type === 'kredit_tempo' && cat.category_type === 'expense')
                 )
-                .map(category => (
+                .map((category) => (
                   <option key={category.id} value={category.id}>
                     {category.category_name}
                   </option>
                 ))}
-              
-              {/* Special categories */}
               {formData.transaction_type === 'kredit_tempo' && (
                 <option value="inventory_redirect">Inventory (Pembelian Stok)</option>
               )}
@@ -341,7 +342,7 @@ const TempoManagementPage = () => {
             <input
               type="date"
               value={filters.date_from}
-              onChange={(e) => setFilters(prev => ({ ...prev, date_from: e.target.value }))}
+              onChange={(e) => setFilters((prev) => ({ ...prev, date_from: e.target.value }))}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             />
           </div>
@@ -350,7 +351,7 @@ const TempoManagementPage = () => {
             <input
               type="date"
               value={filters.date_to}
-              onChange={(e) => setFilters(prev => ({ ...prev, date_to: e.target.value }))}
+              onChange={(e) => setFilters((prev) => ({ ...prev, date_to: e.target.value }))}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             />
           </div>
@@ -360,17 +361,15 @@ const TempoManagementPage = () => {
               type="text"
               placeholder="Deskripsi atau referensi..."
               value={filters.search}
-              onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+              onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Akun
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Akun</label>
             <select
               value={filters.account}
-              onChange={(e) => setFilters(prev => ({ ...prev, account: e.target.value }))}
+              onChange={(e) => setFilters((prev) => ({ ...prev, account: e.target.value }))}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             >
               <option value="All">Semua Akun</option>
@@ -390,9 +389,9 @@ const TempoManagementPage = () => {
                 date_from: '',
                 date_to: '',
                 search: '',
-                account: 'All'
+                account: 'All',
               });
-              setPagination(prev => ({ ...prev, page: 1 }));
+              setPagination((prev) => ({ ...prev, page: 1 }));
             }}
             className="bg-gray-500 hover:bg-gray-700 text-white px-4 py-2 rounded"
           >
@@ -443,11 +442,13 @@ const TempoManagementPage = () => {
                     {formatDate(transaction.transaction_date)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                      transaction.transaction_type === 'debit_tempo' 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-red-100 text-red-800'
-                    }`}>
+                    <span
+                      className={`px-2 py-1 text-xs font-medium rounded-full ${
+                        transaction.transaction_type === 'debit_tempo'
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-red-100 text-red-800'
+                      }`}
+                    >
                       {transaction.transaction_type === 'debit_tempo' ? 'Debit Tempo' : 'Kredit Tempo'}
                     </span>
                   </td>
@@ -464,16 +465,12 @@ const TempoManagementPage = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
                     {transaction.transaction_type === 'debit_tempo' ? (
-                      <span className="text-green-600 font-medium">
-                        {formatCurrency(transaction.amount)}
-                      </span>
+                      <span className="text-green-600 font-medium">{formatCurrency(transaction.amount)}</span>
                     ) : '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
                     {transaction.transaction_type === 'kredit_tempo' ? (
-                      <span className="text-red-600 font-medium">
-                        {formatCurrency(transaction.amount)}
-                      </span>
+                      <span className="text-red-600 font-medium">{formatCurrency(transaction.amount)}</span>
                     ) : '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium">
@@ -483,9 +480,7 @@ const TempoManagementPage = () => {
                       </span>
                     ) : '-'}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {transaction.account}
-                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{transaction.account}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
                     <div className="flex justify-center space-x-2">
                       <button
@@ -494,10 +489,10 @@ const TempoManagementPage = () => {
                       >
                         Edit
                       </button>
-                      {/* New "Lunasi" button */}
-                      {(transaction.transaction_type === 'debit_tempo' || transaction.transaction_type === 'kredit_tempo') && (
+                      {(transaction.transaction_type === 'debit_tempo' ||
+                        transaction.transaction_type === 'kredit_tempo') && (
                         <button
-                          onClick={() => handleLunasi(transaction.id, transaction.transaction_type)}
+                          onClick={() => handleLunasi(transaction)}
                           className="text-green-600 hover:text-green-900"
                         >
                           Lunasi
@@ -520,8 +515,18 @@ const TempoManagementPage = () => {
         {transactions.length === 0 && (
           <div className="text-center py-10 text-gray-500">
             <div className="mb-4">
-              <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              <svg
+                className="mx-auto h-12 w-12 text-gray-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                />
               </svg>
             </div>
             <h3 className="text-lg font-medium text-gray-900 mb-2">Belum Ada Transaksi Tempo</h3>
@@ -534,14 +539,16 @@ const TempoManagementPage = () => {
           <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200">
             <div className="flex-1 flex justify-between sm:hidden">
               <button
-                onClick={() => setPagination(prev => ({ ...prev, page: Math.max(1, prev.page - 1) }))}
+                onClick={() => setPagination((prev) => ({ ...prev, page: Math.max(1, prev.page - 1) }))}
                 disabled={pagination.page === 1}
                 className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
               >
                 Previous
               </button>
               <button
-                onClick={() => setPagination(prev => ({ ...prev, page: Math.min(prev.totalPages, prev.page + 1) }))}
+                onClick={() =>
+                  setPagination((prev) => ({ ...prev, page: Math.min(prev.totalPages, prev.page + 1) }))
+                }
                 disabled={pagination.page === pagination.totalPages}
                 className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
               >
@@ -551,17 +558,15 @@ const TempoManagementPage = () => {
             <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
               <div>
                 <p className="text-sm text-gray-700">
-                  Showing <span className="font-medium">{((pagination.page - 1) * pagination.limit) + 1}</span> to{' '}
-                  <span className="font-medium">
-                    {Math.min(pagination.page * pagination.limit, pagination.total)}
-                  </span> of{' '}
-                  <span className="font-medium">{pagination.total}</span> results
+                  Showing <span className="font-medium">{(pagination.page - 1) * pagination.limit + 1}</span> to{' '}
+                  <span className="font-medium">{Math.min(pagination.page * pagination.limit, pagination.total)}</span>{' '}
+                  of <span className="font-medium">{pagination.total}</span> results
                 </p>
               </div>
               <div>
                 <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
                   <button
-                    onClick={() => setPagination(prev => ({ ...prev, page: Math.max(1, prev.page - 1) }))}
+                    onClick={() => setPagination((prev) => ({ ...prev, page: Math.max(1, prev.page - 1) }))}
                     disabled={pagination.page === 1}
                     className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
                   >
@@ -572,7 +577,7 @@ const TempoManagementPage = () => {
                     return (
                       <button
                         key={page}
-                        onClick={() => setPagination(prev => ({ ...prev, page }))}
+                        onClick={() => setPagination((prev) => ({ ...prev, page }))}
                         className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
                           pagination.page === page
                             ? 'z-10 bg-blue-50 border-blue-500 text-blue-600'
@@ -584,7 +589,9 @@ const TempoManagementPage = () => {
                     );
                   })}
                   <button
-                    onClick={() => setPagination(prev => ({ ...prev, page: Math.min(prev.totalPages, prev.page + 1) }))}
+                    onClick={() =>
+                      setPagination((prev) => ({ ...prev, page: Math.min(prev.totalPages, prev.page + 1) }))
+                    }
                     disabled={pagination.page === pagination.totalPages}
                     className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
                   >
@@ -607,12 +614,10 @@ const TempoManagementPage = () => {
               </h3>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Akun *
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Akun *</label>
                   <select
                     value={formData.account}
-                    onChange={(e) => setFormData(prev => ({ ...prev, account: e.target.value }))}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, account: e.target.value }))}
                     className="w-full border border-gray-300 rounded-md px-3 py-2"
                     required
                   >
@@ -623,16 +628,14 @@ const TempoManagementPage = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Tipe Transaksi *
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipe Transaksi *</label>
                   <select
                     value={formData.transaction_type}
                     onChange={(e) => {
-                      setFormData(prev => ({ 
-                        ...prev, 
+                      setFormData((prev) => ({
+                        ...prev,
                         transaction_type: e.target.value as 'debit_tempo' | 'kredit_tempo',
-                        category_id: '' // Reset category when type changes
+                        category_id: '',
                       }));
                       setIsSpecialCategory(false);
                     }}
@@ -643,11 +646,8 @@ const TempoManagementPage = () => {
                     <option value="kredit_tempo">Kredit Tempo (Pengeluaran)</option>
                   </select>
                 </div>
-
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Kategori
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Kategori</label>
                   <select
                     value={formData.category_id}
                     onChange={handleCategoryChange}
@@ -655,17 +655,16 @@ const TempoManagementPage = () => {
                   >
                     <option value="">Pilih Kategori</option>
                     {categories
-                      .filter(cat => 
-                        (formData.transaction_type === 'debit_tempo' && cat.category_type === 'income') ||
-                        (formData.transaction_type === 'kredit_tempo' && cat.category_type === 'expense')
+                      .filter(
+                        (cat) =>
+                          (formData.transaction_type === 'debit_tempo' && cat.category_type === 'income') ||
+                          (formData.transaction_type === 'kredit_tempo' && cat.category_type === 'expense')
                       )
-                      .map(category => (
+                      .map((category) => (
                         <option key={category.id} value={category.id}>
                           {category.category_name}
                         </option>
                       ))}
-                    
-                    {/* Special categories */}
                     {formData.transaction_type === 'kredit_tempo' && (
                       <option value="inventory_redirect">Inventory (Pembelian Stok)</option>
                     )}
@@ -674,67 +673,53 @@ const TempoManagementPage = () => {
                     )}
                   </select>
                 </div>
-
-                {/* Conditionally render other fields only if not special category */}
                 {!isSpecialCategory && (
                   <>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Jumlah *
-                      </label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Jumlah *</label>
                       <input
                         type="number"
                         step="0.01"
                         value={formData.amount}
-                        onChange={(e) => setFormData(prev => ({ ...prev, amount: e.target.value }))}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, amount: e.target.value }))}
                         className="w-full border border-gray-300 rounded-md px-3 py-2"
                         placeholder="0"
                         required={!isSpecialCategory}
                       />
                     </div>
-
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Deskripsi *
-                      </label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Deskripsi *</label>
                       <textarea
                         value={formData.description}
-                        onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
                         className="w-full border border-gray-300 rounded-md px-3 py-2"
                         rows={3}
                         placeholder="Deskripsi transaksi..."
                         required={!isSpecialCategory}
                       />
                     </div>
-
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Nomor Referensi
-                      </label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Nomor Referensi</label>
                       <input
                         type="text"
                         value={formData.reference_number}
-                        onChange={(e) => setFormData(prev => ({ ...prev, reference_number: e.target.value }))}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, reference_number: e.target.value }))}
                         className="w-full border border-gray-300 rounded-md px-3 py-2"
                         placeholder="Nomor referensi (opsional)"
                       />
                     </div>
-
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Tanggal Transaksi *
-                      </label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal Transaksi *</label>
                       <input
                         type="date"
                         value={formData.transaction_date}
-                        onChange={(e) => setFormData(prev => ({ ...prev, transaction_date: e.target.value }))}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, transaction_date: e.target.value }))}
                         className="w-full border border-gray-300 rounded-md px-3 py-2"
                         required={!isSpecialCategory}
                       />
                     </div>
                   </>
                 )}
-
                 {isSpecialCategory && (
                   <div className="bg-blue-50 p-3 rounded-md text-blue-800">
                     {formData.category_id === 'inventory_redirect' ? (
@@ -744,7 +729,6 @@ const TempoManagementPage = () => {
                     )}
                   </div>
                 )}
-
                 <div className="flex justify-end space-x-3 pt-4">
                   <button
                     type="button"
@@ -766,6 +750,54 @@ const TempoManagementPage = () => {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lunasi Modal */}
+      {showLunasiModal && selectedTransaction && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div className="mt-3">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Lunasi Transaksi Tempo</h3>
+              <div className="space-y-4">
+                <p>Deskripsi: {selectedTransaction.description}</p>
+                <p>Jumlah: {formatCurrency(selectedTransaction.amount)}</p>
+                <p>Tipe saat ini: {selectedTransaction.transaction_type}</p>
+                <p>Tipe baru: {selectedTransaction.transaction_type === 'debit_tempo' ? 'debit' : 'kredit'}</p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Pilih Akun</label>
+                  <select
+                    value={selectedAccount}
+                    onChange={(e) => setSelectedAccount(e.target.value)}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2"
+                  >
+                    <option value="">Pilih Akun</option>
+                    <option value="Ewaldo">Ewaldo</option>
+                    <option value="Malvin">Malvin</option>
+                    <option value="Company">Company</option>
+                    <option value="General">General</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex justify-end space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowLunasiModal(false)}
+                  className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmLunasi}
+                  disabled={!selectedAccount}
+                  className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
+                >
+                  Lunasi
+                </button>
+              </div>
             </div>
           </div>
         </div>

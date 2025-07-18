@@ -407,6 +407,7 @@ INSERT INTO delivery_orders (
   purchase_order_id, 
   driver_id, 
   vehicle_id, 
+  do_name,
   do_number, 
   customer_name, 
   item_name, 
@@ -440,6 +441,7 @@ INSERT INTO delivery_orders (
   (SELECT id FROM purchase_orders WHERE po_number = 'PO/JAYA/06/2025-04'),
   (SELECT id FROM users WHERE username = 'supir_dedi'),
   (SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL'),
+  'PT KONSTRUKSI - DO-250610-01',
   'DO-250610-01',
   'PT JAYA KONSTRUKSI',
   'Pasir Urug',
@@ -474,6 +476,7 @@ INSERT INTO delivery_orders (
   (SELECT id FROM purchase_orders WHERE po_number = 'PO/JAYA/06/2025-04'),
   (SELECT id FROM users WHERE username = 'supir_dedi'),
   (SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL'),
+  'PT KONSTRUKSI - DO-250630-02',
   'DO-250630-02',
   'PT JAYA KONSTRUKSI',
   'Pasir Urug',
@@ -671,6 +674,7 @@ INSERT INTO delivery_orders (
   purchase_order_id, 
   driver_id, 
   vehicle_id, 
+  do_name,
   do_number, 
   customer_name, 
   item_name, 
@@ -704,6 +708,7 @@ INSERT INTO delivery_orders (
   (SELECT id FROM purchase_orders WHERE po_number = 'PO/ADRO/07/2025-01'),
   (SELECT id FROM users WHERE username = 'supir_yoyo'),
   (SELECT id FROM vehicles WHERE license_plate = 'BE 9090 AC'),
+  'PT ADARO MINERALS - DO-250110-01',
   'DO-250110-01',
   'PT ADARO MINERALS',
   'Batu Split',
@@ -738,6 +743,7 @@ INSERT INTO delivery_orders (
   (SELECT id FROM purchase_orders WHERE po_number = 'PO/ADRO/07/2025-01'),
   (SELECT id FROM users WHERE username = 'supir_yoyo'),
   (SELECT id FROM vehicles WHERE license_plate = 'BE 9090 AC'),
+  'PT ADARO MINERALS - DO-250129-02',
   'DO-250129-02',
   'PT ADARO MINERALS',
   'Batu Split',
@@ -927,7 +933,7 @@ ON CONFLICT (po_number) DO NOTHING;
 
 -- DO #1: COMPLETED - Ready for Invoice (Andi) - 300 ton
 INSERT INTO delivery_orders (
-  purchase_order_id, driver_id, vehicle_id, do_number, customer_name, item_name,
+  purchase_order_id, driver_id, vehicle_id, do_name, do_number, customer_name, item_name,
   minimal_load_quantity, actual_load_quantity, unit, unit_price, total_amount,
   trip_allowance, gaji, ongkosan, final_amount,
   load_location, unload_location, 
@@ -939,6 +945,7 @@ INSERT INTO delivery_orders (
   (SELECT id FROM purchase_orders WHERE po_number = 'PO/TESTING/07/2025-001'),
   (SELECT id FROM users WHERE username = 'supir_andi'),
   (SELECT id FROM vehicles WHERE license_plate = 'B 1234 ABC'),
+  'PT MAJU SEJAHTERA - DO-20250702-ANDI-001',
   'DO-20250702-ANDI-001',
   'PT MAJU SEJAHTERA TESTING',
   'Pasir Silika',
@@ -966,7 +973,7 @@ INSERT INTO delivery_orders (
 
 -- DO #2: COMPLETED with FULL PAYMENT CYCLE (Budi) - 280 ton
 INSERT INTO delivery_orders (
-  purchase_order_id, driver_id, vehicle_id, do_number, customer_name, item_name,
+  purchase_order_id, driver_id, vehicle_id, do_name, do_number, customer_name, item_name,
   minimal_load_quantity, actual_load_quantity, unit, unit_price, total_amount,
   trip_allowance, gaji, ongkosan, final_amount,
   load_location, unload_location,
@@ -978,6 +985,7 @@ INSERT INTO delivery_orders (
   (SELECT id FROM purchase_orders WHERE po_number = 'PO/TESTING/07/2025-001'),
   (SELECT id FROM users WHERE username = 'supir_budi'),
   (SELECT id FROM vehicles WHERE license_plate = 'B 5678 DEF'),
+  'PT MAJU SEJAHTERA - DO-20250703-BUDI-002',
   'DO-20250703-BUDI-002',
   'PT MAJU SEJAHTERA TESTING',
   'Pasir Silika',
@@ -1042,7 +1050,7 @@ INSERT INTO delivery_order_payments (
 
 -- DO #3: HAS INVOICE but UNPAID (Charlie) - 250 ton
 INSERT INTO delivery_orders (
-  purchase_order_id, driver_id, vehicle_id, do_number, customer_name, item_name,
+  purchase_order_id, driver_id, vehicle_id, do_name, do_number, customer_name, item_name,
   minimal_load_quantity, actual_load_quantity, unit, unit_price, total_amount,
   trip_allowance, gaji, ongkosan, final_amount,
   load_location, unload_location,
@@ -1054,6 +1062,7 @@ INSERT INTO delivery_orders (
   (SELECT id FROM purchase_orders WHERE po_number = 'PO/TESTING/07/2025-001'),
   (SELECT id FROM users WHERE username = 'supir_charlie'),
   (SELECT id FROM vehicles WHERE license_plate = 'B 9012 GHI'),
+  'PT MAJU SEJAHTERA - DO-20250704-CHARLIE-003',
   'DO-20250704-CHARLIE-003',
   'PT MAJU SEJAHTERA TESTING',
   'Pasir Silika',
@@ -1100,7 +1109,7 @@ INSERT INTO delivery_order_invoices (
 
 -- DO #4: COMPLETED - Ready for Invoice (Dedi) - 200 ton
 INSERT INTO delivery_orders (
-  purchase_order_id, driver_id, vehicle_id, do_number, customer_name, item_name,
+  purchase_order_id, driver_id, vehicle_id, do_name, do_number, customer_name, item_name,
   minimal_load_quantity, actual_load_quantity, unit, unit_price, total_amount,
   trip_allowance, gaji, ongkosan, final_amount,
   load_location, unload_location,
@@ -1112,6 +1121,7 @@ INSERT INTO delivery_orders (
   (SELECT id FROM purchase_orders WHERE po_number = 'PO/TESTING/07/2025-001'),
   (SELECT id FROM users WHERE username = 'supir_dedi'),
   (SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL'),
+  'PT MAJU SEJAHTERA - DO-20250705-DEDI-004',
   'DO-20250705-DEDI-004',
   'PT MAJU SEJAHTERA TESTING',
   'Pasir Silika',
@@ -1139,7 +1149,7 @@ INSERT INTO delivery_orders (
 
 -- DO #5: COMPLETED with PARTIAL PAYMENT (Yoyo) - 320 ton
 INSERT INTO delivery_orders (
-  purchase_order_id, driver_id, vehicle_id, do_number, customer_name, item_name,
+  purchase_order_id, driver_id, vehicle_id, do_name, do_number, customer_name, item_name,
   minimal_load_quantity, actual_load_quantity, unit, unit_price, total_amount,
   trip_allowance, gaji, ongkosan, final_amount,
   load_location, unload_location,
@@ -1151,6 +1161,7 @@ INSERT INTO delivery_orders (
   (SELECT id FROM purchase_orders WHERE po_number = 'PO/TESTING/07/2025-001'),
   (SELECT id FROM users WHERE username = 'supir_yoyo'),
   (SELECT id FROM vehicles WHERE license_plate = 'BE 9090 AC'),
+  'PT MAJU SEJAHTERA - DO-20250706-YOYO-005',
   'DO-20250706-YOYO-005',
   'PT MAJU SEJAHTERA TESTING',
   'Pasir Silika',
@@ -1215,7 +1226,7 @@ INSERT INTO delivery_order_payments (
 
 -- DO #6: ONGOING - At Unload Location (Eko) - 350 ton ✅ This makes Eko BUSY
 INSERT INTO delivery_orders (
-  purchase_order_id, driver_id, vehicle_id, do_number, customer_name, item_name,
+  purchase_order_id, driver_id, vehicle_id, do_name, do_number, customer_name, item_name,
   minimal_load_quantity, actual_load_quantity, unit, unit_price, total_amount,
   trip_allowance, gaji, ongkosan, final_amount,
   load_location, unload_location,
@@ -1227,6 +1238,7 @@ INSERT INTO delivery_orders (
   (SELECT id FROM purchase_orders WHERE po_number = 'PO/TESTING/07/2025-001'),
   (SELECT id FROM users WHERE username = 'supir_eko'),
   (SELECT id FROM vehicles WHERE license_plate = 'B 7890 MNO'),
+  'PT MAJU SEJAHTERA - DO-20250709-EKO-006',
   'DO-20250709-EKO-006',
   'PT MAJU SEJAHTERA TESTING',
   'Pasir Silika',

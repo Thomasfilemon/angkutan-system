@@ -57,6 +57,7 @@ exports.createDeliveryOrder = async (req, res, next) => {
       unload_longitude,
       payment_status = "proses_tagihan",
       status = "assigned",
+      do_name, // Add the new field
     } = req.body;
 
     // ✅ Validate required fields
@@ -77,6 +78,16 @@ exports.createDeliveryOrder = async (req, res, next) => {
         message: "Invalid unit. Must be one of: kilogram, ton, kubik",
       });
     }
+
+    // ✅ Validate do_name field (optional, add if mandatory)
+    // Uncomment if do_name is required:
+    // if (!do_name) {
+    //   await transaction.rollback();
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: "Delivery order do_name is required",
+    //   });
+    // }
 
     // ✅ Get unit and unit_price from PO if not provided
     let finalUnit = unit;
@@ -215,6 +226,7 @@ exports.createDeliveryOrder = async (req, res, next) => {
         driver_id,
         vehicle_id,
         do_number,
+        do_name, // Include the new field
         customer_name,
         item_name,
         minimal_load_quantity,
@@ -266,7 +278,7 @@ exports.createDeliveryOrder = async (req, res, next) => {
             to: driverUser.expo_push_token,
             sound: "default",
             title: "Tugas Pengantaran Baru",
-            body: `Halo ${driverName}, Anda telah ditugaskan untuk DO ${deliveryOrder.do_number}. Silakan cek detail pengantaran di aplikasi.`,
+            body: `Halo ${driverName}, Anda telah ditugaskan untuk DO ${deliveryOrder.do_name || deliveryOrder.do_number}. Silakan cek detail pengantaran di aplikasi.`,
             data: { do_number: deliveryOrder.do_number },
           },
         ];
@@ -312,7 +324,7 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
       limit = 10,
       search,
       po_id,
-      big_do_filter, // <-- ADD THIS
+      big_do_filter,
     } = req.query;
     const offset = (page - 1) * limit;
 
@@ -326,6 +338,7 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
     if (search) {
       whereClause[Op.or] = [
         { do_number: { [Op.iLike]: `%${search}%` } },
+        { do_name: { [Op.iLike]: `%${search}%` } }, // Add search by do_name
         { customer_name: { [Op.iLike]: `%${search}%` } },
         { item_name: { [Op.iLike]: `%${search}%` } },
       ];
@@ -348,49 +361,47 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
       };
     }
 
-    const { count, rows: deliveryOrders } = await DeliveryOrder.findAndCountAll(
-      {
-        where: whereClause,
-        include: [
-          {
-            model: PurchaseOrder,
-            as: "purchaseOrder",
-            attributes: [
-              "po_number",
-              "customer_name",
-              "total_quantity",
-              "unit",
-            ],
-          },
-          {
-            model: User,
-            as: "driver",
-            attributes: ["id", "username"],
-            include: [
-              {
-                model: DriverProfile,
-                as: "driverProfile",
-                attributes: ["full_name", "phone"],
-              },
-            ],
-          },
-          {
-            model: Vehicle,
-            as: "vehicle",
-            attributes: ["license_plate", "type", "capacity"],
-          },
-          {
-            model: BigDeliveryOrder,
-            as: "bigDeliveryOrderAsMain",
-            attributes: ["big_do_number", "status", "total_trip_allowance"],
-            required: false,
-          },
-        ],
-        order: [["created_at", "DESC"]],
-        limit: parseInt(limit),
-        offset: parseInt(offset),
-      }
-    );
+    const { count, rows: deliveryOrders } = await DeliveryOrder.findAndCountAll({
+      where: whereClause,
+      include: [
+        {
+          model: PurchaseOrder,
+          as: "purchaseOrder",
+          attributes: [
+            "po_number",
+            "customer_name",
+            "total_quantity",
+            "unit",
+          ],
+        },
+        {
+          model: User,
+          as: "driver",
+          attributes: ["id", "username"],
+          include: [
+            {
+              model: DriverProfile,
+              as: "driverProfile",
+              attributes: ["full_name", "phone"],
+            },
+          ],
+        },
+        {
+          model: Vehicle,
+          as: "vehicle",
+          attributes: ["license_plate", "type", "capacity"],
+        },
+        {
+          model: BigDeliveryOrder,
+          as: "bigDeliveryOrderAsMain",
+          attributes: ["big_do_number", "status", "total_trip_allowance"],
+          required: false,
+        },
+      ],
+      order: [["created_at", "DESC"]],
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+    });
 
     // ✅ Enhance data with computed fields
     const enhancedDOs = deliveryOrders.map((dOrder) => {
@@ -608,7 +619,29 @@ exports.getDeliveryOrderById = async (req, res, next) => {
 exports.updateDeliveryOrder = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const updateData = req.body;
+    const {
+      purchase_order_id,
+      vehicle_id,
+      driver_id,
+      customer_name,
+      item_name,
+      minimal_load_quantity,
+      unit,
+      unit_price,
+      total_amount,
+      trip_allowance,
+      gaji,
+      ongkosan,
+      load_location,
+      unload_location,
+      load_latitude,
+      load_longitude,
+      unload_latitude,
+      unload_longitude,
+      payment_status,
+      status,
+      do_name, // Add the new field
+    } = req.body;
 
     const deliveryOrder = await DeliveryOrder.findByPk(id);
 
@@ -620,10 +653,7 @@ exports.updateDeliveryOrder = async (req, res, next) => {
     }
 
     // ✅ Validate unit if being updated
-    if (
-      updateData.unit &&
-      !["kilogram", "ton", "kubik"].includes(updateData.unit)
-    ) {
+    if (unit && !["kilogram", "ton", "kubik"].includes(unit)) {
       return res.status(400).json({
         success: false,
         message: "Invalid unit. Must be one of: kilogram, ton, kubik",
@@ -631,24 +661,45 @@ exports.updateDeliveryOrder = async (req, res, next) => {
     }
 
     // ✅ Recalculate total_amount if relevant fields change
-    if (
-      updateData.minimal_load_quantity ||
-      updateData.unit_price ||
-      updateData.unit
-    ) {
-      const quantity =
-        updateData.minimal_load_quantity || deliveryOrder.minimal_load_quantity;
-      const unitPrice = updateData.unit_price || deliveryOrder.unit_price;
-      const unit = updateData.unit || deliveryOrder.unit || "ton";
+    let calculatedTotalAmount = total_amount;
+    if (minimal_load_quantity || unit_price || unit) {
+      const quantity = minimal_load_quantity || deliveryOrder.minimal_load_quantity;
+      const unitPrice = unit_price || deliveryOrder.unit_price;
+      const finalUnit = unit || deliveryOrder.unit || "ton";
 
-      if (quantity && unitPrice && unit) {
-        updateData.total_amount = calculateTotalAmount(
+      if (quantity && unitPrice && finalUnit) {
+        calculatedTotalAmount = calculateTotalAmount(
           quantity,
           unitPrice,
-          unit
+          finalUnit
         );
       }
     }
+
+    // ✅ Prepare update data
+    const updateData = {
+      purchase_order_id: purchase_order_id !== undefined ? purchase_order_id : deliveryOrder.purchase_order_id,
+      vehicle_id: vehicle_id !== undefined ? vehicle_id : deliveryOrder.vehicle_id,
+      driver_id: driver_id !== undefined ? driver_id : deliveryOrder.driver_id,
+      customer_name: customer_name !== undefined ? customer_name : deliveryOrder.customer_name,
+      item_name: item_name !== undefined ? item_name : deliveryOrder.item_name,
+      minimal_load_quantity: minimal_load_quantity !== undefined ? minimal_load_quantity : deliveryOrder.minimal_load_quantity,
+      unit: unit !== undefined ? unit : deliveryOrder.unit,
+      unit_price: unit_price !== undefined ? unit_price : deliveryOrder.unit_price,
+      total_amount: calculatedTotalAmount !== undefined ? calculatedTotalAmount : deliveryOrder.total_amount,
+      trip_allowance: trip_allowance !== undefined ? trip_allowance : deliveryOrder.trip_allowance,
+      gaji: gaji !== undefined ? gaji : deliveryOrder.gaji,
+      ongkosan: ongkosan !== undefined ? ongkosan : deliveryOrder.ongkosan,
+      load_location: load_location !== undefined ? load_location : deliveryOrder.load_location,
+      unload_location: unload_location !== undefined ? unload_location : deliveryOrder.unload_location,
+      load_latitude: load_latitude !== undefined ? load_latitude : deliveryOrder.load_latitude,
+      load_longitude: load_longitude !== undefined ? load_longitude : deliveryOrder.load_longitude,
+      unload_latitude: unload_latitude !== undefined ? unload_latitude : deliveryOrder.unload_latitude,
+      unload_longitude: unload_longitude !== undefined ? unload_longitude : deliveryOrder.unload_longitude,
+      payment_status: payment_status !== undefined ? payment_status : deliveryOrder.payment_status,
+      status: status !== undefined ? status : deliveryOrder.status,
+      do_name: do_name !== undefined ? do_name : deliveryOrder.do_name, // Include the new field
+    };
 
     const updatedDO = await deliveryOrder.update(updateData);
 

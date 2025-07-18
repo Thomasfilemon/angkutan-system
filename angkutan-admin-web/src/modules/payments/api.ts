@@ -101,7 +101,7 @@ export const paymentsApi = {
       payment_date?: string;
       bank_account?: string;
       notes?: string;
-      attachment_url?: string;
+      attachment_urls?: Array<string>; // Changed to plural to match model
     }
   ) => apiClient.post(`/payments/delivery-orders/${doId}`, payload),
 

@@ -35,6 +35,9 @@ const setupTireInstanceModel = require("./tireInstance.model");
 const setupCashCategoryModel = require("./cashCategory.model");
 const setupCashTransactionModel = require("./cashTransaction.model");
 
+const setupDepositGroupModel = require("./depositGroup.model");
+const setupDepositGroupMemberModel = require("./depositGroupMember.model");
+
 // Initialize Sequelize connection using your .env variables
 const sequelize = new Sequelize(
   process.env.DB_NAME,
@@ -93,6 +96,9 @@ db.TireInstance = setupTireInstanceModel(sequelize);
 db.CashCategory = setupCashCategoryModel(sequelize);
 db.CashTransaction = setupCashTransactionModel(sequelize);
 
+db.DepositGroup = setupDepositGroupModel(sequelize);
+db.DepositGroupMember = setupDepositGroupMemberModel(sequelize);
+
 const {
   User,
   DriverProfile,
@@ -120,6 +126,8 @@ const {
   DeliveryOrderAdjustments,
   DeliveryOrderPaymentHistory,
   SystemSettings,
+  DepositGroup,
+  DepositGroupMember,
 } = db;
 
 // User <-> Profile Associations (One-to-One)
@@ -435,6 +443,26 @@ CashCategory.hasMany(CashTransaction, {
 CashTransaction.belongsTo(CashCategory, {
   foreignKey: "category_id",
   as: "category",
+});
+
+// DepositGroup to DepositGroupMember (One-to-Many)
+DepositGroup.hasMany(DepositGroupMember, {
+  foreignKey: "group_id",
+  as: "members",
+});
+DepositGroupMember.belongsTo(DepositGroup, {
+  foreignKey: "group_id",
+  as: "depositGroup",
+});
+
+// DeliveryOrder to DepositGroupMember (One-to-Many)
+DeliveryOrder.hasMany(DepositGroupMember, {
+  foreignKey: "delivery_order_id",
+  as: "groupMemberships",
+});
+DepositGroupMember.belongsTo(DeliveryOrder, {
+  foreignKey: "delivery_order_id",
+  as: "deliveryOrder",
 });
 
 module.exports = db;
