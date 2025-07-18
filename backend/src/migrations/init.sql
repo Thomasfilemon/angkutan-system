@@ -149,16 +149,17 @@ CREATE TABLE stock_batches (
     id SERIAL PRIMARY KEY,
     item_id INTEGER REFERENCES stock_items(id) ON DELETE CASCADE,
     batch_number VARCHAR(100) NOT NULL,
-    purchase_price NUMERIC(15,2) NOT NULL,
-    initial_quantity NUMERIC(10,2) NOT NULL,
-    remaining_quantity NUMERIC(10,2) NOT NULL,
+    quantity NUMERIC(10,2) NOT NULL DEFAULT 0,
+    original_quantity NUMERIC(10,2) NOT NULL, -- Original quantity when batch was created
+    unit_price NUMERIC(15,2) NOT NULL,
     purchase_date DATE NOT NULL DEFAULT CURRENT_DATE,
     supplier VARCHAR(255),
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    CONSTRAINT check_quantities CHECK (remaining_quantity >= 0 AND remaining_quantity <= initial_quantity)
+    UNIQUE(item_id, batch_number)
 );
+
 
 -- Modified stock_transactions table with batch tracking
 CREATE TABLE stock_transactions (
@@ -321,30 +322,22 @@ CREATE TABLE delivery_orders (
 
 CREATE TABLE big_delivery_orders (
   id SERIAL PRIMARY KEY,
-  
-  -- Foreign Keys
   main_delivery_order_id INTEGER NOT NULL REFERENCES delivery_orders(id) ON DELETE CASCADE,
   driver_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
-  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, -- ✅ Added for audit
-  
-  -- Basic Info
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, 
   big_do_number VARCHAR(50) UNIQUE NOT NULL,
-  
-  -- Financial Aggregation
+
   total_trip_allowance DECIMAL(15,2) NOT NULL DEFAULT 0 CHECK (total_trip_allowance >= 0),
   total_gaji DECIMAL(15,2) NOT NULL DEFAULT 0 CHECK (total_gaji >= 0),
   total_ongkosan DECIMAL(15,2) NOT NULL DEFAULT 0 CHECK (total_ongkosan >= 0),
   
-  -- Status (✅ Using ENUM)
   status big_do_status NOT NULL DEFAULT 'assigned',
   
-  -- Timestamps
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   started_at TIMESTAMP,
   completed_at TIMESTAMP,
   
-  -- Notes
   notes TEXT,
   cancellation_reason TEXT
 );
@@ -422,9 +415,6 @@ CREATE TABLE big_do_tambahan_status_history (
   FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
-
-
-
 -- BAGIAN 4: KEUANGAN & BIAYA
 -- =================================================================
 
@@ -455,15 +445,6 @@ CREATE TABLE delivery_order_invoices (
   created_by INTEGER REFERENCES users(id),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE accounting_ritase (
-  id SERIAL PRIMARY KEY,
-  delivery_order_id INTEGER REFERENCES delivery_orders(id) ON DELETE CASCADE,
-  ritase NUMERIC NOT NULL,
-  tarif NUMERIC NOT NULL,
-  total NUMERIC NOT NULL,
-  recorded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE TABLE office_expenses (
@@ -584,8 +565,8 @@ CREATE INDEX idx_stock_batches_purchase_date ON stock_batches(purchase_date);
 CREATE INDEX idx_stock_transactions_batch_id ON stock_transactions(batch_id);
 -- ✅ Corrected indexes for FIFO batch system
 CREATE INDEX idx_stock_items_min_stock ON stock_items(min_stock);
-CREATE INDEX idx_stock_batches_quantity ON stock_batches(remaining_quantity);
-CREATE INDEX idx_stock_batches_item_quantity ON stock_batches(item_id, remaining_quantity);
+CREATE INDEX idx_stock_batches_quantity ON stock_batches(quantity);
+CREATE INDEX idx_stock_batches_item_quantity ON stock_batches(item_id, quantity);
 CREATE INDEX idx_stock_transactions_item ON stock_transactions(item_id);
 CREATE INDEX idx_stock_transactions_date ON stock_transactions(transaction_date);
 CREATE INDEX idx_vehicle_services_vehicle ON vehicle_services(vehicle_id);
