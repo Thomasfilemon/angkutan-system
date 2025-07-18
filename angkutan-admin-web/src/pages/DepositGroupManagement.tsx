@@ -611,7 +611,10 @@ const residualSaldo = selectedGroup
                               {formatCurrency(member.deliveryOrder.paid_amount)}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600">
-                              {formatCurrency(member.deliveryOrder.unpaid_amount)}
+                              {formatCurrency(
+                                (member.deliveryOrder.final_amount ?? member.deliveryOrder.total_amount ?? 0)
+                                - (member.deliveryOrder.paid_amount ?? 0)
+                              )}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
                               <span className={`px-2 py-1 text-xs font-medium rounded-full ${
