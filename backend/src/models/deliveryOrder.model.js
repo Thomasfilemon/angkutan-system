@@ -1,4 +1,3 @@
-// src/models/deliveryOrder.model.js
 const { DataTypes, Sequelize } = require("sequelize");
 
 module.exports = (sequelize) => {
@@ -14,6 +13,12 @@ module.exports = (sequelize) => {
 
       // === BASIC INFO ===
       do_number: { type: DataTypes.STRING(50), allowNull: false, unique: true },
+      // Added name field here
+      do_name: {
+        type: DataTypes.STRING(100),
+        allowNull: true, // Set to false if mandatory
+        comment: "Human-readable name for the delivery order",
+      },
       customer_name: { type: DataTypes.STRING(100), allowNull: false },
       item_name: { type: DataTypes.STRING(100) },
 
@@ -303,24 +308,6 @@ module.exports = (sequelize) => {
       default:
         return actualQuantity * unitPrice;
     }
-  };
-
-  DeliveryOrder.prototype.getFinancialSummary = function () {
-    const actualTotalAmount = this.calculateActualTotalAmount();
-
-    return {
-      trip_allowance: parseFloat(this.trip_allowance) || 0,
-      gaji: parseFloat(this.gaji) || 0,
-      total_for_driver: this.getTotalDriverPayment(),
-      minimal_total_amount: parseFloat(this.total_amount) || 0,
-      actual_total_amount: actualTotalAmount,
-      ongkosan: parseFloat(this.ongkosan) || 0,
-      net_profit:
-        (actualTotalAmount || parseFloat(this.ongkosan) || 0) -
-        this.getTotalDriverPayment(),
-      unit: this.unit,
-      unit_display: this.getUnitDisplay(),
-    };
   };
 
   // 🎯 NEW: Get unit display text

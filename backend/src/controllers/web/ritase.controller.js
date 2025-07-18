@@ -518,11 +518,19 @@ exports.getPurchaseOrderPaymentDetail = async (req, res, next) => {
 };
 
 // ✅ 3. Get DO Payment Management Detail
+// ritase.controller.js
 exports.getDeliveryOrderPaymentDetail = async (req, res, next) => {
   try {
     const { do_id } = req.params;
 
-    // Get DO with comprehensive payment data
+    // Validate do_id
+    if (!do_id || isNaN(do_id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid delivery order ID",
+      });
+    }
+
     const deliveryOrder = await DeliveryOrder.findByPk(do_id, {
       include: [
         {
@@ -550,6 +558,21 @@ exports.getDeliveryOrderPaymentDetail = async (req, res, next) => {
         {
           model: DeliveryOrderPayments,
           as: "payments",
+          attributes: [
+            "id",
+            "delivery_order_id",
+            "invoice_id",
+            "payment_reference",
+            "payment_type",
+            "payment_amount",
+            "payment_date",
+            "received_by",
+            "bank_account",
+            "notes",
+            "attachment_urls", // ✅ Ensure this is plural
+            "created_by",
+            "created_at",
+          ],
           order: [["payment_date", "DESC"]],
         },
         {
@@ -578,37 +601,37 @@ exports.getDeliveryOrderPaymentDetail = async (req, res, next) => {
       });
     }
 
-    // Check if DO is eligible for payment management
     if (deliveryOrder.status !== "completed") {
       return res.status(400).json({
         success: false,
         message: "Delivery Order must be completed before payment management",
       });
     }
-    // Calculate payment summary
+
     const payments = deliveryOrder.payments || [];
     const invoices = deliveryOrder.invoices || [];
     const adjustments = deliveryOrder.adjustments || [];
-    // Get the latest payment status from history
     const latestPaymentStatus =
       deliveryOrder.paymentHistory?.[0]?.new_status ||
       deliveryOrder.payment_status;
     const actualQuantity =
       parseFloat(deliveryOrder.actual_load_quantity) ||
-      parseFloat(deliveryOrder.minimal_load_quantity);
-    const unitPrice = parseFloat(deliveryOrder.unit_price);
-    const unit = deliveryOrder.unit;
+      parseFloat(deliveryOrder.minimal_load_quantity) ||
+      0;
+    const unitPrice = parseFloat(deliveryOrder.unit_price) || 0;
+    const unit = deliveryOrder.unit || "kilogram";
 
     const calculateUnitAwareAmount = (quantity, unit, unitPrice) => {
       switch (unit) {
         case "kilogram":
           return quantity * unitPrice;
         case "ton":
-          return quantity * unitPrice; // Convert ton to kg
+          return quantity * unitPrice;
         case "kubik":
-          return quantity * unitPrice; // Direct volume pricing
+          return quantity * unitPrice;
         default:
-          throw new Error(`Unknown unit: ${unit}`);
+          console.warn(`Unknown unit: ${unit}, defaulting to zero`);
+          return 0;
       }
     };
 
@@ -618,13 +641,12 @@ exports.getDeliveryOrderPaymentDetail = async (req, res, next) => {
       unitPrice
     );
 
-    // Get tax and adjustments
     const totalAdjustments = adjustments.reduce(
-      (sum, adj) => sum + parseFloat(adj.adjustment_amount),
+      (sum, adj) => sum + (parseFloat(adj.adjustment_amount) || 0),
       0
     );
     const taxAmount = invoices.reduce(
-      (sum, inv) => sum + parseFloat(inv.pph_amount),
+      (sum, inv) => sum + (parseFloat(inv.pph_amount) || 0),
       0
     );
 
@@ -634,19 +656,19 @@ exports.getDeliveryOrderPaymentDetail = async (req, res, next) => {
         parseFloat(deliveryOrder.final_amount) ||
         parseFloat(deliveryOrder.ongkosan) ||
         correctTotalAmount,
-      calculated_bill: correctTotalAmount + taxAmount + totalAdjustments, // ✅ Fixed!
+      calculated_bill: correctTotalAmount + taxAmount + totalAdjustments,
       total_invoiced: invoices.reduce(
-        (sum, inv) => sum + parseFloat(inv.net_amount),
+        (sum, inv) => sum + (parseFloat(inv.net_amount) || 0),
         0
       ),
       total_paid: payments.reduce(
-        (sum, pay) => sum + parseFloat(pay.payment_amount),
+        (sum, pay) => sum + (parseFloat(pay.payment_amount) || 0),
         0
       ),
       total_pph: taxAmount,
-      remaining_amount: 0, // Will be calculated below
-      payment_percentage: 0, // Will be calculated below
-      payment_status: latestPaymentStatus, // 👈 USE THE LATEST STATUS
+      remaining_amount: 0,
+      payment_percentage: 0,
+      payment_status: latestPaymentStatus,
       confirmation_status: deliveryOrder.payment_confirmation_status,
     };
 
@@ -658,7 +680,6 @@ exports.getDeliveryOrderPaymentDetail = async (req, res, next) => {
         ? (paymentSummary.total_paid / paymentSummary.calculated_bill) * 100
         : 0;
 
-    // Get system settings for PPH
     const pphSetting = await SystemSettings.findOne({
       where: { setting_key: "default_pph_percentage" },
     });
@@ -680,7 +701,16 @@ exports.getDeliveryOrderPaymentDetail = async (req, res, next) => {
       },
     });
   } catch (err) {
-    next(err);
+    console.error("Error in getDeliveryOrderPaymentDetail:", {
+      message: err.message,
+      stack: err.stack,
+      do_id: req.params.do_id,
+    });
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: err.message,
+    });
   }
 };
 
@@ -781,6 +811,7 @@ exports.createDeliveryOrderInvoice = async (req, res, next) => {
 };
 
 // ✅ 6. Record Payment for DO
+// ✅ 6. Record Payment for DO
 exports.recordDeliveryOrderPayment = async (req, res, next) => {
   try {
     const { do_id } = req.params;
@@ -792,21 +823,66 @@ exports.recordDeliveryOrderPayment = async (req, res, next) => {
       payment_date,
       bank_account,
       notes,
-      attachment_url,
+      attachment_urls,
     } = req.body;
     const userId = req.user.id;
 
+    // Validate payment_type
+    if (
+      !payment_type ||
+      !["cash", "transfer", "check", "giro"].includes(payment_type)
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid payment_type value" });
+    }
+
+    // Validate payment_amount
+    const amount = parseFloat(payment_amount);
+    if (isNaN(amount) || amount <= 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: "payment_amount must be a positive number" });
+    }
+
+    // Validate invoice_id if provided
+    if (invoice_id) {
+      const invoice = await DeliveryOrderInvoices.findOne({
+        where: { id: invoice_id, delivery_order_id: do_id },
+      });
+      if (!invoice) {
+        return res.status(400).json({
+          success: false,
+          message: "Selected invoice doesn't belong to this DO",
+        });
+      }
+    }
+
+    // ✅ UPDATED: Handle multiple file uploads
+    let final_attachment_urls = [];
+    if (req.files && req.files.length > 0) {
+      final_attachment_urls = req.files.map(
+        (file) => `uploads/payments/${file.filename}`
+      );
+    } else if (attachment_urls) {
+      // Fallback to attachment_urls from request body (if provided)
+      final_attachment_urls = Array.isArray(attachment_urls)
+        ? attachment_urls
+        : JSON.parse(attachment_urls || "[]");
+    }
+
+    // Create payment record
     const payment = await DeliveryOrderPayments.create({
       delivery_order_id: do_id,
       invoice_id: invoice_id || null,
       payment_reference,
       payment_type,
-      payment_amount: parseFloat(payment_amount),
+      payment_amount: amount,
       payment_date: payment_date || new Date(),
       received_by: userId,
       bank_account,
       notes,
-      attachment_url,
+      attachment_urls: final_attachment_urls, // Store array of URLs
       created_by: userId,
     });
 
@@ -818,6 +894,7 @@ exports.recordDeliveryOrderPayment = async (req, res, next) => {
       data: payment,
     });
   } catch (err) {
+    console.error("Error in recordDeliveryOrderPayment:", err);
     next(err);
   }
 };

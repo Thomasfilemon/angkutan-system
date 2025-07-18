@@ -1,4 +1,3 @@
-// src/pages/CreateDeliveryFromPO.tsx
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
@@ -22,7 +21,6 @@ DefaultIcon.mergeOptions({
   shadowUrl: require("leaflet/dist/images/marker-shadow.png"),
 });
 
-// Custom icons for load/unload locations
 const loadIcon = new L.Icon({
   iconUrl:
     "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png",
@@ -45,13 +43,12 @@ const unloadIcon = new L.Icon({
   shadowSize: [41, 41],
 });
 
-// --- UPDATED Interfaces ---
 interface PODetails {
   id: number;
   po_number: string;
   customer_name: string;
   item_name: string;
-  unit: string; // 🎯 NEW: Add unit field
+  unit: string;
   unit_price: number;
   total_quantity: number;
   delivered_quantity: number;
@@ -83,7 +80,21 @@ interface LocationMarker {
   title: string;
 }
 
-// --- Search Component using leaflet-geosearch ---
+interface DOFormData {
+  do_name: string;
+  vehicle_id: string;
+  minimal_load_quantity: string;
+  trip_allowance: string;
+  gaji: string;
+  ongkosan: string;
+  load_location: string;
+  unload_location: string;
+  load_latitude: string;
+  load_longitude: string;
+  unload_latitude: string;
+  unload_longitude: string;
+}
+
 const SearchControlComponent = ({
   onLocationFound,
 }: {
@@ -129,20 +140,22 @@ const CreateDeliveryFromPO: React.FC = () => {
   const [selectedLocationType, setSelectedLocationType] = useState<
     "load" | "unload" | null
   >(null);
-
-  const [formData, setFormData] = useState({
-    vehicle_id: "",
-    minimal_load_quantity: "",
-    trip_allowance: "",
-    gaji: "",
-    ongkosan: "",
-    load_location: "",
-    unload_location: "",
-    load_latitude: "",
-    load_longitude: "",
-    unload_latitude: "",
-    unload_longitude: "",
-  });
+  const [formDataList, setFormDataList] = useState<DOFormData[]>([
+    {
+      do_name: "",
+      vehicle_id: "",
+      minimal_load_quantity: "",
+      trip_allowance: "",
+      gaji: "",
+      ongkosan: "",
+      load_location: "",
+      unload_location: "",
+      load_latitude: "",
+      load_longitude: "",
+      unload_latitude: "",
+      unload_longitude: "",
+    },
+  ]);
 
   const [linkProcessing, setLinkProcessing] = useState<{
     load: boolean;
@@ -151,7 +164,6 @@ const CreateDeliveryFromPO: React.FC = () => {
 
   const defaultCenter = { lat: -6.2088, lng: 106.8456 };
 
-  // 🎯 NEW: Unit display helper
   const getUnitDisplay = (unit: string) => {
     const unitMap = {
       kilogram: "kg",
@@ -161,7 +173,6 @@ const CreateDeliveryFromPO: React.FC = () => {
     return unitMap[unit as keyof typeof unitMap] || unit;
   };
 
-  // 🎯 NEW: Unit-aware calculation
   const calculateTotalAmount = (
     quantity: number,
     unitPrice: number,
@@ -171,33 +182,20 @@ const CreateDeliveryFromPO: React.FC = () => {
       case "kilogram":
         return quantity * unitPrice;
       case "ton":
-        return quantity * unitPrice; // Convert ton to kg
+        return quantity * unitPrice;
       case "kubik":
-        return quantity * unitPrice; // Direct kubik pricing
+        return quantity * unitPrice;
       default:
         return quantity * unitPrice;
     }
   };
 
-  // 🎯 ENHANCED: Unit-aware ongkosan calculation
-  const calculateOngkosan = (): number => {
-    if (
-      !poDetails?.unit_price ||
-      !formData.minimal_load_quantity ||
-      !poDetails?.unit
-    )
-      return 0;
-
+  const calculateOngkosan = (formData: DOFormData, poUnitPrice?: number, poUnit?: string): number => {
+    if (!poUnitPrice || !poUnit || !formData.minimal_load_quantity) return 0;
     const quantity = parseFloat(formData.minimal_load_quantity);
-    const totalRevenue = calculateTotalAmount(
-      quantity,
-      poDetails.unit_price,
-      poDetails.unit
-    );
+    const totalRevenue = calculateTotalAmount(quantity, poUnitPrice, poUnit);
     const operationalCosts =
-      (parseFloat(formData.trip_allowance) || 0) +
-      (parseFloat(formData.gaji) || 0);
-
+      (parseFloat(formData.trip_allowance) || 0) + (parseFloat(formData.gaji) || 0);
     return totalRevenue - operationalCosts;
   };
 
@@ -213,22 +211,27 @@ const CreateDeliveryFromPO: React.FC = () => {
       const response = await apiClient.get(`/purchase-orders/${poId}`);
       const details = response.data.data || response.data;
 
-      // 🎯 NEW: Ensure unit field exists with fallback
       if (!details.unit) {
         console.warn('PO data missing unit field, defaulting to "ton"');
         details.unit = "ton";
       }
 
       setPODetails(details);
-      setFormData((prev) => ({
-        ...prev,
+      const initialFormData = {
+        do_name: "",
+        vehicle_id: "",
+        minimal_load_quantity: "",
+        trip_allowance: "",
+        gaji: "",
+        ongkosan: "",
         load_location: details.load_location || "",
         unload_location: details.unload_location || "",
         load_latitude: details.load_latitude?.toString() || "",
         load_longitude: details.load_longitude?.toString() || "",
         unload_latitude: details.unload_latitude?.toString() || "",
         unload_longitude: details.unload_longitude?.toString() || "",
-      }));
+      };
+      setFormDataList([initialFormData]);
 
       const initialMarkers: LocationMarker[] = [];
       if (details.load_latitude && details.load_longitude)
@@ -271,29 +274,70 @@ const CreateDeliveryFromPO: React.FC = () => {
   };
 
   const handleInputChange = (
+    index: number,
     e: React.ChangeEvent<
       HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
     >
   ): void => {
-    setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    const newFormDataList = [...formDataList];
+    newFormDataList[index] = {
+      ...newFormDataList[index],
+      [e.target.name]: e.target.value,
+    };
+    setFormDataList(newFormDataList);
+
+    // Recalculate ongkosan for the changed form
+    if (e.target.name === "minimal_load_quantity" || e.target.name === "trip_allowance" || e.target.name === "gaji") {
+      newFormDataList[index].ongkosan = calculateOngkosan(newFormDataList[index], poDetails?.unit_price, poDetails?.unit).toString();
+      setFormDataList([...newFormDataList]);
+    }
+  };
+
+  const addForm = () => {
+    setFormDataList([
+      ...formDataList,
+      {
+        do_name: "",
+        vehicle_id: "",
+        minimal_load_quantity: "",
+        trip_allowance: "",
+        gaji: "",
+        ongkosan: "",
+        load_location: poDetails?.load_location || "",
+        unload_location: poDetails?.unload_location || "",
+        load_latitude: poDetails?.load_latitude?.toString() || "",
+        load_longitude: poDetails?.load_longitude?.toString() || "",
+        unload_latitude: poDetails?.unload_latitude?.toString() || "",
+        unload_longitude: poDetails?.unload_longitude?.toString() || "",
+      },
+    ]);
+  };
+
+  const removeForm = (index: number) => {
+    setFormDataList(formDataList.filter((_, i) => i !== index));
   };
 
   const setLocation = (lat: number, lng: number, address: string) => {
     if (!selectedLocationType) return;
-    if (selectedLocationType === "load")
-      setFormData((prev) => ({
-        ...prev,
-        load_location: address,
-        load_latitude: lat.toString(),
-        load_longitude: lng.toString(),
-      }));
-    else
-      setFormData((prev) => ({
-        ...prev,
-        unload_location: address,
-        unload_latitude: lat.toString(),
-        unload_longitude: lng.toString(),
-      }));
+    const newFormDataList = [...formDataList];
+    newFormDataList.forEach((form, index) => {
+      if (selectedLocationType === "load") {
+        newFormDataList[index] = {
+          ...newFormDataList[index],
+          load_location: address,
+          load_latitude: lat.toString(),
+          load_longitude: lng.toString(),
+        };
+      } else {
+        newFormDataList[index] = {
+          ...newFormDataList[index],
+          unload_location: address,
+          unload_latitude: lat.toString(),
+          unload_longitude: lng.toString(),
+        };
+      }
+    });
+    setFormDataList(newFormDataList);
     setMarkers((prev) => [
       ...prev.filter((m) => m.type !== selectedLocationType),
       {
@@ -335,93 +379,8 @@ const CreateDeliveryFromPO: React.FC = () => {
     setLocation(lat, lng, label);
   };
 
-  const getSelectedVehicle = (): Vehicle | undefined =>
-    vehicles.find((v) => v.id.toString() === formData.vehicle_id);
-
-  // 🎯 ENHANCED: Auto-calculate ongkosan with unit awareness
-  useEffect(() => {
-    const ongkosan = calculateOngkosan();
-    if (ongkosan > 0)
-      setFormData((prev) => ({ ...prev, ongkosan: ongkosan.toString() }));
-  }, [
-    formData.minimal_load_quantity,
-    formData.trip_allowance,
-    formData.gaji,
-    poDetails?.unit_price,
-    poDetails?.unit,
-  ]);
-
-  // 🎯 ENHANCED: Submit with unit support
-  const handleSubmit = async (
-    e: React.FormEvent<HTMLFormElement>
-  ): Promise<void> => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-
-    try {
-      const selectedVehicle = getSelectedVehicle();
-      if (!selectedVehicle || !selectedVehicle.driver_id)
-        throw new Error(
-          "Please select a valid vehicle with an assigned driver."
-        );
-
-      const quantity = parseFloat(formData.minimal_load_quantity);
-      const totalAmount =
-        poDetails?.unit_price && poDetails?.unit
-          ? calculateTotalAmount(quantity, poDetails.unit_price, poDetails.unit)
-          : 0;
-
-      const payload = {
-        purchase_order_id: poDetails?.id,
-        vehicle_id: parseInt(formData.vehicle_id),
-        driver_id: selectedVehicle.driver_id,
-        customer_name: poDetails?.customer_name,
-        item_name: poDetails?.item_name,
-        minimal_load_quantity: quantity,
-        unit: poDetails?.unit, // 🎯 NEW: Include unit from PO
-        unit_price: poDetails?.unit_price,
-        total_amount: totalAmount,
-        trip_allowance: parseFloat(formData.trip_allowance),
-        gaji: parseFloat(formData.gaji),
-        ongkosan: parseFloat(formData.ongkosan),
-        load_location: formData.load_location || poDetails?.load_location,
-        unload_location: formData.unload_location || poDetails?.unload_location,
-        load_latitude: formData.load_latitude
-          ? parseFloat(formData.load_latitude)
-          : null,
-        load_longitude: formData.load_longitude
-          ? parseFloat(formData.load_longitude)
-          : null,
-        unload_latitude: formData.unload_latitude
-          ? parseFloat(formData.unload_latitude)
-          : null,
-        unload_longitude: formData.unload_longitude
-          ? parseFloat(formData.unload_longitude)
-          : null,
-        payment_status: "proses_tagihan",
-        status: "assigned",
-      };
-
-      console.log("Creating DO with payload:", payload);
-
-      await apiClient.post("/delivery-orders", payload);
-      navigate("/delivery-orders");
-    } catch (err: any) {
-      setError(
-        err.response?.data?.message ||
-          err.message ||
-          "Failed to create delivery order."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const MapClickHandler = () => {
-    useMapEvents({ click: handleMapClick });
-    return null;
-  };
+  const getSelectedVehicle = (vehicleId: string): Vehicle | undefined =>
+    vehicles.find((v) => v.id.toString() === vehicleId);
 
   const handleProcessLocationLink = async (
     type: "load" | "unload",
@@ -439,12 +398,7 @@ const CreateDeliveryFromPO: React.FC = () => {
       const data = await resp.json();
 
       if (data.lat && data.lng) {
-        setLocationWithType(
-          data.lat,
-          data.lng,
-          `${data.lat},${data.lng}`,
-          type
-        );
+        setLocationWithType(data.lat, data.lng, `${data.lat},${data.lng}`, type);
       } else {
         alert(
           data.message ||
@@ -466,22 +420,25 @@ const CreateDeliveryFromPO: React.FC = () => {
     address: string,
     type: "load" | "unload"
   ) => {
-    if (type === "load") {
-      setFormData((prev) => ({
-        ...prev,
-        load_location: address,
-        load_latitude: lat.toString(),
-        load_longitude: lng.toString(),
-      }));
-    } else {
-      setFormData((prev) => ({
-        ...prev,
-        unload_location: address,
-        unload_latitude: lat.toString(),
-        unload_longitude: lng.toString(),
-      }));
-    }
-
+    const newFormDataList = [...formDataList];
+    newFormDataList.forEach((form, index) => {
+      if (type === "load") {
+        newFormDataList[index] = {
+          ...newFormDataList[index],
+          load_location: address,
+          load_latitude: lat.toString(),
+          load_longitude: lng.toString(),
+        };
+      } else {
+        newFormDataList[index] = {
+          ...newFormDataList[index],
+          unload_location: address,
+          unload_latitude: lat.toString(),
+          unload_longitude: lng.toString(),
+        };
+      }
+    });
+    setFormDataList(newFormDataList);
     setMarkers((prev) => [
       ...prev.filter((m) => m.type !== type),
       {
@@ -493,12 +450,94 @@ const CreateDeliveryFromPO: React.FC = () => {
     ]);
   };
 
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      if (!poDetails || poDetails.remaining_quantity === undefined) {
+        throw new Error("Purchase order details are incomplete. Cannot create delivery orders.");
+      }
+
+      for (const formData of formDataList) {
+        const selectedVehicle = getSelectedVehicle(formData.vehicle_id);
+        if (!selectedVehicle || !selectedVehicle.driver_id) {
+          throw new Error(`Invalid vehicle selection for DO ${formData.do_name}`);
+        }
+
+        const quantity = parseFloat(formData.minimal_load_quantity);
+        if (isNaN(quantity) || quantity <= 0) {
+          throw new Error(`Invalid quantity (${quantity}) for DO ${formData.do_name}. Must be a positive number.`);
+        }
+        if (quantity > poDetails.remaining_quantity) {
+          throw new Error(
+            `Invalid quantity (${quantity}) for DO ${formData.do_name}. Must not exceed remaining ${poDetails.remaining_quantity} ${getUnitDisplay(poDetails.unit || "ton")}.`
+          );
+        }
+
+        const totalAmount =
+          poDetails.unit_price && poDetails.unit
+            ? calculateTotalAmount(quantity, poDetails.unit_price, poDetails.unit)
+            : 0;
+
+        const payload = {
+          purchase_order_id: poDetails.id,
+          vehicle_id: parseInt(formData.vehicle_id),
+          driver_id: selectedVehicle.driver_id,
+          do_name: formData.do_name,
+          customer_name: poDetails.customer_name,
+          item_name: poDetails.item_name,
+          minimal_load_quantity: quantity,
+          unit: poDetails.unit,
+          unit_price: poDetails.unit_price,
+          total_amount: totalAmount,
+          trip_allowance: parseFloat(formData.trip_allowance),
+          gaji: parseFloat(formData.gaji),
+          ongkosan: parseFloat(formData.ongkosan),
+          load_location: formData.load_location || poDetails.load_location,
+          unload_location: formData.unload_location || poDetails.unload_location,
+          load_latitude: formData.load_latitude
+            ? parseFloat(formData.load_latitude)
+            : null,
+          load_longitude: formData.load_longitude
+            ? parseFloat(formData.load_longitude)
+            : null,
+          unload_latitude: formData.unload_latitude
+            ? parseFloat(formData.unload_latitude)
+            : null,
+          unload_longitude: formData.unload_longitude
+            ? parseFloat(formData.unload_longitude)
+            : null,
+          payment_status: "proses_tagihan",
+          status: "assigned",
+        };
+
+        console.log(`Creating DO with payload:`, payload);
+        await apiClient.post("/delivery-orders", payload);
+      }
+      navigate("/delivery-orders");
+    } catch (err: any) {
+      setError(
+        err.response?.data?.message ||
+          err.message ||
+          "Failed to create one or more delivery orders."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const MapClickHandler = () => {
+    useMapEvents({ click: handleMapClick });
+    return null;
+  };
+
   if (!poDetails)
     return (
       <div className="text-center p-8">Loading purchase order details...</div>
     );
 
-  const selectedVehicle = getSelectedVehicle();
   const unitDisplay = getUnitDisplay(poDetails.unit);
 
   return (
@@ -521,7 +560,6 @@ const CreateDeliveryFromPO: React.FC = () => {
         </div>
       )}
 
-      {/* 🎯 ENHANCED: PO Information with Unit Display */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
         <h2 className="text-xl font-semibold mb-4">
           Purchase Order Information
@@ -546,7 +584,6 @@ const CreateDeliveryFromPO: React.FC = () => {
               {unitDisplay}
             </p>
           </div>
-          {/* 🎯 NEW: Unit Information */}
           <div>
             <label className="text-sm text-gray-600">Unit</label>
             <p className="font-medium">
@@ -557,7 +594,6 @@ const CreateDeliveryFromPO: React.FC = () => {
           </div>
         </div>
 
-        {/* 🎯 NEW: Unit-aware pricing display */}
         {poDetails.unit_price && (
           <div className="mt-4 pt-4 border-t border-blue-200">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -593,108 +629,199 @@ const CreateDeliveryFromPO: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="space-y-6">
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* 🎯 ENHANCED: Load Quantity with Dynamic Unit */}
-            <div className="bg-white border rounded-lg p-6">
-              <h3 className="text-lg font-semibold mb-4">Load Quantity</h3>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Minimal Load Quantity ({unitDisplay}) *
-              </label>
-              <input
-                type="number"
-                name="minimal_load_quantity"
-                step="0.01"
-                max={poDetails.remaining_quantity}
-                value={formData.minimal_load_quantity}
-                onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                placeholder={`Maximum: ${poDetails.remaining_quantity} ${unitDisplay}`}
-                required
-              />
-              {/* 🎯 NEW: Unit-specific helper text */}
-              <p className="text-xs text-gray-500 mt-1">
-                {poDetails.unit === "ton" &&
-                  "💡 Enter in tons (will be calculated as kg for pricing)"}
-                {poDetails.unit === "kubik" &&
-                  "💡 Enter in cubic meters (volume-based)"}
-                {poDetails.unit === "kilogram" &&
-                  "💡 Enter in kilograms (weight-based)"}
-              </p>
-            </div>
-
-            {/* Vehicle & Driver Assignment - unchanged */}
-            <div className="bg-white border rounded-lg p-6">
-              <h3 className="text-lg font-semibold mb-4">
-                Vehicle & Driver Assignment
-              </h3>
-              <div className="space-y-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Vehicle with Assigned Driver *
-                </label>
-                <select
-                  name="vehicle_id"
-                  value={formData.vehicle_id}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                  required
-                >
-                  <option value="">Select Vehicle</option>
-                  {vehicles.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.license_plate} - {v.type}{" "}
-                      {v.driver_name && `- Driver: ${v.driver_name}`}
-                    </option>
-                  ))}
-                </select>
-                {vehicles.length === 0 && (
-                  <p className="text-sm text-red-600 mt-1">
-                    No available vehicles.
+            {formDataList.map((formData, index) => (
+              <div key={index} className="bg-white border rounded-lg p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-semibold">
+                    Delivery Order {index + 1}
+                  </h3>
+                  {index > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => removeForm(index)}
+                      className="text-red-500 hover:text-red-700 text-sm"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Delivery Order Name *
+                  </label>
+                  <input
+                    type="text"
+                    name="do_name"
+                    value={formData.do_name}
+                    onChange={(e) => handleInputChange(index, e)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    placeholder="e.g., Pengiriman Pasir ke Proyek XYZ"
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Give a descriptive name for this delivery order
                   </p>
-                )}
-                {selectedVehicle && (
-                  <div className="bg-gray-50 p-4 rounded-md mt-2">
-                    <h4 className="font-medium text-gray-900 mb-2">
-                      Selected:
-                    </h4>
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <span className="text-gray-600">Vehicle:</span>
-                        <p className="font-medium">
-                          {selectedVehicle.license_plate}
-                        </p>
+                </div>
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Minimal Load Quantity ({unitDisplay}) *
+                  </label>
+                  <input
+                    type="number"
+                    name="minimal_load_quantity"
+                    step="0.01"
+                    max={poDetails?.remaining_quantity}
+                    value={formData.minimal_load_quantity}
+                    onChange={(e) => handleInputChange(index, e)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    placeholder={`Maximum: ${poDetails?.remaining_quantity} ${unitDisplay}`}
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    {poDetails?.unit === "ton" &&
+                      "💡 Enter in tons (will be calculated as kg for pricing)"}
+                    {poDetails?.unit === "kubik" &&
+                      "💡 Enter in cubic meters (volume-based)"}
+                    {poDetails?.unit === "kilogram" &&
+                      "💡 Enter in kilograms (weight-based)"}
+                  </p>
+                </div>
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Vehicle with Assigned Driver *
+                  </label>
+                  <select
+                    name="vehicle_id"
+                    value={formData.vehicle_id}
+                    onChange={(e) => handleInputChange(index, e)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    required
+                  >
+                    <option value="">Select Vehicle</option>
+                    {vehicles.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.license_plate} - {v.type}{" "}
+                        {v.driver_name && `- Driver: ${v.driver_name}`}
+                      </option>
+                    ))}
+                  </select>
+                  {vehicles.length === 0 && (
+                    <p className="text-sm text-red-600 mt-1">
+                      No available vehicles.
+                    </p>
+                  )}
+                  {formData.vehicle_id && (
+                    <div className="bg-gray-50 p-4 rounded-md mt-2">
+                      <h4 className="font-medium text-gray-900 mb-2">
+                        Selected:
+                      </h4>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="text-gray-600">Vehicle:</span>
+                          <p className="font-medium">
+                            {getSelectedVehicle(formData.vehicle_id)?.license_plate}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-gray-600">Driver:</span>
+                          <p className="font-medium">
+                            {getSelectedVehicle(formData.vehicle_id)?.driver_name}
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-gray-600">Driver:</span>
-                        <p className="font-medium">
-                          {selectedVehicle.driver_name}
-                        </p>
+                    </div>
+                  )}
+                </div>
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Trip Allowance (Rp) *
+                    </label>
+                    <input
+                      type="number"
+                      name="trip_allowance"
+                      value={formData.trip_allowance}
+                      onChange={(e) => handleInputChange(index, e)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Driver Salary (Rp) *
+                    </label>
+                    <input
+                      type="number"
+                      name="gaji"
+                      value={formData.gaji}
+                      onChange={(e) => handleInputChange(index, e)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Profit (Rp)
+                    </label>
+                    <input
+                      type="number"
+                      name="ongkosan"
+                      value={formData.ongkosan}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100"
+                      readOnly
+                    />
+                  </div>
+                </div>
+                {formData.minimal_load_quantity && poDetails?.unit_price && (
+                  <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                    <h4 className="text-sm font-semibold text-gray-700 mb-2">
+                      Revenue Calculation
+                    </h4>
+                    <div className="text-xs text-gray-600 space-y-1">
+                      <div className="flex justify-between">
+                        <span>Quantity:</span>
+                        <span>
+                          {formData.minimal_load_quantity} {unitDisplay}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Unit Price:</span>
+                        <span>
+                          Rp {poDetails.unit_price.toLocaleString("id-ID")}/
+                          {unitDisplay}
+                        </span>
+                      </div>
+                      {poDetails.unit === "ton" && (
+                        <div className="flex justify-between text-blue-600">
+                          <span>Calculation:</span>
+                          <span>
+                            {formData.minimal_load_quantity} ton × 1000 kg/ton ×
+                            Rp {poDetails.unit_price.toLocaleString("id-ID")}/kg
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex justify-between font-semibold border-t pt-1">
+                        <span>Total Revenue:</span>
+                        <span>
+                          Rp{" "}
+                          {calculateTotalAmount(
+                            parseFloat(formData.minimal_load_quantity) || 0,
+                            poDetails.unit_price,
+                            poDetails.unit
+                          ).toLocaleString("id-ID")}
+                        </span>
                       </div>
                     </div>
                   </div>
                 )}
-              </div>
-            </div>
-
-            {/* Location Information - unchanged */}
-            <div className="bg-white border rounded-lg p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold">Location Information</h3>
-                <button
-                  type="button"
-                  onClick={() => setShowMap(!showMap)}
-                  className="bg-green-500 hover:bg-green-700 text-white px-4 py-2 rounded text-sm"
-                >
-                  {showMap ? "Hide Map" : "Show Map"}
-                </button>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
+                <div className="mt-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Load Location *
                   </label>
                   <textarea
                     name="load_location"
                     value={formData.load_location}
-                    onChange={handleInputChange}
+                    onChange={(e) => handleInputChange(index, e)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     rows={3}
                     required
@@ -704,10 +831,7 @@ const CreateDeliveryFromPO: React.FC = () => {
                     <button
                       type="button"
                       onClick={() =>
-                        handleProcessLocationLink(
-                          "load",
-                          formData.load_location
-                        )
+                        handleProcessLocationLink("load", formData.load_location)
                       }
                       disabled={linkProcessing.load}
                       className="text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 px-2 py-1 rounded w-full"
@@ -731,19 +855,17 @@ const CreateDeliveryFromPO: React.FC = () => {
                     }`}
                   >
                     {showMap &&
-                      (selectedLocationType === "load"
-                        ? "Active..."
-                        : "Set Load")}
+                      (selectedLocationType === "load" ? "Active..." : "Set Load")}
                   </button>
                 </div>
-                <div>
+                <div className="mt-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Unload Location *
                   </label>
                   <textarea
                     name="unload_location"
                     value={formData.unload_location}
-                    onChange={handleInputChange}
+                    onChange={(e) => handleInputChange(index, e)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     rows={3}
                     required
@@ -786,99 +908,14 @@ const CreateDeliveryFromPO: React.FC = () => {
                   </button>
                 </div>
               </div>
-            </div>
-
-            {/* 🎯 ENHANCED: Financial Information with Unit-aware Calculations */}
-            <div className="bg-white border rounded-lg p-6">
-              <h3 className="text-lg font-semibold mb-4">
-                Financial Information
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Trip Allowance (Rp) *
-                  </label>
-                  <input
-                    type="number"
-                    name="trip_allowance"
-                    value={formData.trip_allowance}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Driver Salary (Rp) *
-                  </label>
-                  <input
-                    type="number"
-                    name="gaji"
-                    value={formData.gaji}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Profit (Rp)
-                  </label>
-                  <input
-                    type="number"
-                    name="ongkosan"
-                    value={formData.ongkosan}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100"
-                    readOnly
-                  />
-                </div>
-              </div>
-
-              {/* 🎯 NEW: Revenue Calculation Breakdown */}
-              {formData.minimal_load_quantity && poDetails.unit_price && (
-                <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-                  <h4 className="text-sm font-semibold text-gray-700 mb-2">
-                    Revenue Calculation
-                  </h4>
-                  <div className="text-xs text-gray-600 space-y-1">
-                    <div className="flex justify-between">
-                      <span>Quantity:</span>
-                      <span>
-                        {formData.minimal_load_quantity} {unitDisplay}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Unit Price:</span>
-                      <span>
-                        Rp {poDetails.unit_price.toLocaleString("id-ID")}/
-                        {unitDisplay}
-                      </span>
-                    </div>
-                    {poDetails.unit === "ton" && (
-                      <div className="flex justify-between text-blue-600">
-                        <span>Calculation:</span>
-                        <span>
-                          {formData.minimal_load_quantity} ton × 1000 kg/ton ×
-                          Rp {poDetails.unit_price.toLocaleString("id-ID")}/kg
-                        </span>
-                      </div>
-                    )}
-                    <div className="flex justify-between font-semibold border-t pt-1">
-                      <span>Total Revenue:</span>
-                      <span>
-                        Rp{" "}
-                        {calculateTotalAmount(
-                          parseFloat(formData.minimal_load_quantity) || 0,
-                          poDetails.unit_price,
-                          poDetails.unit
-                        ).toLocaleString("id-ID")}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
+            ))}
+            <button
+              type="button"
+              onClick={addForm}
+              className="w-full bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+            >
+              + Add Another Delivery Order
+            </button>
             <div className="flex justify-end space-x-4">
               <button
                 type="button"
@@ -889,7 +926,7 @@ const CreateDeliveryFromPO: React.FC = () => {
               </button>
               <button
                 type="submit"
-                disabled={loading || !formData.vehicle_id}
+                disabled={loading || formDataList.some((f) => !f.vehicle_id)}
                 className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300"
               >
                 {loading ? "Creating..." : "Create Order"}
@@ -898,7 +935,6 @@ const CreateDeliveryFromPO: React.FC = () => {
           </form>
         </div>
 
-        {/* Map Section - unchanged */}
         {showMap && (
           <div className="bg-white border rounded-lg p-6">
             <h3 className="text-lg font-semibold mb-4">Location Map</h3>
@@ -917,7 +953,7 @@ const CreateDeliveryFromPO: React.FC = () => {
               >
                 <TileLayer
                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  attribution="&copy; OpenStreetMap contributors"
+                  attribution="© OpenStreetMap contributors"
                 />
                 <SearchControlComponent onLocationFound={handleSearchSelect} />
                 <MapClickHandler />

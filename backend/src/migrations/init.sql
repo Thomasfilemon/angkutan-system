@@ -270,7 +270,7 @@ CREATE TABLE delivery_orders (
   purchase_order_id INTEGER REFERENCES purchase_orders(id) ON DELETE SET NULL,
   driver_id INTEGER REFERENCES users(id),
   vehicle_id INTEGER REFERENCES vehicles(id),
-
+  do_name VARCHAR(100),
   do_number VARCHAR(50) UNIQUE NOT NULL,
   customer_name VARCHAR(100) NOT NULL,
   item_name VARCHAR(100),
@@ -322,30 +322,22 @@ CREATE TABLE delivery_orders (
 
 CREATE TABLE big_delivery_orders (
   id SERIAL PRIMARY KEY,
-  
-  -- Foreign Keys
   main_delivery_order_id INTEGER NOT NULL REFERENCES delivery_orders(id) ON DELETE CASCADE,
   driver_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
-  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, -- ✅ Added for audit
-  
-  -- Basic Info
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, 
   big_do_number VARCHAR(50) UNIQUE NOT NULL,
-  
-  -- Financial Aggregation
+
   total_trip_allowance DECIMAL(15,2) NOT NULL DEFAULT 0 CHECK (total_trip_allowance >= 0),
   total_gaji DECIMAL(15,2) NOT NULL DEFAULT 0 CHECK (total_gaji >= 0),
   total_ongkosan DECIMAL(15,2) NOT NULL DEFAULT 0 CHECK (total_ongkosan >= 0),
   
-  -- Status (✅ Using ENUM)
   status big_do_status NOT NULL DEFAULT 'assigned',
   
-  -- Timestamps
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   started_at TIMESTAMP,
   completed_at TIMESTAMP,
   
-  -- Notes
   notes TEXT,
   cancellation_reason TEXT
 );
@@ -423,9 +415,6 @@ CREATE TABLE big_do_tambahan_status_history (
   FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
-
-
-
 -- BAGIAN 4: KEUANGAN & BIAYA
 -- =================================================================
 
@@ -458,15 +447,6 @@ CREATE TABLE delivery_order_invoices (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE accounting_ritase (
-  id SERIAL PRIMARY KEY,
-  delivery_order_id INTEGER REFERENCES delivery_orders(id) ON DELETE CASCADE,
-  ritase NUMERIC NOT NULL,
-  tarif NUMERIC NOT NULL,
-  total NUMERIC NOT NULL,
-  recorded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
 CREATE TABLE office_expenses (
   id SERIAL PRIMARY KEY,
   kategori VARCHAR(50) NOT NULL,
@@ -489,7 +469,7 @@ CREATE TABLE delivery_order_payments (
   received_by INTEGER REFERENCES users(id), -- Who processed the payment
   bank_account VARCHAR(100), -- If transfer
   notes TEXT,
-  attachment_url TEXT, -- Receipt/proof of payment
+  attachment_urls TEXT[], -- Receipt/proof of payment
   created_by INTEGER REFERENCES users(id),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -512,7 +492,7 @@ CREATE TABLE cash_transactions (
   reference_number VARCHAR(50),
   account VARCHAR(20) NOT NULL CHECK(account IN ('Ewaldo', 'Malvin', 'Company', 'General')),
   transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
-  attachment_url VARCHAR(255), -- <<< NEW COLUMN to store the photo path
+  attachment_urls TEXT[], -- <<< NEW COLUMN to store the photo path
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -717,3 +697,19 @@ CREATE TRIGGER trg_recalc_pph
 BEFORE INSERT OR UPDATE ON delivery_order_invoices
 FOR EACH ROW
 EXECUTE FUNCTION recalc_do_invoice_pph();
+-- DEPOSIT GROUP TABLES
+CREATE TABLE deposit_groups (
+  id SERIAL PRIMARY KEY,
+  group_name VARCHAR(255) NOT NULL,
+  balance NUMERIC(15,2) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE deposit_group_members (
+  id SERIAL PRIMARY KEY,
+  group_id INTEGER NOT NULL REFERENCES deposit_groups(id) ON DELETE CASCADE,
+  delivery_order_id INTEGER NOT NULL REFERENCES delivery_orders(id) ON DELETE CASCADE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE (group_id, delivery_order_id) -- Prevent duplicate DO in same group
+);

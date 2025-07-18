@@ -70,7 +70,7 @@ interface Payment {
   payment_reference?: string;
   bank_account?: string;
   notes?: string;
-  attachment_url?: string;
+  attachment_urls?: Array<string>; // Changed to plural to match model
   created_at: string;
 }
 
@@ -365,7 +365,7 @@ const DOPaymentManagement: React.FC = () => {
     try {
       setSubmitting(true);
       await apiClient.post(
-        `/ritase/delivery-orders/${doId}/invoice`,
+        `/ritase/delivery-orders/${doId}/invoices`,
         newInvoice
       );
 
@@ -397,7 +397,7 @@ const DOPaymentManagement: React.FC = () => {
     try {
       setSubmitting(true);
       await apiClient.post(
-        `/ritase/delivery-orders/${doId}/payment`,
+        `/ritase/delivery-orders/${doId}/payments`,
         newPayment
       );
       toast.success("Payment recorded!");
@@ -450,7 +450,7 @@ const DOPaymentManagement: React.FC = () => {
       awaiting_confirmation: "AWAITING CONFIRMATION",
       confirmed: "CONFIRMED",
       lunas: "LUNAS",
-      deposit: "DEPOSIT",
+      deposit: "PARTIAL",
       proses_tagihan: "PROSES TAGIHAN",
       partial: "PARTIAL",
       unpaid: "BELUM LUNAS",
@@ -1926,134 +1926,130 @@ const DOPaymentManagement: React.FC = () => {
 
                   {/* Payment cards */}
                   {doData.payments.map((payment) => (
-                    <div
-                      key={payment.id}
-                      className={`border border-gray-200 rounded-xl p-6 transition-all duration-200 bg-white ${
-                        isFullySettled
-                          ? "opacity-60 cursor-not-allowed pointer-events-none"
-                          : "hover:shadow-lg"
-                      }`}
-                    >
-                      <div className="flex justify-between items-start mb-4">
-                        <div className="flex items-center space-x-4">
-                          <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                            <div className="text-2xl">
-                              {getPaymentTypeIcon(payment.payment_type)}
-                            </div>
-                          </div>
-                          <div>
-                            <h4 className="font-bold text-xl text-gray-900">
-                              {formatCurrency(payment.payment_amount)}
-                            </h4>
-                            <p className="text-sm text-gray-600">
-                              {payment.payment_type.charAt(0).toUpperCase() +
-                                payment.payment_type.slice(1)}{" "}
-                              •{" "}
-                              {new Date(
-                                payment.payment_date
-                              ).toLocaleDateString("id-ID")}
-                            </p>
-                          </div>
+                  <div
+                    key={payment.id}
+                    className={`border border-gray-200 rounded-xl p-6 transition-all duration-200 bg-white ${
+                      isFullySettled
+                        ? "opacity-60 cursor-not-allowed pointer-events-none"
+                        : "hover:shadow-lg"
+                    }`}
+                  >
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="flex items-center space-x-4">
+                        <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                          <div className="text-2xl">{getPaymentTypeIcon(payment.payment_type)}</div>
                         </div>
-                        <div className="text-right">
-                          <div className="text-sm text-gray-500">
-                            Recorded:{" "}
-                            {new Date(payment.created_at).toLocaleDateString(
-                              "id-ID"
-                            )}
-                          </div>
-                          <div className="mt-1">
-                            <span className="inline-flex px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
-                              ✅ Confirmed
-                            </span>
-                          </div>
+                        <div>
+                          <h4 className="font-bold text-xl text-gray-900">
+                            {formatCurrency(payment.payment_amount)}
+                          </h4>
+                          <p className="text-sm text-gray-600">
+                            {payment.payment_type.charAt(0).toUpperCase() +
+                              payment.payment_type.slice(1)}{" "}
+                            • {new Date(payment.payment_date).toLocaleDateString("id-ID")}
+                          </p>
                         </div>
                       </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-4">
-                        {payment.payment_reference && (
-                          <div className="bg-gray-50 p-3 rounded-lg">
-                            <span className="text-gray-600 font-medium">
-                              Reference:
-                            </span>
-                            <p className="font-semibold text-gray-900 mt-1">
-                              {payment.payment_reference}
-                            </p>
-                          </div>
-                        )}
-                        {payment.bank_account && (
-                          <div className="bg-gray-50 p-3 rounded-lg">
-                            <span className="text-gray-600 font-medium">
-                              Bank Account:
-                            </span>
-                            <p className="font-semibold text-gray-900 mt-1">
-                              {payment.bank_account}
-                            </p>
-                          </div>
-                        )}
+                      <div className="text-right">
+                        <div className="text-sm text-gray-500">
+                          Recorded: {new Date(payment.created_at).toLocaleDateString("id-ID")}
+                        </div>
+                        <div className="mt-1">
+                          <span className="inline-flex px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
+                            ✅ Confirmed
+                          </span>
+                        </div>
                       </div>
+                    </div>
 
-                      {payment.notes && (
-                        <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm">
-                          <div className="font-medium text-blue-800 mb-1">
-                            Payment Notes:
-                          </div>
-                          <p className="text-blue-700">{payment.notes}</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-4">
+                      {payment.payment_reference && (
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          <span className="text-gray-600 font-medium">Reference:</span>
+                          <p className="font-semibold text-gray-900 mt-1">
+                            {payment.payment_reference}
+                          </p>
                         </div>
                       )}
-
-                      {payment.attachment_url && (
-                        <div className="mt-4 flex items-center justify-between">
-                          <a
-                            href={payment.attachment_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-md"
-                          >
-                            <svg
-                              className="h-4 w-4 mr-2"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              stroke="currentColor"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
-                              />
-                            </svg>
-                            View Receipt
-                          </a>
-                          {/* Action buttons for payment (disabled if fully settled) */}
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => {
-                                if (isFullySettled) return;
-                                // Handle edit payment
-                                console.log("Edit payment:", payment.id);
-                              }}
-                              disabled={isFullySettled}
-                              className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors disabled:opacity-50"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => {
-                                if (isFullySettled) return;
-                                // Handle delete payment
-                                console.log("Delete payment:", payment.id);
-                              }}
-                              disabled={isFullySettled}
-                              className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition-colors disabled:opacity-50"
-                            >
-                              Delete
-                            </button>
-                          </div>
+                      {payment.bank_account && (
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          <span className="text-gray-600 font-medium">Bank Account:</span>
+                          <p className="font-semibold text-gray-900 mt-1">
+                            {payment.bank_account}
+                          </p>
                         </div>
                       )}
                     </div>
-                  ))}
+
+                    {payment.notes && (
+                      <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm">
+                        <div className="font-medium text-blue-800 mb-1">Payment Notes:</div>
+                        <p className="text-blue-700">{payment.notes}</p>
+                      </div>
+                    )}
+
+                    {payment.attachment_urls && payment.attachment_urls.length > 0 ? (
+                      <div className="mt-4">
+                        <div className="font-medium text-gray-700 mb-2">Attachments:</div>
+                        <div className="flex flex-wrap gap-2">
+                          {payment.attachment_urls.map((url, index) => (
+                            <a
+                              key={index}
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center px-3 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors text-sm"
+                            >
+                              <svg
+                                className="h-4 w-4 mr-2"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
+                                />
+                              </svg>
+                              View Attachment {index + 1}
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-4 text-sm text-gray-500">
+                        No attachments available
+                      </div>
+                    )}
+
+                    <div className="mt-4 flex justify-end gap-2">
+                      <button
+                        onClick={() => {
+                          if (isFullySettled) return;
+                          // Handle edit payment
+                          console.log("Edit payment:", payment.id);
+                        }}
+                        disabled={isFullySettled}
+                        className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors disabled:opacity-50"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (isFullySettled) return;
+                          // Handle delete payment
+                          console.log("Delete payment:", payment.id);
+                        }}
+                        disabled={isFullySettled}
+                        className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition-colors disabled:opacity-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
                 </div>
               )}
             </div>

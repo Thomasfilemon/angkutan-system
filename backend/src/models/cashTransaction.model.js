@@ -39,8 +39,8 @@ module.exports = (sequelize) => {
       allowNull: false,
       defaultValue: DataTypes.NOW
     },
-    attachment_url: {
-      type: DataTypes.STRING(255),
+    attachment_urls: {
+      type: DataTypes.ARRAY(DataTypes.STRING),
       allowNull: true
     }
   }, {

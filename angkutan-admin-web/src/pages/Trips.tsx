@@ -1,4 +1,3 @@
-// src/pages/Trips.tsx
 import React, { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import apiClient from "../api/axiosConfig";
@@ -9,9 +8,9 @@ interface PurchaseOrder {
   customer_name: string;
   item_name: string;
   total_quantity: number;
-  unit: string; // 🎯 NEW: Add unit field
-  unit_price?: number; // 🎯 NEW: Add unit price
-  total_amount?: number; // 🎯 NEW: Add total amount
+  unit: string;
+  unit_price?: number;
+  total_amount?: number;
   delivered_quantity: number;
   remaining_quantity: number;
   created_at: string;
@@ -37,8 +36,11 @@ const TripsPage = () => {
     completed: 0,
     cancelled: 0,
   });
+  const [showAdjustPopup, setShowAdjustPopup] = useState(false);
+  const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
+  const [adjustmentType, setAdjustmentType] = useState<"add" | "deduct">("add");
+  const [adjustmentAmount, setAdjustmentAmount] = useState("");
 
-  // 🎯 NEW: Unit display helper
   const getUnitDisplay = (unit: string) => {
     const unitMap = {
       kilogram: "kg",
@@ -48,7 +50,6 @@ const TripsPage = () => {
     return unitMap[unit as keyof typeof unitMap] || unit;
   };
 
-  // 🎯 NEW: Currency formatter
   const formatCurrency = (amount: number) => {
     return `Rp ${parseFloat(String(amount)).toLocaleString("id-ID")}`;
   };
@@ -59,21 +60,35 @@ const TripsPage = () => {
       const params = statusFilter !== "all" ? `?status=${statusFilter}` : "";
       const response = await apiClient.get(`/purchase-orders${params}`);
 
-      // ✅ FIX: Handle full response format
       const orders = response.data.success
         ? response.data.data
         : response.data || [];
       const stats = response.data.success ? response.data.stats : null;
 
-      // 🎯 NEW: Ensure unit field exists with fallback
-      const processedOrders = orders.map((po: PurchaseOrder) => ({
-        ...po,
-        unit: po.unit || "ton", // Fallback for existing data
-      }));
+      const processedOrders = orders.map((po: PurchaseOrder) => {
+        // Convert quantity fields to numbers
+        const convert = (val: any): number => {
+          if (typeof val === 'number') return val;
+          if (typeof val === 'string') return parseFloat(val) || 0;
+          return 0;
+        };
+
+        return {
+          ...po,
+          unit: po.unit || "ton",
+          total_quantity: convert(po.total_quantity),
+          delivered_quantity: convert(po.delivered_quantity),
+          remaining_quantity: convert(po.remaining_quantity),
+          delivery_progress: {
+            total_deliveries: convert(po.delivery_progress.total_deliveries),
+            completed_deliveries: convert(po.delivery_progress.completed_deliveries),
+            percentage: convert(po.delivery_progress.percentage),
+          },
+        };
+      });
 
       setPurchaseOrders(processedOrders);
 
-      // ✅ FIX: Use extracted stats
       if (stats) {
         setStats(stats);
       }
@@ -119,6 +134,44 @@ const TripsPage = () => {
     }
   };
 
+  const handleAdjustQuantity = async () => {
+    if (!selectedPO || !adjustmentAmount) {
+      alert("Please enter a valid adjustment amount");
+      return;
+    }
+
+    const amount = parseFloat(adjustmentAmount);
+    if (isNaN(amount) || amount <= 0) {
+      alert("Please enter a valid positive number");
+      return;
+    }
+
+    let newQuantity = selectedPO.total_quantity;
+    
+    if (adjustmentType === "add") {
+      newQuantity += amount;
+    } else {
+      if (amount > selectedPO.total_quantity) {
+        alert("Deduction amount cannot exceed current quantity");
+        return;
+      }
+      newQuantity -= amount;
+    }
+
+    try {
+      await apiClient.put(`/purchase-orders/${selectedPO.id}`, {
+        total_quantity: newQuantity,
+        unit: selectedPO.unit,
+      });
+      setShowAdjustPopup(false);
+      setAdjustmentAmount("");
+      fetchPurchaseOrders();
+    } catch (err) {
+      setError("Failed to adjust quantity");
+      console.error(err);
+    }
+  };
+
   if (loading)
     return <div className="text-center p-8">Loading purchase orders...</div>;
   if (error)
@@ -135,7 +188,6 @@ const TripsPage = () => {
         </Link>
       </div>
 
-      {/* 🎯 ENHANCED: Statistics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-white p-4 rounded-lg shadow">
           <h3 className="text-lg font-semibold text-gray-700">Total POs</h3>
@@ -155,7 +207,6 @@ const TripsPage = () => {
         </div>
       </div>
 
-      {/* Status Filter */}
       <div className="mb-6">
         <label className="block text-sm font-medium text-gray-700 mb-2">
           Filter by Status:
@@ -173,7 +224,6 @@ const TripsPage = () => {
         </select>
       </div>
 
-      {/* 🎯 ENHANCED: Purchase Orders List with Unit Support */}
       <div className="space-y-4">
         {purchaseOrders.map((po) => {
           const unitDisplay = getUnitDisplay(po.unit);
@@ -191,7 +241,6 @@ const TripsPage = () => {
                   <p className="text-gray-600">{po.customer_name}</p>
                 </div>
                 <div className="flex items-center space-x-3">
-                  {/* 🎯 NEW: Unit Badge */}
                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
                     {unitDisplay}
                   </span>
@@ -205,7 +254,6 @@ const TripsPage = () => {
                 </div>
               </div>
 
-              {/* 🎯 ENHANCED: Info Grid with Unit and Financial Info */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
                 <div>
                   <p className="text-sm text-gray-500">Item</p>
@@ -246,7 +294,6 @@ const TripsPage = () => {
                 </div>
               </div>
 
-              {/* Location Information */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
                   <p className="text-sm text-gray-500">Load Location</p>
@@ -262,7 +309,6 @@ const TripsPage = () => {
                 </div>
               </div>
 
-              {/* 🎯 ENHANCED: Progress Bar with Unit-aware Display */}
               <div className="mb-4">
                 <div className="flex justify-between items-center text-sm text-gray-600 mb-2">
                   <span>
@@ -277,7 +323,6 @@ const TripsPage = () => {
                   </span>
                 </div>
 
-                {/* Enhanced Progress Bar */}
                 <div className="w-full bg-gray-200 rounded-full h-2.5">
                   <div
                     className={`h-2.5 rounded-full transition-all duration-500 ${
@@ -312,7 +357,6 @@ const TripsPage = () => {
                   </span>
                 </div>
 
-                {/* Progress Status */}
                 {po.delivery_progress.percentage > 100 && (
                   <div className="mt-2 text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
                     ✨ Over-delivered by{" "}
@@ -321,7 +365,6 @@ const TripsPage = () => {
                 )}
               </div>
 
-              {/* 🎯 ENHANCED: Action Buttons with Better Spacing */}
               <div className="flex flex-wrap gap-2">
                 <Link to={`/trips/po/${po.id}`}>
                   <button className="inline-flex items-center px-3 py-2 bg-gray-500 hover:bg-gray-700 text-white rounded text-sm transition-colors">
@@ -388,7 +431,6 @@ const TripsPage = () => {
                   </button>
                 </Link>
 
-                {/* 🎯 NEW: Table View Button */}
                 <Link to={`/ritase/po/${po.id}/table`}>
                   <button className="inline-flex items-center px-3 py-2 bg-purple-500 hover:bg-purple-700 text-white rounded text-sm transition-colors">
                     <svg
@@ -428,9 +470,35 @@ const TripsPage = () => {
                     </button>
                   </Link>
                 )}
+
+                {po.status !== "completed" && po.status !== "cancelled" && (
+                  <button
+                    onClick={() => {
+                      setSelectedPO(po);
+                      setAdjustmentType("add");
+                      setAdjustmentAmount("");
+                      setShowAdjustPopup(true);
+                    }}
+                    className="inline-flex items-center px-3 py-2 bg-teal-500 hover:bg-teal-700 text-white rounded text-sm transition-colors"
+                  >
+                    <svg
+                      className="w-4 h-4 mr-1"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                      />
+                    </svg>
+                    Adjust Quantity
+                  </button>
+                )}
               </div>
 
-              {/* 🎯 NEW: Unit Type Indicator */}
               <div className="mt-3 pt-3 border-t border-gray-100">
                 <div className="flex items-center justify-between text-xs text-gray-500">
                   <span>
@@ -452,7 +520,6 @@ const TripsPage = () => {
         })}
       </div>
 
-      {/* 🎯 ENHANCED: Empty State */}
       {purchaseOrders.length === 0 && (
         <div className="text-center py-16 text-gray-500">
           <div className="mb-6">
@@ -483,6 +550,61 @@ const TripsPage = () => {
               Create Your First Purchase Order
             </button>
           </Link>
+        </div>
+      )}
+
+      {showAdjustPopup && selectedPO && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+            <h2 className="text-xl font-bold mb-4">Adjust Quantity</h2>
+            <div className="mb-4">
+              <div className="flex space-x-4 mb-2">
+                <button
+                  onClick={() => setAdjustmentType("add")}
+                  className={`px-4 py-2 rounded-l ${
+                    adjustmentType === "add"
+                      ? "bg-blue-500 text-white"
+                      : "bg-gray-200 text-gray-700"
+                  }`}
+                >
+                  Addition
+                </button>
+                <button
+                  onClick={() => setAdjustmentType("deduct")}
+                  className={`px-4 py-2 rounded-r ${
+                    adjustmentType === "deduct"
+                      ? "bg-blue-500 text-white"
+                      : "bg-gray-200 text-gray-700"
+                  }`}
+                >
+                  Deduction
+                </button>
+              </div>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={adjustmentAmount}
+                onChange={(e) => setAdjustmentAmount(e.target.value)}
+                placeholder="Enter amount"
+                className="w-full p-2 border rounded"
+              />
+            </div>
+            <div className="flex justify-end space-x-4">
+              <button
+                onClick={() => setShowAdjustPopup(false)}
+                className="bg-gray-500 hover:bg-gray-700 text-white px-4 py-2 rounded"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAdjustQuantity}
+                className="bg-teal-500 hover:bg-teal-700 text-white px-4 py-2 rounded"
+              >
+                Adjust
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

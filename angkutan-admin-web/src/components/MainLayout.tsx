@@ -23,6 +23,7 @@ const MainLayout = () => {
     if (path.startsWith("/ritase")) return "Dashboard Ritase";
     if (path.startsWith("/buku-kas")) return "Buku Kas";
     if (path.startsWith("/tempo")) return "Buku Tempo";
+    if (path.startsWith("/deposit-groups")) return "Pembayaran Deposit";
     return "Dashboard";
   };
 
@@ -139,6 +140,19 @@ const MainLayout = () => {
                 }`}
               >
                 💰 Payments
+              </Link>
+            </li>
+
+            <li className="mb-4">
+              <Link
+                to="/deposit-groups"
+                className={`block p-2 rounded hover:bg-gray-700 ${
+                  location.pathname.startsWith("/deposit-groups")
+                    ? "bg-gray-700 border-l-4 border-blue-500"
+                    : ""
+                }`}
+              >
+                📩 Deposit Payments
               </Link>
             </li>
 

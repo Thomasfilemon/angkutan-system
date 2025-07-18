@@ -569,7 +569,7 @@ module.exports = {
               "payment_type",
               "payment_reference",
               "notes",
-              "attachment_url", // If you have attachments
+              "attachment_urls", // If you have attachments
             ],
             order: [["payment_date", "DESC"]], // Newest payments first
           },
@@ -826,7 +826,7 @@ module.exports = {
   /* ──────────────────────────────────────────────────────────────
    * POST /api/web/payments/delivery-orders/:doId
    * Body: { invoice_id?, payment_reference?, payment_type, payment_amount,
-   *         payment_date?, bank_account?, notes?, attachment_url? }
+   *         payment_date?, bank_account?, notes?, attachment_urls? }
    * ──────────────────────────────────────────────────────────── */
   async recordPayment(req, res, next) {
     try {
@@ -839,25 +839,31 @@ module.exports = {
         payment_date,
         bank_account,
         notes,
-        attachment_url,
+        attachment_urls,
       } = req.body;
 
+      // Validate payment_type
       if (
         !payment_type ||
         !["cash", "transfer", "check", "giro"].includes(payment_type)
-      )
+      ) {
         return res
           .status(400)
           .json({ success: false, message: "Invalid payment_type value" });
+      }
 
+      // Validate payment_amount
       const amount = toMoney(payment_amount);
-      if (amount <= 0)
+      if (amount <= 0) {
         return res
           .status(400)
           .json({ success: false, message: "payment_amount must be > 0" });
+      }
 
+      // Get user ID
       const userId = req.user?.id;
 
+      // Validate invoice_id if provided
       if (invoice_id) {
         const invoice = await DeliveryOrderInvoices.findOne({
           where: { id: invoice_id, delivery_order_id: doId },
@@ -870,6 +876,20 @@ module.exports = {
         }
       }
 
+      // ✅ UPDATED: Handle multiple file uploads
+      let final_attachment_urls = [];
+      if (req.files && req.files.length > 0) {
+        final_attachment_urls = req.files.map(
+          (file) => `uploads/payments/${file.filename}`
+        );
+      } else if (attachment_urls) {
+        // Fallback to attachment_urls from request body (if provided)
+        final_attachment_urls = Array.isArray(attachment_urls)
+          ? attachment_urls
+          : JSON.parse(attachment_urls || "[]");
+      }
+
+      // Create payment record
       const payment = await DeliveryOrderPayments.create({
         delivery_order_id: doId,
         invoice_id: invoice_id || null,
@@ -880,7 +900,7 @@ module.exports = {
         received_by: userId,
         bank_account,
         notes,
-        attachment_url,
+        attachment_urls: final_attachment_urls, // Store array of URLs
         created_by: userId,
       });
 

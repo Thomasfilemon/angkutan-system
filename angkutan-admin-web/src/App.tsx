@@ -48,6 +48,7 @@ import StockHistoryPage from "./pages/StockHistory";
 import VehicleServiceHistory from "./pages/VehicleServiceHistory";
 import PaymentsRoutes from "./modules/payments/routes";
 import InvoiceDetail from "./pages/Ritase/InvoiceDetail";
+import DepositGroupManagement from "./pages/DepositGroupManagement";
 import { Toaster } from "react-hot-toast";
 
 import ComprehensiveRitaseTable from "./pages/Ritase/ComprehensiveRitaseTable";
@@ -86,7 +87,7 @@ function App() {
             element={<POSpecificRitaseTable />}
           />
           <Route
-            path="ritase/delivery-orders/:doId/payment"
+            path="ritase/delivery-orders/:doId/payments"
             element={<DOPaymentManagement />}
           />
 
@@ -170,6 +171,7 @@ function App() {
           <Route path="services/edit/:id" element={<ServiceEditPage />} />
           <Route path="cash" element={<CashManagementPage />} />
           <Route path="tempo" element={<TempoManagementPage />} />
+          <Route path="deposit-groups" element={<DepositGroupManagement />} />
         </Route>
       </Routes>
     </Router>

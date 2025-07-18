@@ -233,17 +233,19 @@ const getServiceById = async (req, res, next) => {
   }
 };
 
-// ✅ FIXED: Create service with proper zero-price kas transaction handling
-const createService = async (req, res, next) => {
-  const transaction = await sequelize.transaction();
-  
+// ✅ UPDATED: Create new service with FIFO integration
+// ✅ UPDATED: Create new service with multiple attachments support
+exports.createService = async (req, res, next) => {
+  const transaction = await db.sequelize.transaction();
+  let serviceId;
+
   try {
     // Validate request body
     if (!req.body) {
       await transaction.rollback();
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid request format' 
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid request format',
       });
     }
 
@@ -255,19 +257,24 @@ const createService = async (req, res, next) => {
       description,
       workshop_name,
       labor_cost,
-      notes
+      notes,
     } = req.body;
 
     // Parse JSON strings from FormData
     const serviceItems = req.body.items ? JSON.parse(req.body.items) : [];
     const cashSettings = req.body.cash_settings ? JSON.parse(req.body.cash_settings) : {};
 
-    // Basic validation
+    // ✅ UPDATED: Handle multiple file uploads
+    const attachment_urls = req.files
+      ? req.files.map((file) => `uploads/receipts/${file.filename}`)
+      : [];
+
+    // Validation
     if (!vehicle_id) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: 'Vehicle ID is required'
+        message: 'Vehicle ID is required',
       });
     }
 
@@ -275,7 +282,7 @@ const createService = async (req, res, next) => {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: 'Service description is required'
+        message: 'Service description is required',
       });
     }
 
@@ -426,16 +433,16 @@ const createService = async (req, res, next) => {
   } catch (err) {
     await transaction.rollback();
     console.error('Error in createService:', err);
-    
+
     if (err.name === 'SequelizeValidationError') {
-      const messages = err.errors.map(e => e.message);
+      const messages = err.errors.map((e) => e.message);
       return res.status(400).json({
         success: false,
         message: 'Validation failed',
-        errors: messages
+        errors: messages,
       });
     }
-    
+
     return res.status(400).json({
       success: false,
       message: err.message || 'Service creation failed'

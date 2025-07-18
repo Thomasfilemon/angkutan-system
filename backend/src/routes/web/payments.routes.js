@@ -23,6 +23,14 @@ router.get(
   PaymentsCtrl.getDeliveryOrders
 );
 
+// GET /purchase-orders/:poId/billing-summary
+// Now returns full potential vs actual breakdown
+router.get(
+  "/purchase-orders/:poId/billing-summary",
+  checkRole(["admin", "owner"]),
+  paymentsCtrl.getPOBillingSummary
+);
+
 // ──────── Invoice Endpoints ────────
 
 // Create single-DO invoice
@@ -33,12 +41,11 @@ router.post(
   PaymentsCtrl.createInvoice
 );
 
-// NEW: Get single invoice details for a specific DO
 // GET /api/web/payments/delivery-orders/:doId/invoices/:invoiceId
 router.get(
   "/delivery-orders/:doId/invoices/:invoiceId",
   checkRole(["admin", "owner"]),
-  PaymentsCtrl.getInvoiceDetail // Assuming you add this method to your controller
+  PaymentsCtrl.getInvoiceDetail
 );
 
 // Update invoice (edit PPH %, amount, due date, notes, status)
@@ -49,7 +56,7 @@ router.put(
   PaymentsCtrl.updateInvoice
 );
 
-// Tambah routes baru untuk invoice management
+// Invoice management
 router.get(
   "/invoices",
   checkRole(["admin", "owner"]),
