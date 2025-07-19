@@ -20,19 +20,19 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({
           icon: "✓",
           ring: "ring-emerald-200",
         },
-        deposit: {
-          bg: "bg-blue-50",
-          text: "text-blue-700",
-          border: "border-blue-200",
-          icon: "◐",
-          ring: "ring-blue-200",
-        },
         proses_tagihan: {
           bg: "bg-amber-50",
           text: "text-amber-700",
           border: "border-amber-200",
           icon: "⏳",
           ring: "ring-amber-200",
+        },
+        deposit: {
+          bg: "bg-blue-50",
+          text: "text-blue-700",
+          border: "border-blue-200",
+          icon: "◐",
+          ring: "ring-blue-200",
         },
         awaiting_confirmation: {
           bg: "bg-orange-50",

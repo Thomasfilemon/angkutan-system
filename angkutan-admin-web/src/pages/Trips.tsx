@@ -68,8 +68,8 @@ const TripsPage = () => {
       const processedOrders = orders.map((po: PurchaseOrder) => {
         // Convert quantity fields to numbers
         const convert = (val: any): number => {
-          if (typeof val === 'number') return val;
-          if (typeof val === 'string') return parseFloat(val) || 0;
+          if (typeof val === "number") return val;
+          if (typeof val === "string") return parseFloat(val) || 0;
           return 0;
         };
 
@@ -81,7 +81,9 @@ const TripsPage = () => {
           remaining_quantity: convert(po.remaining_quantity),
           delivery_progress: {
             total_deliveries: convert(po.delivery_progress.total_deliveries),
-            completed_deliveries: convert(po.delivery_progress.completed_deliveries),
+            completed_deliveries: convert(
+              po.delivery_progress.completed_deliveries
+            ),
             percentage: convert(po.delivery_progress.percentage),
           },
         };
@@ -147,7 +149,7 @@ const TripsPage = () => {
     }
 
     let newQuantity = selectedPO.total_quantity;
-    
+
     if (adjustmentType === "add") {
       newQuantity += amount;
     } else {

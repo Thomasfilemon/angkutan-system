@@ -637,7 +637,7 @@ BEGIN
   IF total_paid + 0.01 >= final_amount THEN  -- Tolerance rounding
     UPDATE delivery_orders SET payment_status = 'lunas', payment_confirmation_status = 'confirmed' WHERE id = NEW.delivery_order_id;
   ELSIF total_paid > 0 THEN
-  UPDATE delivery_orders SET payment_status = 'deposit' WHERE id = NEW.delivery_order_id;
+  UPDATE delivery_orders SET payment_status = 'proses_tagihan' WHERE id = NEW.delivery_order_id;
   END IF;
   RETURN NEW;
 END;

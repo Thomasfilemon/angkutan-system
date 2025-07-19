@@ -24,7 +24,7 @@ exports.getAllPurchaseOrders = async (req, res, next) => {
         whereClause.status = status;
       }
     }
-    
+
     if (search) {
       whereClause[Op.or] = [
         { po_number: { [Op.iLike]: `%${search}%` } },
@@ -86,7 +86,6 @@ exports.getAllPurchaseOrders = async (req, res, next) => {
       })
     );
 
-    // Calculate summary stats
     // Calculate summary stats
     const stats = {
       total: enhancedPOs.length, // ✅ FIX: Use actual results, not DB count
@@ -211,7 +210,7 @@ exports.createPurchaseOrder = async (req, res, next) => {
         case "kilogram":
           return qty * price;
         case "ton":
-          return qty * 1000 * price; // Convert ton to kg for pricing
+          return qty * price;
         case "kubik":
           return qty * price; // Direct kubik pricing
         default:

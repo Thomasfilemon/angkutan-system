@@ -4,7 +4,6 @@ import React, { useState, useEffect, useMemo } from "react";
 import Select from "react-select";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import apiClient from "../../api/axiosConfig";
-import debounce from "lodash.debounce";
 import TableSkeleton from "../../components/ui/TableSkeleton";
 import SummaryCard from "../../components/ui/SummaryCard";
 import FilterChip from "../../components/ui/FilterChip";
@@ -24,6 +23,7 @@ interface ComprehensiveRitaseData {
     };
   };
   created_at: string;
+  departed_to_load_location_at: string;
   completed_at: string;
   load_location: string;
   unload_location: string;
@@ -77,7 +77,6 @@ const ComprehensiveRitaseTable: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [refreshing, setRefreshing] = useState(false);
-  const [globalSearch, setGlobalSearch] = useState("");
 
   // Purchase Orders and Vehicles state
   const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
@@ -270,26 +269,9 @@ const ComprehensiveRitaseTable: React.FC = () => {
       setRefreshing(false);
     }
   };
-  const debouncedSearch = useMemo(
-    () => debounce((value: string) => setGlobalSearch(value), 300),
-    []
-  );
 
   const processedData = useMemo(() => {
     let filtered = [...data];
-
-    // Global search filter
-    if (globalSearch) {
-      const lowerSearch = globalSearch.toLowerCase();
-      filtered = filtered.filter(
-        (record) =>
-          record.vehicle.license_plate.toLowerCase().includes(lowerSearch) ||
-          record.driver.driverProfile.full_name
-            .toLowerCase()
-            .includes(lowerSearch)
-        // Tambah field lain kalau mau
-      );
-    }
 
     // Sorting dengan case-insensitive
     filtered.sort((a, b) => {
@@ -305,7 +287,7 @@ const ComprehensiveRitaseTable: React.FC = () => {
     });
 
     return filtered;
-  }, [data, globalSearch, sortConfig]);
+  }, [data, sortConfig]);
 
   // Fetch when filters or page change
   useEffect(() => {
@@ -516,7 +498,7 @@ const ComprehensiveRitaseTable: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Summary Stats */}
         {summary && (
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-6">
             <SummaryCard
               title="Total Ritase"
               value={summary.totalRecords.toLocaleString()}
@@ -561,7 +543,7 @@ const ComprehensiveRitaseTable: React.FC = () => {
         )}
 
         {/* Filters */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-8">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-4">
           <div className="p-6 border-b border-gray-100">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
@@ -580,12 +562,6 @@ const ComprehensiveRitaseTable: React.FC = () => {
                 </svg>
                 Filters & Search
               </h3>
-              <input
-                type="text"
-                placeholder="Search globally..."
-                onChange={(e) => debouncedSearch(e.target.value)}
-                className="px-4 py-2 rounded-lg"
-              />
               {activeFilters.length > 0 && (
                 <button
                   onClick={() =>
@@ -654,25 +630,6 @@ const ComprehensiveRitaseTable: React.FC = () => {
 
             {/* Filter grid with better spacing */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Sort By */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Sort By
-                </label>
-                <select
-                  value={filters.sortBy}
-                  onChange={(e) =>
-                    setFilters({ ...filters, sortBy: e.target.value })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                >
-                  <option value="license_plate">License Plate</option>
-                  <option value="created_at">Date Created</option>
-                  <option value="completed_at">Date Completed</option>
-                  <option value="calculated.grossIncome">Gross Income</option>
-                  <option value="calculated.netProfit">Net Profit</option>
-                </select>
-              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Start Date
@@ -701,7 +658,7 @@ const ComprehensiveRitaseTable: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Status
+                  Delivery Status
                 </label>
                 <select
                   value={filters.status}
@@ -734,74 +691,6 @@ const ComprehensiveRitaseTable: React.FC = () => {
                   <option value="awaiting_confirmation">
                     AWAITING CONFIRMATION
                   </option>
-                </select>
-              </div>
-              {/* Sort Order */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Order
-                </label>
-                <select
-                  value={filters.sortOrder}
-                  onChange={(e) =>
-                    setFilters({ ...filters, sortOrder: e.target.value })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                >
-                  <option value="DESC">Descending</option>
-                  <option value="ASC">Ascending</option>
-                </select>
-              </div>
-              {/* Vehicle Filter */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Vehicle (Optional)
-                </label>
-                <Select
-                  options={vehicleOptions}
-                  value={vehicleOptions.find(
-                    (opt) => opt.value === filters.vehicle
-                  )}
-                  onChange={(selected) =>
-                    setFilters({
-                      ...filters,
-                      vehicle: selected ? selected.value : "",
-                    })
-                  }
-                  isClearable
-                  placeholder="Select vehicle..."
-                  className="text-sm"
-                  styles={{
-                    control: (base) => ({
-                      ...base,
-                      minHeight: 40,
-                      borderRadius: "0.5rem",
-                      borderColor: "#d1d5db",
-                      "&:hover": { borderColor: "#3b82f6" },
-                      "&:focus-within": {
-                        borderColor: "#3b82f6",
-                        boxShadow: "0 0 0 2px rgba(59, 130, 246, 0.1)",
-                      },
-                    }),
-                  }}
-                />
-              </div>
-              {/* Limit */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Records per page
-                </label>
-                <select
-                  value={filters.limit}
-                  onChange={(e) =>
-                    setFilters({ ...filters, limit: parseInt(e.target.value) })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                >
-                  <option value={10}>10 records</option>
-                  <option value={25}>25 records</option>
-                  <option value={50}>50 records</option>
-                  <option value={100}>100 records</option>
                 </select>
               </div>
             </div>
@@ -859,26 +748,77 @@ const ComprehensiveRitaseTable: React.FC = () => {
           <div className="bg-white shadow-xl rounded-xl overflow-hidden border border-gray-200">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
               <div className="flex justify-between items-center">
-                <div>
-                  <h2 className="text-lg font-semibold text-gray-900">
-                    Latest Ritase Data
-                  </h2>
-                  <p className="text-sm text-gray-600 mt-1">
-                    Showing {data.length} trips • Sorted by {filters.sortBy}{" "}
-                    {filters.sortOrder}
-                    {summary && (
-                      <span className="ml-2 font-medium text-blue-600">
-                        • Total Revenue: {formatCurrency(summary.totalRevenue)}
-                      </span>
-                    )}
-                  </p>
+                <div className="flex items-center space-x-4">
+                  <div>
+                    <h2 className="text-lg font-semibold text-gray-900">
+                      Latest Ritase Data
+                    </h2>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Showing {data.length} completed trips •
+                      {summary && (
+                        <span className="ml-2 font-medium text-blue-600">
+                          • Total Revenue:{" "}
+                          {formatCurrency(summary.totalRevenue)}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  {/* Vehicle Filter */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Vehicle (Optional)
+                    </label>
+                    <Select
+                      options={vehicleOptions}
+                      value={vehicleOptions.find(
+                        (opt) => opt.value === filters.vehicle
+                      )}
+                      onChange={(selected) =>
+                        setFilters({
+                          ...filters,
+                          vehicle: selected ? selected.value : "",
+                        })
+                      }
+                      isClearable
+                      placeholder="Select vehicle..."
+                      className="text-sm"
+                      styles={{
+                        control: (base) => ({
+                          ...base,
+                          minHeight: 40,
+                          borderRadius: "0.5rem",
+                          borderColor: "#d1d5db",
+                          "&:hover": { borderColor: "#3b82f6" },
+                          "&:focus-within": {
+                            borderColor: "#3b82f6",
+                            boxShadow: "0 0 0 2px rgba(59, 130, 246, 0.1)",
+                          },
+                        }),
+                      }}
+                    />
+                  </div>
+                  {/* Limit */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Records per page
+                    </label>
+                    <select
+                      value={filters.limit}
+                      onChange={(e) =>
+                        setFilters({
+                          ...filters,
+                          limit: parseInt(e.target.value),
+                        })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                    >
+                      <option value={10}>10 records</option>
+                      <option value={25}>25 records</option>
+                      <option value={50}>50 records</option>
+                      <option value={100}>100 records</option>
+                    </select>
+                  </div>
                 </div>
-                <input
-                  type="text"
-                  placeholder="Search globally..."
-                  onChange={(e) => debouncedSearch(e.target.value)}
-                  className="px-4 py-2 rounded-lg"
-                />
                 {refreshing && (
                   <div className="flex items-center text-sm text-blue-600">
                     <svg
@@ -911,29 +851,18 @@ const ComprehensiveRitaseTable: React.FC = () => {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
-                      onClick={() => handleSort("vehicle.license_plate")}
-                    >
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
                       <div className="flex items-center space-x-1">
-                        <span>Plat Nomor</span>
-                        {sortConfig.key === "vehicle.license_plate" && (
-                          <span className="text-blue-500">
-                            {sortConfig.direction === "asc" ? "↑" : "↓"}
-                          </span>
-                        )}
+                        <span>Plat Nomor & Nama Supir</span>
                       </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Nama Supir
-                    </th>
                     <th
                       className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
-                      onClick={() => handleSort("created_at")}
+                      onClick={() => handleSort("departed_to_load_location_at")}
                     >
                       <div className="flex items-center space-x-1">
                         <span>Tanggal Jalan</span>
-                        {sortConfig.key === "created_at" && (
+                        {sortConfig.key === "departed_to_load_location_at" && (
                           <span className="text-blue-500">
                             {sortConfig.direction === "asc" ? "↑" : "↓"}
                           </span>
@@ -946,33 +875,17 @@ const ComprehensiveRitaseTable: React.FC = () => {
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Quantity & Price
                     </th>
-                    <th
-                      className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
-                      onClick={() => handleSort("calculated.grossIncome")}
-                    >
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       <div className="flex items-center justify-end space-x-1">
                         <span>Revenue</span>
-                        {sortConfig.key === "calculated.grossIncome" && (
-                          <span className="text-blue-500">
-                            {sortConfig.direction === "asc" ? "↑" : "↓"}
-                          </span>
-                        )}
                       </div>
                     </th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Costs
                     </th>
-                    <th
-                      className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
-                      onClick={() => handleSort("calculated.netProfit")}
-                    >
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       <div className="flex items-center justify-end space-x-1">
                         <span>Net Profit</span>
-                        {sortConfig.key === "calculated.netProfit" && (
-                          <span className="text-blue-500">
-                            {sortConfig.direction === "asc" ? "↑" : "↓"}
-                          </span>
-                        )}
                       </div>
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -1000,18 +913,14 @@ const ComprehensiveRitaseTable: React.FC = () => {
                       >
                         {/* Vehicle License Plate */}
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            <div className="text-sm font-bold text-gray-900 bg-gray-100 px-2 py-1 rounded">
+                          <div className="text-sm text-gray-900">
+                            <div className="font-bold bg-gray-100 px-2 py-1 rounded">
                               {record.vehicle.license_plate}
                             </div>
-                          </div>
-                        </td>
-
-                        {/* Driver Name */}
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900 font-medium">
-                            {record.driver.driverProfile.full_name ||
-                              record.driver.username}
+                            <div className="font-medium px-2">
+                              {record.driver.driverProfile.full_name ||
+                                record.driver.username}
+                            </div>
                           </div>
                         </td>
 
@@ -1019,7 +928,7 @@ const ComprehensiveRitaseTable: React.FC = () => {
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-900">
                             <div className="font-medium">
-                              {formatDate(record.created_at)}
+                              {formatDate(record.departed_to_load_location_at)}
                             </div>
                             <div className="text-xs text-gray-500">
                               {record.completed_at

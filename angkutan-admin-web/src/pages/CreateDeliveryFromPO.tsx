@@ -190,12 +190,17 @@ const CreateDeliveryFromPO: React.FC = () => {
     }
   };
 
-  const calculateOngkosan = (formData: DOFormData, poUnitPrice?: number, poUnit?: string): number => {
+  const calculateOngkosan = (
+    formData: DOFormData,
+    poUnitPrice?: number,
+    poUnit?: string
+  ): number => {
     if (!poUnitPrice || !poUnit || !formData.minimal_load_quantity) return 0;
     const quantity = parseFloat(formData.minimal_load_quantity);
     const totalRevenue = calculateTotalAmount(quantity, poUnitPrice, poUnit);
     const operationalCosts =
-      (parseFloat(formData.trip_allowance) || 0) + (parseFloat(formData.gaji) || 0);
+      (parseFloat(formData.trip_allowance) || 0) +
+      (parseFloat(formData.gaji) || 0);
     return totalRevenue - operationalCosts;
   };
 
@@ -287,8 +292,16 @@ const CreateDeliveryFromPO: React.FC = () => {
     setFormDataList(newFormDataList);
 
     // Recalculate ongkosan for the changed form
-    if (e.target.name === "minimal_load_quantity" || e.target.name === "trip_allowance" || e.target.name === "gaji") {
-      newFormDataList[index].ongkosan = calculateOngkosan(newFormDataList[index], poDetails?.unit_price, poDetails?.unit).toString();
+    if (
+      e.target.name === "minimal_load_quantity" ||
+      e.target.name === "trip_allowance" ||
+      e.target.name === "gaji"
+    ) {
+      newFormDataList[index].ongkosan = calculateOngkosan(
+        newFormDataList[index],
+        poDetails?.unit_price,
+        poDetails?.unit
+      ).toString();
       setFormDataList([...newFormDataList]);
     }
   };
@@ -398,7 +411,12 @@ const CreateDeliveryFromPO: React.FC = () => {
       const data = await resp.json();
 
       if (data.lat && data.lng) {
-        setLocationWithType(data.lat, data.lng, `${data.lat},${data.lng}`, type);
+        setLocationWithType(
+          data.lat,
+          data.lng,
+          `${data.lat},${data.lng}`,
+          type
+        );
       } else {
         alert(
           data.message ||
@@ -457,28 +475,42 @@ const CreateDeliveryFromPO: React.FC = () => {
 
     try {
       if (!poDetails || poDetails.remaining_quantity === undefined) {
-        throw new Error("Purchase order details are incomplete. Cannot create delivery orders.");
+        throw new Error(
+          "Purchase order details are incomplete. Cannot create delivery orders."
+        );
       }
 
       for (const formData of formDataList) {
         const selectedVehicle = getSelectedVehicle(formData.vehicle_id);
         if (!selectedVehicle || !selectedVehicle.driver_id) {
-          throw new Error(`Invalid vehicle selection for DO ${formData.do_name}`);
+          throw new Error(
+            `Invalid vehicle selection for DO ${formData.do_name}`
+          );
         }
 
         const quantity = parseFloat(formData.minimal_load_quantity);
         if (isNaN(quantity) || quantity <= 0) {
-          throw new Error(`Invalid quantity (${quantity}) for DO ${formData.do_name}. Must be a positive number.`);
+          throw new Error(
+            `Invalid quantity (${quantity}) for DO ${formData.do_name}. Must be a positive number.`
+          );
         }
         if (quantity > poDetails.remaining_quantity) {
           throw new Error(
-            `Invalid quantity (${quantity}) for DO ${formData.do_name}. Must not exceed remaining ${poDetails.remaining_quantity} ${getUnitDisplay(poDetails.unit || "ton")}.`
+            `Invalid quantity (${quantity}) for DO ${
+              formData.do_name
+            }. Must not exceed remaining ${
+              poDetails.remaining_quantity
+            } ${getUnitDisplay(poDetails.unit || "ton")}.`
           );
         }
 
         const totalAmount =
           poDetails.unit_price && poDetails.unit
-            ? calculateTotalAmount(quantity, poDetails.unit_price, poDetails.unit)
+            ? calculateTotalAmount(
+                quantity,
+                poDetails.unit_price,
+                poDetails.unit
+              )
             : 0;
 
         const payload = {
@@ -496,7 +528,8 @@ const CreateDeliveryFromPO: React.FC = () => {
           gaji: parseFloat(formData.gaji),
           ongkosan: parseFloat(formData.ongkosan),
           load_location: formData.load_location || poDetails.load_location,
-          unload_location: formData.unload_location || poDetails.unload_location,
+          unload_location:
+            formData.unload_location || poDetails.unload_location,
           load_latitude: formData.load_latitude
             ? parseFloat(formData.load_latitude)
             : null,
@@ -719,13 +752,19 @@ const CreateDeliveryFromPO: React.FC = () => {
                         <div>
                           <span className="text-gray-600">Vehicle:</span>
                           <p className="font-medium">
-                            {getSelectedVehicle(formData.vehicle_id)?.license_plate}
+                            {
+                              getSelectedVehicle(formData.vehicle_id)
+                                ?.license_plate
+                            }
                           </p>
                         </div>
                         <div>
                           <span className="text-gray-600">Driver:</span>
                           <p className="font-medium">
-                            {getSelectedVehicle(formData.vehicle_id)?.driver_name}
+                            {
+                              getSelectedVehicle(formData.vehicle_id)
+                                ?.driver_name
+                            }
                           </p>
                         </div>
                       </div>
@@ -831,7 +870,10 @@ const CreateDeliveryFromPO: React.FC = () => {
                     <button
                       type="button"
                       onClick={() =>
-                        handleProcessLocationLink("load", formData.load_location)
+                        handleProcessLocationLink(
+                          "load",
+                          formData.load_location
+                        )
                       }
                       disabled={linkProcessing.load}
                       className="text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 px-2 py-1 rounded w-full"
@@ -855,7 +897,9 @@ const CreateDeliveryFromPO: React.FC = () => {
                     }`}
                   >
                     {showMap &&
-                      (selectedLocationType === "load" ? "Active..." : "Set Load")}
+                      (selectedLocationType === "load"
+                        ? "Active..."
+                        : "Set Load")}
                   </button>
                 </div>
                 <div className="mt-4">

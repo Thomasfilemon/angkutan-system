@@ -307,6 +307,32 @@ const DeliveryOrderDetailPage = () => {
                     </span>
                   </div>
                 )}
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Gross Income</span>
+                  <span className="font-medium text-blue-600">
+                    Rp{" "}
+                    {deliveryOrder.financial_summary.minimal_total_amount?.toLocaleString(
+                      "id-ID"
+                    ) ||
+                      deliveryOrder.financial_summary.total_amount.toLocaleString(
+                        "id-ID"
+                      )}
+                  </span>
+                </div>
+
+                {deliveryOrder.financial_summary.actual_total_amount &&
+                  deliveryOrder.financial_summary.actual_total_amount !==
+                    deliveryOrder.financial_summary.minimal_total_amount && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Actual Gross Income</span>
+                      <span className="font-medium text-green-600">
+                        Rp{" "}
+                        {deliveryOrder.financial_summary.actual_total_amount.toLocaleString(
+                          "id-ID"
+                        )}
+                      </span>
+                    </div>
+                  )}
               </div>
             </div>
           )}
@@ -342,33 +368,6 @@ const DeliveryOrderDetailPage = () => {
 
             {/* 🎯 ENHANCED: Revenue breakdown */}
             <div className="border-t pt-2 space-y-2">
-              <div className="flex justify-between">
-                <span className="text-gray-600">Target Revenue</span>
-                <span className="font-medium text-blue-600">
-                  Rp{" "}
-                  {deliveryOrder.financial_summary.minimal_total_amount?.toLocaleString(
-                    "id-ID"
-                  ) ||
-                    deliveryOrder.financial_summary.total_amount.toLocaleString(
-                      "id-ID"
-                    )}
-                </span>
-              </div>
-
-              {deliveryOrder.financial_summary.actual_total_amount &&
-                deliveryOrder.financial_summary.actual_total_amount !==
-                  deliveryOrder.financial_summary.minimal_total_amount && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Actual Revenue</span>
-                    <span className="font-medium text-green-600">
-                      Rp{" "}
-                      {deliveryOrder.financial_summary.actual_total_amount.toLocaleString(
-                        "id-ID"
-                      )}
-                    </span>
-                  </div>
-                )}
-
               {deliveryOrder.financial_summary.ongkosan && (
                 <div className="flex justify-between">
                   <span className="text-gray-600">Ongkosan (Profit)</span>

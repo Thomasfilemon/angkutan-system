@@ -52,7 +52,7 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
       case "kilogram":
         return quantity * price;
       case "ton":
-        return quantity * 1000 * price; // Convert ton to kg
+        return quantity * price; // Convert ton to kg
       case "kubik":
         return quantity * price; // Direct kubik pricing
       default:
@@ -71,7 +71,7 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
     const price = parseFloat(formData.unit_price) || 0;
 
     if (formData.unit === "ton" && price > 0) {
-      const pricePerTon = price * 1000;
+      const pricePerTon = price;
       return ` (Rp ${pricePerTon.toLocaleString("id-ID")}/ton)`;
     }
     return "";
@@ -255,9 +255,11 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
           {formData.unit_price && formData.unit === "ton" && (
             <div className="mt-1 text-xs text-blue-600">
               {parseFloat(formData.unit_price) > 0 &&
-                `Rp ${(parseFloat(formData.unit_price) * 1000).toLocaleString(
+                `Rp ${parseFloat(formData.unit_price).toLocaleString(
                   "id-ID"
-                )}/ton`}
+                )}/ton (= Rp ${(
+                  parseFloat(formData.unit_price) / 1000
+                ).toLocaleString("id-ID")}/kg)`}
             </div>
           )}
         </div>

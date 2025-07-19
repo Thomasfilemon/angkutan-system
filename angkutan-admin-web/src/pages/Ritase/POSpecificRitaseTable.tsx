@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import apiClient from "../../api/axiosConfig";
 import Select from "react-select";
-import debounce from "lodash.debounce";
 import { paymentsApi } from "../../modules/payments/api";
 import EditablePphCell from "../../modules/payments/components/EditablePphCell";
 
@@ -229,32 +228,11 @@ const POSpecificRitaseTable: React.FC = () => {
     }
   };
 
-  const handleCreateInvoice = async (doId: number, invoiceData: any) => {
-    try {
-      await paymentsApi.createInvoice(doId, invoiceData);
-      fetchPOData(); // Refresh data
-      setShowCreateInvoiceModal(false);
-    } catch (err: any) {
-      console.error("Failed to create invoice:", err);
-      alert(err.response?.data?.message || "Failed to create invoice");
-    }
-  };
-
-  const handleRecordPayment = async (doId: number, paymentData: any) => {
-    try {
-      await paymentsApi.recordPayment(doId, paymentData);
-      fetchPOData(); // Refresh data
-    } catch (err: any) {
-      console.error("Failed to record payment:", err);
-      alert(err.response?.data?.message || "Failed to record payment");
-    }
-  };
-
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
       const eligibleDOs = processedDOs
         .filter(
-          (do_) => do_.invoices.length === 0 || do_.status === "completed"
+          (do_) => do_.invoices.length === 0 && do_.status === "completed"
         )
         .map((do_) => do_.id);
       setSelectedDOs(eligibleDOs);
