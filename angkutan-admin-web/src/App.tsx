@@ -87,7 +87,7 @@ function App() {
             element={<POSpecificRitaseTable />}
           />
           <Route
-            path="ritase/delivery-orders/:doId/payments"
+            path="ritase/delivery-orders/:doId/payment"
             element={<DOPaymentManagement />}
           />
 

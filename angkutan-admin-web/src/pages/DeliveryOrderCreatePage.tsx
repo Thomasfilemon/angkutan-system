@@ -29,8 +29,9 @@ interface Driver {
   };
 }
 
+// ✅ FIXED: Updated Vehicle interface to match API response
 interface Vehicle {
-  capacity: number | null;
+  capacity: string | null; // ✅ Changed from number to string
   id: number;
   license_plate: string;
   type: string;
@@ -40,7 +41,6 @@ interface Vehicle {
   driver_phone: string | null;
   driver_status: string | null;
   driver?: {
-    // ✅ ADD: Full driver object
     id: number;
     username: string;
     driverProfile?: {
@@ -62,7 +62,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
 
   const [formData, setFormData] = useState({
-    do_name: "", // New field
+    do_name: "",
     purchase_order_id: "",
     driver_id: "",
     vehicle_id: "",
@@ -78,9 +78,26 @@ const DeliveryOrderCreatePage: React.FC = () => {
     unload_location: "",
   });
 
+  // ✅ ADD: Random PO number generator for standalone DOs
+  const generateRandomPONumber = (): string => {
+    const prefix = "STANDALONE";
+    const timestamp = new Date().getTime().toString().slice(-6); // Last 6 digits of timestamp
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    return `${prefix}-${timestamp}-${random}`;
+  };
+
   useEffect(() => {
     fetchInitialData();
   }, []);
+
+  // ✅ ADD: Debug vehicles state changes
+  useEffect(() => {
+    console.log('🚛 Vehicles state updated:', vehicles);
+    console.log('🚛 Vehicles count:', vehicles.length);
+    if (vehicles.length > 0) {
+      console.log('🚛 First vehicle:', vehicles[0]);
+    }
+  }, [vehicles]);
 
   // ✅ ADD: Auto-fill driver when vehicle is selected
   useEffect(() => {
@@ -89,7 +106,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
         (v) => v.id.toString() === formData.vehicle_id
       );
       if (selectedVehicle && selectedVehicle.driver_id) {
-        // Auto-fill driver from vehicle
         setFormData((prev) => ({
           ...prev,
           driver_id:
@@ -98,14 +114,12 @@ const DeliveryOrderCreatePage: React.FC = () => {
               : "",
         }));
       } else {
-        // Clear driver if vehicle has no assigned driver
         setFormData((prev) => ({
           ...prev,
           driver_id: "",
         }));
       }
     } else {
-      // Clear driver when no vehicle selected
       setFormData((prev) => ({
         ...prev,
         driver_id: "",
@@ -113,21 +127,41 @@ const DeliveryOrderCreatePage: React.FC = () => {
     }
   }, [formData.vehicle_id, vehicles]);
 
+  // ✅ UPDATED: Enhanced fetchInitialData with comprehensive debugging
   const fetchInitialData = async () => {
     try {
       setLoading(true);
+      console.log('🔍 Starting fetchInitialData...');
+      
       const [poResponse, driverResponse, vehicleResponse] = await Promise.all([
         apiClient.get("/purchase-orders", {
-          params: {
-            status: ["confirmed", "partial"]
-          }
+          params: { status: ["confirmed", "partial"] }
         }),
         apiClient.get("/drivers"),
         apiClient.get("/vehicles"),
       ]);
 
-      // Filter POs
-      const allPOs = poResponse.data || [];
+      console.log('📋 Raw PO Response:', poResponse);
+      console.log('📋 PO Response Data:', poResponse.data);
+      console.log('👨‍💼 Raw Driver Response:', driverResponse);
+      console.log('🚛 Raw Vehicle Response:', vehicleResponse);
+
+      // ✅ FIX: Handle nested PO response structure
+      let allPOs;
+      if (poResponse.data?.data && Array.isArray(poResponse.data.data)) {
+        allPOs = poResponse.data.data; // Nested structure: { success: true, data: [...] }
+        console.log('📋 Using nested PO structure');
+      } else if (Array.isArray(poResponse.data)) {
+        allPOs = poResponse.data; // Direct array
+        console.log('📋 Using direct PO array');
+      } else {
+        allPOs = []; // Fallback
+        console.log('📋 No PO data found, using empty array');
+      }
+
+      console.log('📋 Extracted PO Data:', allPOs);
+      console.log('📋 PO Data Length:', allPOs.length);
+
       const availablePOs = allPOs.filter(
         (po: PurchaseOrder) =>
           po.can_create_do === true &&
@@ -136,25 +170,73 @@ const DeliveryOrderCreatePage: React.FC = () => {
       );
 
       setPurchaseOrders(availablePOs);
-      setDrivers(driverResponse.data || []);
+      console.log('✅ Purchase Orders set:', availablePOs.length);
 
-      // ✅ UPDATE: Keep all available vehicles (with or without drivers)
-      const vehicleData = vehicleResponse.data || [];
-      const availableVehicles = vehicleData.filter(
-        (v: Vehicle) => v.status === "available" // Keep all available vehicles
-      );
+      // ✅ FIX: Handle nested driver response structure  
+      let driverData;
+      if (driverResponse.data?.data && Array.isArray(driverResponse.data.data)) {
+        driverData = driverResponse.data.data;
+        console.log('👨‍💼 Using nested driver structure');
+      } else if (Array.isArray(driverResponse.data)) {
+        driverData = driverResponse.data;
+        console.log('👨‍💼 Using direct driver array');
+      } else {
+        driverData = [];
+        console.log('👨‍💼 No driver data found, using empty array');
+      }
 
+      setDrivers(driverData);
+      console.log('✅ Drivers set:', driverData.length);
+
+      // ✅ VEHICLES: Your vehicle response is already working correctly
+      const vehicleData = vehicleResponse.data; // Direct array as shown in logs
+      console.log('🚛 Extracted Vehicle Data:', vehicleData);
+      console.log('🚛 Vehicle Data Type:', typeof vehicleData);
+      console.log('🚛 Is Array?:', Array.isArray(vehicleData));
+      console.log('🚛 Vehicle Data Length:', vehicleData?.length || 0);
+
+      if (Array.isArray(vehicleData) && vehicleData.length > 0) {
+        console.log('🚛 First Vehicle Sample:', vehicleData[0]);
+        vehicleData.forEach((v, index) => {
+          console.log(`🚛 Vehicle ${index}:`, {
+            id: v.id,
+            license_plate: v.license_plate,
+            status: v.status,
+            driver_id: v.driver_id,
+            driver_name: v.driver_name
+          });
+        });
+      }
+
+      // ✅ FILTER: Vehicle filtering (this should now work)
+      const availableVehicles = Array.isArray(vehicleData) ? vehicleData.filter(
+        (v: any) => {
+          console.log(`🚛 Filtering vehicle ${v.license_plate || v.id}, status: "${v.status}"`);
+          const isAvailable = v.status === "available";
+          console.log(`🚛 Vehicle ${v.license_plate || v.id} is ${isAvailable ? 'AVAILABLE' : 'NOT AVAILABLE'}`);
+          return isAvailable;
+        }
+      ) : [];
+      
+      console.log('🚛 Available Vehicles After Filter:', availableVehicles);
+      console.log('🚛 Available Vehicles Count:', availableVehicles.length);
+      
       setVehicles(availableVehicles);
-    } catch (err) {
+      console.log('✅ Vehicles set in state');
+      
+    } catch (err: any) {
+      console.error('❌ fetchInitialData error:', err);
+      console.error('❌ Error response:', err.response?.data);
+      console.error('❌ Error status:', err.response?.status);
       toast.error("Failed to fetch initial data");
     } finally {
       setLoading(false);
+      console.log('🔍 fetchInitialData completed');
     }
   };
 
   const handlePOChange = (poId: string) => {
     if (!poId) {
-      // Reset to standalone mode
       setFormData((prev) => ({
         ...prev,
         purchase_order_id: "",
@@ -206,24 +288,22 @@ const DeliveryOrderCreatePage: React.FC = () => {
       formData.unit_price,
       formData.unit
     );
-    // ✅ FIX: Parse string inputs properly
     const tripAllowance = parseFloat(formData.trip_allowance) || 0;
     const gaji = parseFloat(formData.gaji) || 0;
     const operationalCosts = tripAllowance + gaji;
 
-    return Math.max(0, totalRevenue - operationalCosts); // Prevent negative ongkosan
+    return Math.max(0, totalRevenue - operationalCosts);
   };
 
   // Auto-calculate ongkosan
   useEffect(() => {
-    // Calculate ongkosan whenever any relevant field changes
     const ongkosan = calculateOngkosan();
     setFormData((prev) => ({ ...prev, ongkosan }));
   }, [
     formData.minimal_load_quantity,
     formData.unit_price,
-    formData.trip_allowance, // Now string, will be parsed in calculateOngkosan
-    formData.gaji, // Now string, will be parsed in calculateOngkosan
+    formData.trip_allowance,
+    formData.gaji,
     formData.unit,
   ]);
 
@@ -253,9 +333,20 @@ const DeliveryOrderCreatePage: React.FC = () => {
         formData.unit
       );
 
+      // ✅ ADD: Generate random PO number for standalone DOs
+      let finalPOId = formData.purchase_order_id || null;
+      let standalonePoNumber = null;
+
+      // If no PO is selected (standalone DO), generate a random PO number for system compatibility
+      if (!formData.purchase_order_id) {
+        standalonePoNumber = generateRandomPONumber();
+        console.log('🎲 Generated random PO number for standalone DO:', standalonePoNumber);
+      }
+
       const payload = {
         do_name: formData.do_name.trim(),
-        purchase_order_id: formData.purchase_order_id || null,
+        purchase_order_id: finalPOId,
+        standalone_po_number: standalonePoNumber, // ✅ ADD: Send random PO number for standalone DOs
         driver_id: parseInt(formData.driver_id),
         vehicle_id: parseInt(formData.vehicle_id),
         customer_name: formData.customer_name,
@@ -273,11 +364,20 @@ const DeliveryOrderCreatePage: React.FC = () => {
         status: "assigned",
       };
 
+      console.log('📤 Submitting payload:', payload);
       const response = await apiClient.post("/delivery-orders", payload);
+      console.log('✅ DO created successfully:', response.data);
 
-      toast.success("Delivery Order created successfully!");
+      // ✅ ADD: Show different success messages
+      if (standalonePoNumber) {
+        toast.success(`Standalone Delivery Order created successfully! Reference: ${standalonePoNumber}`);
+      } else {
+        toast.success("Delivery Order created successfully!");
+      }
+      
       navigate(returnUrl);
     } catch (err: any) {
+      console.error('❌ Submit error:', err);
       toast.error(
         err.response?.data?.message || "Failed to create Delivery Order"
       );
@@ -370,6 +470,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
             Give a descriptive name for this delivery order
           </p>
         </div>
+
         {/* PO Selection (Optional) */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -384,14 +485,12 @@ const DeliveryOrderCreatePage: React.FC = () => {
             {purchaseOrders.map((po) => (
               <option key={po.id} value={po.id}>
                 📋 {po.po_number} - {po.customer_name}
-                {/* ✅ ADD: Show remaining quantity */}
                 (Sisa: {po.remaining_quantity.toLocaleString("id-ID")}{" "}
                 {getUnitDisplay(po.unit)})
               </option>
             ))}
           </select>
 
-          {/* ✅ ADD: Show selected PO details */}
           {formData.purchase_order_id && (
             <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
               {(() => {
@@ -424,6 +523,23 @@ const DeliveryOrderCreatePage: React.FC = () => {
                   </div>
                 ) : null;
               })()}
+            </div>
+          )}
+
+          {/* ✅ ADD: Show standalone DO info */}
+          {!formData.purchase_order_id && (
+            <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-md">
+              <div className="text-sm">
+                <div className="font-medium text-green-900 mb-1">
+                  🆕 Standalone Delivery Order
+                </div>
+                <div className="text-green-700">
+                  <p>This DO will be independent of any Purchase Order.</p>
+                  <p className="text-xs mt-1">
+                    ℹ️ A unique reference number will be automatically generated for system tracking.
+                  </p>
+                </div>
+              </div>
             </div>
           )}
 
@@ -472,7 +588,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Quantity *{/* ✅ ADD: Show max available */}
+              Quantity *
               {formData.purchase_order_id &&
                 (() => {
                   const selectedPO = purchaseOrders.find(
@@ -491,7 +607,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
               type="number"
               step="0.01"
               min="0"
-              // ✅ ADD: Max validation for PO-linked DOs
               max={(() => {
                 if (formData.purchase_order_id) {
                   const selectedPO = purchaseOrders.find(
@@ -504,7 +619,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
               value={formData.minimal_load_quantity}
               onChange={(e) => {
                 const value = parseFloat(e.target.value) || 0;
-                // ✅ ADD: Validate against remaining quantity
                 if (formData.purchase_order_id) {
                   const selectedPO = purchaseOrders.find(
                     (po) => po.id.toString() === formData.purchase_order_id
@@ -527,7 +641,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
               placeholder="0"
               required
             />
-            {/* ✅ ADD: Validation warning */}
             {formData.purchase_order_id &&
               formData.minimal_load_quantity > 0 &&
               (() => {
@@ -553,7 +666,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
               })()}
           </div>
 
-          {/* Rest of the quantity section remains the same */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Unit *
@@ -617,27 +729,39 @@ const DeliveryOrderCreatePage: React.FC = () => {
                 (Driver will be auto-filled)
               </span>
             </label>
+            
+            {/* ✅ ADD: Debug info - Remove this after vehicles work */}
+            {process.env.NODE_ENV === 'development' && (
+              <div className="text-xs text-gray-500 mb-2">
+                Debug: {vehicles.length} vehicles loaded
+                {loading && <span> (Loading...)</span>}
+              </div>
+            )}
+
             <select
               value={formData.vehicle_id}
-              onChange={(e) =>
-                setFormData({ ...formData, vehicle_id: e.target.value })
-              }
+              onChange={(e) => {
+                console.log('🚛 Vehicle selected:', e.target.value);
+                setFormData({ ...formData, vehicle_id: e.target.value });
+              }}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
               required
             >
-              <option value="">Select a vehicle</option>
-              {vehicles.map((vehicle) => (
-                <option key={vehicle.id} value={vehicle.id}>
-                  🚛 {vehicle.license_plate} ({vehicle.type})
-                  {/* ✅ ADD: Show driver info in dropdown */}
-                  {vehicle.driver_name
-                    ? ` - 👨‍💼 ${vehicle.driver_name}`
-                    : " - No Driver Assigned"}
-                </option>
-              ))}
+              <option value="">Select a vehicle ({vehicles.length} available)</option>
+              {vehicles.map((vehicle) => {
+                console.log('🚛 Rendering vehicle option:', vehicle.license_plate);
+                return (
+                  <option key={vehicle.id} value={vehicle.id}>
+                    🚛 {vehicle.license_plate} ({vehicle.type})
+                    {vehicle.driver_name
+                      ? ` - 👨‍💼 ${vehicle.driver_name}`
+                      : " - No Driver Assigned"}
+                  </option>
+                );
+              })}
             </select>
 
-            {/* ✅ ADD: Show selected vehicle info */}
+            {/* Show selected vehicle info */}
             {formData.vehicle_id &&
               (() => {
                 const selectedVehicle = vehicles.find(
@@ -702,7 +826,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
                   : ""
               }`}
               disabled={(() => {
-                // ✅ ADD: Disable if vehicle has assigned driver
                 if (formData.vehicle_id) {
                   const selectedVehicle = vehicles.find(
                     (v) => v.id.toString() === formData.vehicle_id
@@ -727,7 +850,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
               ))}
             </select>
 
-            {/* ✅ ADD: Show selected driver info */}
+            {/* Show selected driver info */}
             {formData.driver_id &&
               (() => {
                 const selectedDriver = drivers.find(
@@ -737,7 +860,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
                   (v) => v.id.toString() === formData.vehicle_id
                 );
 
-                // Show info from vehicle data if auto-filled, otherwise from drivers data
                 const driverInfo =
                   selectedVehicle?.driver_id === parseInt(formData.driver_id) &&
                   selectedVehicle.driver_name
@@ -797,7 +919,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
               min="0"
               value={formData.trip_allowance}
               onChange={(e) => {
-                // ✅ FIX: Keep as string, let user type naturally
                 const value = e.target.value;
                 setFormData({
                   ...formData,
@@ -805,7 +926,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
                 });
               }}
               onBlur={(e) => {
-                // ✅ FIX: Clean up on blur (when user clicks away)
                 const numValue = parseFloat(e.target.value) || 0;
                 setFormData({
                   ...formData,
@@ -826,7 +946,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
               min="0"
               value={formData.gaji}
               onChange={(e) => {
-                // ✅ FIX: Keep as string, let user type naturally
                 const value = e.target.value;
                 setFormData({
                   ...formData,
@@ -834,7 +953,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
                 });
               }}
               onBlur={(e) => {
-                // ✅ FIX: Clean up on blur (when user clicks away)
                 const numValue = parseFloat(e.target.value) || 0;
                 setFormData({
                   ...formData,
@@ -852,7 +970,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
             <div className="w-full border border-gray-300 rounded-md px-3 py-2 bg-green-50 text-green-700 font-medium">
               {formatCurrency(formData.ongkosan)}
             </div>
-            {/* ✅ ADD: Show calculation breakdown */}
             {(formData.trip_allowance || formData.gaji) && (
               <div className="text-xs text-gray-500 mt-1">
                 Revenue:{" "}

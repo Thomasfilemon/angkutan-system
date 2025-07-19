@@ -9,7 +9,7 @@ const upload = require('../../middlewares/upload.middleware'); // 👈 Import th
 serviceRouter.use(verifyToken);
 
 serviceRouter.get('/', serviceController.getAllServices);
-serviceRouter.post('/', upload.single('attachment'), serviceController.createService);
+serviceRouter.post('/', upload.array('attachments', 5), serviceController.createService);
 serviceRouter.get('/stock-items', serviceController.getAvailableStockItems);
 serviceRouter.get('/:id', serviceController.getServiceById);
 serviceRouter.put('/:id', serviceController.updateService);

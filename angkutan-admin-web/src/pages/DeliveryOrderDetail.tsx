@@ -17,6 +17,7 @@ interface DeliveryOrderDetail {
   load_location: string;
   unload_location: string;
   surat_jalan_photo_url?: string;
+    standalone_po_number?: string; // ✅ ADD: For standalone DOs
   driver: {
     username: string;
     driverProfile: {
@@ -29,10 +30,10 @@ interface DeliveryOrderDetail {
     type: string;
     capacity?: string;
   };
-  purchaseOrder: {
+  purchaseOrder?: {  // ✅ CHANGE: Make optional with ?
     po_number: string;
     customer_name: string;
-    unit: string; // 🎯 NEW: Add unit from PO
+    unit: string;
   };
   financial_summary: {
     trip_allowance: number;
@@ -73,6 +74,16 @@ const DeliveryOrderDetailPage = () => {
       kubik: "m³",
     };
     return unitMap[unit as keyof typeof unitMap] || unit;
+  };
+
+  const getPONumber = (deliveryOrder: DeliveryOrderDetail) => {
+    if (deliveryOrder.purchaseOrder?.po_number) {
+      return deliveryOrder.purchaseOrder.po_number;
+    } else if (deliveryOrder.standalone_po_number) {
+      return deliveryOrder.standalone_po_number;
+    } else {
+      return `STANDALONE-${deliveryOrder.id}`;
+    }
   };
 
   // 🎯 NEW: Unit-aware calculation display
@@ -217,8 +228,13 @@ const DeliveryOrderDetailPage = () => {
             <div>
               <label className="text-sm text-gray-600">PO Number</label>
               <p className="font-medium">
-                {deliveryOrder.purchaseOrder.po_number}
+                {deliveryOrder.purchaseOrder?.po_number || 
+                deliveryOrder.standalone_po_number || 
+                `STANDALONE-${deliveryOrder.id}`}
               </p>
+              {!deliveryOrder.purchaseOrder && (
+                <p className="text-xs text-gray-500 italic">Standalone Delivery Order</p>
+              )}
             </div>
             <div>
               <label className="text-sm text-gray-600">Customer</label>
@@ -238,7 +254,7 @@ const DeliveryOrderDetailPage = () => {
                 {deliveryOrder.status_text}
               </span>
             </div>
-            {/* 🎯 NEW: Unit Information */}
+            {/* Unit Information */}
             <div>
               <label className="text-sm text-gray-600">Unit</label>
               <p className="font-medium">
@@ -255,7 +271,7 @@ const DeliveryOrderDetailPage = () => {
                   )
                 </span>
               </p>
-              {/* 🎯 NEW: Unit mismatch warning */}
+              {/* Unit mismatch warning - FIXED */}
               {deliveryOrder.purchaseOrder?.unit &&
                 deliveryOrder.unit !== deliveryOrder.purchaseOrder.unit && (
                   <p className="text-xs text-orange-600 mt-1">
