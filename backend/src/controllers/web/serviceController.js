@@ -265,7 +265,7 @@ const createService = async (req, res, next) => {
     const cashSettings = req.body.cash_settings ? JSON.parse(req.body.cash_settings) : {};
 
     // ✅ UPDATED: Handle multiple file uploads
-    const attachment_urls = req.files
+     const attachment_urls = req.files && req.files.length > 0
       ? req.files.map((file) => `uploads/receipts/${file.filename}`)
       : [];
 
@@ -354,7 +354,7 @@ const createService = async (req, res, next) => {
       
       // Create kas transaction if there are ANY service items OR labor cost > 0
       if (totalServiceCost > 0 || serviceItems.length > 0) {
-        const transactionType = cashSettings.is_tempo ? "debit_tempo" : "debit";
+        const transactionType = cashSettings.is_tempo ? "kredit_tempo" : "kredit";
         
         // Enhanced description with item details
         let description_parts = [`Service ${serviceNumber} - Vehicle ${vehicle_id}`];
@@ -398,7 +398,9 @@ const createService = async (req, res, next) => {
           description: kasDescription,
           reference_number: serviceNumber,
           account: cashSettings.account || 'General',
-          transaction_date: service_date
+          transaction_date: service_date,
+          attachment_urls: attachment_urls.length > 0 ? attachment_urls : null // ✅ UPDATED: Multiple attachments
+
         };
 
         // Handle file attachment if present

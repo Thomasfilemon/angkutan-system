@@ -31,6 +31,7 @@ const ServiceCreatePage = () => {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [serviceItems, setServiceItems] = useState<ServiceItem[]>([]);
+  const [attachmentFiles, setAttachmentFiles] = useState<FileList | null>(null);
   const [formData, setFormData] = useState({
     vehicle_id: '',
     service_date: new Date().toISOString().split('T')[0],
@@ -43,7 +44,6 @@ const ServiceCreatePage = () => {
   const [saveToCash, setSaveToCash] = useState(true);
   const [isTempo, setIsTempo] = useState(false);
   const [cashAccount, setCashAccount] = useState('General');
-  const [notaFile, setNotaFile] = useState<File | null>(null);
 
   useEffect(() => {
     fetchVehicles();
@@ -68,11 +68,19 @@ const ServiceCreatePage = () => {
     }
   };
 
+  // ✅ UPDATED: Handle multiple file changes
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setNotaFile(e.target.files[0]);
+    if (e.target.files && e.target.files.length > 0) {
+      // Validate file count (max 5 files)
+      if (e.target.files.length > 5) {
+        alert('Maksimal 5 file yang dapat diupload');
+        e.target.value = ''; // Clear the input
+        setAttachmentFiles(null);
+        return;
+      }
+      setAttachmentFiles(e.target.files);
     } else {
-      setNotaFile(null);
+      setAttachmentFiles(null);
     }
   };
 
@@ -118,6 +126,7 @@ const ServiceCreatePage = () => {
     setServiceItems(prev => prev.filter((_, i) => i !== index));
   };
 
+  // ✅ UPDATED: Handle multiple file upload in form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -134,27 +143,28 @@ const ServiceCreatePage = () => {
       submissionData.append('labor_cost', formData.labor_cost || '0');
       submissionData.append('notes', formData.notes);
 
-      // ✅ FIXED: Allow zero-price items to be submitted
+      // Filter and submit service items
       const itemsToSubmit = serviceItems.filter(item => 
-        item.item_name && item.quantity > 0 
-        // Removed price validation: && item.unit_price > 0
+        item.item_name && item.quantity > 0
       );
       submissionData.append('items', JSON.stringify(itemsToSubmit));
 
-      // ✅ ENHANCED: Cash settings with zero-price handling
+      // Cash settings
       const cashSettings = saveToCash ? {
         save_to_cash: true,
         is_tempo: isTempo,
         account: cashAccount,
-        include_zero_price_items: true // This flag tells backend to handle zero-price items
+        include_zero_price_items: true
       } : {
         save_to_cash: false
       };
       submissionData.append('cash_settings', JSON.stringify(cashSettings));
 
-      // Add file attachment if exists
-      if (saveToCash && notaFile) {
-        submissionData.append('attachment', notaFile);
+      // ✅ UPDATED: Add multiple file attachments
+      if (saveToCash && attachmentFiles && attachmentFiles.length > 0) {
+        Array.from(attachmentFiles).forEach((file) => {
+          submissionData.append('attachments', file);
+        });
       }
 
       await apiClient.post('/services', submissionData, {
@@ -294,7 +304,7 @@ const ServiceCreatePage = () => {
             </div>
 
             {saveToCash && (
-              <div>
+              <>
                 <div className="mb-3">
                   <label className="flex items-center">
                     <input
@@ -323,25 +333,44 @@ const ServiceCreatePage = () => {
                   </select>
                 </div>
 
-                <div className="mb-3">
+                {/* ✅ UPDATED: Multiple file input with enhanced UI */}
+                <div className="mb-4">
                   <label className="block text-gray-700 text-sm font-bold mb-2">
-                    Foto Nota (Opsional)
+                    Foto Nota (Opsional - Maksimal 5 file)
                   </label>
                   <input
                     type="file"
+                    multiple
+                    accept="image/*,.pdf"
                     onChange={handleFileChange}
-                    accept="image/*"
                     className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
                   />
-                  {notaFile && (
-                    <p className="text-sm text-green-600 mt-1">
-                      File dipilih: {notaFile.name}
-                    </p>
+                  {attachmentFiles && attachmentFiles.length > 0 && (
+                    <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded">
+                      <p className="text-sm font-medium text-blue-800 mb-2">
+                        📎 {attachmentFiles.length} file(s) dipilih:
+                      </p>
+                      <div className="space-y-1 max-h-32 overflow-y-auto">
+                        {Array.from(attachmentFiles).map((file, index) => (
+                          <div key={index} className="flex items-center justify-between bg-white p-2 rounded text-xs border">
+                            <span className="truncate flex-1 mr-2" title={file.name}>
+                              {file.name}
+                            </span>
+                            <span className="text-gray-500 whitespace-nowrap">
+                              {(file.size / 1024).toFixed(1)} KB
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   )}
+                  <p className="text-xs text-gray-500 mt-1">
+                    Pilih gambar atau PDF. Maksimal 5 file.
+                  </p>
                 </div>
-              </div>
+              </>
             )}
-          </div>
+          </div>  
 
           {/* Service Items */}
           {formData.service_type === 'with_parts' && (

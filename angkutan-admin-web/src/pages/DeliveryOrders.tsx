@@ -9,6 +9,7 @@ interface DeliveryOrder {
   id: number;
   do_number: string;
   do_name?: string; // Add the new field
+  standalone_po_number?: string; // ✅ ADD this line
   customer_name: string;
   item_name: string;
   minimal_load_quantity: number;
@@ -313,7 +314,9 @@ const DeliveryOrdersPage = () => {
                     {/* PO Number */}
                     <td className="px-4 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-700">
-                        {dOrder.purchaseOrder?.po_number || "N/A"}
+                        {dOrder.purchaseOrder?.po_number || 
+                        dOrder.standalone_po_number || 
+                        `STANDALONE-${dOrder.id}`}
                       </div>
                     </td>
 

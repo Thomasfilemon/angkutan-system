@@ -28,7 +28,8 @@ interface BigDODetail {
     status: string;
     load_location: string;
     unload_location: string;
-    purchaseOrder: {
+    standalone_po_number?: string; // ✅ ADD: For standalone DOs
+    purchaseOrder?: {  // ✅ CHANGE: Make optional with ?
       po_number: string;
       customer_name: string;
     };
@@ -126,6 +127,17 @@ const BigDODetailPage: React.FC = () => {
   });
 
   const [submitting, setSubmitting] = useState(false);
+
+  // ✅ ADD: Helper function for PO number display
+  const getPONumber = (mainDO: BigDODetail['mainDeliveryOrder']) => {
+    if (mainDO.purchaseOrder?.po_number) {
+      return mainDO.purchaseOrder.po_number;
+    } else if (mainDO.standalone_po_number) {
+      return mainDO.standalone_po_number;
+    } else {
+      return `STANDALONE-${mainDO.id}`;
+    }
+  };
 
   const fetchBigDODetail = async () => {
     if (!id) return;
@@ -602,7 +614,10 @@ const BigDODetailPage: React.FC = () => {
                   <div className="flex justify-between">
                     <span className="text-blue-700">PO Number:</span>
                     <span className="text-blue-900 font-medium">
-                      {bigDO.mainDeliveryOrder.purchaseOrder.po_number}
+                      {getPONumber(bigDO.mainDeliveryOrder)}
+                      {!bigDO.mainDeliveryOrder.purchaseOrder && (
+                        <span className="text-xs text-blue-500 italic ml-2">(Standalone)</span>
+                      )}
                     </span>
                   </div>
                   <div className="flex justify-between">

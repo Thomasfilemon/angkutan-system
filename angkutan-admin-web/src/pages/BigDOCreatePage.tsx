@@ -15,7 +15,8 @@ interface AvailableDO {
   total_amount: number;
   driver_name: string;
   vehicle_info: string;
-  purchaseOrder: {
+  standalone_po_number?: string; // ✅ ADD: For standalone DOs
+  purchaseOrder?: {  // ✅ CHANGE: Make optional with ?
     po_number: string;
     customer_name: string;
   };
@@ -69,6 +70,17 @@ const BigDOCreatePage: React.FC = () => {
     delivery_latitude: undefined,
     delivery_longitude: undefined,
     notes: "",
+  };
+
+  // ✅ ADD: Helper function for PO number display
+  const getPONumber = (doItem: AvailableDO) => {
+    if (doItem.purchaseOrder?.po_number) {
+      return doItem.purchaseOrder.po_number;
+    } else if (doItem.standalone_po_number) {
+      return doItem.standalone_po_number;
+    } else {
+      return `STANDALONE-${doItem.id}`;
+    }
   };
 
   // Fetch available DOs
@@ -271,7 +283,6 @@ const BigDOCreatePage: React.FC = () => {
       </div>
 
       {/* Step 1: Select Main DO */}
-      {/* Step 1: Select Main DO */}
       {step === 1 && (
         <div className="bg-white shadow rounded-lg">
           <div className="px-6 py-4 border-b border-gray-200">
@@ -315,7 +326,7 @@ const BigDOCreatePage: React.FC = () => {
                 {/* Action Buttons */}
                 <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
                   <button
-                    onClick={() => navigate("/delivery-orders/create")}
+                    onClick={() => navigate("/delivery-orders/create?return=/big-dos/create")}
                     className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
                   >
                     <svg
@@ -434,7 +445,10 @@ const BigDOCreatePage: React.FC = () => {
                               {doItem.do_number}
                             </div>
                             <div className="text-sm text-gray-600">
-                              {doItem.purchaseOrder.po_number}
+                              {getPONumber(doItem)}
+                              {!doItem.purchaseOrder && (
+                                <span className="text-xs text-gray-500 italic ml-2">(Standalone)</span>
+                              )}
                             </div>
                           </div>
                           <div className="mt-1 text-sm text-gray-600">
@@ -482,7 +496,7 @@ const BigDOCreatePage: React.FC = () => {
                       Need more delivery orders for your Big DO?
                     </div>
                     <button
-                      onClick={() => navigate("/delivery-orders/create")}
+                      onClick={() => navigate("/delivery-orders/create?return=/big-dos/create")}
                       className="text-blue-600 hover:text-blue-800 text-sm font-medium"
                     >
                       + Create Another DO
@@ -514,8 +528,14 @@ const BigDOCreatePage: React.FC = () => {
             <h3 className="font-medium text-blue-900 mb-2">Selected Main DO</h3>
             <div className="text-sm text-blue-800">
               <strong>{selectedMainDO.do_number}</strong> •{" "}
+              <span className="text-xs text-blue-600">
+                ({getPONumber(selectedMainDO)})
+              </span> •{" "}
               {selectedMainDO.customer_name} •
               {formatCurrency(selectedMainDO.total_amount)}
+              {!selectedMainDO.purchaseOrder && (
+                <span className="text-xs text-blue-500 italic ml-2">(Standalone DO)</span>
+              )}
             </div>
           </div>
 
