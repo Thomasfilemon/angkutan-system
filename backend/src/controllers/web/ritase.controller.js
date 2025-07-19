@@ -11,7 +11,8 @@ const {
   SystemSettings,
   DeliveryOrderPaymentHistory,
 } = require("../../models");
-const { Op, Sequelize } = require("sequelize");
+const { Op } = require("sequelize");
+const { sequelize } = require('../../models');
 
 // ✅ 1. Get PO List with Aggregated Payment Status (Main Ritase Dashboard)
 exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
@@ -901,7 +902,7 @@ exports.recordDeliveryOrderPayment = async (req, res, next) => {
 
 // ✅ 7. Create Price Adjustment (for special cases like accidents)
 exports.createPriceAdjustment = async (req, res, next) => {
-  const transaction = await Sequelize.transaction();
+  const transaction = await sequelize.transaction();
   try {
     const { do_id } = req.params;
     const { adjustment_type, adjustment_amount, reason } = req.body;
@@ -979,7 +980,7 @@ exports.createPriceAdjustment = async (req, res, next) => {
 
 // Update Price Adjustment
 exports.updatePriceAdjustment = async (req, res, next) => {
-  const transaction = await Sequelize.transaction();
+  const transaction = await sequelize.transaction();
   try {
     const { do_id, adjustment_id } = req.params;
     const { adjustment_type, adjustment_amount, reason } = req.body;
@@ -1040,7 +1041,7 @@ exports.updatePriceAdjustment = async (req, res, next) => {
 
 // Delete Price Adjustment
 exports.deletePriceAdjustment = async (req, res, next) => {
-  const transaction = await Sequelize.transaction();
+  const transaction = await sequelize.transaction();
   try {
     const { do_id, adjustment_id } = req.params;
 

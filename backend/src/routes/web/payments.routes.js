@@ -25,11 +25,11 @@ router.get(
 
 // GET /purchase-orders/:poId/billing-summary
 // Now returns full potential vs actual breakdown
-router.get(
-  "/purchase-orders/:poId/billing-summary",
-  checkRole(["admin", "owner"]),
-  paymentsCtrl.getPOBillingSummary
-);
+// router.get(
+//   "/purchase-orders/:poId/billing-summary",
+//   checkRole(["admin", "owner"]),
+//   paymentsCtrl.getPOBillingSummary
+// );
 
 // ──────── Invoice Endpoints ────────
 

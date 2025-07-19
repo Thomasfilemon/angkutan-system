@@ -1,6 +1,8 @@
 // src/controllers/web/deliveryOrderController.js
 const {
   DeliveryOrder,
+  DepositGroupMember,
+  DepositGroup,
   PurchaseOrder,
   Vehicle,
   DriverProfile,
@@ -640,10 +642,11 @@ exports.updateDeliveryOrder = async (req, res, next) => {
       unload_longitude,
       payment_status,
       status,
-      do_name, // Add the new field
+      do_name,
     } = req.body;
 
     const deliveryOrder = await DeliveryOrder.findByPk(id);
+    // Similarly for other numeric fields (e.g., unit_price, minimal_load_quantity)
 
     if (!deliveryOrder) {
       return res.status(404).json({
@@ -652,7 +655,7 @@ exports.updateDeliveryOrder = async (req, res, next) => {
       });
     }
 
-    // ✅ Validate unit if being updated
+    // Validate unit if being updated
     if (unit && !["kilogram", "ton", "kubik"].includes(unit)) {
       return res.status(400).json({
         success: false,
@@ -660,7 +663,7 @@ exports.updateDeliveryOrder = async (req, res, next) => {
       });
     }
 
-    // ✅ Recalculate total_amount if relevant fields change
+    // Recalculate total_amount if relevant fields change
     let calculatedTotalAmount = total_amount;
     if (minimal_load_quantity || unit_price || unit) {
       const quantity = minimal_load_quantity || deliveryOrder.minimal_load_quantity;
@@ -676,7 +679,7 @@ exports.updateDeliveryOrder = async (req, res, next) => {
       }
     }
 
-    // ✅ Prepare update data
+    // Prepare update data
     const updateData = {
       purchase_order_id: purchase_order_id !== undefined ? purchase_order_id : deliveryOrder.purchase_order_id,
       vehicle_id: vehicle_id !== undefined ? vehicle_id : deliveryOrder.vehicle_id,
@@ -698,9 +701,10 @@ exports.updateDeliveryOrder = async (req, res, next) => {
       unload_longitude: unload_longitude !== undefined ? unload_longitude : deliveryOrder.unload_longitude,
       payment_status: payment_status !== undefined ? payment_status : deliveryOrder.payment_status,
       status: status !== undefined ? status : deliveryOrder.status,
-      do_name: do_name !== undefined ? do_name : deliveryOrder.do_name, // Include the new field
+      do_name: do_name !== undefined ? do_name : deliveryOrder.do_name,
     };
 
+    // Update delivery order
     const updatedDO = await deliveryOrder.update(updateData);
 
     res.json({
@@ -708,7 +712,7 @@ exports.updateDeliveryOrder = async (req, res, next) => {
       message: "Delivery Order updated successfully",
       data: {
         ...updatedDO.toJSON(),
-        financial_summary: updatedDO.getFinancialSummary(),
+        financial_summary: updatedDO.getFinancialSummary(), // Ensure this method includes the new final_amount
       },
     });
   } catch (err) {

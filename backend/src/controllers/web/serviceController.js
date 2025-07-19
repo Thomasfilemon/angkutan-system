@@ -235,7 +235,7 @@ const getServiceById = async (req, res, next) => {
 
 // ✅ UPDATED: Create new service with FIFO integration
 // ✅ UPDATED: Create new service with multiple attachments support
-exports.createService = async (req, res, next) => {
+const createService = async (req, res, next) => {
   const transaction = await db.sequelize.transaction();
   let serviceId;
 

@@ -44,4 +44,19 @@ router.delete(
   depositGroupController.removeDOFromGroup
 );
 
+// Adjust delivery order price route
+router.post(
+  "/delivery-orders/:do_id/adjust-price",
+  checkRole(["admin", "owner"]),
+  depositGroupController.adjustDOPrice
+);
+
+router.put(
+  "/delivery-orders/:do_id/finalize-amount",
+  checkRole(["admin", "owner"]),
+  depositGroupController.finalizeDOAmount
+);
+
+router.put("/members/:doId", checkRole(["admin", "owner"]), depositGroupController.updateMemberQuantity);
+
 module.exports = router;

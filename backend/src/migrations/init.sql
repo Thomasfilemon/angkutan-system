@@ -286,6 +286,7 @@ CREATE TABLE delivery_orders (
   gaji NUMERIC(15, 2) NOT NULL DEFAULT 0,
   ongkosan NUMERIC(15, 2) DEFAULT 0,
   final_amount NUMERIC(15,2),
+  is_amount_finalized BOOLEAN NOT NULL DEFAULT FALSE,
   
   load_location TEXT,
   load_latitude DECIMAL(10, 8),
@@ -709,6 +710,7 @@ CREATE TABLE deposit_groups (
 CREATE TABLE deposit_group_members (
   id SERIAL PRIMARY KEY,
   group_id INTEGER NOT NULL REFERENCES deposit_groups(id) ON DELETE CASCADE,
+  quantity NUMERIC(15,2) NOT NULL DEFAULT 0,
   delivery_order_id INTEGER NOT NULL REFERENCES delivery_orders(id) ON DELETE CASCADE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   UNIQUE (group_id, delivery_order_id) -- Prevent duplicate DO in same group

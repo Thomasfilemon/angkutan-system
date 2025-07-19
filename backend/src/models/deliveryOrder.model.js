@@ -68,6 +68,19 @@ module.exports = (sequelize) => {
         validate: { min: 0 },
       },
 
+      final_amount: {
+        type: DataTypes.DECIMAL(15, 2),
+        allowNull: true,
+        defaultValue: null,
+        comment: "Finalized amount after user input or adjustments"
+      },
+
+      is_amount_finalized: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false
+      },
+
       // === LOCATION FIELDS ===
       load_location: { type: DataTypes.TEXT },
       load_latitude: {

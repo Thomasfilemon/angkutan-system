@@ -19,6 +19,12 @@ module.exports = (sequelize) => {
         },
         comment: "Reference to deposit group",
       },
+      quantity: {
+        type: DataTypes.DECIMAL(15, 2),
+        allowNull: false,
+        defaultValue: 1.0,
+        comment: "Current balance of the group",
+      },
       delivery_order_id: {
         type: DataTypes.INTEGER,
         allowNull: false,

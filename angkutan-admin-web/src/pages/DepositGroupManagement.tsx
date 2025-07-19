@@ -13,20 +13,25 @@ interface DepositGroup {
   status: string; // 'butuh bayar', 'extra saldo', 'normal'
 }
 
+// Update the GroupMember interface
 interface GroupMember {
   id: number;
   group_id: number;
   delivery_order_id: number;
+  quantity: number;
   deliveryOrder: {
+    financial_summary: any;
     id: number;
     do_number: string;
     customer_name: string;
     final_amount: number;
-    total_amount?: number; // <-- add this line
+    total_amount?: number;
     payment_status: string;
     paid_amount: number;
     unpaid_amount: number;
-  };
+    is_amount_finalized: boolean; // ADD THIS LINE
+  },
+  is_amount_finalized: boolean;
 }
 
 const DepositGroupManagementPage = () => {
@@ -40,23 +45,96 @@ const DepositGroupManagementPage = () => {
   const [showAddDoModal, setShowAddDoModal] = useState(false);
   const [availableDOs, setAvailableDOs] = useState<any[]>([]);
   const [selectedDOs, setSelectedDOs] = useState<number[]>([]);
+  const [showFinalizeModal, setShowFinalizeModal] = useState(false);
+  const [currentDO, setCurrentDO] = useState<any>(null);
+  const [finalizedPrice, setFinalizedPrice] = useState<number>(0);
+  const [originalPrice, setOriginalPrice] = useState<number>(0);
   const [formData, setFormData] = useState({
     group_name: '',
     balance: '',
   });
+  const [availablePOs, setAvailablePOs] = useState<any[]>([]);
+  const [selectedPOId, setSelectedPOId] = useState<number | null>(null);
+
+  // Open finalize price modal
+  // Example React component
+  const openFinalizeModal = (doItem: any) => {
+    setCurrentDO(doItem);
+    const initialAmount = doItem.is_amount_finalized ? doItem.final_amount : doItem.total_amount;
+    setFinalizedPrice(initialAmount);
+    setOriginalPrice(doItem.total_amount);
+    setShowFinalizeModal(true);
+  };
+
+  const handleQuantityChange = async (doId: number, newQuantity: number) => {
+    try {
+      await apiClient.put(`/deposit-groups/members/${doId}`, {
+        quantity: newQuantity
+      });
+      toast.success('Quantity updated');
+      // Refresh group details
+      if (selectedGroup) fetchGroupDetails(selectedGroup.id);
+    } catch (err) {
+      toast.error('Failed to update quantity');
+      console.error(err);
+    }
+  };
+
+  // Handle price finalization
+  const handleFinalizePrice = async () => {
+    if (!currentDO) return;
+
+    try {
+      await apiClient.put(
+        `/deposit-groups/delivery-orders/${currentDO.id}/finalize-amount`,
+        { finalized_amount: finalizedPrice }
+      );
+      
+      toast.success('Price finalized successfully');
+      
+      // Refresh group details
+      if (selectedGroup) {
+        fetchGroupDetails(selectedGroup.id);
+      }
+      
+      setShowFinalizeModal(false);
+    } catch (err) {
+      console.error('Error finalizing price:', err);
+      toast.error('Failed to finalize price');
+    }
+  };
 
   // Calculate totals for the group
-const totalTagihan = groupMembers.reduce((sum, m) => {
-  const amt = Number(m.deliveryOrder.final_amount ?? m.deliveryOrder.total_amount ?? 0);
-  return sum + amt;
-}, 0);
-const totalDibayar = groupMembers.reduce((sum, m) => sum + (m.deliveryOrder.paid_amount || 0), 0);
-const totalBelumDibayar = groupMembers.reduce((sum, m) => sum + ((m.deliveryOrder.final_amount || 0) - (m.deliveryOrder.paid_amount || 0)), 0);
+  // 1. Update calculations to use final_amount
+  // Calculate total tagihan (quantity × amount for all DOs)
+  const totalTagihan = groupMembers.reduce((sum, member) => {
+    const doItem = member.deliveryOrder;
+    const amount = doItem.is_amount_finalized 
+      ? doItem.final_amount 
+      : doItem.total_amount || 0;
+    const quantity = member.quantity || 0;
+    return sum + (amount * quantity);
+  }, 0);
 
-// Calculate residual saldo (saldo - total dibayar)
-const residualSaldo = selectedGroup
-  ? selectedGroup.balance - totalDibayar
-  : 0;
+
+  const totalDibayar = groupMembers.reduce((sum, m) => 
+     sum + (Number(m.deliveryOrder.paid_amount) || 0), 0
+  );
+
+  const totalBelumDibayar = groupMembers.reduce((sum, m) => {
+    const amount = m.deliveryOrder.is_amount_finalized 
+      ? Number(m.deliveryOrder.final_amount) 
+      : Number(m.deliveryOrder.final_amount) || Number(m.deliveryOrder.total_amount) || 0;
+    const paid = Number(m.deliveryOrder.paid_amount) || 0;
+    return sum + (amount - paid);
+  }, 0);
+
+  const [loadingPOs, setLoadingPOs] = useState(false);
+
+  // Calculate residual saldo (saldo - total dibayar)
+  const residualSaldo = selectedGroup
+    ? selectedGroup.balance - totalDibayar
+    : 0;
 
   const fetchGroups = async () => {
     try {
@@ -84,16 +162,40 @@ const residualSaldo = selectedGroup
 
   const fetchAvailableDOs = async () => {
     try {
-      const response = await apiClient.get('/delivery-orders?payment_status=awaiting_confirmation');
-      setAvailableDOs(response.data.data || []);
+      const response = await apiClient.get('/delivery-orders/available'); // Assume this exists
+      console.log('All Available DOs:', response.data);
+      setAvailableDOs(response.data);
     } catch (err) {
       console.error('Failed to fetch available DOs:', err);
+    }
+  };
+
+  const fetchAvailablePOs = async () => {
+    try {
+      setLoadingPOs(true);
+      const response = await apiClient.get('/purchase-orders');
+      // Use .data.data just like Trips.tsx
+      const orders = response.data.success
+        ? response.data.data
+        : response.data || [];
+      setAvailablePOs(orders);
+    } catch (err) {
+      console.error('Failed to fetch POs:', err);
+    } finally {
+      setLoadingPOs(false);
     }
   };
 
   useEffect(() => {
     fetchGroups();
   }, []);
+
+  useEffect(() => {
+    if (showCreateModal) {
+      fetchAvailablePOs();
+      // fetchAvailableDOs();
+    }
+  }, [showCreateModal]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -132,7 +234,7 @@ const residualSaldo = selectedGroup
       const payload = {
         group_name: formData.group_name,
         balance: parseFloat(formData.balance),
-        delivery_order_ids: selectedDOs
+        ...(selectedPOId ? { purchase_order_id: selectedPOId } : { delivery_order_ids: selectedDOs })
       };
       
       const response = await apiClient.post('/deposit-groups', payload);
@@ -227,6 +329,47 @@ const residualSaldo = selectedGroup
     }
   };
 
+  const handlePOSelect = async (poId: number | null) => {
+    // Reset state if no PO is selected
+    if (!poId) {
+      setSelectedDOs([]);
+      setAvailableDOs([]);
+      return;
+    }
+
+    try {
+      // Fetch PO data from the API
+      const response = await apiClient.get(`/purchase-orders/${poId}`);
+      console.log('PO Response:', response.data);
+
+      // Access the PO data
+      const poData = response.data.data;
+
+      // Extract poDeliveryOrders, default to empty array if missing
+      const poDeliveryOrders = poData.poDeliveryOrders || [];
+      
+      if (poDeliveryOrders.length === 0) {
+        console.warn('No Delivery Orders found for this PO');
+        setAvailableDOs([]);
+        setSelectedDOs([]);
+        return;
+      }
+
+      // Optionally filter DOs (e.g., exclude completed ones if status is available)
+      const availableDOs = poDeliveryOrders.filter((doItem: any) => {
+        // If 'status' field exists, adjust this logic based on your DO statuses
+        return doItem.status ? !['completed', 'cancelled'].includes(doItem.status) : true;
+      });
+
+      // Update state with parsed DOs
+      setAvailableDOs(availableDOs);
+      setSelectedDOs(availableDOs.map((doItem: any) => doItem.id));
+    } catch (err) {
+      console.error('Failed to fetch PO data:', err);
+      toast.error('Failed to load Delivery Orders');
+    }
+  };
+
   const resetForm = () => {
     setFormData({
       group_name: '',
@@ -246,7 +389,7 @@ const residualSaldo = selectedGroup
   };
 
   const openAddDoModal = async () => {
-    await fetchAvailableDOs();
+    // await fetchAvailableDOs();
     setShowAddDoModal(true);
   };
 
@@ -419,21 +562,73 @@ const residualSaldo = selectedGroup
                   />
                 </div>
                 <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Pilih Purchase Order</label>
+                  {loadingPOs ? (
+                    <div className="text-center py-2 text-gray-500">Memuat PO...</div>
+                  ) : (
+                    <select
+                      value={selectedPOId ?? ''}
+                      onChange={e => handlePOSelect(e.target.value ? Number(e.target.value) : null)}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2"
+                    >
+                      <option value="">-- Pilih PO --</option>
+                      {availablePOs.length === 0 ? (
+                        <option disabled>Tidak ada PO tersedia</option>
+                      ) : (
+                        availablePOs.map(po => (
+                          <option key={po.id} value={po.id}>
+                            {po.po_number} - {po.customer_name}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  )}
+                </div>
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Tambahkan Delivery Order
+                    Atau Pilih Delivery Order Manual
                   </label>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      await fetchAvailableDOs();
-                      setSelectedDOs([]);
-                    }}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-left text-gray-500"
-                  >
-                    {selectedDOs.length > 0 
-                      ? `${selectedDOs.length} DO dipilih` 
-                      : "Pilih DO untuk ditambahkan"}
-                  </button>
+                  {selectedPOId ? (
+                    <div className="max-h-40 overflow-y-auto border rounded">
+                      {availableDOs.length > 0 ? (
+                        availableDOs.map(doItem => (
+                          <div key={doItem.id} className="flex items-center px-2 py-1">
+                            <input
+                              type="checkbox"
+                              checked={true} // Auto-selected
+                              disabled // Read-only since PO is selected
+                            />
+                            <span className="ml-2">
+                              {doItem.do_number} - {doItem.customer_name} (
+                              {formatCurrency(doItem.final_amount || doItem.total_amount || 0)})
+                            </span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-sm text-gray-500 italic">No Delivery Orders available for this PO</div>
+                      )}
+                    </div>
+                  ) : availableDOs.length === 0 ? (
+                    <div className="text-sm text-gray-500 italic">
+                      Tidak ada DO yang tersedia
+                    </div>
+                  ) : (
+                    <div className="max-h-40 overflow-y-auto border rounded">
+                      {availableDOs.map(doItem => (
+                        <div key={doItem.id} className="flex items-center px-2 py-1">
+                          <input
+                            type="checkbox"
+                            checked={selectedDOs.includes(doItem.id)}
+                            onChange={() => toggleDOSelection(doItem.id)}
+                          />
+                          <span className="ml-2">
+                            {doItem.do_number} - {doItem.customer_name} (
+                            {formatCurrency(doItem.final_amount || doItem.total_amount || 0)})
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="flex justify-end space-x-3 pt-4">
@@ -448,9 +643,8 @@ const residualSaldo = selectedGroup
                   Batal
                 </button>
                 <button
-                  type="button"
                   onClick={handleCreateGroup}
-                  disabled={!formData.group_name || !formData.balance}
+                  disabled={!formData.group_name || !formData.balance || (selectedPOId === null && selectedDOs.length === 0)}
                   className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
                 >
                   Simpan
@@ -460,7 +654,7 @@ const residualSaldo = selectedGroup
           </div>
         </div>
       )}
-
+      
       {/* Group Detail Modal */}
       {showDetailModal && selectedGroup && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
@@ -477,12 +671,12 @@ const residualSaldo = selectedGroup
                   </div>
                 </div>
                 <div className="flex space-x-2">
-                  <button
+                  {/* <button
                     onClick={openAddDoModal}
                     className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"
                   >
                     + Tambah DO
-                  </button>
+                  </button> */}
                   <button
                     onClick={() => setShowDetailModal(false)}
                     className="text-gray-500 hover:text-gray-700"
@@ -552,6 +746,7 @@ const residualSaldo = selectedGroup
                 <h4 className="text-lg font-semibold mb-3">Delivery Orders dalam Group</h4>
                 
                 {groupMembers.length === 0 ? (
+                  // ...existing empty state...
                   <div className="text-center py-6 text-gray-500">
                     <p>Tidak ada DO dalam group ini</p>
                     <button
@@ -584,13 +779,23 @@ const residualSaldo = selectedGroup
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Status
                           </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Finalized
+                          </th>
                           <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Aksi
                           </th>
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {groupMembers.map((member) => (
+                        {groupMembers.map((member) => {
+                          const doItem = member.deliveryOrder;
+                          const quantity = member.quantity || 0;
+                          const amount = doItem.is_amount_finalized 
+                            ? doItem.final_amount 
+                            : doItem.total_amount || 0;
+                          const rowTotal = quantity * amount;
+                          return (
                           <tr key={member.id}>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
                               <Link 
@@ -604,8 +809,42 @@ const residualSaldo = selectedGroup
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                               {member.deliveryOrder.customer_name}
                             </td>
+                            {/* New Quantity Column */}
+                            <td className="px-6 py-4 whitespace-nowrap text-sm">
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                defaultValue={quantity}
+                                onChange={(e) => handleQuantityChange(doItem.id, parseFloat(e.target.value))}
+                                className="w-24 px-2 py-1 border rounded"
+                              />
+                            </td>
+                            
+                            {/* Amount and Row Total */}
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                              {formatCurrency(member.deliveryOrder.final_amount)}
+                              {formatCurrency(amount)}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
+                              {formatCurrency(rowTotal)}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {member.deliveryOrder.is_amount_finalized ? (
+                                <div>
+                                  <div className="font-bold">
+                                    {formatCurrency(member.deliveryOrder.final_amount || 0)}
+                                  </div>
+                                  <div className="text-xs text-gray-500 line-through">
+                                    {formatCurrency(member.deliveryOrder.total_amount || 0)}
+                                  </div>
+                                </div>
+                              ) : (
+                                formatCurrency(
+                                  member.deliveryOrder.final_amount || 
+                                  member.deliveryOrder.total_amount || 
+                                  0
+                                )
+                              )}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600">
                               {formatCurrency(member.deliveryOrder.paid_amount)}
@@ -627,6 +866,16 @@ const residualSaldo = selectedGroup
                                 {member.deliveryOrder.payment_status}
                               </span>
                             </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {member.deliveryOrder.is_amount_finalized ? (
+                                <div className="flex items-center">
+                                  {/* <CheckCircleIcon className="h-5 w-5 text-green-500 mr-1" /> */}
+                                  <span>Finalized</span>
+                                </div>
+                              ) : (
+                                <span className="text-gray-400">Not finalized</span>
+                              )}
+                            </td>
                             <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
                               <Link
                                 to={`/delivery-orders/${member.deliveryOrder.id}/payments`}
@@ -641,11 +890,28 @@ const residualSaldo = selectedGroup
                               >
                                 Hapus
                               </button>
+                              {/* NEW: Finalize Price Button */}
+                              <button
+                                onClick={() => openFinalizeModal(member.deliveryOrder)}
+                                className="text-purple-600 hover:text-purple-900 ml-3"
+                              >
+                                Finalize
+                              </button>
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
+                    {/* Total Summary */}
+                    <div className="mt-4 p-4 bg-gray-50 border-t border-gray-200">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium text-gray-700">Total Tagihan:</span>
+                        <span className="text-lg font-bold text-blue-700">
+                          {formatCurrency(totalTagihan)}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -714,6 +980,9 @@ const residualSaldo = selectedGroup
                           Customer
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Qty
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Total
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -772,6 +1041,61 @@ const residualSaldo = selectedGroup
                   className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
                 >
                   Tambahkan {selectedDOs.length} DO
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Finalize Price Modal */}
+      {/* Finalize Price Modal */}
+      {showFinalizeModal && currentDO && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div className="mt-3">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-medium text-gray-900">
+                  Finalize Price for DO: {currentDO.do_number}
+                </h3>
+                <button
+                  onClick={() => setShowFinalizeModal(false)}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Final Amount *
+                  </label>
+                  <input
+                    type="number"
+                    value={finalizedPrice}
+                    onChange={(e) => setFinalizedPrice(Number(e.target.value))}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2"
+                    min="0"
+                    step="1000"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="mt-6 flex justify-end space-x-3">
+                <button
+                  onClick={() => setShowFinalizeModal(false)}
+                  className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleFinalizePrice}
+                  disabled={finalizedPrice <= 0}
+                  className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
+                >
+                  Finalize Price
                 </button>
               </div>
             </div>
