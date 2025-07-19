@@ -389,17 +389,19 @@ const DOPaymentManagement: React.FC = () => {
     e.preventDefault();
     if (!doId) return;
 
-    if (!newPayment.invoice_id || newPayment.invoice_id === 0) {
-      toast.error("Please select an invoice to link this payment!");
+    if (newPayment.payment_amount <= 0) {
+      toast.error("Payment amount must be greater than zero");
       return;
+    }
+
+    // set the invoice id to the auto filled invoice (because one do only have 1 invoice)
+    if (doData?.invoices.length === 1) {
+      newPayment.invoice_id = doData.invoices[0].id;
     }
 
     try {
       setSubmitting(true);
-      await apiClient.post(
-        `/ritase/delivery-orders/${doId}/payments`,
-        newPayment
-      );
+      await apiClient.post(`payments/delivery-orders/${doId}`, newPayment);
       toast.success("Payment recorded!");
 
       setShowPaymentForm(false);
