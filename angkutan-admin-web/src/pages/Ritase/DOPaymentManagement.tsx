@@ -559,7 +559,8 @@ const DOPaymentManagement: React.FC = () => {
     return (
       do_item?.payment_confirmation_status === "confirmed" &&
       !isFullySettled &&
-      doData.invoices.length > 0
+      doData.invoices.length > 0 &&
+      remainingPayment > 0
     );
   };
   const canAdjust = () => {
@@ -1125,7 +1126,7 @@ const DOPaymentManagement: React.FC = () => {
                       {isFullySettled
                         ? "DO fully settled"
                         : !canDoActions()
-                        ? "Requires confirmation"
+                        ? "Tidak dapat membuat invoice"
                         : doData.invoices.length > 0
                         ? "Sudah ada Invoice"
                         : "Generate new invoice"}
@@ -1183,7 +1184,7 @@ const DOPaymentManagement: React.FC = () => {
                         : !canRecordPayment()
                         ? doData.invoices.length === 0
                           ? "Create invoice first"
-                          : "Requires confirmation"
+                          : "Can't record payment"
                         : "Add new payment"}
                     </p>
                   </div>
@@ -2731,8 +2732,8 @@ const DOPaymentManagement: React.FC = () => {
                   placeholder="Auto-filled from existing invoice"
                 />
                 <p className="text-sm text-gray-500 mt-1">
-                  Invoice Amount:{" "}
-                  {formatCurrency(doData.invoices[0]?.invoice_amount || 0)}
+                  Invoice Net Amount:{" "}
+                  {formatCurrency(doData.invoices[0]?.net_amount || 0)}
                 </p>
                 <p className="text-sm text-gray-500 mt-1">
                   Total Paid: {formatCurrency(paymentSummary.total_paid || 0)}

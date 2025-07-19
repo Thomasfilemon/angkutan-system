@@ -632,7 +632,7 @@ BEGIN
   
   -- Calculate total paid
   SELECT COALESCE(SUM(payment_amount), 0) INTO total_paid FROM delivery_order_payments WHERE delivery_order_id = NEW.delivery_order_id;
-  final_amount := COALESCE(do_record.final_amount, do_record.total_amount, 0); -- Fix: Pakai total_amount kalau final null
+  final_amount := COALESCE(do_record.total_amount, 0); -- Fix: Pakai total_amount kalau final null
   RAISE NOTICE 'Calc for DO %: paid % vs final %', NEW.delivery_order_id, total_paid, final_amount; -- Log buat debug
   IF total_paid + 0.01 >= final_amount THEN  -- Tolerance rounding
     UPDATE delivery_orders SET payment_status = 'lunas', payment_confirmation_status = 'confirmed' WHERE id = NEW.delivery_order_id;
