@@ -980,7 +980,7 @@ INSERT INTO delivery_orders (
   payment_status, status,
   created_at, departed_to_load_location_at, arrived_at_load_location_at,
   departed_from_load_location_at, arrived_at_unload_location_at,
-  departed_from_unload_location_at, completed_at
+  departed_from_unload_location_at, completed_at, payment_confirmation_status
 ) VALUES (
   (SELECT id FROM purchase_orders WHERE po_number = 'PO/TESTING/07/2025-001'),
   (SELECT id FROM users WHERE username = 'supir_budi'),
@@ -1008,7 +1008,8 @@ INSERT INTO delivery_orders (
   '2025-07-03 10:00:00+07',
   '2025-07-03 17:30:00+07',
   '2025-07-03 18:00:00+07',
-  '2025-07-03 18:30:00+07'
+  '2025-07-03 18:30:00+07',
+  'confirmed'
 );
 
 -- Invoice for DO #2
@@ -1057,7 +1058,7 @@ INSERT INTO delivery_orders (
   payment_status, status,
   created_at, departed_to_load_location_at, arrived_at_load_location_at,
   departed_from_load_location_at, arrived_at_unload_location_at,
-  departed_from_unload_location_at, completed_at
+  departed_from_unload_location_at, completed_at, payment_confirmation_status
 ) VALUES (
   (SELECT id FROM purchase_orders WHERE po_number = 'PO/TESTING/07/2025-001'),
   (SELECT id FROM users WHERE username = 'supir_charlie'),
@@ -1085,7 +1086,8 @@ INSERT INTO delivery_orders (
   '2025-07-04 10:15:00+07',
   '2025-07-04 18:00:00+07',
   '2025-07-04 18:30:00+07',
-  '2025-07-04 19:00:00+07'
+  '2025-07-04 19:00:00+07',
+  'confirmed'
 );
 
 -- Invoice for DO #3 (UNPAID)
@@ -1156,7 +1158,7 @@ INSERT INTO delivery_orders (
   payment_status, status,
   created_at, departed_to_load_location_at, arrived_at_load_location_at,
   departed_from_load_location_at, arrived_at_unload_location_at,
-  departed_from_unload_location_at, completed_at
+  departed_from_unload_location_at, completed_at, payment_confirmation_status, payment_confirmation_at, payment_confirmed_by
 ) VALUES (
   (SELECT id FROM purchase_orders WHERE po_number = 'PO/TESTING/07/2025-001'),
   (SELECT id FROM users WHERE username = 'supir_yoyo'),
@@ -1184,7 +1186,10 @@ INSERT INTO delivery_orders (
   '2025-07-06 09:45:00+07',
   '2025-07-06 18:30:00+07',
   '2025-07-06 19:00:00+07',
-  '2025-07-06 19:30:00+07'
+  '2025-07-06 19:30:00+07',
+  'confirmed',
+  '2025-07-06 20:00:00+07', -- Payment confirmation time
+  1 -- Payment confirmed by user ID 1 (admin)
 );
 
 -- Invoice for DO #5

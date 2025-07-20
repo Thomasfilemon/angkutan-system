@@ -996,7 +996,7 @@ const calculateTambahanAmount = (quantity, unit, unitPrice) => {
     case "kilogram":
       return qty * price;
     case "ton":
-      return qty * 1000 * price; // Convert ton to kg
+      return qty * price; // Convert ton to kg
     case "kubik":
       return qty * price; // Direct kubik pricing
     default:

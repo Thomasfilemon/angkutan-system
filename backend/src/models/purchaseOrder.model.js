@@ -99,7 +99,7 @@ module.exports = (sequelize) => {
                 po.total_amount = quantity * unitPrice;
                 break;
               case "ton":
-                po.total_amount = quantity * 1000 * unitPrice; // Convert ton to kg
+                po.total_amount = quantity * unitPrice;
                 break;
               case "kubik":
                 po.total_amount = quantity * unitPrice; // Direct kubik pricing
@@ -127,7 +127,7 @@ module.exports = (sequelize) => {
         case "kilogram":
           return quantity * unitPrice;
         case "ton":
-          return quantity * 1000 * unitPrice; // Convert ton to kg
+          return quantity * unitPrice;
         case "kubik":
           return quantity * unitPrice; // Direct kubik pricing
         default:
@@ -154,7 +154,7 @@ module.exports = (sequelize) => {
 
     if (this.unit === "ton") {
       // Show both per kg and per ton prices
-      const pricePerTon = unitPrice * 1000;
+      const pricePerTon = unitPrice;
       return `Rp ${unitPrice.toLocaleString(
         "id-ID"
       )}/${unitDisplay} (Rp ${pricePerTon.toLocaleString("id-ID")}/ton)`;

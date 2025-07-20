@@ -30,6 +30,14 @@ const calculateTotalAmount = (quantity, unitPrice, unit) => {
   }
 };
 
+const calculateOngkosan = (totalAmount, tripAllowance, gaji) => {
+  const total = parseFloat(totalAmount) || 0;
+  const allowance = parseFloat(tripAllowance) || 0;
+  const salary = parseFloat(gaji) || 0;
+
+  return total - allowance - salary;
+};
+
 /**
  * 🎯 CREATE DELIVERY ORDER (Updated for new architecture)
  * POST /api/web/delivery-orders
@@ -280,7 +288,9 @@ exports.createDeliveryOrder = async (req, res, next) => {
             to: driverUser.expo_push_token,
             sound: "default",
             title: "Tugas Pengantaran Baru",
-            body: `Halo ${driverName}, Anda telah ditugaskan untuk DO ${deliveryOrder.do_name || deliveryOrder.do_number}. Silakan cek detail pengantaran di aplikasi.`,
+            body: `Halo ${driverName}, Anda telah ditugaskan untuk DO ${
+              deliveryOrder.do_name || deliveryOrder.do_number
+            }. Silakan cek detail pengantaran di aplikasi.`,
             data: { do_number: deliveryOrder.do_number },
           },
         ];
@@ -363,47 +373,49 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
       };
     }
 
-    const { count, rows: deliveryOrders } = await DeliveryOrder.findAndCountAll({
-      where: whereClause,
-      include: [
-        {
-          model: PurchaseOrder,
-          as: "purchaseOrder",
-          attributes: [
-            "po_number",
-            "customer_name",
-            "total_quantity",
-            "unit",
-          ],
-        },
-        {
-          model: User,
-          as: "driver",
-          attributes: ["id", "username"],
-          include: [
-            {
-              model: DriverProfile,
-              as: "driverProfile",
-              attributes: ["full_name", "phone"],
-            },
-          ],
-        },
-        {
-          model: Vehicle,
-          as: "vehicle",
-          attributes: ["license_plate", "type", "capacity"],
-        },
-        {
-          model: BigDeliveryOrder,
-          as: "bigDeliveryOrderAsMain",
-          attributes: ["big_do_number", "status", "total_trip_allowance"],
-          required: false,
-        },
-      ],
-      order: [["created_at", "DESC"]],
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-    });
+    const { count, rows: deliveryOrders } = await DeliveryOrder.findAndCountAll(
+      {
+        where: whereClause,
+        include: [
+          {
+            model: PurchaseOrder,
+            as: "purchaseOrder",
+            attributes: [
+              "po_number",
+              "customer_name",
+              "total_quantity",
+              "unit",
+            ],
+          },
+          {
+            model: User,
+            as: "driver",
+            attributes: ["id", "username"],
+            include: [
+              {
+                model: DriverProfile,
+                as: "driverProfile",
+                attributes: ["full_name", "phone"],
+              },
+            ],
+          },
+          {
+            model: Vehicle,
+            as: "vehicle",
+            attributes: ["license_plate", "type", "capacity"],
+          },
+          {
+            model: BigDeliveryOrder,
+            as: "bigDeliveryOrderAsMain",
+            attributes: ["big_do_number", "status", "total_trip_allowance"],
+            required: false,
+          },
+        ],
+        order: [["created_at", "DESC"]],
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+      }
+    );
 
     // ✅ Enhance data with computed fields
     const enhancedDOs = deliveryOrders.map((dOrder) => {
@@ -666,7 +678,8 @@ exports.updateDeliveryOrder = async (req, res, next) => {
     // Recalculate total_amount if relevant fields change
     let calculatedTotalAmount = total_amount;
     if (minimal_load_quantity || unit_price || unit) {
-      const quantity = minimal_load_quantity || deliveryOrder.minimal_load_quantity;
+      const quantity =
+        minimal_load_quantity || deliveryOrder.minimal_load_quantity;
       const unitPrice = unit_price || deliveryOrder.unit_price;
       const finalUnit = unit || deliveryOrder.unit || "ton";
 
@@ -679,27 +692,83 @@ exports.updateDeliveryOrder = async (req, res, next) => {
       }
     }
 
-    // Prepare update data
+    // gaji
+
+    let calculatedOngkosan = ongkosan; // Ongkosan = gross profit (total_amount - trip_allowance - gaji)
+    if (ongkosan || trip_allowance || gaji) {
+      // If ongkosan is not provided, calculate it based on trip allowance and gaji
+      const tripAllowance = trip_allowance || deliveryOrder.trip_allowance || 0;
+      const gaji = gaji || deliveryOrder.gaji || 0;
+
+      if (calculateTotalAmount && tripAllowance && gaji) {
+        calculatedOngkosan = calculateOngkosan(
+          calculatedTotalAmount,
+          tripAllowance,
+          gaji
+        );
+      }
+    }
+
+    // ✅ Prepare update data
     const updateData = {
-      purchase_order_id: purchase_order_id !== undefined ? purchase_order_id : deliveryOrder.purchase_order_id,
-      vehicle_id: vehicle_id !== undefined ? vehicle_id : deliveryOrder.vehicle_id,
+      purchase_order_id:
+        purchase_order_id !== undefined
+          ? purchase_order_id
+          : deliveryOrder.purchase_order_id,
+      vehicle_id:
+        vehicle_id !== undefined ? vehicle_id : deliveryOrder.vehicle_id,
       driver_id: driver_id !== undefined ? driver_id : deliveryOrder.driver_id,
-      customer_name: customer_name !== undefined ? customer_name : deliveryOrder.customer_name,
+      customer_name:
+        customer_name !== undefined
+          ? customer_name
+          : deliveryOrder.customer_name,
       item_name: item_name !== undefined ? item_name : deliveryOrder.item_name,
-      minimal_load_quantity: minimal_load_quantity !== undefined ? minimal_load_quantity : deliveryOrder.minimal_load_quantity,
+      minimal_load_quantity:
+        minimal_load_quantity !== undefined
+          ? minimal_load_quantity
+          : deliveryOrder.minimal_load_quantity,
       unit: unit !== undefined ? unit : deliveryOrder.unit,
-      unit_price: unit_price !== undefined ? unit_price : deliveryOrder.unit_price,
-      total_amount: calculatedTotalAmount !== undefined ? calculatedTotalAmount : deliveryOrder.total_amount,
-      trip_allowance: trip_allowance !== undefined ? trip_allowance : deliveryOrder.trip_allowance,
+      unit_price:
+        unit_price !== undefined ? unit_price : deliveryOrder.unit_price,
+      total_amount:
+        calculatedTotalAmount !== undefined
+          ? calculatedTotalAmount
+          : deliveryOrder.total_amount,
+      trip_allowance:
+        trip_allowance !== undefined
+          ? trip_allowance
+          : deliveryOrder.trip_allowance,
       gaji: gaji !== undefined ? gaji : deliveryOrder.gaji,
-      ongkosan: ongkosan !== undefined ? ongkosan : deliveryOrder.ongkosan,
-      load_location: load_location !== undefined ? load_location : deliveryOrder.load_location,
-      unload_location: unload_location !== undefined ? unload_location : deliveryOrder.unload_location,
-      load_latitude: load_latitude !== undefined ? load_latitude : deliveryOrder.load_latitude,
-      load_longitude: load_longitude !== undefined ? load_longitude : deliveryOrder.load_longitude,
-      unload_latitude: unload_latitude !== undefined ? unload_latitude : deliveryOrder.unload_latitude,
-      unload_longitude: unload_longitude !== undefined ? unload_longitude : deliveryOrder.unload_longitude,
-      payment_status: payment_status !== undefined ? payment_status : deliveryOrder.payment_status,
+      ongkosan:
+        calculatedOngkosan !== undefined ? ongkosan : deliveryOrder.ongkosan,
+      load_location:
+        load_location !== undefined
+          ? load_location
+          : deliveryOrder.load_location,
+      unload_location:
+        unload_location !== undefined
+          ? unload_location
+          : deliveryOrder.unload_location,
+      load_latitude:
+        load_latitude !== undefined
+          ? load_latitude
+          : deliveryOrder.load_latitude,
+      load_longitude:
+        load_longitude !== undefined
+          ? load_longitude
+          : deliveryOrder.load_longitude,
+      unload_latitude:
+        unload_latitude !== undefined
+          ? unload_latitude
+          : deliveryOrder.unload_latitude,
+      unload_longitude:
+        unload_longitude !== undefined
+          ? unload_longitude
+          : deliveryOrder.unload_longitude,
+      payment_status:
+        payment_status !== undefined
+          ? payment_status
+          : deliveryOrder.payment_status,
       status: status !== undefined ? status : deliveryOrder.status,
       do_name: do_name !== undefined ? do_name : deliveryOrder.do_name,
     };

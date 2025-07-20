@@ -458,7 +458,7 @@ const DeliveryOrdersPage = () => {
                             <div className="text-xs text-green-600 mt-0.5">
                               Actual: Rp{" "}
                               {dOrder.financial_summary.actual_total_amount.toLocaleString(
-                                "de-DE"
+                                "id-ID"
                               )}
                             </div>
                           )}

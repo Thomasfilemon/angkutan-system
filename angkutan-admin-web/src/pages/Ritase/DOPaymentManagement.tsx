@@ -331,7 +331,11 @@ const DOPaymentManagement: React.FC = () => {
       await apiClient.patch(
         `/payments/delivery-orders/${doData.delivery_order.id}/confirm`,
         {
-          action: "confirm_for_billing",
+          final_amount:
+            (doData.delivery_order.actual_load_quantity ||
+              doData.delivery_order.minimal_load_quantity) *
+              doData.delivery_order.unit_price ||
+            doData.delivery_order.final_amount,
           notes: "Confirmed for payment processing",
         }
       );
@@ -389,17 +393,19 @@ const DOPaymentManagement: React.FC = () => {
     e.preventDefault();
     if (!doId) return;
 
-    if (!newPayment.invoice_id || newPayment.invoice_id === 0) {
-      toast.error("Please select an invoice to link this payment!");
+    if (newPayment.payment_amount <= 0) {
+      toast.error("Payment amount must be greater than zero");
       return;
+    }
+
+    // set the invoice id to the auto filled invoice (because one do only have 1 invoice)
+    if (doData?.invoices.length === 1) {
+      newPayment.invoice_id = doData.invoices[0].id;
     }
 
     try {
       setSubmitting(true);
-      await apiClient.post(
-        `/ritase/delivery-orders/${doId}/payments`,
-        newPayment
-      );
+      await apiClient.post(`payments/delivery-orders/${doId}`, newPayment);
       toast.success("Payment recorded!");
 
       setShowPaymentForm(false);
@@ -415,31 +421,6 @@ const DOPaymentManagement: React.FC = () => {
       await fetchDOPaymentData();
     } catch (err: any) {
       setError(err.response?.data?.message || "Failed to record payment");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleCreateAdjustment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!doId) return;
-
-    try {
-      setSubmitting(true);
-      await apiClient.post(
-        `/ritase/delivery-orders/${doId}/adjustment`,
-        newAdjustment
-      );
-
-      setShowAdjustmentForm(false);
-      setNewAdjustment({
-        adjustment_type: "price_override",
-        adjustment_amount: 0,
-        reason: "",
-      });
-      await fetchDOPaymentData();
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to create adjustment");
     } finally {
       setSubmitting(false);
     }
@@ -557,8 +538,12 @@ const DOPaymentManagement: React.FC = () => {
   const remainingAmount =
     (do_item.final_amount || do_item.ongkosan || 0) - totalInvoiced;
 
+  const remainingPayment =
+    paymentSummary.total_invoiced - (paymentSummary.total_paid || 0);
+
   const canConfirmBilling = () => {
-    const confirmationStatus = paymentSummary?.confirmation_status || "pending";
+    const confirmationStatus =
+      do_item?.payment_confirmation_status || "pending";
     const deliveryStatus = do_item?.status || "pending";
 
     return (
@@ -569,30 +554,30 @@ const DOPaymentManagement: React.FC = () => {
 
   const canCreateInvoice = () => {
     return (
-      paymentSummary?.confirmation_status === "confirmed" &&
+      do_item?.payment_confirmation_status === "confirmed" &&
       !isFullySettled &&
       remainingAmount > 0
     );
   };
   const canRecordPayment = () => {
     return (
-      paymentSummary?.confirmation_status === "confirmed" &&
+      do_item?.payment_confirmation_status === "confirmed" &&
       !isFullySettled &&
-      doData.invoices.length > 0
+      doData.invoices.length > 0 &&
+      remainingPayment > 0
     );
   };
   const canAdjust = () => {
-    return (
-      paymentSummary?.confirmation_status === "confirmed" && !isFullySettled
-    );
+    return do_item?.payment_confirmation_status === "confirmed";
   };
 
   const canDoActions = () => {
-    const confirmationStatus = paymentSummary?.confirmation_status || "pending";
+    const confirmationStatus =
+      do_item?.payment_confirmation_status || "pending";
     return (
       confirmationStatus === "confirmed" &&
       !isFullySettled &&
-      remainingAmount > 0
+      remainingPayment > 0
     );
   };
 
@@ -933,8 +918,8 @@ const DOPaymentManagement: React.FC = () => {
                     </div>
                   </div>
                   <p className="text-sm mt-2 text-yellow-600">
-                    ⚠️ You won't be able to create invoices, record payments, or
-                    make adjustments until this DO is confirmed.
+                    ⚠️ You won't be able to create invoices or record payments
+                    until this DO is confirmed.
                   </p>
                 </div>
               </div>
@@ -1048,7 +1033,7 @@ const DOPaymentManagement: React.FC = () => {
                   </span>
                 )}
                 {/* ✅ NEW: Lock icon for disabled actions */}
-                {tab.key !== "overview" && !canDoActions() && (
+                {tab.key !== "overview" && !canCreateInvoice && (
                   <svg
                     className="w-3 h-3 text-gray-400"
                     fill="none"
@@ -1074,35 +1059,6 @@ const DOPaymentManagement: React.FC = () => {
           {activeTab === "overview" && (
             <div className="space-y-6">
               <h3 className="text-lg font-semibold">Payment Overview</h3>
-
-              {canConfirmBilling() && (
-                <div className="bg-yellow-50 border-l-4 border-yellow-400 p-6 rounded-r-lg">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-lg font-semibold text-yellow-800 mb-2">
-                        🔐 Confirmation Required
-                      </h4>
-                      <p className="text-yellow-700 mb-4">
-                        This DO must be confirmed before you can perform any
-                        payment actions.
-                      </p>
-                      <div className="text-sm text-yellow-600 space-y-1">
-                        <div>• Create invoices</div>
-                        <div>• Record payments</div>
-                        <div>• Make price adjustments</div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={handleConfirmForBilling}
-                      disabled={submitting}
-                      className="bg-yellow-600 text-white px-8 py-3 rounded-lg text-lg font-semibold hover:bg-yellow-700 transition-colors disabled:opacity-50 shadow-lg"
-                    >
-                      {submitting ? "Confirming..." : "Confirm DO"}
-                    </button>
-                  </div>
-                </div>
-              )}
-
               {/* Quick Actions */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
                 {/* Create Invoice Card */}
@@ -1171,8 +1127,10 @@ const DOPaymentManagement: React.FC = () => {
                     >
                       {isFullySettled
                         ? "DO fully settled"
-                        : !canCreateInvoice()
-                        ? "Requires confirmation"
+                        : !canDoActions()
+                        ? "Tidak dapat membuat invoice"
+                        : doData.invoices.length > 0
+                        ? "Sudah ada Invoice"
                         : "Generate new invoice"}
                     </p>
                   </div>
@@ -1228,7 +1186,7 @@ const DOPaymentManagement: React.FC = () => {
                         : !canRecordPayment()
                         ? doData.invoices.length === 0
                           ? "Create invoice first"
-                          : "Requires confirmation"
+                          : "Can't record payment"
                         : "Add new payment"}
                     </p>
                   </div>
@@ -1481,13 +1439,13 @@ const DOPaymentManagement: React.FC = () => {
                     )}
                   </button>
                   {/* Tooltip for disabled button */}
-                  {(!canDoActions() ||
+                  {(!canCreateInvoice() ||
                     isFullySettled ||
                     remainingAmount <= 0) && (
                     <div className="absolute left-1/2 transform -translate-x-1/2 mt-2 w-56 bg-gray-800 text-white text-xs rounded px-3 py-2 opacity-0 group-hover:opacity-100 pointer-events-none z-10 transition-opacity">
                       {isFullySettled
                         ? "DO sudah lunas/settled. Tidak bisa membuat invoice baru."
-                        : !canDoActions()
+                        : !canCreateInvoice()
                         ? "Konfirmasi DO untuk billing terlebih dahulu."
                         : "Sisa amount sudah 0, tidak bisa membuat invoice baru."}
                     </div>
@@ -1495,7 +1453,7 @@ const DOPaymentManagement: React.FC = () => {
                 </div>
               </div>
 
-              {!canDoActions() && (
+              {!canCreateInvoice() && (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                   <div className="flex items-center gap-3">
                     <svg
@@ -1513,7 +1471,7 @@ const DOPaymentManagement: React.FC = () => {
                     </svg>
                     <span className="text-gray-600">
                       Invoice management is locked. DO belum dikonfirmasi atau
-                      sudah lunas/settled.
+                      sudah ada invoice.
                     </span>
                   </div>
                 </div>
@@ -1658,7 +1616,7 @@ const DOPaymentManagement: React.FC = () => {
                         );
                         return;
                       }
-                      if (!canDoActions()) {
+                      if (!canRecordPayment()) {
                         toast.error("Please confirm DO for billing first!");
                         return;
                       }
@@ -1671,7 +1629,7 @@ const DOPaymentManagement: React.FC = () => {
                       setShowPaymentForm(true);
                     }}
                     disabled={
-                      !canDoActions() ||
+                      !canRecordPayment() ||
                       doData.invoices.length === 0 ||
                       isFullySettled
                     }
@@ -1714,13 +1672,13 @@ const DOPaymentManagement: React.FC = () => {
                     )}
                   </button>
                   {/* Tooltip for disabled button */}
-                  {(!canDoActions() ||
+                  {(!canRecordPayment() ||
                     doData.invoices.length === 0 ||
                     isFullySettled) && (
                     <div className="absolute left-1/2 transform -translate-x-1/2 mt-2 w-56 bg-gray-800 text-white text-xs rounded px-3 py-2 opacity-0 group-hover:opacity-100 pointer-events-none z-10 transition-opacity">
                       {isFullySettled
                         ? "DO sudah lunas/settled. Tidak bisa record payment baru."
-                        : !canDoActions()
+                        : !canRecordPayment()
                         ? "Konfirmasi DO untuk billing terlebih dahulu."
                         : "Buat invoice dulu sebelum record payment."}
                     </div>
@@ -1729,7 +1687,7 @@ const DOPaymentManagement: React.FC = () => {
               </div>
 
               {/* Disabled state warnings */}
-              {!canDoActions() && (
+              {!canRecordPayment() && (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                   <div className="flex items-center gap-3">
                     <svg
@@ -1759,7 +1717,7 @@ const DOPaymentManagement: React.FC = () => {
               )}
 
               {/* Invoice requirement warning */}
-              {canDoActions() && doData.invoices.length === 0 && (
+              {canCreateInvoice() && doData.invoices.length === 0 && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                   <div className="flex items-center gap-3">
                     <svg
@@ -1799,7 +1757,7 @@ const DOPaymentManagement: React.FC = () => {
                   <div className="relative">
                     <svg
                       className={`h-16 w-16 mx-auto mb-4 ${
-                        canDoActions() && doData.invoices.length > 0
+                        canRecordPayment() && doData.invoices.length > 0
                           ? "text-gray-400"
                           : "text-gray-300"
                       }`}
@@ -1815,7 +1773,7 @@ const DOPaymentManagement: React.FC = () => {
                       />
                     </svg>
                     {/* Lock overlay for disabled state */}
-                    {(!canDoActions() || doData.invoices.length === 0) && (
+                    {(!canRecordPayment() || doData.invoices.length === 0) && (
                       <div className="absolute top-4 right-1/2 transform translate-x-1/2">
                         <div className="w-8 h-8 bg-gray-500 rounded-full flex items-center justify-center">
                           <svg
@@ -1839,7 +1797,7 @@ const DOPaymentManagement: React.FC = () => {
                     No Payments Recorded
                   </h3>
                   <p className="text-gray-500 mb-4">
-                    {!canDoActions()
+                    {!canRecordPayment()
                       ? "Payment recording is locked until DO is confirmed for billing."
                       : doData.invoices.length === 0
                       ? "Create an invoice first to enable payment recording."
@@ -1853,7 +1811,7 @@ const DOPaymentManagement: React.FC = () => {
                         );
                         return;
                       }
-                      if (!canDoActions()) {
+                      if (!canRecordPayment()) {
                         toast.error("Please confirm DO for billing first!");
                         return;
                       }
@@ -1866,7 +1824,7 @@ const DOPaymentManagement: React.FC = () => {
                       setShowPaymentForm(true);
                     }}
                     disabled={
-                      !canDoActions() ||
+                      !canRecordPayment() ||
                       doData.invoices.length === 0 ||
                       isFullySettled
                     }
@@ -1874,7 +1832,7 @@ const DOPaymentManagement: React.FC = () => {
                   >
                     {isFullySettled
                       ? "DO Fully Settled"
-                      : !canDoActions()
+                      : !canRecordPayment()
                       ? "Locked - Confirm DO First"
                       : doData.invoices.length === 0
                       ? "Create Invoice First"
@@ -1926,130 +1884,147 @@ const DOPaymentManagement: React.FC = () => {
 
                   {/* Payment cards */}
                   {doData.payments.map((payment) => (
-                  <div
-                    key={payment.id}
-                    className={`border border-gray-200 rounded-xl p-6 transition-all duration-200 bg-white ${
-                      isFullySettled
-                        ? "opacity-60 cursor-not-allowed pointer-events-none"
-                        : "hover:shadow-lg"
-                    }`}
-                  >
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="flex items-center space-x-4">
-                        <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                          <div className="text-2xl">{getPaymentTypeIcon(payment.payment_type)}</div>
+                    <div
+                      key={payment.id}
+                      className={`border border-gray-200 rounded-xl p-6 transition-all duration-200 bg-white ${
+                        isFullySettled
+                          ? "opacity-60 cursor-not-allowed pointer-events-none"
+                          : "hover:shadow-lg"
+                      }`}
+                    >
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="flex items-center space-x-4">
+                          <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                            <div className="text-2xl">
+                              {getPaymentTypeIcon(payment.payment_type)}
+                            </div>
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-xl text-gray-900">
+                              {formatCurrency(payment.payment_amount)}
+                            </h4>
+                            <p className="text-sm text-gray-600">
+                              {payment.payment_type.charAt(0).toUpperCase() +
+                                payment.payment_type.slice(1)}{" "}
+                              •{" "}
+                              {new Date(
+                                payment.payment_date
+                              ).toLocaleDateString("id-ID")}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <h4 className="font-bold text-xl text-gray-900">
-                            {formatCurrency(payment.payment_amount)}
-                          </h4>
-                          <p className="text-sm text-gray-600">
-                            {payment.payment_type.charAt(0).toUpperCase() +
-                              payment.payment_type.slice(1)}{" "}
-                            • {new Date(payment.payment_date).toLocaleDateString("id-ID")}
-                          </p>
+                        <div className="text-right">
+                          <div className="text-sm text-gray-500">
+                            Recorded:{" "}
+                            {new Date(payment.created_at).toLocaleDateString(
+                              "id-ID"
+                            )}
+                          </div>
+                          <div className="mt-1">
+                            <span className="inline-flex px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
+                              ✅ Confirmed
+                            </span>
+                          </div>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <div className="text-sm text-gray-500">
-                          Recorded: {new Date(payment.created_at).toLocaleDateString("id-ID")}
-                        </div>
-                        <div className="mt-1">
-                          <span className="inline-flex px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
-                            ✅ Confirmed
-                          </span>
-                        </div>
-                      </div>
-                    </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-4">
-                      {payment.payment_reference && (
-                        <div className="bg-gray-50 p-3 rounded-lg">
-                          <span className="text-gray-600 font-medium">Reference:</span>
-                          <p className="font-semibold text-gray-900 mt-1">
-                            {payment.payment_reference}
-                          </p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-4">
+                        {payment.payment_reference && (
+                          <div className="bg-gray-50 p-3 rounded-lg">
+                            <span className="text-gray-600 font-medium">
+                              Reference:
+                            </span>
+                            <p className="font-semibold text-gray-900 mt-1">
+                              {payment.payment_reference}
+                            </p>
+                          </div>
+                        )}
+                        {payment.bank_account && (
+                          <div className="bg-gray-50 p-3 rounded-lg">
+                            <span className="text-gray-600 font-medium">
+                              Bank Account:
+                            </span>
+                            <p className="font-semibold text-gray-900 mt-1">
+                              {payment.bank_account}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      {payment.notes && (
+                        <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm">
+                          <div className="font-medium text-blue-800 mb-1">
+                            Payment Notes:
+                          </div>
+                          <p className="text-blue-700">{payment.notes}</p>
                         </div>
                       )}
-                      {payment.bank_account && (
-                        <div className="bg-gray-50 p-3 rounded-lg">
-                          <span className="text-gray-600 font-medium">Bank Account:</span>
-                          <p className="font-semibold text-gray-900 mt-1">
-                            {payment.bank_account}
-                          </p>
-                        </div>
-                      )}
-                    </div>
 
-                    {payment.notes && (
-                      <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm">
-                        <div className="font-medium text-blue-800 mb-1">Payment Notes:</div>
-                        <p className="text-blue-700">{payment.notes}</p>
-                      </div>
-                    )}
-
-                    {payment.attachment_urls && payment.attachment_urls.length > 0 ? (
-                      <div className="mt-4">
-                        <div className="font-medium text-gray-700 mb-2">Attachments:</div>
-                        <div className="flex flex-wrap gap-2">
-                          {payment.attachment_urls.map((url, index) => (
-                            <a
-                              key={index}
-                              href={url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center px-3 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors text-sm"
-                            >
-                              <svg
-                                className="h-4 w-4 mr-2"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
+                      {payment.attachment_urls &&
+                      payment.attachment_urls.length > 0 ? (
+                        <div className="mt-4">
+                          <div className="font-medium text-gray-700 mb-2">
+                            Attachments:
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {payment.attachment_urls.map((url, index) => (
+                              <a
+                                key={index}
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center px-3 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors text-sm"
                               >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
-                                />
-                              </svg>
-                              View Attachment {index + 1}
-                            </a>
-                          ))}
+                                <svg
+                                  className="h-4 w-4 mr-2"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  stroke="currentColor"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
+                                  />
+                                </svg>
+                                View Attachment {index + 1}
+                              </a>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <div className="mt-4 text-sm text-gray-500">
-                        No attachments available
-                      </div>
-                    )}
+                      ) : (
+                        <div className="mt-4 text-sm text-gray-500">
+                          No attachments available
+                        </div>
+                      )}
 
-                    <div className="mt-4 flex justify-end gap-2">
-                      <button
-                        onClick={() => {
-                          if (isFullySettled) return;
-                          // Handle edit payment
-                          console.log("Edit payment:", payment.id);
-                        }}
-                        disabled={isFullySettled}
-                        className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors disabled:opacity-50"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (isFullySettled) return;
-                          // Handle delete payment
-                          console.log("Delete payment:", payment.id);
-                        }}
-                        disabled={isFullySettled}
-                        className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition-colors disabled:opacity-50"
-                      >
-                        Delete
-                      </button>
+                      <div className="mt-4 flex justify-end gap-2">
+                        <button
+                          onClick={() => {
+                            if (isFullySettled) return;
+                            // Handle edit payment
+                            console.log("Edit payment:", payment.id);
+                          }}
+                          disabled={isFullySettled}
+                          className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors disabled:opacity-50"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (isFullySettled) return;
+                            // Handle delete payment
+                            console.log("Delete payment:", payment.id);
+                          }}
+                          disabled={isFullySettled}
+                          className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition-colors disabled:opacity-50"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
                 </div>
               )}
             </div>
@@ -2067,7 +2042,7 @@ const DOPaymentManagement: React.FC = () => {
                         toast.error("DO fully settled—can't edit adjustment!");
                         return;
                       }
-                      if (!canDoActions()) {
+                      if (!canAdjust()) {
                         toast.error("Please confirm DO for billing first!");
                         return;
                       }
@@ -2082,10 +2057,10 @@ const DOPaymentManagement: React.FC = () => {
                       }
                       setShowAdjustmentForm(true);
                     }}
-                    disabled={!canDoActions() || isFullySettled}
+                    disabled={!canAdjust() || isFullySettled}
                     className="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                   >
-                    {!canDoActions() || isFullySettled ? (
+                    {!canAdjust() || isFullySettled ? (
                       <svg
                         className="w-4 h-4"
                         fill="none"
@@ -2119,7 +2094,7 @@ const DOPaymentManagement: React.FC = () => {
                       : "+ Create Adjustment"}
                   </button>
                   {/* Tooltip for disabled button */}
-                  {(!canDoActions() || isFullySettled) && (
+                  {(!canAdjust() || isFullySettled) && (
                     <div className="absolute left-1/2 transform -translate-x-1/2 mt-2 w-56 bg-gray-800 text-white text-xs rounded px-3 py-2 opacity-0 group-hover:opacity-100 pointer-events-none z-10 transition-opacity">
                       {isFullySettled
                         ? "DO sudah lunas/settled. Tidak bisa edit adjustment."
@@ -2129,7 +2104,7 @@ const DOPaymentManagement: React.FC = () => {
                 </div>
               </div>
 
-              {!canDoActions() && (
+              {!canAdjust() && (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                   <div className="flex items-center gap-3">
                     <svg
@@ -2163,7 +2138,7 @@ const DOPaymentManagement: React.FC = () => {
                   <div className="relative">
                     <svg
                       className={`h-16 w-16 mx-auto mb-4 ${
-                        canDoActions() ? "text-gray-400" : "text-gray-300"
+                        canAdjust() ? "text-gray-400" : "text-gray-300"
                       }`}
                       fill="none"
                       viewBox="0 0 24 24"
@@ -2177,7 +2152,7 @@ const DOPaymentManagement: React.FC = () => {
                       />
                     </svg>
                     {/* Lock overlay for disabled state */}
-                    {(!canDoActions() || isFullySettled) && (
+                    {!canAdjust() && (
                       <div className="absolute top-4 right-1/2 transform translate-x-1/2">
                         <div className="w-8 h-8 bg-gray-500 rounded-full flex items-center justify-center">
                           <svg
@@ -2201,13 +2176,13 @@ const DOPaymentManagement: React.FC = () => {
                     No Adjustments
                   </h3>
                   <p className="text-gray-500 mb-4">
-                    {!canDoActions() || isFullySettled
+                    {!canAdjust() || isFullySettled
                       ? "Price adjustments are locked until DO is confirmed for billing atau sudah lunas."
                       : "Create adjustments for special cases like accidents or additional charges."}
                   </p>
                   <button
                     onClick={() => {
-                      if (!canDoActions() || isFullySettled) {
+                      if (!canAdjust()) {
                         toast.error(
                           isFullySettled
                             ? "DO fully settled—can't create more adjustments!"
@@ -2217,10 +2192,10 @@ const DOPaymentManagement: React.FC = () => {
                       }
                       setShowAdjustmentForm(true);
                     }}
-                    disabled={!canDoActions() || isFullySettled}
+                    disabled={!canAdjust()}
                     className="bg-yellow-600 text-white px-6 py-3 rounded-lg hover:bg-yellow-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {!canDoActions() || isFullySettled
+                    {!canAdjust()
                       ? "Locked - Confirm DO First"
                       : "Create First Adjustment"}
                   </button>
@@ -2747,30 +2722,27 @@ const DOPaymentManagement: React.FC = () => {
               </div>
 
               <div>
+                {/* Invoice is auto filled and read-only (because 1 do can only have 1 invoice) */}
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Link to Invoice <span className="text-red-500">*</span>
+                  Invoice Number
                 </label>
-                <select
-                  required
-                  value={newPayment.invoice_id || ""}
-                  onChange={(e) =>
-                    setNewPayment((prev) => ({
-                      ...prev,
-                      invoice_id: e.target.value ? parseInt(e.target.value) : 0,
-                    }))
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                >
-                  <option value="">-- Select Invoice --</option>
-                  {doData.invoices.map((inv) => (
-                    <option key={inv.id} value={inv.id}>
-                      {inv.invoice_number} - {formatCurrency(inv.net_amount)} (
-                      {inv.status})
-                    </option>
-                  ))}
-                </select>
+                <input
+                  type="text"
+                  value={doData.invoices[0]?.invoice_number || ""}
+                  readOnly
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
+                  placeholder="Auto-filled from existing invoice"
+                />
                 <p className="text-sm text-gray-500 mt-1">
-                  You must select an invoice to link this payment.
+                  Invoice Net Amount:{" "}
+                  {formatCurrency(doData.invoices[0]?.net_amount || 0)}
+                </p>
+                <p className="text-sm text-gray-500 mt-1">
+                  Total Paid: {formatCurrency(paymentSummary.total_paid || 0)}
+                </p>
+                <p className="text-sm text-gray-500 mt-1">
+                  Remaining Amount:{" "}
+                  {formatCurrency(paymentSummary.remaining_amount || 0)}
                 </p>
               </div>
 
@@ -2888,19 +2860,32 @@ const DOPaymentManagement: React.FC = () => {
                 if (!doId) return;
                 setSubmitting(true);
                 try {
+                  // ✅ FIXED: Negate for penalty/incident before submit
+                  const isNegativeType = ["penalty", "incident"].includes(
+                    newAdjustment.adjustment_type
+                  );
+                  const adjustedAmount = isNegativeType
+                    ? -Math.abs(newAdjustment.adjustment_amount) // Force negative
+                    : Math.abs(newAdjustment.adjustment_amount); // Ensure positive for others
+
+                  const adjustedPayload = {
+                    ...newAdjustment,
+                    adjustment_amount: adjustedAmount,
+                  };
+
                   if (doData.adjustments.length > 0) {
                     // Edit mode: PATCH/PUT
                     const adjustmentId = doData.adjustments[0].id;
                     await apiClient.patch(
                       `/ritase/delivery-orders/${doId}/adjustment/${adjustmentId}`,
-                      newAdjustment
+                      adjustedPayload
                     );
                     toast.success("Adjustment updated!");
                   } else {
                     // Create mode: POST
                     await apiClient.post(
                       `/ritase/delivery-orders/${doId}/adjustment`,
-                      newAdjustment
+                      adjustedPayload
                     );
                     toast.success("Adjustment created!");
                   }
@@ -2948,8 +2933,9 @@ const DOPaymentManagement: React.FC = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  New Amount
+                  Adjustment Amount
                 </label>
+                {/* ✅ FIXED: Force positive input, negation on submit */}
                 <input
                   type="number"
                   required
@@ -2959,7 +2945,9 @@ const DOPaymentManagement: React.FC = () => {
                   onChange={(e) =>
                     setNewAdjustment((prev) => ({
                       ...prev,
-                      adjustment_amount: parseFloat(e.target.value) || 0,
+                      adjustment_amount: Math.abs(
+                        parseFloat(e.target.value) || 0
+                      ), // Enforce positive in state
                     }))
                   }
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
@@ -2988,7 +2976,7 @@ const DOPaymentManagement: React.FC = () => {
                 />
               </div>
 
-              {/* Adjustment Preview */}
+              {/* Adjustment Preview - FIXED: Negate for preview */}
               <div className="bg-yellow-50 p-4 rounded-lg">
                 <h4 className="font-medium text-yellow-800 mb-2">
                   Adjustment Preview
@@ -3003,15 +2991,24 @@ const DOPaymentManagement: React.FC = () => {
                   <div className="flex justify-between">
                     <span>New Amount:</span>
                     <span className="font-medium">
-                      {formatCurrency(newAdjustment.adjustment_amount)}
+                      {formatCurrency(
+                        ["penalty", "incident"].includes(
+                          newAdjustment.adjustment_type
+                        )
+                          ? -Math.abs(newAdjustment.adjustment_amount)
+                          : newAdjustment.adjustment_amount
+                      )}
                     </span>
                   </div>
                   <div className="flex justify-between font-semibold border-t border-yellow-200 pt-1">
                     <span>Change:</span>
                     <span
                       className={
-                        newAdjustment.adjustment_amount >
-                        calculatedBillableAmount
+                        ["penalty", "incident"].includes(
+                          newAdjustment.adjustment_type
+                        ) ||
+                        newAdjustment.adjustment_amount <
+                          calculatedBillableAmount
                           ? "text-red-600"
                           : "text-green-600"
                       }
@@ -3021,7 +3018,11 @@ const DOPaymentManagement: React.FC = () => {
                         ? "+"
                         : ""}
                       {formatCurrency(
-                        newAdjustment.adjustment_amount -
+                        (["penalty", "incident"].includes(
+                          newAdjustment.adjustment_type
+                        )
+                          ? -Math.abs(newAdjustment.adjustment_amount)
+                          : newAdjustment.adjustment_amount) -
                           calculatedBillableAmount
                       )}
                     </span>

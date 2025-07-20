@@ -263,12 +263,17 @@ const CreateDeliveryFromPO: React.FC = () => {
     }
   };
 
-  const calculateOngkosan = (formData: DOFormData, poUnitPrice?: number, poUnit?: string): number => {
+  const calculateOngkosan = (
+    formData: DOFormData,
+    poUnitPrice?: number,
+    poUnit?: string
+  ): number => {
     if (!poUnitPrice || !poUnit || !formData.minimal_load_quantity) return 0;
     const quantity = parseFloat(formData.minimal_load_quantity);
     const totalRevenue = calculateTotalAmount(quantity, poUnitPrice, poUnit);
     const operationalCosts =
-      (parseFloat(formData.trip_allowance) || 0) + (parseFloat(formData.gaji) || 0);
+      (parseFloat(formData.trip_allowance) || 0) +
+      (parseFloat(formData.gaji) || 0);
     return totalRevenue - operationalCosts;
   };
 
@@ -343,8 +348,17 @@ const CreateDeliveryFromPO: React.FC = () => {
     };
     setFormDataList(newFormDataList);
 
-    if (e.target.name === "minimal_load_quantity" || e.target.name === "trip_allowance" || e.target.name === "gaji") {
-      newFormDataList[index].ongkosan = calculateOngkosan(newFormDataList[index], poDetails?.unit_price, poDetails?.unit).toString();
+    // Recalculate ongkosan for the changed form
+    if (
+      e.target.name === "minimal_load_quantity" ||
+      e.target.name === "trip_allowance" ||
+      e.target.name === "gaji"
+    ) {
+      newFormDataList[index].ongkosan = calculateOngkosan(
+        newFormDataList[index],
+        poDetails?.unit_price,
+        poDetails?.unit
+      ).toString();
       setFormDataList([...newFormDataList]);
     }
   };
@@ -425,7 +439,12 @@ const CreateDeliveryFromPO: React.FC = () => {
       const data = await resp.json();
 
       if (data.lat && data.lng) {
-        handleLocationChange(index, type, data.lat, data.lng, `${data.lat},${data.lng}`);
+        setLocationWithType(
+          data.lat,
+          data.lng,
+          `${data.lat},${data.lng}`,
+          type
+        );
       } else {
         alert(
           data.message ||
@@ -448,28 +467,42 @@ const CreateDeliveryFromPO: React.FC = () => {
 
     try {
       if (!poDetails || poDetails.remaining_quantity === undefined) {
-        throw new Error("Purchase order details are incomplete. Cannot create delivery orders.");
+        throw new Error(
+          "Purchase order details are incomplete. Cannot create delivery orders."
+        );
       }
 
       for (const formData of formDataList) {
         const selectedVehicle = getSelectedVehicle(formData.vehicle_id);
         if (!selectedVehicle || !selectedVehicle.driver_id) {
-          throw new Error(`Invalid vehicle selection for DO ${formData.do_name}`);
+          throw new Error(
+            `Invalid vehicle selection for DO ${formData.do_name}`
+          );
         }
 
         const quantity = parseFloat(formData.minimal_load_quantity);
         if (isNaN(quantity) || quantity <= 0) {
-          throw new Error(`Invalid quantity (${quantity}) for DO ${formData.do_name}. Must be a positive number.`);
+          throw new Error(
+            `Invalid quantity (${quantity}) for DO ${formData.do_name}. Must be a positive number.`
+          );
         }
         if (quantity > poDetails.remaining_quantity) {
           throw new Error(
-            `Invalid quantity (${quantity}) for DO ${formData.do_name}. Must not exceed remaining ${poDetails.remaining_quantity} ${getUnitDisplay(poDetails.unit || "ton")}.`
+            `Invalid quantity (${quantity}) for DO ${
+              formData.do_name
+            }. Must not exceed remaining ${
+              poDetails.remaining_quantity
+            } ${getUnitDisplay(poDetails.unit || "ton")}.`
           );
         }
 
         const totalAmount =
           poDetails.unit_price && poDetails.unit
-            ? calculateTotalAmount(quantity, poDetails.unit_price, poDetails.unit)
+            ? calculateTotalAmount(
+                quantity,
+                poDetails.unit_price,
+                poDetails.unit
+              )
             : 0;
 
         const payload = {
@@ -487,7 +520,8 @@ const CreateDeliveryFromPO: React.FC = () => {
           gaji: parseFloat(formData.gaji),
           ongkosan: parseFloat(formData.ongkosan),
           load_location: formData.load_location || poDetails.load_location,
-          unload_location: formData.unload_location || poDetails.unload_location,
+          unload_location:
+            formData.unload_location || poDetails.unload_location,
           load_latitude: formData.load_latitude
             ? parseFloat(formData.load_latitude)
             : null,
@@ -612,303 +646,368 @@ const CreateDeliveryFromPO: React.FC = () => {
         )}
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {formDataList.map((formData, index) => (
-          <div key={index} className="bg-white border rounded-lg p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">
-                Delivery Order {index + 1}
-              </h3>
-              {index > 0 && (
-                <button
-                  type="button"
-                  onClick={() => removeForm(index)}
-                  className="text-red-500 hover:text-red-700 text-sm"
-                >
-                  Remove
-                </button>
-              )}
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Delivery Order Name *
-              </label>
-              <input
-                type="text"
-                name="do_name"
-                value={formData.do_name}
-                onChange={(e) => handleInputChange(index, e)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                placeholder="e.g., Pengiriman Pasir ke Proyek XYZ"
-                required
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Give a descriptive name for this delivery order
-              </p>
-            </div>
-            <div className="mt-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Minimal Load Quantity ({unitDisplay}) *
-              </label>
-              <input
-                type="number"
-                name="minimal_load_quantity"
-                step="0.01"
-                max={poDetails?.remaining_quantity}
-                value={formData.minimal_load_quantity}
-                onChange={(e) => handleInputChange(index, e)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                placeholder={`Maximum: ${poDetails?.remaining_quantity} ${unitDisplay}`}
-                required
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                {poDetails?.unit === "ton" &&
-                  "💡 Enter in tons (will be calculated as kg for pricing)"}
-                {poDetails?.unit === "kubik" &&
-                  "💡 Enter in cubic meters (volume-based)"}
-                {poDetails?.unit === "kilogram" &&
-                  "💡 Enter in kilograms (weight-based)"}
-              </p>
-            </div>
-            <div className="mt-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Vehicle with Assigned Driver *
-              </label>
-              <select
-                name="vehicle_id"
-                value={formData.vehicle_id}
-                onChange={(e) => handleInputChange(index, e)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                required
-              >
-                <option value="">Select Vehicle</option>
-                {vehicles.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.license_plate} - {v.type}{" "}
-                    {v.driver_name && `- Driver: ${v.driver_name}`}
-                  </option>
-                ))}
-              </select>
-              {vehicles.length === 0 && (
-                <p className="text-sm text-red-600 mt-1">
-                  No available vehicles.
-                </p>
-              )}
-              {formData.vehicle_id && (
-                <div className="bg-gray-50 p-4 rounded-md mt-2">
-                  <h4 className="font-medium text-gray-900 mb-2">
-                    Selected:
-                  </h4>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-gray-600">Vehicle:</span>
-                      <p className="font-medium">
-                        {getSelectedVehicle(formData.vehicle_id)?.license_plate}
-                      </p>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">Driver:</span>
-                      <p className="font-medium">
-                        {getSelectedVehicle(formData.vehicle_id)?.driver_name}
-                      </p>
-                    </div>
-                  </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {formDataList.map((formData, index) => (
+              <div key={index} className="bg-white border rounded-lg p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-semibold">
+                    Delivery Order {index + 1}
+                  </h3>
+                  {index > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => removeForm(index)}
+                      className="text-red-500 hover:text-red-700 text-sm"
+                    >
+                      Remove
+                    </button>
+                  )}
                 </div>
-              )}
-            </div>
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Trip Allowance (Rp) *
-                </label>
-                <input
-                  type="number"
-                  name="trip_allowance"
-                  value={formData.trip_allowance}
-                  onChange={(e) => handleInputChange(index, e)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Driver Salary (Rp) *
-                </label>
-                <input
-                  type="number"
-                  name="gaji"
-                  value={formData.gaji}
-                  onChange={(e) => handleInputChange(index, e)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Profit (Rp)
-                </label>
-                <input
-                  type="number"
-                  name="ongkosan"
-                  value={formData.ongkosan}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100"
-                  readOnly
-                />
-              </div>
-            </div>
-            {formData.minimal_load_quantity && poDetails?.unit_price && (
-              <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-                <h4 className="text-sm font-semibold text-gray-700 mb-2">
-                  Revenue Calculation
-                </h4>
-                <div className="text-xs text-gray-600 space-y-1">
-                  <div className="flex justify-between">
-                    <span>Quantity:</span>
-                    <span>
-                      {formData.minimal_load_quantity} {unitDisplay}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Unit Price:</span>
-                    <span>
-                      Rp {poDetails.unit_price.toLocaleString("id-ID")}/
-                      {unitDisplay}
-                    </span>
-                  </div>
-                  {poDetails.unit === "ton" && (
-                    <div className="flex justify-between text-blue-600">
-                      <span>Calculation:</span>
-                      <span>
-                        {formData.minimal_load_quantity} ton × 1000 kg/ton ×
-                        Rp {poDetails.unit_price.toLocaleString("id-ID")}/kg
-                      </span>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Delivery Order Name *
+                  </label>
+                  <input
+                    type="text"
+                    name="do_name"
+                    value={formData.do_name}
+                    onChange={(e) => handleInputChange(index, e)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    placeholder="e.g., Pengiriman Pasir ke Proyek XYZ"
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Give a descriptive name for this delivery order
+                  </p>
+                </div>
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Minimal Load Quantity ({unitDisplay}) *
+                  </label>
+                  <input
+                    type="number"
+                    name="minimal_load_quantity"
+                    step="0.01"
+                    max={poDetails?.remaining_quantity}
+                    value={formData.minimal_load_quantity}
+                    onChange={(e) => handleInputChange(index, e)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    placeholder={`Maximum: ${poDetails?.remaining_quantity} ${unitDisplay}`}
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    {poDetails?.unit === "ton" &&
+                      "💡 Enter in tons (will be calculated as kg for pricing)"}
+                    {poDetails?.unit === "kubik" &&
+                      "💡 Enter in cubic meters (volume-based)"}
+                    {poDetails?.unit === "kilogram" &&
+                      "💡 Enter in kilograms (weight-based)"}
+                  </p>
+                </div>
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Vehicle with Assigned Driver *
+                  </label>
+                  <select
+                    name="vehicle_id"
+                    value={formData.vehicle_id}
+                    onChange={(e) => handleInputChange(index, e)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    required
+                  >
+                    <option value="">Select Vehicle</option>
+                    {vehicles.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.license_plate} - {v.type}{" "}
+                        {v.driver_name && `- Driver: ${v.driver_name}`}
+                      </option>
+                    ))}
+                  </select>
+                  {vehicles.length === 0 && (
+                    <p className="text-sm text-red-600 mt-1">
+                      No available vehicles.
+                    </p>
+                  )}
+                  {formData.vehicle_id && (
+                    <div className="bg-gray-50 p-4 rounded-md mt-2">
+                      <h4 className="font-medium text-gray-900 mb-2">
+                        Selected:
+                      </h4>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="text-gray-600">Vehicle:</span>
+                          <p className="font-medium">
+                            {
+                              getSelectedVehicle(formData.vehicle_id)
+                                ?.license_plate
+                            }
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-gray-600">Driver:</span>
+                          <p className="font-medium">
+                            {
+                              getSelectedVehicle(formData.vehicle_id)
+                                ?.driver_name
+                            }
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   )}
-                  <div className="flex justify-between font-semibold border-t pt-1">
-                    <span>Total Revenue:</span>
-                    <span>
-                      Rp{" "}
-                      {calculateTotalAmount(
-                        parseFloat(formData.minimal_load_quantity) || 0,
-                        poDetails.unit_price,
-                        poDetails.unit
-                      ).toLocaleString("id-ID")}
-                    </span>
+                </div>
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Trip Allowance (Rp) *
+                    </label>
+                    <input
+                      type="number"
+                      name="trip_allowance"
+                      value={formData.trip_allowance}
+                      onChange={(e) => handleInputChange(index, e)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Driver Salary (Rp) *
+                    </label>
+                    <input
+                      type="number"
+                      name="gaji"
+                      value={formData.gaji}
+                      onChange={(e) => handleInputChange(index, e)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Profit (Rp)
+                    </label>
+                    <input
+                      type="number"
+                      name="ongkosan"
+                      value={formData.ongkosan}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100"
+                      readOnly
+                    />
                   </div>
                 </div>
+                {formData.minimal_load_quantity && poDetails?.unit_price && (
+                  <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                    <h4 className="text-sm font-semibold text-gray-700 mb-2">
+                      Revenue Calculation
+                    </h4>
+                    <div className="text-xs text-gray-600 space-y-1">
+                      <div className="flex justify-between">
+                        <span>Quantity:</span>
+                        <span>
+                          {formData.minimal_load_quantity} {unitDisplay}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Unit Price:</span>
+                        <span>
+                          Rp {poDetails.unit_price.toLocaleString("id-ID")}/
+                          {unitDisplay}
+                        </span>
+                      </div>
+                      {poDetails.unit === "ton" && (
+                        <div className="flex justify-between text-blue-600">
+                          <span>Calculation:</span>
+                          <span>
+                            {formData.minimal_load_quantity} ton × 1000 kg/ton ×
+                            Rp {poDetails.unit_price.toLocaleString("id-ID")}/kg
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex justify-between font-semibold border-t pt-1">
+                        <span>Total Revenue:</span>
+                        <span>
+                          Rp{" "}
+                          {calculateTotalAmount(
+                            parseFloat(formData.minimal_load_quantity) || 0,
+                            poDetails.unit_price,
+                            poDetails.unit
+                          ).toLocaleString("id-ID")}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Load Location *
+                  </label>
+                  <textarea
+                    name="load_location"
+                    value={formData.load_location}
+                    onChange={(e) => handleInputChange(index, e)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    rows={3}
+                    required
+                    placeholder="Enter or select on map"
+                  />
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleProcessLocationLink(
+                          "load",
+                          formData.load_location
+                        )
+                      }
+                      disabled={linkProcessing.load}
+                      className="text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 px-2 py-1 rounded w-full"
+                    >
+                      {linkProcessing.load
+                        ? "Processing..."
+                        : "📌 Extract from Google Maps Link"}
+                    </button>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Paste Google Maps link or address. Shortened links will
+                      open in browser.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedLocationType("load")}
+                    className={`mt-2 px-3 py-1 rounded text-sm w-full ${
+                      selectedLocationType === "load"
+                        ? "bg-blue-500 text-white animate-pulse"
+                        : "bg-gray-200 hover:bg-gray-300"
+                    }`}
+                  >
+                    {showMap &&
+                      (selectedLocationType === "load"
+                        ? "Active..."
+                        : "Set Load")}
+                  </button>
+                </div>
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Unload Location *
+                  </label>
+                  <textarea
+                    name="unload_location"
+                    value={formData.unload_location}
+                    onChange={(e) => handleInputChange(index, e)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    rows={3}
+                    required
+                    placeholder="Enter or select on map"
+                  />
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleProcessLocationLink(
+                          "unload",
+                          formData.unload_location
+                        )
+                      }
+                      disabled={linkProcessing.unload}
+                      className="text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 px-2 py-1 rounded w-full"
+                    >
+                      {linkProcessing.unload
+                        ? "Processing..."
+                        : "📌 Extract from Google Maps Link"}
+                    </button>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Paste Google Maps link or address. Shortened links will
+                      open in browser.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedLocationType("unload")}
+                    className={`mt-2 px-3 py-1 rounded text-sm w-full ${
+                      selectedLocationType === "unload"
+                        ? "bg-red-500 text-white animate-pulse"
+                        : "bg-gray-200 hover:bg-gray-300"
+                    }`}
+                  >
+                    {showMap &&
+                      (selectedLocationType === "unload"
+                        ? "Active..."
+                        : "Set Unload")}
+                  </button>
+                </div>
               </div>
-            )}
-            <div className="mt-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Load Location *
-              </label>
-              <textarea
-                name="load_location"
-                value={formData.load_location}
-                onChange={(e) => handleInputChange(index, e)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                rows={3}
-                required
-                placeholder="Enter or select on map"
-              />
-              <div className="mt-2">
-                <button
-                  type="button"
-                  onClick={() => handleProcessLocationLink(index, "load", formData.load_location)}
-                  disabled={linkProcessing.load}
-                  className="text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 px-2 py-1 rounded w-full"
-                >
-                  {linkProcessing.load ? "Processing..." : "📌 Extract from Google Maps Link"}
-                </button>
-                <p className="text-xs text-gray-500 mt-1">
-                  Paste Google Maps link or address. Shortened links will open in browser.
-                </p>
-              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addForm}
+              className="w-full bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+            >
+              + Add Another Delivery Order
+            </button>
+            <div className="flex justify-end space-x-4">
               <button
                 type="button"
-                onClick={() => setSelectedTypeForIndex(index, "load")}
-                className={`mt-2 px-3 py-1 rounded text-sm w-full ${
-                  selectedTypes[index] === "load"
-                    ? "bg-blue-500 text-white animate-pulse"
-                    : "bg-gray-200 hover:bg-gray-300"
-                }`}
+                onClick={() => navigate(`/trips/po/${poId}`)}
+                className="px-6 py-2 border rounded-md"
               >
-                Set Load Location
+                Cancel
               </button>
-            </div>
-            <div className="mt-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Unload Location *
-              </label>
-              <textarea
-                name="unload_location"
-                value={formData.unload_location}
-                onChange={(e) => handleInputChange(index, e)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                rows={3}
-                required
-                placeholder="Enter or select on map"
-              />
-              <div className="mt-2">
-                <button
-                  type="button"
-                  onClick={() => handleProcessLocationLink(index, "unload", formData.unload_location)}
-                  disabled={linkProcessing.unload}
-                  className="text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 px-2 py-1 rounded w-full"
-                >
-                  {linkProcessing.unload ? "Processing..." : "📌 Extract from Google Maps Link"}
-                </button>
-                <p className="text-xs text-gray-500 mt-1">
-                  Paste Google Maps link or address. Shortened links will open in browser.
-                </p>
-              </div>
               <button
-                type="button"
-                onClick={() => setSelectedTypeForIndex(index, "unload")}
-                className={`mt-2 px-3 py-1 rounded text-sm w-full ${
-                  selectedTypes[index] === "unload"
-                    ? "bg-red-500 text-white animate-pulse"
-                    : "bg-gray-200 hover:bg-gray-300"
-                }`}
+                type="submit"
+                disabled={loading || formDataList.some((f) => !f.vehicle_id)}
+                className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300"
               >
-                Set Unload Location
+                {loading ? "Creating..." : "Create Order"}
               </button>
             </div>
-            <div className="mt-4">
-              <h4 className="text-sm font-semibold mb-2">Location Map</h4>
-              <DeliveryOrderMap
-                formData={formData}
-                selectedType={selectedTypes[index]}
-                onSetSelectedType={(type) => setSelectedTypeForIndex(index, type)}
-                onLocationChange={(type, lat, lng, address) => handleLocationChange(index, type, lat, lng, address)}
-              />
+          </form>
+        </div>
+
+        {showMap && (
+          <div className="bg-white border rounded-lg p-6">
+            <h3 className="text-lg font-semibold mb-4">Location Map</h3>
+            <div className="h-96 w-full">
+              <MapContainer
+                center={
+                  markers.length > 0
+                    ? [
+                        markers[markers.length - 1].lat,
+                        markers[markers.length - 1].lng,
+                      ]
+                    : [defaultCenter.lat, defaultCenter.lng]
+                }
+                zoom={13}
+                style={{ height: "100%", width: "100%" }}
+              >
+                <TileLayer
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  attribution="© OpenStreetMap contributors"
+                />
+                <SearchControlComponent onLocationFound={handleSearchSelect} />
+                <MapClickHandler />
+                {markers.map((m, i) => (
+                  <Marker
+                    key={i}
+                    position={[m.lat, m.lng]}
+                    icon={m.type === "load" ? loadIcon : unloadIcon}
+                  >
+                    <Popup>{m.title}</Popup>
+                  </Marker>
+                ))}
+              </MapContainer>
+            </div>
+            <div className="mt-4 text-sm text-gray-600">
+              <p className="font-semibold">
+                💡 Click a "Set Location" button, then use the search bar or
+                click the map.
+              </p>
             </div>
           </div>
-        ))}
-        <button
-          type="button"
-          onClick={addForm}
-          className="w-full bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-        >
-          + Add Another Delivery Order
-        </button>
-        <div className="flex justify-end space-x-4">
-          <button
-            type="button"
-            onClick={() => navigate(`/trips/po/${poId}`)}
-            className="px-6 py-2 border rounded-md"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={loading || formDataList.some((f) => !f.vehicle_id)}
-            className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300"
-          >
-            {loading ? "Creating..." : "Create Order"}
-          </button>
-        </div>
-      </form>
+        )}
+      </div>
     </div>
   );
 };

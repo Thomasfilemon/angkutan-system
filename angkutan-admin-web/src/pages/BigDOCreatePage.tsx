@@ -129,7 +129,7 @@ const BigDOCreatePage: React.FC = () => {
       case "kilogram":
         return quantity * unitPrice;
       case "ton":
-        return quantity * 1000 * unitPrice;
+        return quantity * unitPrice;
       case "kubik":
         return quantity * unitPrice;
       default:

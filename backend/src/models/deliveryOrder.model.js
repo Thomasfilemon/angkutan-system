@@ -236,7 +236,9 @@ module.exports = (sequelize) => {
       actual_total_amount: actualTotalAmount,
       final_amount: finalAmount, // ✅ NEW: Include final amount
       ongkosan: parseFloat(this.ongkosan) || 0,
-      net_profit: finalAmount - this.getTotalDriverPayment(),
+      net_profit:
+        this.total_amount - this.getTotalDriverPayment() ||
+        actualTotalAmount - this.getTotalDriverPayment(),
       unit: this.unit,
       unit_display: this.getUnitDisplay(),
 

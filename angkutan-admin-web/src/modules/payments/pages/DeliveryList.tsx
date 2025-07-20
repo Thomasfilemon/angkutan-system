@@ -704,7 +704,19 @@ const DeliveryList: React.FC = () => {
                   </td>
 
                   <td className="px-6 py-4 text-right">
-                    {renderActions(doOrder)}
+                    {doOrder.status === "completed" ? (
+                      // Original actions if completed
+                      renderActions(doOrder)
+                    ) : (
+                      // Replacement: "Lihat DO" link/button if not completed
+                      <Link
+                        to={`/delivery-orders/${doOrder.id}`} // Assuming this is the view route; adjust as needed
+                        className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm font-medium transition-colors"
+                        aria-label="View Delivery Order"
+                      >
+                        Lihat DO
+                      </Link>
+                    )}
                   </td>
                 </tr>
               ))}
