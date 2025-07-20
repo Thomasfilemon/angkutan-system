@@ -930,11 +930,11 @@ exports.createPriceAdjustment = async (req, res, next) => {
     }
 
     // Prevent adjustment if already billed/confirmed
-    if (deliveryOrder.payment_confirmation_status === "confirmed") {
+    if (deliveryOrder.payment_status === "lunas") {
       await transaction.rollback();
       return res.status(403).json({
         success: false,
-        message: "Cannot adjust price after billing confirmation",
+        message: "Cannot adjust price after lunas",
       });
     }
 
@@ -1008,7 +1008,7 @@ exports.createPriceAdjustment = async (req, res, next) => {
 
 // Update Price Adjustment
 exports.updatePriceAdjustment = async (req, res, next) => {
-  const transaction = await Sequelize.transaction();
+  const transaction = await sequelize.transaction();
   try {
     const { do_id, adjustment_id } = req.params;
     const { adjustment_type, adjustment_amount, reason } = req.body;
@@ -1032,11 +1032,11 @@ exports.updatePriceAdjustment = async (req, res, next) => {
         .json({ success: false, message: "Delivery Order not found" });
     }
 
-    if (deliveryOrder.payment_confirmation_status === "confirmed") {
+    if (deliveryOrder.payment_status === "lunas") {
       await transaction.rollback();
       return res.status(403).json({
         success: false,
-        message: "Cannot adjust price after billing confirmation",
+        message: "Cannot adjust price after Lunas",
       });
     }
 

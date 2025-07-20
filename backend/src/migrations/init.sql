@@ -620,25 +620,39 @@ CREATE INDEX idx_do_payment_history_date ON delivery_order_payment_history(chang
 CREATE INDEX idx_do_adjustments_do_id ON delivery_order_adjustments(delivery_order_id);
 CREATE INDEX idx_do_adjustments_type ON delivery_order_adjustments(adjustment_type);
 
--- Function untuk update payment status berdasarkan total payments
+-- Function untuk update payment status berdasarkan total payments terhadap net_amount di invoice DO
 CREATE OR REPLACE FUNCTION update_delivery_order_payment_status()
 RETURNS TRIGGER AS $$
 DECLARE
-  do_record delivery_orders%ROWTYPE;
   total_paid NUMERIC(15,2);
-  final_amount NUMERIC(15,2);
+  billed_amount NUMERIC(15,2); -- Gross from DO
+  pph_amount_val NUMERIC(15,2);
+  net_billed NUMERIC(15,2);
 BEGIN
-  SELECT * INTO do_record FROM delivery_orders WHERE id = NEW.delivery_order_id;
-  
-  -- Calculate total paid
-  SELECT COALESCE(SUM(payment_amount), 0) INTO total_paid FROM delivery_order_payments WHERE delivery_order_id = NEW.delivery_order_id;
-  final_amount := COALESCE(do_record.total_amount, 0); -- Fix: Pakai total_amount kalau final null
-  RAISE NOTICE 'Calc for DO %: paid % vs final %', NEW.delivery_order_id, total_paid, final_amount; -- Log buat debug
-  IF total_paid + 0.01 >= final_amount THEN  -- Tolerance rounding
-    UPDATE delivery_orders SET payment_status = 'lunas', payment_confirmation_status = 'confirmed' WHERE id = NEW.delivery_order_id;
+  -- Hitung total pembayaran untuk DO ini
+  SELECT COALESCE(SUM(payment_amount), 0) INTO total_paid 
+  FROM delivery_order_payments WHERE delivery_order_id = NEW.delivery_order_id;
+
+  -- Ambil data dari DO dan invoice untuk kalkulasi net billed
+  SELECT (d.actual_load_quantity * d.unit_price), COALESCE(i.pph_amount, 0) 
+  INTO billed_amount, pph_amount_val
+  FROM delivery_orders d
+  LEFT JOIN delivery_order_invoices i ON i.delivery_order_id = d.id
+  WHERE d.id = NEW.delivery_order_id
+  LIMIT 1;
+
+  net_billed := billed_amount - pph_amount_val;
+
+  RAISE NOTICE 'Calc for DO %: paid % vs net billed % (gross: %, pph: %)', 
+    NEW.delivery_order_id, total_paid, net_billed, billed_amount, pph_amount_val;
+
+  -- Update payment_status only (do not touch payment_confirmation_status)
+  IF total_paid + 0.01 >= net_billed THEN  -- Tolerance for rounding
+    UPDATE delivery_orders SET payment_status = 'lunas' WHERE id = NEW.delivery_order_id;
   ELSIF total_paid > 0 THEN
-  UPDATE delivery_orders SET payment_status = 'proses_tagihan' WHERE id = NEW.delivery_order_id;
+    UPDATE delivery_orders SET payment_status = 'proses_tagihan' WHERE id = NEW.delivery_order_id;
   END IF;
+
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -674,6 +688,22 @@ CREATE TRIGGER trigger_auto_payment_confirmation
   BEFORE UPDATE ON delivery_orders
   FOR EACH ROW
   EXECUTE FUNCTION auto_set_payment_confirmation();
+
+
+CREATE OR REPLACE FUNCTION prevent_confirmation_change_after_payment()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF OLD.payment_confirmation_status != NEW.payment_confirmation_status AND
+     (SELECT COUNT(*) FROM delivery_order_payments WHERE delivery_order_id = NEW.id) > 0 THEN
+    RAISE EXCEPTION 'Cannot change payment_confirmation_status after payments are recorded';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_prevent_confirmation_change
+BEFORE UPDATE ON delivery_orders
+FOR EACH ROW EXECUTE FUNCTION prevent_confirmation_change_after_payment();
 
 CREATE OR REPLACE FUNCTION recalc_do_invoice_pph()
 RETURNS TRIGGER AS $$

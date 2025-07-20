@@ -331,7 +331,11 @@ const DOPaymentManagement: React.FC = () => {
       await apiClient.patch(
         `/payments/delivery-orders/${doData.delivery_order.id}/confirm`,
         {
-          action: "confirm_for_billing",
+          final_amount:
+            (doData.delivery_order.actual_load_quantity ||
+              doData.delivery_order.minimal_load_quantity) *
+              doData.delivery_order.unit_price ||
+            doData.delivery_order.final_amount,
           notes: "Confirmed for payment processing",
         }
       );
@@ -564,9 +568,7 @@ const DOPaymentManagement: React.FC = () => {
     );
   };
   const canAdjust = () => {
-    return (
-      do_item?.payment_confirmation_status === "confirmed" && !isFullySettled
-    );
+    return do_item?.payment_confirmation_status === "confirmed";
   };
 
   const canDoActions = () => {
@@ -2858,19 +2860,32 @@ const DOPaymentManagement: React.FC = () => {
                 if (!doId) return;
                 setSubmitting(true);
                 try {
+                  // ✅ FIXED: Negate for penalty/incident before submit
+                  const isNegativeType = ["penalty", "incident"].includes(
+                    newAdjustment.adjustment_type
+                  );
+                  const adjustedAmount = isNegativeType
+                    ? -Math.abs(newAdjustment.adjustment_amount) // Force negative
+                    : Math.abs(newAdjustment.adjustment_amount); // Ensure positive for others
+
+                  const adjustedPayload = {
+                    ...newAdjustment,
+                    adjustment_amount: adjustedAmount,
+                  };
+
                   if (doData.adjustments.length > 0) {
                     // Edit mode: PATCH/PUT
                     const adjustmentId = doData.adjustments[0].id;
                     await apiClient.patch(
                       `/ritase/delivery-orders/${doId}/adjustment/${adjustmentId}`,
-                      newAdjustment
+                      adjustedPayload
                     );
                     toast.success("Adjustment updated!");
                   } else {
                     // Create mode: POST
                     await apiClient.post(
                       `/ritase/delivery-orders/${doId}/adjustment`,
-                      newAdjustment
+                      adjustedPayload
                     );
                     toast.success("Adjustment created!");
                   }
@@ -2918,8 +2933,9 @@ const DOPaymentManagement: React.FC = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  New Amount
+                  Adjustment Amount
                 </label>
+                {/* ✅ FIXED: Force positive input, negation on submit */}
                 <input
                   type="number"
                   required
@@ -2929,7 +2945,9 @@ const DOPaymentManagement: React.FC = () => {
                   onChange={(e) =>
                     setNewAdjustment((prev) => ({
                       ...prev,
-                      adjustment_amount: parseFloat(e.target.value) || 0,
+                      adjustment_amount: Math.abs(
+                        parseFloat(e.target.value) || 0
+                      ), // Enforce positive in state
                     }))
                   }
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
@@ -2958,7 +2976,7 @@ const DOPaymentManagement: React.FC = () => {
                 />
               </div>
 
-              {/* Adjustment Preview */}
+              {/* Adjustment Preview - FIXED: Negate for preview */}
               <div className="bg-yellow-50 p-4 rounded-lg">
                 <h4 className="font-medium text-yellow-800 mb-2">
                   Adjustment Preview
@@ -2973,15 +2991,24 @@ const DOPaymentManagement: React.FC = () => {
                   <div className="flex justify-between">
                     <span>New Amount:</span>
                     <span className="font-medium">
-                      {formatCurrency(newAdjustment.adjustment_amount)}
+                      {formatCurrency(
+                        ["penalty", "incident"].includes(
+                          newAdjustment.adjustment_type
+                        )
+                          ? -Math.abs(newAdjustment.adjustment_amount)
+                          : newAdjustment.adjustment_amount
+                      )}
                     </span>
                   </div>
                   <div className="flex justify-between font-semibold border-t border-yellow-200 pt-1">
                     <span>Change:</span>
                     <span
                       className={
-                        newAdjustment.adjustment_amount >
-                        calculatedBillableAmount
+                        ["penalty", "incident"].includes(
+                          newAdjustment.adjustment_type
+                        ) ||
+                        newAdjustment.adjustment_amount <
+                          calculatedBillableAmount
                           ? "text-red-600"
                           : "text-green-600"
                       }
@@ -2991,7 +3018,11 @@ const DOPaymentManagement: React.FC = () => {
                         ? "+"
                         : ""}
                       {formatCurrency(
-                        newAdjustment.adjustment_amount -
+                        (["penalty", "incident"].includes(
+                          newAdjustment.adjustment_type
+                        )
+                          ? -Math.abs(newAdjustment.adjustment_amount)
+                          : newAdjustment.adjustment_amount) -
                           calculatedBillableAmount
                       )}
                     </span>
