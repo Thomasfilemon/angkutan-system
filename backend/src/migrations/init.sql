@@ -220,6 +220,7 @@ CREATE TABLE purchase_orders (
   customer_name VARCHAR(100) NOT NULL,
   item_name VARCHAR(255) NOT NULL,
   total_quantity NUMERIC(10, 2) NOT NULL,
+  quantity_mutasi NUMERIC(10, 2)[] DEFAULT ARRAY[]::NUMERIC(10,2)[],
   unit VARCHAR(10) DEFAULT 'ton' 
     CHECK (unit IN ('kilogram', 'ton', 'kubik')),
   unit_price NUMERIC(15, 2),

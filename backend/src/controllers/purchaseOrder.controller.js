@@ -99,6 +99,7 @@ exports.getPurchaseOrderDetailsForNewDO = async (req, res, next) => {
 
     // 4. Siapkan data untuk dikirim ke frontend (DENGAN LOKASI)
     const totalQuantity = parseFloat(purchaseOrder.total_quantity);
+    const initialQuantity = parseFloat(purchaseOrder.initial_quantity) || totalQuantity;
     const actualDelivered = parseFloat(deliveredSum) || 0;
     const totalAssigned = parseFloat(assignedSum) || 0;
 
@@ -108,6 +109,7 @@ exports.getPurchaseOrderDetailsForNewDO = async (req, res, next) => {
       customer_name: purchaseOrder.customer_name,
       item_name: purchaseOrder.item_name,
       total_quantity: parseFloat(purchaseOrder.total_quantity),
+      initial_quantity: parseFloat(purchaseOrder.initial_quantity),
 
       delivered_quantity: actualDelivered,
       assigned_quantity: totalAssigned,

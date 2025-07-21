@@ -40,6 +40,7 @@ const TripsPage = () => {
   const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
   const [adjustmentType, setAdjustmentType] = useState<"add" | "deduct">("add");
   const [adjustmentAmount, setAdjustmentAmount] = useState("");
+  const [recordAsAdjustment, setRecordAsAdjustment] = useState<boolean>(false);
 
   const getUnitDisplay = (unit: string) => {
     const unitMap = {
@@ -147,7 +148,7 @@ const TripsPage = () => {
     }
 
     let newQuantity = selectedPO.total_quantity;
-    
+
     if (adjustmentType === "add") {
       newQuantity += amount;
     } else {
@@ -162,6 +163,7 @@ const TripsPage = () => {
       await apiClient.put(`/purchase-orders/${selectedPO.id}`, {
         total_quantity: newQuantity,
         unit: selectedPO.unit,
+        recordAsAdjustment: !recordAsAdjustment, // ✅ Include checkbox state from component
       });
       setShowAdjustPopup(false);
       setAdjustmentAmount("");
@@ -589,6 +591,17 @@ const TripsPage = () => {
                 placeholder="Enter amount"
                 className="w-full p-2 border rounded"
               />
+            </div>
+            <div className="mb-4">
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={recordAsAdjustment}
+                  onChange={(e) => setRecordAsAdjustment(e.target.checked)}
+                  className="mr-2"
+                />
+                <span>Record as Quantity Adjustment</span>
+              </label>
             </div>
             <div className="flex justify-end space-x-4">
               <button
