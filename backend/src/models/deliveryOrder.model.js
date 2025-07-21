@@ -210,10 +210,7 @@ module.exports = (sequelize) => {
   // ✅ ENHANCED: Better financial summary with confirmation status
   DeliveryOrder.prototype.getFinancialSummary = function () {
     const actualTotalAmount = this.calculateActualTotalAmount();
-    const finalAmount =
-      parseFloat(this.final_amount) ||
-      parseFloat(this.ongkosan) ||
-      actualTotalAmount;
+    const finalAmount = actualTotalAmount;
 
     return {
       trip_allowance: parseFloat(this.trip_allowance) || 0,

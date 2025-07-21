@@ -251,13 +251,8 @@ const DOPaymentManagement: React.FC = () => {
     if (!doData || doData.invoices.length === 0) return false; // Don't lock if no invoices yet
     const { payment_status } = doData.delivery_order;
     const { remaining_amount } = doData.payment_summary;
-    const allInvoicesPaid = doData.invoices.every(
-      (inv) => inv.status === "paid"
-    );
     // ✅ ADDED: Explicit check for partial to force false
-    return (
-      payment_status === "lunas" && allInvoicesPaid && remaining_amount <= 0
-    );
+    return payment_status === "lunas" && remaining_amount <= 0;
   }, [doData]);
 
   const fetchDOPaymentData = useCallback(async () => {
@@ -738,9 +733,7 @@ const DOPaymentManagement: React.FC = () => {
                 </h3>
                 <div className="bg-white/10 rounded-lg p-4 space-y-3">
                   <div className="flex justify-between">
-                    <span className="text-purple-100">
-                      Calculated Minimum Bill:
-                    </span>
+                    <span className="text-purple-100">Calculated Bill:</span>
                     <span className="text-white font-bold">
                       {formatCurrency(paymentSummary.calculated_bill)}
                     </span>
@@ -1196,9 +1189,13 @@ const DOPaymentManagement: React.FC = () => {
                 <div
                   className={`p-6 border-2 border-dashed rounded-lg transition-all
                     ${
-                      canAdjust() && doData.adjustments.length === 0
+                      canAdjust() &&
+                      doData.adjustments.length === 0 &&
+                      !isFullySettled
                         ? "border-yellow-300 hover:border-yellow-400 hover:bg-yellow-50 cursor-pointer"
-                        : doData.adjustments.length > 0 && canAdjust()
+                        : doData.adjustments.length > 0 &&
+                          canAdjust() &&
+                          !isFullySettled
                         ? "border-yellow-400 bg-yellow-50 cursor-pointer"
                         : "border-gray-200 bg-gray-50 opacity-60 cursor-not-allowed pointer-events-none"
                     }
@@ -1206,7 +1203,7 @@ const DOPaymentManagement: React.FC = () => {
                   role="button"
                   tabIndex={0}
                   onClick={() => {
-                    if (!canAdjust()) return;
+                    if (!canAdjust() || isFullySettled) return;
                     if (doData.adjustments.length === 0) {
                       setShowAdjustmentForm(true); // Create
                     } else {
@@ -1226,7 +1223,7 @@ const DOPaymentManagement: React.FC = () => {
                     <div className="relative">
                       <svg
                         className={`h-12 w-12 mx-auto mb-3 ${
-                          canAdjust()
+                          canAdjust() && !isFullySettled
                             ? doData.adjustments.length === 0
                               ? "text-yellow-500"
                               : "text-yellow-700"
@@ -1243,7 +1240,7 @@ const DOPaymentManagement: React.FC = () => {
                           d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
                         />
                       </svg>
-                      {!canAdjust() && (
+                      {!canAdjust() && isFullySettled && (
                         <div className="absolute -top-1 -right-1 w-6 h-6 bg-gray-500 rounded-full flex items-center justify-center">
                           <svg
                             className="w-3 h-3 text-white"
@@ -2104,7 +2101,7 @@ const DOPaymentManagement: React.FC = () => {
                 </div>
               </div>
 
-              {!canAdjust() && (
+              {(!canAdjust() || isFullySettled) && (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                   <div className="flex items-center gap-3">
                     <svg
@@ -2125,8 +2122,8 @@ const DOPaymentManagement: React.FC = () => {
                         Price Adjustments Locked
                       </p>
                       <p className="text-sm text-gray-600">
-                        Please confirm DO for billing to enable price
-                        adjustments.
+                        DO payment has been fully completed or DO haven't been
+                        confirmed for billing.
                       </p>
                     </div>
                   </div>
@@ -2192,11 +2189,11 @@ const DOPaymentManagement: React.FC = () => {
                       }
                       setShowAdjustmentForm(true);
                     }}
-                    disabled={!canAdjust()}
+                    disabled={!canAdjust() || isFullySettled}
                     className="bg-yellow-600 text-white px-6 py-3 rounded-lg hover:bg-yellow-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {!canAdjust()
-                      ? "Locked - Confirm DO First"
+                    {!canAdjust() || isFullySettled
+                      ? "Locked"
                       : "Create First Adjustment"}
                   </button>
                 </div>

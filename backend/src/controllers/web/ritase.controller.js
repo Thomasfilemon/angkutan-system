@@ -473,8 +473,7 @@ exports.getPurchaseOrderPaymentDetail = async (req, res, next) => {
           (sum, invoice) => sum + parseFloat(invoice.net_amount),
           0
         );
-        const finalAmount =
-          parseFloat(do_item.final_amount) || parseFloat(do_item.ongkosan) || 0;
+        const finalAmount = parseFloat(do_item.total_amount) || 0;
 
         return {
           ...do_item.toJSON(),
@@ -654,9 +653,7 @@ exports.getDeliveryOrderPaymentDetail = async (req, res, next) => {
     const paymentSummary = {
       original_amount: correctTotalAmount,
       final_amount:
-        parseFloat(deliveryOrder.final_amount) ||
-        parseFloat(deliveryOrder.ongkosan) ||
-        correctTotalAmount,
+        parseFloat(deliveryOrder.total_amount) || correctTotalAmount,
       calculated_bill: correctTotalAmount - taxAmount + totalAdjustments,
       total_invoiced: invoices.reduce(
         (sum, inv) => sum + (parseFloat(inv.net_amount) || 0),
@@ -741,7 +738,7 @@ exports.confirmDeliveryOrderForPayment = async (req, res, next) => {
     await deliveryOrder.update({
       payment_confirmation_status: "confirmed",
       payment_status: "proses_tagihan",
-      final_amount: final_amount || deliveryOrder.ongkosan,
+      final_amount: final_amount,
       payment_notes: notes,
       payment_confirmed_by: userId,
       payment_confirmation_at: new Date(),
@@ -938,10 +935,7 @@ exports.createPriceAdjustment = async (req, res, next) => {
       });
     }
 
-    const originalAmount =
-      parseFloat(deliveryOrder.final_amount) ||
-      parseFloat(deliveryOrder.ongkosan) ||
-      0;
+    const originalAmount = parseFloat(deliveryOrder.final_amount) || 0;
     const delta = parseFloat(adjustment_amount);
     if (isNaN(delta)) {
       await transaction.rollback();

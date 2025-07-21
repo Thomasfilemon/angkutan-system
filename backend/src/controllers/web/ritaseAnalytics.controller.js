@@ -10,6 +10,7 @@ const {
   DeliveryOrderInvoices,
   DeliveryOrderAdjustments,
 } = require("../../models");
+const ExcelJS = require("exceljs");
 
 /**
  * 🎯 COMPREHENSIVE RITASE TABLE - Auto-load latest ritase by vehicle plate
@@ -123,7 +124,13 @@ exports.getComprehensiveRitaseTable = async (req, res, next) => {
       {
         model: PurchaseOrder,
         as: "purchaseOrder",
-        attributes: ["id", "po_number", "customer_name", "item_name"],
+        attributes: [
+          "id",
+          "po_number",
+          "customer_name",
+          "item_name",
+          "created_at",
+        ],
       },
       vehicleInclude,
       {
@@ -742,16 +749,297 @@ exports.getVehicleAnalytics = async (req, res, next) => {
  */
 exports.exportComprehensiveExcel = async (req, res, next) => {
   try {
-    // Same logic as getComprehensiveRitaseTable but without pagination
-    // Return Excel file with all your current Excel structure
+    // Extract parameters (no page/limit for full export)
+    let {
+      startDate = null,
+      endDate = null,
+      vehicle = null,
+      driver = null,
+      status = null,
+      paymentStatus = null,
+      unit = null,
+    } = req.query;
 
-    res.json({
-      success: true,
-      message: "Excel export feature - to be implemented",
-      data: { exportUrl: "/exports/ritase-comprehensive.xlsx" },
+    // Validate and swap dates if start > end
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      if (start > end) {
+        [startDate, endDate] = [endDate, startDate]; // Swap to prevent empty results
+      }
+    }
+
+    // Build where conditions (same as reference)
+    const whereConditions = {};
+    if (startDate && endDate) {
+      whereConditions.created_at = {
+        [Op.between]: [new Date(startDate), new Date(endDate)],
+      };
+    }
+    if (status && status !== "all") {
+      whereConditions.status = status;
+    }
+    if (paymentStatus && paymentStatus !== "all") {
+      whereConditions.payment_status = paymentStatus;
+    }
+    if (unit && unit !== "all") {
+      whereConditions.unit = unit;
+    }
+    if (driver && driver !== "all") {
+      whereConditions.driver_id = driver;
+    }
+
+    // Vehicle include
+    const vehicleInclude = {
+      model: Vehicle,
+      as: "vehicle",
+      attributes: ["id", "license_plate", "type", "capacity"],
+      required: false,
+    };
+    if (vehicle && vehicle !== "all") {
+      vehicleInclude.where = { license_plate: vehicle };
+      vehicleInclude.required = true;
+    }
+
+    // Full includes (focus on accountant-useful data)
+    const allIncludes = [
+      {
+        model: PurchaseOrder,
+        as: "purchaseOrder",
+        attributes: [
+          "id",
+          "po_number",
+          "customer_name",
+          "item_name",
+          "created_at",
+        ],
+      },
+      vehicleInclude,
+      {
+        model: User,
+        as: "driver",
+        attributes: ["id", "username"],
+        include: [
+          {
+            model: DriverProfile,
+            as: "driverProfile",
+            attributes: ["full_name"],
+          },
+        ],
+      },
+      {
+        model: DeliveryOrderPayments,
+        as: "payments",
+        attributes: ["payment_amount", "payment_date", "payment_type"],
+      },
+      {
+        model: DeliveryOrderInvoices,
+        as: "invoices",
+        attributes: ["invoice_amount", "pph_amount", "net_amount", "status"],
+      },
+      {
+        model: DeliveryOrderAdjustments,
+        as: "adjustments",
+        attributes: ["adjustment_type", "adjustment_amount"],
+      },
+    ];
+
+    // Fetch ALL data (no limit/offset)
+    const deliveryOrders = await DeliveryOrder.findAll({
+      where: whereConditions,
+      include: allIncludes,
+      order: [["created_at", "DESC"]],
     });
+
+    if (deliveryOrders.length === 0) {
+      return res
+        .status(404)
+        .json({ success: false, message: "No data found for export" });
+    }
+
+    // Define calculateUnitAwareTotal (copied from reference)
+    const calculateUnitAwareTotal = (actualQuantity, unitPrice, unit) => {
+      const quantity = parseFloat(actualQuantity) || 0;
+      const price = parseFloat(unitPrice) || 0;
+      if (quantity === 0 || price === 0) return 0;
+      switch (unit) {
+        case "kilogram":
+          return quantity * price;
+        case "ton":
+          return quantity * price; // Convert ton to kg pricing
+        case "kubik":
+          return quantity * price; // Direct volume pricing
+        default:
+          return quantity * price;
+      }
+    };
+
+    // Process data (focus on useful accountant fields: per DO, with calcs)
+    const processedData = deliveryOrders.map((order) => {
+      const orderData = order.toJSON();
+      const actualQuantity =
+        parseFloat(orderData.actual_load_quantity) ||
+        parseFloat(orderData.minimal_load_quantity) ||
+        0;
+      const unitPrice = parseFloat(orderData.unit_price) || 0;
+      const unit = orderData.unit || "ton";
+
+      const grossIncome = calculateUnitAwareTotal(
+        actualQuantity,
+        unitPrice,
+        unit
+      );
+      const uangJalan = parseFloat(orderData.trip_allowance) || 0;
+      const gaji = parseFloat(orderData.gaji) || 0;
+      const operationalCosts = uangJalan + gaji;
+      const netProfit = grossIncome - operationalCosts;
+
+      const totalPaid = (orderData.payments || []).reduce(
+        (sum, p) => sum + parseFloat(p.payment_amount) || 0,
+        0
+      );
+      const totalInvoiced = (orderData.invoices || []).reduce(
+        (sum, i) => sum + parseFloat(i.net_amount) || 0,
+        0
+      );
+      const outstanding = totalInvoiced - totalPaid;
+      const pphTotal = (orderData.invoices || []).reduce(
+        (sum, i) => sum + parseFloat(i.pph_amount) || 0,
+        0
+      );
+      const adjustmentTotal = (orderData.adjustments || []).reduce(
+        (sum, adj) => sum + parseFloat(adj.adjustment_amount) || 0,
+        0
+      );
+
+      return {
+        do_number: orderData.do_number,
+        po_number: orderData.purchaseOrder?.po_number,
+        customer_name:
+          orderData.purchaseOrder?.customer_name || orderData.customer_name,
+        item_name: orderData.item_name,
+        vehicle_plate: orderData.vehicle?.license_plate,
+        driver_name:
+          orderData.driver?.driverProfile?.full_name ||
+          orderData.driver?.username,
+        load_location: orderData.load_location,
+        unload_location: orderData.unload_location,
+        actual_quantity: actualQuantity,
+        unit: unit,
+        gross_income: grossIncome,
+        uang_jalan: uangJalan,
+        gaji: gaji,
+        operational_costs: operationalCosts,
+        net_profit: netProfit,
+        total_paid: totalPaid,
+        total_invoiced: totalInvoiced,
+        outstanding: outstanding,
+        pph_total: pphTotal,
+        adjustment_total: adjustmentTotal,
+        status: orderData.status,
+        payment_status: orderData.payment_status,
+        created_at: orderData.created_at,
+        completed_at: orderData.completed_at,
+      };
+    });
+
+    // Group by vehicle for per-plat sheets
+    const groupedByVehicle = processedData.reduce((acc, record) => {
+      const plat = record.vehicle_plate || "Unknown";
+      if (!acc[plat]) acc[plat] = [];
+      acc[plat].push(record);
+      return acc;
+    }, {});
+
+    // Create workbook
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Angkutan System";
+    workbook.created = new Date();
+
+    // "TOTAL" Sheet (grand summaries)
+    const totalSheet = workbook.addWorksheet("TOTAL");
+    totalSheet.columns = [
+      { header: "Category", key: "category", width: 30 },
+      { header: "Amount", key: "amount", width: 20 },
+    ];
+    totalSheet.addRow({
+      category: "LUNAS",
+      amount: processedData.reduce(
+        (sum, r) => sum + (r.payment_status === "lunas" ? r.net_profit : 0),
+        0
+      ),
+    });
+    totalSheet.addRow({
+      category: "PROSES PENAGIHAN",
+      amount: processedData.reduce(
+        (sum, r) =>
+          sum + (r.payment_status === "proses_tagihan" ? r.outstanding : 0),
+        0
+      ),
+    });
+    totalSheet.addRow({
+      category: "DEPOSIT",
+      amount: processedData.reduce(
+        (sum, r) => sum + (r.payment_status === "deposit" ? r.total_paid : 0),
+        0
+      ),
+    });
+    totalSheet.addRow({
+      category: "TOTAL",
+      amount: processedData.reduce((sum, r) => sum + r.net_profit, 0),
+    });
+    // Style: Bold, currency format (add totalSheet.getColumn(2).numFmt = '#,##0.00';)
+
+    // Per-Vehicle Sheets
+    Object.keys(groupedByVehicle).forEach((plat) => {
+      const sheet = workbook.addWorksheet(plat);
+      sheet.columns = [
+        { header: "Tanggal Jalan", key: "created_at", width: 15 },
+        { header: "Tanggal Bongkar", key: "completed_at", width: 15 },
+        { header: "Lokasi Muat", key: "load_location", width: 25 },
+        { header: "Lokasi Bongkar", key: "unload_location", width: 25 },
+        { header: "Nama Barang", key: "item_name", width: 20 },
+        { header: "Pelunasan", key: "payment_status", width: 15 },
+        { header: "GROSS INCOME", key: "gross_income", width: 15 },
+        { header: "UANG JALAN", key: "uang_jalan", width: 15 },
+        { header: "GAJI", key: "gaji", width: 15 },
+        { header: "NET INCOME", key: "net_profit", width: 15 },
+        { header: "PPH Total", key: "pph_total", width: 15 },
+        { header: "Adjustment Total", key: "adjustment_total", width: 15 },
+      ];
+      groupedByVehicle[plat].forEach((record) => sheet.addRow(record));
+      // Add subtotals
+      const lastRow = sheet.rowCount + 1;
+      sheet.addRow({ created_at: "TOTAL" });
+      sheet.getCell(`G${lastRow}`).value = {
+        formula: `SUM(G2:G${lastRow - 1})`,
+      }; // Gross Income sum
+      // Repeat for other columns
+      // Style headers bold
+      sheet.getRow(1).font = { bold: true };
+    });
+
+    // Pivot Sheet (summaries per PO/vehicle)
+    const pivotSheet = workbook.addWorksheet("Pivot Dumptruck");
+    // Implement pivot logic (group by PO, sum calcs)
+
+    // Send buffer
+    const buffer = await workbook.xlsx.writeBuffer();
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=ritase-comprehensive.xlsx"
+    );
+    res.send(buffer);
   } catch (err) {
-    next(err);
+    console.error("Export error:", err);
+    res.status(500).json({
+      message: "An unexpected error occurred on the server.",
+      details: err.message,
+    });
   }
 };
 
