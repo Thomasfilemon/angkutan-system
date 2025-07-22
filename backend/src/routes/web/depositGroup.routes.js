@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const depositGroupController = require("../../controllers/web/depositGroup.controller");
+// const deliveryOrderController = require("../../controllers/web/deliveryOrderController");
 const { verifyToken, checkRole } = require("../../middlewares/auth.middleware");
 
 router.use(verifyToken);
@@ -57,6 +58,15 @@ router.put(
   depositGroupController.finalizeDOAmount
 );
 
-router.put("/members/:doId", checkRole(["admin", "owner"]), depositGroupController.updateMemberQuantity);
+router.put("/members/:id", checkRole(["admin", "owner"]), depositGroupController.updateMemberQuantity);
+// routes/deliveryOrderRoutes.js
+// router.put('/:id/quantity', depositGroupController.updateDOQuantity);
+
+// Add to depositGroup.routes.js
+router.post(
+  '/members/:memberId/pay-extra',
+  checkRole(['admin', 'owner']),
+  depositGroupController.payExtraCharge
+);
 
 module.exports = router;

@@ -22,6 +22,11 @@ module.exports = (sequelize) => {
           isDecimal: true,
         },
       },
+      quantity_mutasi: {
+        type: DataTypes.ARRAY(DataTypes.DECIMAL(10, 2)),
+        defaultValue: () => [], // Ensures a fresh array for each new record
+        comment: "Riwayat perubahan kuantitas",
+      },
       unit: {
         type: DataTypes.ENUM("kilogram", "ton", "kubik"),
         allowNull: false,

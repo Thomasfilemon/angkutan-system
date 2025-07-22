@@ -43,7 +43,12 @@ module.exports = (sequelize) => {
         comment: "Unit satuan barang (inherited from PO)",
       },
       // === FINANCIAL FIELDS ===
-      unit_price: { type: DataTypes.DECIMAL },
+      unit_price: {
+        type: DataTypes.DECIMAL,
+        allowNull: false, // Prevent null values
+        defaultValue: 0,  // Set a default to avoid missing data
+        comment: "Price per unit of the delivery order",
+      },
       total_amount: { type: DataTypes.DECIMAL, allowNull: false },
       trip_allowance: {
         type: DataTypes.DECIMAL(15, 2),

@@ -22,7 +22,6 @@ module.exports = (sequelize) => {
       quantity: {
         type: DataTypes.DECIMAL(15, 2),
         allowNull: false,
-        defaultValue: 1.0,
         comment: "Current balance of the group",
       },
       delivery_order_id: {

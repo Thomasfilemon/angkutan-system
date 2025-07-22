@@ -276,11 +276,12 @@ exports.createPurchaseOrder = async (req, res, next) => {
 };
 
 // Update PO
+// Update PO
 exports.updatePurchaseOrder = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const { recordAsAdjustment, ...updateData } = req.body;
     const po = await PurchaseOrder.findByPk(id);
-
     if (!po) {
       return res.status(404).json({
         success: false,
@@ -288,12 +289,28 @@ exports.updatePurchaseOrder = async (req, res, next) => {
       });
     }
 
-    const updatedPO = await po.update(req.body);
+    // Handle quantity mutation only when recordAsAdjustment is true
+    if (updateData.total_quantity) {
+      const newQuantity = parseFloat(updateData.total_quantity);
+      const oldQuantity = parseFloat(po.total_quantity);
+
+      if (!recordAsAdjustment) {
+        po.quantity_mutasi = [...(po.quantity_mutasi || []), oldQuantity];
+      }
+
+      po.total_quantity = newQuantity;
+    }
+
+    // Apply other fields from updateData
+    po.set(updateData);
+
+    // Save all changes
+    await po.save();
 
     res.json({
       success: true,
       message: "Purchase Order updated successfully",
-      data: updatedPO,
+      data: po.toJSON(),
     });
   } catch (err) {
     if (err.name === "SequelizeValidationError") {
@@ -413,6 +430,7 @@ exports.getPoDetailsForNewDo = async (req, res, next) => {
         item_name: po.item_name,
         unit_price: parseFloat(po.unit_price) || 0,
         total_quantity: parseFloat(po.total_quantity),
+        quantity_mutasi: po.quantity_mutasi || [],
         delivered_quantity: totalDelivered,
         remaining_quantity: remainingQuantity,
         generated_do_number: generatedDoNumber,
@@ -623,6 +641,7 @@ exports.getAvailablePOsForDelivery = async (req, res, next) => {
         "customer_name",
         "item_name",
         "total_quantity",
+        "quantity_mutasi",
         "load_location",
         "unload_location",
         "created_at",

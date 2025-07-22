@@ -10,6 +10,7 @@ interface PurchaseOrderFormData {
   load_location: string;
   unload_location: string;
   notes: string;
+  recordAsAdjustment?: boolean;
 }
 
 interface PurchaseOrderFormProps {
@@ -395,6 +396,33 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
           placeholder="Additional notes or requirements..."
         />
       </div>
+
+      {isEditMode && (
+        <div className="flex items-start">
+          <div className="flex items-center h-5">
+            <input
+              id="recordAsAdjustment"
+              name="recordAsAdjustment"
+              type="checkbox"
+              checked={formData.recordAsAdjustment || false}
+              onChange={(e) => setFormData({ 
+                ...formData, 
+                recordAsAdjustment: e.target.checked 
+              })}
+              className="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded"
+            />
+          </div>
+          <div className="ml-3 text-sm">
+            <label htmlFor="recordAsAdjustment" className="font-medium text-gray-700">
+              Record as quantity adjustment
+            </label>
+            <p className="text-gray-500">
+              Check this to keep the initial quantity unchanged
+            </p>
+          </div>
+        </div>
+      )}
+
 
       {/* Submit Button */}
       <div className="flex justify-end pt-4">

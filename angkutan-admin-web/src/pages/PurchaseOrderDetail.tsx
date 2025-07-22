@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import apiClient from "../api/axiosConfig";
+import toast from "react-hot-toast";
 
 interface PurchaseOrderDetail {
   id: number;
@@ -9,6 +10,7 @@ interface PurchaseOrderDetail {
   customer_name: string;
   item_name: string;
   total_quantity: number;
+  quantity_mutasi: number[];
   unit: string; // 🎯 NEW: Add unit field
   delivered_quantity: number;
   remaining_quantity: number;
@@ -52,6 +54,35 @@ const PurchaseOrderDetailPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const fetchPO = async () => {
+    try {
+      setLoading(true);
+      const response = await apiClient.get(`/purchase-orders/${id}`);
+      const data = response.data.data || response.data;
+
+      console.log("Fetched PO data:", data);
+
+      if (!data.unit) {
+        console.warn('PO data missing unit field, defaulting to "ton"');
+        data.unit = "ton";
+      }
+
+      if (data.poDeliveryOrders) {
+        data.poDeliveryOrders = data.poDeliveryOrders.map((dOrder: any) => ({
+          ...dOrder,
+          unit: dOrder.unit || data.unit,
+        }));
+      }
+
+      setPO(data);
+    } catch (err) {
+      setError("Failed to fetch purchase order details.");
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // 🎯 NEW: Unit display helper
   const getUnitDisplay = (unit: string) => {
     const unitMap = {
@@ -82,35 +113,6 @@ const PurchaseOrderDetailPage = () => {
   };
 
   useEffect(() => {
-    const fetchPO = async () => {
-      try {
-        setLoading(true);
-        const response = await apiClient.get(`/purchase-orders/${id}`);
-        const data = response.data.data || response.data;
-
-        // 🎯 NEW: Ensure unit field exists with fallback
-        if (!data.unit) {
-          console.warn('PO data missing unit field, defaulting to "ton"');
-          data.unit = "ton";
-        }
-
-        // 🎯 NEW: Ensure delivery orders have unit field
-        if (data.poDeliveryOrders) {
-          data.poDeliveryOrders = data.poDeliveryOrders.map((dOrder: any) => ({
-            ...dOrder,
-            unit: dOrder.unit || data.unit, // Inherit from PO if missing
-          }));
-        }
-
-        setPO(data);
-      } catch (err) {
-        setError("Failed to fetch purchase order details.");
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     if (id) {
       fetchPO();
     }
@@ -150,6 +152,26 @@ const PurchaseOrderDetailPage = () => {
     return <div className="bg-red-100 text-red-700 p-4 rounded">{error}</div>;
   if (!po)
     return <div className="text-center p-8">Purchase order not found.</div>;
+
+  const handleDeleteMutation = async (index: number) => {
+    if (!window.confirm("Are you sure you want to delete this mutation?")) return;
+
+    try {
+      const updatedMutasi = [...po.quantity_mutasi];
+      updatedMutasi.splice(index, 1); // Remove the mutation at the given index
+
+      // Call API to update the PO with the new quantity_mutasi array
+      await apiClient.put(`/purchase-orders/${id}`, {
+        quantity_mutasi: updatedMutasi,
+      });
+
+      // Refresh the PO data to reflect changes
+      await fetchPO(); // Re-fetch the PO details
+    } catch (err) {
+      console.error("Error deleting mutation:", err);
+      toast.error("Failed to delete mutation");
+    }
+  };
 
   return (
     <div className="max-w-7xl mx-auto p-6">
@@ -209,13 +231,6 @@ const PurchaseOrderDetailPage = () => {
               <p className="font-medium">{po.item_name}</p>
             </div>
             {/* 🎯 ENHANCED: Dynamic quantity with unit */}
-            <div>
-              <label className="text-sm text-gray-600">Total Quantity</label>
-              <p className="font-medium">
-                {po.total_quantity.toLocaleString("id-ID")}{" "}
-                {getUnitDisplay(po.unit)}
-              </p>
-            </div>
             {/* 🎯 NEW: Unit Information */}
             <div>
               <label className="text-sm text-gray-600">Unit</label>
@@ -675,6 +690,7 @@ const PurchaseOrderDetailPage = () => {
                   </th>
                 </tr>
               </thead>
+
               <tbody>
                 {po.poDeliveryOrders.map((dOrder) => {
                   const doUnitDisplay = getUnitDisplay(dOrder.unit || po.unit);
@@ -830,6 +846,73 @@ const PurchaseOrderDetailPage = () => {
           </div>
         )}
       </div>
+
+      {po.quantity_mutasi && po.quantity_mutasi.length > 0 && (
+        <div className="lg:col-span-3 bg-white shadow-md rounded-lg p-6 mt-6">
+          <h2 className="text-xl font-semibold mb-4">Mutasi Quantity</h2>
+          <div className="overflow-x-auto">
+            <table className="min-w-full leading-normal">
+              <thead>
+                <tr>
+                  <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">
+                    Perubahan
+                  </th>
+                  <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">
+                    Biaya
+                  </th>
+                  <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-right text-xs font-semibold text-gray-600 uppercase">
+                    Aksi
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {po.quantity_mutasi.map((prevQuantity, index) => {
+                  const nextQuantity =
+                    index < po.quantity_mutasi.length - 1
+                      ? po.quantity_mutasi[index + 1]
+                      : po.total_quantity;
+                  const change = nextQuantity - prevQuantity;
+                  const charge = change * (po.unit_price || 0);
+
+                  return (
+                    <tr key={index}>
+                      <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
+                        <p
+                          className={`${change > 0 ? "text-green-600" : "text-red-600"} font-medium`}
+                        >
+                          {change > 0 ? "+" : ""}
+                          {Math.abs(change).toLocaleString("id-ID")}{" "}
+                          {getUnitDisplay(po.unit)}
+                        </p>
+                      </td>
+                      <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
+                        <p className="font-medium">
+                          Rp {Math.abs(charge).toLocaleString("id-ID")}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {change > 0 ? "+" : "-"}
+                          {Math.abs(change).toLocaleString("id-ID")}{" "}
+                          {getUnitDisplay(po.unit)} ×{" "}
+                          Rp {po.unit_price?.toLocaleString("id-ID")}/
+                          {getUnitDisplay(po.unit)}
+                        </p>
+                      </td>
+                      <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm text-right">
+                        <button
+                          onClick={() => handleDeleteMutation(index)}
+                          className="text-red-500 hover:text-red-700"
+                        >
+                          Hapus
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

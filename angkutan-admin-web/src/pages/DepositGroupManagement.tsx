@@ -1,5 +1,5 @@
 // src/pages/DepositGroupManagementPage.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import apiClient from '../api/axiosConfig';
 import { toast } from 'react-toastify';
@@ -13,14 +13,12 @@ interface DepositGroup {
   status: string; // 'butuh bayar', 'extra saldo', 'normal'
 }
 
-// Update the GroupMember interface
 interface GroupMember {
   id: number;
   group_id: number;
   delivery_order_id: number;
   quantity: number;
   deliveryOrder: {
-    financial_summary: any;
     id: number;
     do_number: string;
     customer_name: string;
@@ -28,11 +26,39 @@ interface GroupMember {
     total_amount?: number;
     payment_status: string;
     paid_amount: number;
-    unpaid_amount: number;
-    is_amount_finalized: boolean; // ADD THIS LINE
-  },
-  is_amount_finalized: boolean;
+    minimal_load_quantity: number;
+    unit_price: number;
+    actual_load_quantity?: number;
+    // Add payment ID reference
+    payment_id?: number; // ADD THIS
+  };
 }
+
+// Add this above your component
+interface ExtraCharge {
+  memberId: number;
+  doId: number;
+  doNumber: string;
+  customer: string;
+  minQty: number;
+  currentQty: number;
+  extraQuantity: number;
+  unitPrice: number;
+  extraAmount: number;
+  isPaid: boolean;
+  paymentId?: number;
+}
+
+// Move this outside your component
+const formatCurrency = (amount: number): string => {
+  return new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    minimumFractionDigits: 0,
+  }).format(amount);
+};
+
+// Then delete the duplicate inside your component
 
 const DepositGroupManagementPage = () => {
   const [groups, setGroups] = useState<DepositGroup[]>([]);
@@ -45,34 +71,102 @@ const DepositGroupManagementPage = () => {
   const [showAddDoModal, setShowAddDoModal] = useState(false);
   const [availableDOs, setAvailableDOs] = useState<any[]>([]);
   const [selectedDOs, setSelectedDOs] = useState<number[]>([]);
-  const [showFinalizeModal, setShowFinalizeModal] = useState(false);
-  const [currentDO, setCurrentDO] = useState<any>(null);
-  const [finalizedPrice, setFinalizedPrice] = useState<number>(0);
-  const [originalPrice, setOriginalPrice] = useState<number>(0);
   const [formData, setFormData] = useState({
     group_name: '',
     balance: '',
   });
   const [availablePOs, setAvailablePOs] = useState<any[]>([]);
   const [selectedPOId, setSelectedPOId] = useState<number | null>(null);
+  const [editingQuantities, setEditingQuantities] = useState<Record<number, number>>({});
+  // At the top of your component
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [selectedExtraCharge, setSelectedExtraCharge] = useState<ExtraCharge | null>(null);
 
-  // Open finalize price modal
-  // Example React component
-  const openFinalizeModal = (doItem: any) => {
-    setCurrentDO(doItem);
-    const initialAmount = doItem.is_amount_finalized ? doItem.final_amount : doItem.total_amount;
-    setFinalizedPrice(initialAmount);
-    setOriginalPrice(doItem.total_amount);
-    setShowFinalizeModal(true);
+  useEffect(() => {
+    if (showDetailModal && selectedGroup && groupMembers.length > 0) {
+      const initialQuantities = groupMembers.reduce((acc, member) => {
+        acc[member.id] = member.quantity;
+        return acc;
+      }, {} as Record<number, number>);
+      setEditingQuantities(initialQuantities);
+    }
+  }, [groupMembers, showDetailModal, selectedGroup]);
+
+  const handlePayExtra = async (memberId: number, extraAmount: number) => {
+    try {
+      const response = await apiClient.post(
+        `/deposit-groups/members/${memberId}/pay-extra`
+      );
+      
+      if (response.data.success) {
+        toast.success(`Extra charge paid: ${formatCurrency(extraAmount)}`);
+        if (selectedGroup) {
+          fetchGroupDetails(selectedGroup.id);
+        }
+      }
+    } catch (err) {
+      toast.error('Failed to pay extra charge');
+      console.error(err);
+    }
   };
 
-  const handleQuantityChange = async (doId: number, newQuantity: number) => {
+  // Inside DepositGroupManagementPage component
+  const extraCharges = useMemo(() => {
+    if (!groupMembers || groupMembers.length === 0) return [];
+
+    return groupMembers
+      .filter(member => {
+        const minQty = member.deliveryOrder.minimal_load_quantity;
+        const currentQty = member.quantity;
+        return currentQty > minQty;
+      })
+      .map(member => {
+        const doItem = member.deliveryOrder;
+        const minQty = doItem.minimal_load_quantity;
+        const currentQty = member.quantity;
+        const extraQuantity = currentQty - minQty;
+        const unitPrice = doItem.unit_price;
+        const extraAmount = extraQuantity * unitPrice;
+        
+        // Check if extra is paid
+        const totalAmount = minQty * unitPrice + extraAmount;
+        const isPaid = doItem.paid_amount >= totalAmount;
+
+        return {
+          memberId: member.id,
+          doId: doItem.id,
+          doNumber: doItem.do_number,
+          customer: doItem.customer_name,
+          minQty,
+          currentQty,
+          extraQuantity,
+          unitPrice,
+          extraAmount,
+          isPaid,
+          paymentId: doItem.payment_id // Use the payment_id from deliveryOrder
+        };
+      });
+  }, [groupMembers]);
+
+  const handleQuantityInputChange = (memberId: number, value: number) => {
+    setEditingQuantities(prev => ({
+      ...prev,
+      [memberId]: value
+    }));
+  };
+
+  const handleFinalizeQuantity = async (memberId: number, doId: number) => {
+    const newQuantity = editingQuantities[memberId];
+    const member = groupMembers.find(m => m.id === memberId);
+    
+    if (!member || newQuantity === undefined) return;
+    
     try {
-      await apiClient.put(`/deposit-groups/members/${doId}`, {
+      await apiClient.put(`/deposit-groups/members/${memberId}`, {
         quantity: newQuantity
       });
+      
       toast.success('Quantity updated');
-      // Refresh group details
       if (selectedGroup) fetchGroupDetails(selectedGroup.id);
     } catch (err) {
       toast.error('Failed to update quantity');
@@ -80,61 +174,39 @@ const DepositGroupManagementPage = () => {
     }
   };
 
-  // Handle price finalization
-  const handleFinalizePrice = async () => {
-    if (!currentDO) return;
-
-    try {
-      await apiClient.put(
-        `/deposit-groups/delivery-orders/${currentDO.id}/finalize-amount`,
-        { finalized_amount: finalizedPrice }
-      );
-      
-      toast.success('Price finalized successfully');
-      
-      // Refresh group details
-      if (selectedGroup) {
-        fetchGroupDetails(selectedGroup.id);
+  // src/pages/DepositGroupManagementPage.tsx
+  const cleanNumber = (value: string | number): number => {
+    if (typeof value === "string") {
+      // Only handle European format with ',' as decimal
+      if (value.includes(',') && !value.includes('.')) {
+        const cleaned = value.replace(/\./g, "").replace(/,/g, ".");
+        return parseFloat(cleaned) || 0;
       }
-      
-      setShowFinalizeModal(false);
-    } catch (err) {
-      console.error('Error finalizing price:', err);
-      toast.error('Failed to finalize price');
+
+      // If it already uses dot as decimal, just parse it
+      return parseFloat(value) || 0;
     }
+    return Number(value) || 0;
   };
 
-  // Calculate totals for the group
-  // 1. Update calculations to use final_amount
-  // Calculate total tagihan (quantity × amount for all DOs)
+  // Use cleanNumber in all calculations
+  // Update these calculations:
+  // Replace your current calculations with these:
   const totalTagihan = groupMembers.reduce((sum, member) => {
-    const doItem = member.deliveryOrder;
-    const amount = doItem.is_amount_finalized 
-      ? doItem.final_amount 
-      : doItem.total_amount || 0;
-    const quantity = member.quantity || 0;
-    return sum + (amount * quantity);
+    return sum + (member.deliveryOrder.unit_price * member.quantity);
   }, 0);
 
-
-  const totalDibayar = groupMembers.reduce((sum, m) => 
-     sum + (Number(m.deliveryOrder.paid_amount) || 0), 0
-  );
-
-  const totalBelumDibayar = groupMembers.reduce((sum, m) => {
-    const amount = m.deliveryOrder.is_amount_finalized 
-      ? Number(m.deliveryOrder.final_amount) 
-      : Number(m.deliveryOrder.final_amount) || Number(m.deliveryOrder.total_amount) || 0;
-    const paid = Number(m.deliveryOrder.paid_amount) || 0;
-    return sum + (amount - paid);
+  const totalDibayar = groupMembers.reduce((sum, m) => {
+    return sum + m.deliveryOrder.paid_amount;
   }, 0);
+
+  const totalBelumDibayar = totalTagihan - totalDibayar;
+
+  const residualSaldo = selectedGroup ? selectedGroup.balance - totalDibayar : 0;
+
+  const totalExtraCharges = extraCharges.reduce((sum, charge) => sum + charge.extraAmount, 0);
 
   const [loadingPOs, setLoadingPOs] = useState(false);
-
-  // Calculate residual saldo (saldo - total dibayar)
-  const residualSaldo = selectedGroup
-    ? selectedGroup.balance - totalDibayar
-    : 0;
 
   const fetchGroups = async () => {
     try {
@@ -157,16 +229,6 @@ const DepositGroupManagementPage = () => {
     } catch (err) {
       setError('Failed to fetch group details');
       console.error(err);
-    }
-  };
-
-  const fetchAvailableDOs = async () => {
-    try {
-      const response = await apiClient.get('/delivery-orders/available'); // Assume this exists
-      console.log('All Available DOs:', response.data);
-      setAvailableDOs(response.data);
-    } catch (err) {
-      console.error('Failed to fetch available DOs:', err);
     }
   };
 
@@ -700,6 +762,10 @@ const DepositGroupManagementPage = () => {
                     <div className="font-bold text-green-700">{formatCurrency(totalDibayar)}</div>
                   </div>
                   <div>
+                    <div className="text-xs text-gray-500">Total Extra</div>
+                    <div className="font-bold text-purple-600">{formatCurrency(totalExtraCharges)}</div>
+                  </div>
+                  <div>
                     <div className="text-xs text-gray-500">Total Belum Dibayar</div>
                     <div className="font-bold text-red-700">{formatCurrency(totalBelumDibayar)}</div>
                   </div>
@@ -771,6 +837,15 @@ const DepositGroupManagementPage = () => {
                             Total
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Min Qty
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Quantity
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Unit Price
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Dibayar
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -778,9 +853,6 @@ const DepositGroupManagementPage = () => {
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Status
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Finalized
                           </th>
                           <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Aksi
@@ -790,11 +862,6 @@ const DepositGroupManagementPage = () => {
                       <tbody className="bg-white divide-y divide-gray-200">
                         {groupMembers.map((member) => {
                           const doItem = member.deliveryOrder;
-                          const quantity = member.quantity || 0;
-                          const amount = doItem.is_amount_finalized 
-                            ? doItem.final_amount 
-                            : doItem.total_amount || 0;
-                          const rowTotal = quantity * amount;
                           return (
                           <tr key={member.id}>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
@@ -809,50 +876,41 @@ const DepositGroupManagementPage = () => {
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                               {member.deliveryOrder.customer_name}
                             </td>
+                            <td>{formatCurrency(member.deliveryOrder.unit_price * member.quantity)}</td>
+                            {/* Add Minimal Qty cell */}
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {doItem.minimal_load_quantity} {/* Display minimal quantity */}
+                            </td>
                             {/* New Quantity Column */}
                             <td className="px-6 py-4 whitespace-nowrap text-sm">
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                defaultValue={quantity}
-                                onChange={(e) => handleQuantityChange(doItem.id, parseFloat(e.target.value))}
-                                className="w-24 px-2 py-1 border rounded"
-                              />
+                              <div className="flex items-center">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={editingQuantities[member.id] || member.quantity}
+                                  onChange={(e) => handleQuantityInputChange(
+                                    member.id,
+                                    parseFloat(e.target.value) || 0
+                                  )}
+                                  className="w-24 px-2 py-1 border rounded mr-2"
+                                />
+                                <button
+                                  onClick={() => handleFinalizeQuantity(member.id, doItem.id)}
+                                  className="bg-blue-500 hover:bg-blue-700 text-white text-xs py-1 px-2 rounded"
+                                >
+                                  Finalize
+                                </button>
+                              </div>
                             </td>
-                            
-                            {/* Amount and Row Total */}
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                              {formatCurrency(amount)}
+                              {doItem.unit_price} {/* Display minimal quantity */}
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
-                              {formatCurrency(rowTotal)}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                              {member.deliveryOrder.is_amount_finalized ? (
-                                <div>
-                                  <div className="font-bold">
-                                    {formatCurrency(member.deliveryOrder.final_amount || 0)}
-                                  </div>
-                                  <div className="text-xs text-gray-500 line-through">
-                                    {formatCurrency(member.deliveryOrder.total_amount || 0)}
-                                  </div>
-                                </div>
-                              ) : (
-                                formatCurrency(
-                                  member.deliveryOrder.final_amount || 
-                                  member.deliveryOrder.total_amount || 
-                                  0
-                                )
-                              )}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600">
-                              {formatCurrency(member.deliveryOrder.paid_amount)}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600">
+                            <td>{formatCurrency(member.deliveryOrder.paid_amount)}</td>
+                            <td>
                               {formatCurrency(
-                                (member.deliveryOrder.final_amount ?? member.deliveryOrder.total_amount ?? 0)
-                                - (member.deliveryOrder.paid_amount ?? 0)
+                                (member.deliveryOrder.unit_price * member.quantity) - 
+                                member.deliveryOrder.paid_amount
                               )}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
@@ -866,24 +924,14 @@ const DepositGroupManagementPage = () => {
                                 {member.deliveryOrder.payment_status}
                               </span>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                              {member.deliveryOrder.is_amount_finalized ? (
-                                <div className="flex items-center">
-                                  {/* <CheckCircleIcon className="h-5 w-5 text-green-500 mr-1" /> */}
-                                  <span>Finalized</span>
-                                </div>
-                              ) : (
-                                <span className="text-gray-400">Not finalized</span>
-                              )}
-                            </td>
                             <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
-                              <Link
+                              {/* <Link
                                 to={`/delivery-orders/${member.deliveryOrder.id}/payments`}
                                 className="text-blue-600 hover:text-blue-900 mr-3"
                                 target="_blank"
                               >
                                 Bayar
-                              </Link>
+                              </Link> */}
                               <button
                                 onClick={() => handleRemoveMember(member.id)}
                                 className="text-red-600 hover:text-red-900"
@@ -891,12 +939,6 @@ const DepositGroupManagementPage = () => {
                                 Hapus
                               </button>
                               {/* NEW: Finalize Price Button */}
-                              <button
-                                onClick={() => openFinalizeModal(member.deliveryOrder)}
-                                className="text-purple-600 hover:text-purple-900 ml-3"
-                              >
-                                Finalize
-                              </button>
                             </td>
                           </tr>
                           );
@@ -915,6 +957,111 @@ const DepositGroupManagementPage = () => {
                   </div>
                 )}
               </div>
+
+              {extraCharges.length > 0 && (
+                <div className="mt-8 overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {extraCharges.length > 0 && (
+                        <div className="mt-8">
+                          <h4 className="text-lg font-semibold mb-3">Tagihan Extra</h4>
+                          <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-gray-100">
+                              <tr>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  DO Number
+                                </th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Customer
+                                </th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Minimal Qty
+                                </th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Final Qty
+                                </th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Extra Qty
+                                </th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Unit Price
+                                </th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Tagihan Extra
+                                </th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  Action
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                              {extraCharges.map((charge) => (
+                                <tr key={charge.memberId}>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
+                                    {charge.doNumber}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {charge.customer}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {charge.minQty}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {charge.currentQty}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 font-semibold">
+                                    +{charge.extraQuantity}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {formatCurrency(charge.unitPrice)}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-purple-600">
+                                    {formatCurrency(charge.extraAmount)}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                    {charge.isPaid ? (
+                                      <button
+                                        onClick={() => {
+                                          setSelectedExtraCharge(charge);
+                                          setShowInvoiceModal(true);
+                                        }}
+                                        className="text-blue-600 hover:text-blue-900"
+                                      >
+                                        View Invoice
+                                      </button>
+                                    ) : (
+                                      <button
+                                        onClick={() => handlePayExtra(charge.memberId, charge.extraAmount)}
+                                        className="bg-green-500 hover:bg-green-700 text-white text-xs py-1 px-2 rounded"
+                                      >
+                                        Pay
+                                      </button>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                              {/* Total row */}
+                              <tr className="bg-gray-50">
+                                <td 
+                                  colSpan={6} 
+                                  className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-right"
+                                >
+                                  Total Tagihan Extra:
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-purple-700">
+                                  {formatCurrency(
+                                    extraCharges.reduce((sum, charge) => sum + charge.extraAmount, 0)
+                                  )}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
               <div className="mt-6 flex justify-between">
                 <div>
@@ -1047,61 +1194,113 @@ const DepositGroupManagementPage = () => {
           </div>
         </div>
       )}
-
-      {/* Finalize Price Modal */}
-      {/* Finalize Price Modal */}
-      {showFinalizeModal && currentDO && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-            <div className="mt-3">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-medium text-gray-900">
-                  Finalize Price for DO: {currentDO.do_number}
-                </h3>
-                <button
-                  onClick={() => setShowFinalizeModal(false)}
-                  className="text-gray-500 hover:text-gray-700"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Final Amount *
-                  </label>
-                  <input
-                    type="number"
-                    value={finalizedPrice}
-                    onChange={(e) => setFinalizedPrice(Number(e.target.value))}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2"
-                    min="0"
-                    step="1000"
-                    required
-                  />
-                </div>
-              </div>
-              <div className="mt-6 flex justify-end space-x-3">
-                <button
-                  onClick={() => setShowFinalizeModal(false)}
-                  className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleFinalizePrice}
-                  disabled={finalizedPrice <= 0}
-                  className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
-                >
-                  Finalize Price
-                </button>
-              </div>
+      {showInvoiceModal && selectedExtraCharge && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-4xl overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-4 border-b">
+              <h3 className="text-xl font-bold">Extra Charge Invoice</h3>
+              <button 
+                onClick={() => setShowInvoiceModal(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-6">
+              <InvoiceViewer extraCharge={selectedExtraCharge} />
+            </div>
+            <div className="flex justify-end p-4 border-t">
+              <button
+                onClick={() => window.print()}
+                className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mr-2"
+              >
+                Print
+              </button>
+              <button
+                onClick={() => setShowInvoiceModal(false)}
+                className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
       )}
+    </div>
+  );
+};
+
+const InvoiceViewer: React.FC<{ extraCharge: ExtraCharge }> = ({ extraCharge }) => {
+  // Calculate totals
+  const minimalAmount = extraCharge.minQty * extraCharge.unitPrice;
+  const totalAmount = minimalAmount + extraCharge.extraAmount;
+
+  return (
+    <div className="invoice-container p-4 bg-white">
+      <div className="invoice-header border-b pb-4 mb-4">
+        <div className="flex justify-between">
+          <div>
+            <h2 className="text-2xl font-bold">INVOICE EXTRA CHARGE</h2>
+            <p className="text-gray-500">
+              No: EXTRA-{extraCharge.doNumber}-{new Date().getTime()}
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="font-semibold">PT Angkutan Kodo</p>
+            <p className="text-sm">Jl. Contoh No. 123, Jakarta</p>
+          </div>
+        </div>
+      </div>
+      
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        <div>
+          <h4 className="font-semibold">Bill To:</h4>
+          <p>{extraCharge.customer}</p>
+        </div>
+        <div className="text-right">
+          <p><span className="font-semibold">Date:</span> {new Date().toLocaleDateString('id-ID')}</p>
+          <p><span className="font-semibold">DO Number:</span> {extraCharge.doNumber}</p>
+        </div>
+      </div>
+      
+      <table className="w-full border-collapse mb-6">
+        <thead>
+          <tr className="bg-gray-100">
+            <th className="text-left p-2 border">Description</th>
+            <th className="text-center p-2 border">Quantity</th>
+            <th className="text-center p-2 border">Unit Price</th>
+            <th className="text-right p-2 border">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td className="p-2 border">Minimal Load Quantity</td>
+            <td className="p-2 border text-center">{extraCharge.minQty}</td>
+            <td className="p-2 border text-center">{formatCurrency(extraCharge.unitPrice)}</td>
+            <td className="p-2 border text-right">{formatCurrency(minimalAmount)}</td>
+          </tr>
+          <tr>
+            <td className="p-2 border">Extra Quantity</td>
+            <td className="p-2 border text-center">+{extraCharge.extraQuantity}</td>
+            <td className="p-2 border text-center">{formatCurrency(extraCharge.unitPrice)}</td>
+            <td className="p-2 border text-right">{formatCurrency(extraCharge.extraAmount)}</td>
+          </tr>
+          <tr className="font-semibold bg-gray-50">
+            <td className="p-2 border" colSpan={3}>TOTAL</td>
+            <td className="p-2 border text-right">{formatCurrency(totalAmount)}</td>
+          </tr>
+        </tbody>
+      </table>
+      
+      <div className="text-center mt-8">
+        <div className="inline-block border-t-2 border-black pt-4">
+          <p>Received By:</p>
+          <p className="mt-8">(__________________________)</p>
+          <p className="text-sm mt-2">Signature</p>
+        </div>
+      </div>
     </div>
   );
 };

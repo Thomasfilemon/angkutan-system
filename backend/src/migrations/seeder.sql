@@ -377,7 +377,7 @@ INSERT INTO purchase_orders (
   po_number, 
   customer_name, 
   item_name, 
-  total_quantity, 
+  total_quantity,
   unit, 
   unit_price, 
   total_amount, 
