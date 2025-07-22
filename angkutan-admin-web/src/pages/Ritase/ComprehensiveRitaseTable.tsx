@@ -6,12 +6,16 @@ import TableSkeleton from "../../components/ui/TableSkeleton";
 import SummaryCard from "../../components/ui/SummaryCard";
 import FilterChip from "../../components/ui/FilterChip";
 import StatusBadge from "../../components/ui/StatusBadge";
+import toast from "react-hot-toast";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
 
 interface ComprehensiveRitaseData {
   id: number;
   do_name: string;
   do_number: string;
   customer_name: string;
+
   vehicle: {
     license_plate: string;
     type: string;
@@ -81,6 +85,10 @@ const ComprehensiveRitaseTable: React.FC = () => {
   // Purchase Orders and Vehicles state (unchanged)
   const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
+
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportStartDate, setExportStartDate] = useState<Date | null>(null);
+  const [exportEndDate, setExportEndDate] = useState<Date | null>(null);
 
   const poOptions = purchaseOrders.map((po: any) => ({
     value: po.id,
@@ -220,7 +228,11 @@ const ComprehensiveRitaseTable: React.FC = () => {
   };
 
   const formatCurrency = (amount: number) => {
-    return `Rp ${parseFloat(String(amount)).toLocaleString("id-ID")}`;
+    // Sampai 2 angka desimal untuk konsistensi
+    return `Rp ${amount.toLocaleString("id-ID", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
   };
 
   const formatDate = (dateString: string) => {
@@ -346,11 +358,25 @@ const ComprehensiveRitaseTable: React.FC = () => {
     }));
   };
 
-  // Export handler (unchanged)
-  const handleExport = async () => {
+  // Export handler
+  const handleExport = () => {
+    setShowExportModal(true);
+  };
+
+  const confirmExport = async () => {
+    if (!exportStartDate || !exportEndDate) {
+      toast.error("Please select a date range!");
+      return;
+    }
+
     try {
       const response = await apiClient.get("/ritase/export/comprehensive", {
-        params: filters,
+        params: {
+          ...filters, // Existing filters
+          startDate: exportStartDate.toISOString().split("T")[0],
+          endDate: exportEndDate.toISOString().split("T")[0],
+          limit: undefined,
+        },
         responseType: "blob",
       });
 
@@ -359,13 +385,18 @@ const ComprehensiveRitaseTable: React.FC = () => {
       link.href = url;
       link.setAttribute(
         "download",
-        `ritase-comprehensive-${new Date().toISOString().split("T")[0]}.xlsx`
+        `ritase-comprehensive-${
+          exportStartDate.toISOString().split("T")[0]
+        }-to-${exportEndDate.toISOString().split("T")[0]}.xlsx`
       );
       document.body.appendChild(link);
       link.click();
       link.remove();
+      setShowExportModal(false);
+      toast.success("Export successful!");
     } catch (error) {
       console.error("Export failed:", error);
+      toast.error("Export failed—check console!");
     }
   };
 
@@ -411,27 +442,8 @@ const ComprehensiveRitaseTable: React.FC = () => {
                 <span className="text-sm font-medium">Back to Dashboard</span>
               </button>
               <div className="h-6 w-px bg-white/20"></div>
-              <button
-                onClick={handleExport}
-                className="flex items-center space-x-2 bg-emerald-500/20 hover:bg-emerald-500/30 backdrop-blur-sm px-4 py-2 rounded-lg transition-all duration-200 border border-emerald-400/30"
-              >
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                  />
-                </svg>
-                <span className="text-sm font-medium text-white">
-                  Export Excel
-                </span>
-              </button>
+
+              {/* Button untuk refresh data */}
               <button
                 onClick={() => fetchData(true)}
                 disabled={refreshing}
@@ -757,8 +769,9 @@ const ComprehensiveRitaseTable: React.FC = () => {
           <div className="bg-white shadow-xl rounded-xl overflow-hidden border border-gray-200">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
               <div className="flex justify-between items-center">
-                <div className="flex items-center space-x-4">
-                  <div>
+                <div className="flex flex-wrap items-start justify-between gap-4 md:gap-6 pb-4 border-b border-gray-200">
+                  {/* Title Section - Left aligned, full-width on small screens */}
+                  <div className="flex-grow min-w-[200px]">
                     <h2 className="text-lg font-semibold text-gray-900">
                       Latest Ritase Data
                     </h2>
@@ -772,62 +785,95 @@ const ComprehensiveRitaseTable: React.FC = () => {
                       )}
                     </p>
                   </div>
-                  {/* Vehicle Filter (unchanged) */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Vehicle (Optional)
-                    </label>
-                    <Select
-                      options={vehicleOptions}
-                      value={vehicleOptions.find(
-                        (opt) => opt.value === filters.vehicle
-                      )}
-                      onChange={(selected) =>
-                        setFilters({
-                          ...filters,
-                          vehicle: selected ? selected.value : "",
-                        })
-                      }
-                      isClearable
-                      placeholder="Select vehicle..."
-                      className="text-sm"
-                      styles={{
-                        control: (base) => ({
-                          ...base,
-                          minHeight: 40,
-                          borderRadius: "0.5rem",
-                          borderColor: "#d1d5db",
-                          "&:hover": { borderColor: "#3b82f6" },
-                          "&:focus-within": {
-                            borderColor: "#3b82f6",
-                            boxShadow: "0 0 0 2px rgba(59, 130, 246, 0.1)",
-                          },
-                        }),
-                      }}
-                    />
-                  </div>
-                  {/* Limit (unchanged) */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Records per page
-                    </label>
-                    <select
-                      value={filters.limit}
-                      onChange={(e) =>
-                        setFilters({
-                          ...filters,
-                          limit: parseInt(e.target.value),
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                    >
-                      <option value={10}>10 records</option>
-                      <option value={25}>25 records</option>
-                      <option value={50}>50 records</option>
-                      <option value={100}>100 records</option>
-                    </select>
+
+                  {/* Filters Group - Center or right on larger screens */}
+                  <div className="flex flex-wrap items-end gap-4 md:gap-6">
+                    {/* Vehicle Filter */}
+                    <div className="min-w-[180px]">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Vehicle (Optional)
+                      </label>
+                      <Select
+                        options={vehicleOptions}
+                        value={vehicleOptions.find(
+                          (opt) => opt.value === filters.vehicle
+                        )}
+                        onChange={(selected) =>
+                          setFilters({
+                            ...filters,
+                            vehicle: selected ? selected.value : "",
+                          })
+                        }
+                        isClearable
+                        placeholder="Select vehicle..."
+                        className="text-sm"
+                        styles={{
+                          control: (base) => ({
+                            ...base,
+                            minHeight: 40,
+                            borderRadius: "0.5rem",
+                            borderColor: "#d1d5db",
+                            backgroundColor: "#ffffff", // Solid for visibility
+                            "&:hover": { borderColor: "#3b82f6" },
+                            "&:focus-within": {
+                              borderColor: "#3b82f6",
+                              boxShadow: "0 0 0 2px rgba(59, 130, 246, 0.1)",
+                            },
+                          }),
+                        }}
+                      />
+                    </div>
+
+                    {/* Records per page */}
+                    <div className="min-w-[180px]">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Records per page
+                      </label>
+                      <select
+                        value={filters.limit}
+                        onChange={(e) =>
+                          setFilters({
+                            ...filters,
+                            limit: parseInt(e.target.value),
+                          })
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors hover:border-blue-300"
+                      >
+                        <option value={10}>10 records</option>
+                        <option value={25}>25 records</option>
+                        <option value={50}>50 records</option>
+                        <option value={100}>100 records</option>
+                      </select>
+                    </div>
+
+                    {/* Export button - Now with tooltip for UX */}
+                    <div className="self-end">
+                      <button
+                        onClick={handleExport}
+                        className="flex items-center space-x-2 bg-emerald-600 text-white hover:bg-emerald-700 px-4 py-2 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md"
+                        title="Export current view to Excel" // Tooltip for clarity
+                      >
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                          />
+                        </svg>
+                        <span className="text-sm font-medium">
+                          Export Excel
+                        </span>
+                      </button>
+                    </div>
                   </div>
                 </div>
+
                 {refreshing && (
                   <div className="flex items-center text-sm text-blue-600">
                     <svg
@@ -912,10 +958,10 @@ const ComprehensiveRitaseTable: React.FC = () => {
                       return (
                         <tr
                           key={record.id}
-                          className={`hover:bg-gray-50 transition-colors cursor-pointer ${
+                          className={`relative hover:bg-gray-50 transition-all duration-200 cursor-pointer border-2 border-transparent hover:border-blue-300 hover:shadow-md ${
                             index % 2 === 0 ? "bg-white" : "bg-gray-50/50"
                           }`}
-                          onClick={() => handleRowClick(record)} // NEW: Row click handler
+                          onClick={() => handleRowClick(record)}
                         >
                           {/* Vehicle License Plate */}
                           <td className="px-6 py-4 whitespace-nowrap">
@@ -987,7 +1033,7 @@ const ComprehensiveRitaseTable: React.FC = () => {
                             </div>
                             <div className="text-sm text-gray-600">
                               {formatCurrency(
-                                record.trip_allowance + record.gaji
+                                record.calculated.operationalCosts
                               )}
                             </div>
                             <div className="text-xs text-gray-500">
@@ -1065,6 +1111,78 @@ const ComprehensiveRitaseTable: React.FC = () => {
           </div>
         )}
       </div>
+
+      {showExportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold mb-4">
+              Select Date Range for Export
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Start Date
+                </label>
+                <DatePicker
+                  // pick start date
+                  selected={exportStartDate}
+                  onChange={(date) => setExportStartDate(date)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  dateFormat="yyyy-MM-dd"
+                  placeholderText="Select start date"
+                  isClearable
+                  showMonthDropdown
+                  showYearDropdown
+                  dropdownMode="select"
+                  scrollableYearDropdown
+                  yearDropdownItemNumber={15}
+                  minDate={new Date("2020-01-01")}
+                  maxDate={new Date()}
+                  todayButton="Today"
+                  popperPlacement="bottom-start"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  End Date
+                </label>
+                <DatePicker
+                  // pick end date
+                  selected={exportEndDate}
+                  onChange={(date) => setExportEndDate(date)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  dateFormat="yyyy-MM-dd"
+                  placeholderText="Select end date"
+                  isClearable
+                  showMonthDropdown
+                  showYearDropdown
+                  dropdownMode="select"
+                  scrollableYearDropdown
+                  yearDropdownItemNumber={15}
+                  minDate={exportStartDate || new Date("2025-01-01")}
+                  maxDate={new Date()}
+                  todayButton="Today"
+                  popperPlacement="bottom-start"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmExport}
+                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
+              >
+                Export
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* NEW: Modal for actions on row click */}
       {showModal && selectedRecord && (
