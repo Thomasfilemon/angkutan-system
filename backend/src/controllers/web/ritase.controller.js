@@ -13,7 +13,6 @@ const {
   sequelize,
 } = require("../../models");
 const { Op } = require("sequelize");
-const { sequelize } = require('../../models');
 
 // ✅ 1. Get PO List with Aggregated Payment Status (Main Ritase Dashboard)
 exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {

@@ -87,6 +87,13 @@ interface DOFormData {
   unload_longitude: string;
 }
 
+interface MarkerType {
+  lat: number;
+  lng: number;
+  title: string;
+  type: "load" | "unload";
+}
+
 interface DeliveryOrderMapProps {
   formData: DOFormData;
   selectedType: "load" | "unload" | null;
@@ -154,6 +161,42 @@ const MapEventsHandler: React.FC<{
       map.off('click', onClick);
     };
   }, [map, selectedType, onLocationChange, setSelectedType]);
+
+  return null;
+};
+
+const MapClickHandler: React.FC<{
+  selectedLocationType: "load" | "unload" | null;
+  onLocationSelect: (lat: number, lng: number, address: string) => void;
+  onClearSelection: () => void;
+}> = ({ selectedLocationType, onLocationSelect, onClearSelection }) => {
+  const map = useMap();
+
+  useEffect(() => {
+    const onClick = (e: L.LeafletMouseEvent) => {
+      if (selectedLocationType) {
+        const { lat, lng } = e.latlng;
+        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
+          .then(res => res.json())
+          .then(data => {
+            const address = data.display_name || `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
+            onLocationSelect(lat, lng, address);
+            onClearSelection();
+          })
+          .catch(() => {
+            const address = `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
+            onLocationSelect(lat, lng, address);
+            onClearSelection();
+          });
+      }
+    };
+
+    map.on('click', onClick);
+
+    return () => {
+      map.off('click', onClick);
+    };
+  }, [map, selectedLocationType, onLocationSelect, onClearSelection]);
 
   return null;
 };
@@ -237,6 +280,15 @@ const CreateDeliveryFromPO: React.FC = () => {
     unload: boolean;
   }>({ load: false, unload: false });
 
+  // New state variables for map functionality
+  const [selectedLocationType, setSelectedLocationType] = useState<"load" | "unload" | null>(null);
+  const [showMap, setShowMap] = useState<boolean>(true);
+  const [markers, setMarkers] = useState<MarkerType[]>([]);
+  const [currentFormIndex, setCurrentFormIndex] = useState<number>(0);
+
+  // Default map center
+  const defaultCenter = { lat: -6.2088, lng: 106.8456 };
+
   const getUnitDisplay = (unit: string) => {
     const unitMap = {
       kilogram: "kg",
@@ -277,6 +329,47 @@ const CreateDeliveryFromPO: React.FC = () => {
     return totalRevenue - operationalCosts;
   };
 
+  // Fixed setLocationWithType function
+  const setLocationWithType = (lat: number, lng: number, address: string, type: "load" | "unload") => {
+    const newFormDataList = [...formDataList];
+    if (type === "load") {
+      newFormDataList[currentFormIndex] = {
+        ...newFormDataList[currentFormIndex],
+        load_location: address,
+        load_latitude: lat.toString(),
+        load_longitude: lng.toString(),
+      };
+    } else {
+      newFormDataList[currentFormIndex] = {
+        ...newFormDataList[currentFormIndex],
+        unload_location: address,
+        unload_latitude: lat.toString(),
+        unload_longitude: lng.toString(),
+      };
+    }
+    setFormDataList(newFormDataList);
+
+    // Update markers
+    setMarkers(prev => {
+      const filtered = prev.filter(m => m.type !== type);
+      return [...filtered, {
+        lat,
+        lng,
+        title: type === "load" ? "Load Location" : "Unload Location",
+        type
+      }];
+    });
+
+    setSelectedLocationType(null);
+  };
+
+  // Search select handler
+  const handleSearchSelect = (lat: number, lng: number, label: string) => {
+    if (selectedLocationType) {
+      setLocationWithType(lat, lng, label, selectedLocationType);
+    }
+  };
+
   useEffect(() => {
     if (poId) {
       fetchPODetails();
@@ -311,6 +404,26 @@ const CreateDeliveryFromPO: React.FC = () => {
       };
       setFormDataList([initialFormData]);
       setSelectedTypes([null]);
+
+      // Initialize markers if coordinates exist
+      const initialMarkers: MarkerType[] = [];
+      if (details.load_latitude && details.load_longitude) {
+        initialMarkers.push({
+          lat: details.load_latitude,
+          lng: details.load_longitude,
+          title: "Load Location",
+          type: "load"
+        });
+      }
+      if (details.unload_latitude && details.unload_longitude) {
+        initialMarkers.push({
+          lat: details.unload_latitude,
+          lng: details.unload_longitude,
+          title: "Unload Location",
+          type: "unload"
+        });
+      }
+      setMarkers(initialMarkers);
     } catch (err) {
       console.error("Error fetching PO details:", err);
       setError("Failed to fetch purchase order details.");
@@ -423,7 +536,6 @@ const CreateDeliveryFromPO: React.FC = () => {
     vehicles.find((v) => v.id.toString() === vehicleId);
 
   const handleProcessLocationLink = async (
-    index: number,
     type: "load" | "unload",
     input: string
   ) => {
@@ -876,17 +988,20 @@ const CreateDeliveryFromPO: React.FC = () => {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setSelectedLocationType("load")}
+                    onClick={() => {
+                      setCurrentFormIndex(index);
+                      setSelectedLocationType("load");
+                    }}
                     className={`mt-2 px-3 py-1 rounded text-sm w-full ${
-                      selectedLocationType === "load"
+                      selectedLocationType === "load" && currentFormIndex === index
                         ? "bg-blue-500 text-white animate-pulse"
                         : "bg-gray-200 hover:bg-gray-300"
                     }`}
                   >
                     {showMap &&
-                      (selectedLocationType === "load"
-                        ? "Active..."
-                        : "Set Load")}
+                      (selectedLocationType === "load" && currentFormIndex === index
+                        ? "Click on map..."
+                        : "Set Load Location")}
                   </button>
                 </div>
                 <div className="mt-4">
@@ -925,17 +1040,20 @@ const CreateDeliveryFromPO: React.FC = () => {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setSelectedLocationType("unload")}
+                    onClick={() => {
+                      setCurrentFormIndex(index);
+                      setSelectedLocationType("unload");
+                    }}
                     className={`mt-2 px-3 py-1 rounded text-sm w-full ${
-                      selectedLocationType === "unload"
+                      selectedLocationType === "unload" && currentFormIndex === index
                         ? "bg-red-500 text-white animate-pulse"
                         : "bg-gray-200 hover:bg-gray-300"
                     }`}
                   >
                     {showMap &&
-                      (selectedLocationType === "unload"
-                        ? "Active..."
-                        : "Set Unload")}
+                      (selectedLocationType === "unload" && currentFormIndex === index
+                        ? "Click on map..."
+                        : "Set Unload Location")}
                   </button>
                 </div>
               </div>
@@ -987,8 +1105,16 @@ const CreateDeliveryFromPO: React.FC = () => {
                   attribution="© OpenStreetMap contributors"
                 />
                 <SearchControlComponent onLocationFound={handleSearchSelect} />
-                <MapClickHandler />
-                {markers.map((m, i) => (
+                <MapClickHandler 
+                  selectedLocationType={selectedLocationType}
+                  onLocationSelect={(lat, lng, address) => {
+                    if (selectedLocationType) {
+                      setLocationWithType(lat, lng, address, selectedLocationType);
+                    }
+                  }}
+                  onClearSelection={() => setSelectedLocationType(null)}
+                />
+                {markers.map((m: MarkerType, i: number) => (
                   <Marker
                     key={i}
                     position={[m.lat, m.lng]}
@@ -1004,6 +1130,11 @@ const CreateDeliveryFromPO: React.FC = () => {
                 💡 Click a "Set Location" button, then use the search bar or
                 click the map.
               </p>
+              {selectedLocationType && (
+                <p className="text-blue-600 mt-2">
+                  🎯 Ready to set {selectedLocationType} location for form {currentFormIndex + 1}
+                </p>
+              )}
             </div>
           </div>
         )}
