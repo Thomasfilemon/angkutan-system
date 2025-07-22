@@ -35,6 +35,15 @@ interface POData {
     completion_percentage: number;
     profit_margin: number;
   };
+  metadata: {
+    filters_available: {
+      vehicles: {
+        license_plate: string;
+        type: string;
+        display_name?: string;
+      }[];
+    };
+  };
 }
 
 interface DeliveryOrder {
@@ -111,7 +120,6 @@ const POSpecificRitaseTable: React.FC = () => {
   useEffect(() => {
     if (poId) {
       fetchPOData();
-      fetchVehicles();
     }
   }, [poId]);
 
@@ -133,24 +141,24 @@ const POSpecificRitaseTable: React.FC = () => {
     }
   };
 
-  const fetchVehicles = async () => {
-    try {
-      const res = await apiClient.get("/vehicles"); // Dari routes lo, getAllVehicles
-      const vehicles = res.data.data.map((v: any) => ({
-        value: v.license_plate,
-        label: `${v.license_plate} (${v.type})`,
-      }));
-      setVehicleOptions(vehicles);
-    } catch (err) {
-      console.error("Failed to fetch vehicles:", err);
+  useEffect(() => {
+    if (data?.metadata?.filters_available?.vehicles) {
+      setVehicleOptions(
+        data.metadata.filters_available.vehicles.map((v) => ({
+          value: v.license_plate,
+          label: v.display_name || `${v.license_plate} (${v.type})`,
+        }))
+      );
     }
-  };
+  }, [data?.metadata]);
 
   const processedDOs = useMemo(() => {
     if (!data?.delivery_orders) return [];
     if (!selectedVehicle) return data.delivery_orders;
     return data.delivery_orders.filter(
-      (do_) => do_.vehicle.license_plate === selectedVehicle.value
+      (do_) =>
+        do_.vehicle.license_plate.toLowerCase() ===
+        selectedVehicle.value.toLowerCase()
     );
   }, [data, selectedVehicle]);
 
@@ -203,10 +211,6 @@ const POSpecificRitaseTable: React.FC = () => {
 
   const handleDownloadInvoice = async (invoiceId: number) => {
     try {
-      // Option 1: PDF generation (future)
-      // const response = await apiClient.get(`/payments/invoices/${invoiceId}/pdf`, { responseType: 'blob' });
-
-      // Option 2: Simple invoice data export (immediate)
       const response = await apiClient.get(`/payments/invoices/${invoiceId}`);
       const invoice = response.data.data;
 
@@ -528,7 +532,7 @@ const POSpecificRitaseTable: React.FC = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {data.delivery_orders.map((do_) => (
+              {processedDOs.map((do_) => (
                 <tr key={do_.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4">
                     <input

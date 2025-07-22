@@ -1124,16 +1124,22 @@ const ComprehensiveRitaseTable: React.FC = () => {
                   Start Date
                 </label>
                 <DatePicker
+                  // pick start date
                   selected={exportStartDate}
                   onChange={(date) => setExportStartDate(date)}
-                  selectsStart
-                  startDate={exportStartDate}
-                  endDate={exportEndDate ?? undefined} // Convert null to undefined
-                  minDate={new Date(2025, 0, 1)} // Example min date if needed
-                  maxDate={exportEndDate ?? undefined} // Convert null to undefined
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   dateFormat="yyyy-MM-dd"
                   placeholderText="Select start date"
+                  isClearable
+                  showMonthDropdown
+                  showYearDropdown
+                  dropdownMode="select"
+                  scrollableYearDropdown
+                  yearDropdownItemNumber={15}
+                  minDate={new Date("2020-01-01")}
+                  maxDate={new Date()}
+                  todayButton="Today"
+                  popperPlacement="bottom-start"
                 />
               </div>
               <div>
@@ -1141,15 +1147,22 @@ const ComprehensiveRitaseTable: React.FC = () => {
                   End Date
                 </label>
                 <DatePicker
+                  // pick end date
                   selected={exportEndDate}
                   onChange={(date) => setExportEndDate(date)}
-                  selectsEnd
-                  startDate={exportStartDate ?? undefined} // Convert null to undefined
-                  endDate={exportEndDate}
-                  minDate={exportStartDate ?? undefined} // Convert null to undefined
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   dateFormat="yyyy-MM-dd"
                   placeholderText="Select end date"
+                  isClearable
+                  showMonthDropdown
+                  showYearDropdown
+                  dropdownMode="select"
+                  scrollableYearDropdown
+                  yearDropdownItemNumber={15}
+                  minDate={exportStartDate || new Date("2025-01-01")}
+                  maxDate={new Date()}
+                  todayButton="Today"
+                  popperPlacement="bottom-start"
                 />
               </div>
             </div>

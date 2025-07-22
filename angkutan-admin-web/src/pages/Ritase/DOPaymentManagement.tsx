@@ -119,6 +119,7 @@ interface NewAdjustment {
   adjustment_type: string;
   adjustment_amount: number;
   reason: string;
+  final_amount?: number;
 }
 
 const DOPaymentManagement: React.FC = () => {
@@ -159,6 +160,7 @@ const DOPaymentManagement: React.FC = () => {
     adjustment_type: "price_override",
     adjustment_amount: 0,
     reason: "",
+    final_amount: undefined,
   });
 
   const [showCreateConfirm, setShowCreateConfirm] = useState(false);
@@ -2302,7 +2304,7 @@ const DOPaymentManagement: React.FC = () => {
                             Original Amount
                           </span>
                           <p className="font-bold text-xl text-gray-900">
-                            {formatCurrency(adjustment.original_amount)}
+                            {formatCurrency(paymentSummary.calculated_bill)}
                           </p>
                         </div>
                         <div
@@ -2857,13 +2859,21 @@ const DOPaymentManagement: React.FC = () => {
                 if (!doId) return;
                 setSubmitting(true);
                 try {
-                  // ✅ FIXED: Negate for penalty/incident before submit
+                  // Determine if negation is needed
                   const isNegativeType = ["penalty", "incident"].includes(
                     newAdjustment.adjustment_type
                   );
-                  const adjustedAmount = isNegativeType
-                    ? -Math.abs(newAdjustment.adjustment_amount) // Force negative
-                    : Math.abs(newAdjustment.adjustment_amount); // Ensure positive for others
+                  const isOverride =
+                    newAdjustment.adjustment_type === "price_override";
+                  let adjustedAmount = newAdjustment.adjustment_amount;
+
+                  if (!isOverride) {
+                    // For non-override: Force sign based on type
+                    adjustedAmount = isNegativeType
+                      ? -Math.abs(adjustedAmount)
+                      : Math.abs(adjustedAmount);
+                  }
+                  // For override: adjustment_amount is already computed as delta (final - original), send as-is
 
                   const adjustedPayload = {
                     ...newAdjustment,
@@ -2871,7 +2881,6 @@ const DOPaymentManagement: React.FC = () => {
                   };
 
                   if (doData.adjustments.length > 0) {
-                    // Edit mode: PATCH/PUT
                     const adjustmentId = doData.adjustments[0].id;
                     await apiClient.patch(
                       `/ritase/delivery-orders/${doId}/adjustment/${adjustmentId}`,
@@ -2879,7 +2888,6 @@ const DOPaymentManagement: React.FC = () => {
                     );
                     toast.success("Adjustment updated!");
                   } else {
-                    // Create mode: POST
                     await apiClient.post(
                       `/ritase/delivery-orders/${doId}/adjustment`,
                       adjustedPayload
@@ -2890,6 +2898,7 @@ const DOPaymentManagement: React.FC = () => {
                   setNewAdjustment({
                     adjustment_type: "price_override",
                     adjustment_amount: 0,
+                    final_amount: paymentSummary.calculated_bill,
                     reason: "",
                   });
                   await fetchDOPaymentData();
@@ -2912,12 +2921,21 @@ const DOPaymentManagement: React.FC = () => {
                 </label>
                 <select
                   value={newAdjustment.adjustment_type}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const type = e.target.value;
+                    const isOverride = type === "price_override";
                     setNewAdjustment((prev) => ({
                       ...prev,
-                      adjustment_type: e.target.value,
-                    }))
-                  }
+                      adjustment_type: type,
+                      // Reset amounts on type change
+                      adjustment_amount: isOverride
+                        ? 0
+                        : Math.abs(prev.adjustment_amount),
+                      final_amount: isOverride
+                        ? paymentSummary.calculated_bill
+                        : undefined,
+                    }));
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                 >
                   <option value="price_override">Price Override</option>
@@ -2928,31 +2946,79 @@ const DOPaymentManagement: React.FC = () => {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Adjustment Amount
-                </label>
-                {/* ✅ FIXED: Force positive input, negation on submit */}
-                <input
-                  type="number"
-                  required
-                  min="0"
-                  step="0.01"
-                  value={newAdjustment.adjustment_amount}
-                  onChange={(e) =>
-                    setNewAdjustment((prev) => ({
-                      ...prev,
-                      adjustment_amount: Math.abs(
-                        parseFloat(e.target.value) || 0
-                      ), // Enforce positive in state
-                    }))
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
-                />
-                <p className="text-sm text-gray-500 mt-1">
-                  Current: {formatCurrency(calculatedBillableAmount)}
-                </p>
-              </div>
+              {newAdjustment.adjustment_type === "price_override" ? (
+                // For Price Override: Show Final Amount input, compute adjustment read-only
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Final Amount
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    step="0.01"
+                    min="0" // Prevent negative final amounts; adjust if business allows
+                    value={newAdjustment.final_amount ?? ""} // Allow empty during typing; no fallback to original
+                    onChange={(e) => {
+                      const inputValue = e.target.value;
+                      const finalValue =
+                        inputValue === "" ? null : parseFloat(inputValue); // Allow empty string
+                      const computedAdjustment =
+                        finalValue == null
+                          ? 0 // Temp 0 for preview if empty
+                          : finalValue - paymentSummary.calculated_bill;
+
+                      setNewAdjustment((prev) => ({
+                        ...prev,
+                        final_amount: finalValue ?? undefined, // Store null if empty
+                        adjustment_amount: computedAdjustment,
+                      }));
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
+                  />
+                  <p className="text-sm text-gray-500 mt-1">
+                    Original: {formatCurrency(paymentSummary.calculated_bill)}
+                  </p>
+
+                  <label className="block text-sm font-medium text-gray-700 mb-2 mt-4">
+                    Adjustment Amount (Auto-Calculated)
+                  </label>
+                  <input
+                    type="number"
+                    value={newAdjustment.adjustment_amount}
+                    readOnly // Read-only for override
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed"
+                  />
+                </div>
+              ) : (
+                // For other types: Standard Adjustment Amount input
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Adjustment Amount
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    step="0.01"
+                    min="0" // Positive only for non-override
+                    value={Math.abs(newAdjustment.adjustment_amount)} // Show absolute for input
+                    onChange={(e) => {
+                      const value = parseFloat(e.target.value) || 0;
+                      const isNegativeType = ["penalty", "incident"].includes(
+                        newAdjustment.adjustment_type
+                      );
+                      const adjustedValue = isNegativeType ? -value : value;
+                      setNewAdjustment((prev) => ({
+                        ...prev,
+                        adjustment_amount: adjustedValue,
+                      }));
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
+                  />
+                  <p className="text-sm text-gray-500 mt-1">
+                    Current: {formatCurrency(paymentSummary.calculated_bill)}
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -2973,7 +3039,7 @@ const DOPaymentManagement: React.FC = () => {
                 />
               </div>
 
-              {/* Adjustment Preview - FIXED: Negate for preview */}
+              {/* Adjustment Preview - Adapted for override (shows computed adjustment) */}
               <div className="bg-yellow-50 p-4 rounded-lg">
                 <h4 className="font-medium text-yellow-800 mb-2">
                   Adjustment Preview
@@ -2982,45 +3048,35 @@ const DOPaymentManagement: React.FC = () => {
                   <div className="flex justify-between">
                     <span>Original Amount:</span>
                     <span className="font-medium">
-                      {formatCurrency(calculatedBillableAmount)}
+                      {formatCurrency(paymentSummary.calculated_bill)}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span>New Amount:</span>
-                    <span className="font-medium">
-                      {formatCurrency(
-                        ["penalty", "incident"].includes(
-                          newAdjustment.adjustment_type
-                        )
-                          ? -Math.abs(newAdjustment.adjustment_amount)
-                          : newAdjustment.adjustment_amount
-                      )}
+                    <span>Adjustment Amount:</span>
+                    <span
+                      className={`font-medium ${
+                        newAdjustment.adjustment_amount < 0
+                          ? "text-red-600"
+                          : "text-green-600"
+                      }`}
+                    >
+                      {formatCurrency(newAdjustment.adjustment_amount)}
                     </span>
                   </div>
                   <div className="flex justify-between font-semibold border-t border-yellow-200 pt-1">
-                    <span>Change:</span>
+                    <span>Final Amount:</span>
                     <span
-                      className={
-                        ["penalty", "incident"].includes(
-                          newAdjustment.adjustment_type
-                        ) ||
-                        newAdjustment.adjustment_amount <
-                          calculatedBillableAmount
+                      className={`font-medium ${
+                        newAdjustment.adjustment_amount < 0
                           ? "text-red-600"
                           : "text-green-600"
-                      }
+                      }`}
                     >
-                      {newAdjustment.adjustment_amount >
-                      calculatedBillableAmount
-                        ? "+"
-                        : ""}
                       {formatCurrency(
-                        (["penalty", "incident"].includes(
-                          newAdjustment.adjustment_type
-                        )
-                          ? -Math.abs(newAdjustment.adjustment_amount)
-                          : newAdjustment.adjustment_amount) -
-                          calculatedBillableAmount
+                        newAdjustment.adjustment_type === "price_override"
+                          ? newAdjustment.final_amount // For override, show entered final
+                          : paymentSummary.calculated_bill +
+                              newAdjustment.adjustment_amount // For others, compute
                       )}
                     </span>
                   </div>

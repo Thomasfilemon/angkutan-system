@@ -935,7 +935,10 @@ exports.createPriceAdjustment = async (req, res, next) => {
       });
     }
 
-    const originalAmount = parseFloat(deliveryOrder.final_amount) || 0;
+    const originalAmount =
+      parseFloat(deliveryOrder.final_amount) ||
+      parseFloat(deliveryOrder.total_amount) ||
+      0;
     const delta = parseFloat(adjustment_amount);
     if (isNaN(delta)) {
       await transaction.rollback();
