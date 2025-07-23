@@ -18,9 +18,12 @@ interface RemovedTire {
   installations: Array<{
     vehicle: {
       license_plate: string;
+      current_mileage?: number; // ✅ Add current_mileage for calculation
     };
     install_date: string;
     remove_date: string;
+    mileage_installed?: number; // ✅ Add mileage_installed field
+    mileage_removed?: number; // ✅ Change from remove_mileage to mileage_removed
   }>;
 }
 
@@ -109,7 +112,6 @@ const RemovedTiresPage = () => {
   };
 
   // ✅ ADD FILTER OPTIONS EXTRACTION
-  // ✅ FIXED - Replace spread operator with Array.from() for Set conversion
   const extractFilterOptions = (tires: RemovedTire[]) => {
     const conditions = Array.from(new Set(tires.map(tire => tire.condition)));
     const brands = Array.from(new Set(tires.map(tire => tire.tireInventory.tire_brand)));
@@ -125,7 +127,6 @@ const RemovedTiresPage = () => {
       vehicles: vehicles.sort()
     });
   };
-
 
   // ✅ ADD FILTER LOGIC
   const applyFilters = () => {
@@ -240,6 +241,22 @@ const RemovedTiresPage = () => {
     }
     
     return date.toLocaleDateString('id-ID');
+  };
+
+  // ✅ ADD MILEAGE CALCULATION FUNCTION
+  const calculateTireUsageKm = (tire: RemovedTire): string => {
+    if (!tire.installations || tire.installations.length === 0) {
+      return 'Data tidak tersedia';
+    }
+
+    const installation = tire.installations[0];
+    
+    // ✅ Simple solution: Just show mileage_installed when available
+    if (installation.mileage_installed !== undefined && installation.mileage_installed !== null) {
+      return `${installation.mileage_installed.toLocaleString('id-ID')} km`;
+    }
+    
+    return 'Data tidak tersedia';
   };
 
   const getConditionColor = (condition: string) => {
@@ -458,7 +475,7 @@ const RemovedTiresPage = () => {
         </div>
       </div>
 
-      {/* ✅ UPDATE TABLE TO USE FILTERED TIRES */}
+      {/* ✅ UPDATE TABLE TO USE FILTERED TIRES AND ADD MILEAGE COLUMN */}
       <div className="bg-white shadow-md rounded-lg overflow-x-auto">
         <table className="min-w-full leading-normal">
          <thead>
@@ -467,6 +484,7 @@ const RemovedTiresPage = () => {
             <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Brand & Size</th>
             <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Kondisi</th>
             <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Tapak (mm)</th>
+            <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Kilometer</th>
             <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Catatan</th>
             <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Terakhir di Kendaraan</th>
             <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
@@ -493,6 +511,12 @@ const RemovedTiresPage = () => {
                   </td>
                   <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
                     <p className="text-gray-900 whitespace-no-wrap">{tire.current_tread_depth}</p>
+                  </td>
+                  {/* ✅ ADD MILEAGE COLUMN */}
+                  <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
+                    <p className="text-gray-900 whitespace-no-wrap text-xs">
+                      {calculateTireUsageKm(tire)}
+                    </p>
                   </td>
                   <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
                     <div className="max-w-xs">
@@ -555,7 +579,7 @@ const RemovedTiresPage = () => {
               ))
             ) : (
               <tr>
-                <td colSpan={8} className="text-center py-10 text-gray-500">
+                <td colSpan={9} className="text-center py-10 text-gray-500">
                   {removedTires.length === 0 ? 'Belum ada ban bekas yang tersedia' : 'Tidak ada ban yang sesuai dengan filter'}
                 </td>
               </tr>

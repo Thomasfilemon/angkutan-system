@@ -11,7 +11,7 @@ interface Vehicle {
   tire_count: number;
   spare_tire_count: number;
   total_tires: number;
-  tire_positions?: string[]; // Dynamic tire positions
+  tire_positions?: string[];
   updatedAt?: string;
   current_mileage?: number;
   driver_name?: string;
@@ -32,12 +32,13 @@ interface TireData {
   brand: string;
   size: string;
   total_mileage?: number;
+  mileage_installed?: number;
   isPressureLow?: boolean;
   isPressureHigh?: boolean;
   isTemperatureHigh?: boolean;
   needsReplacement?: boolean;
   updated_at: string;
-  notes?: string; // ✅ Add notes field
+  notes?: string;
 }
 
 interface TireStatus {
@@ -68,11 +69,21 @@ interface TireInstance {
   condition: string;
   status: string;
   total_mileage?: number;
+  installations?: Array<{
+    vehicle: {
+      license_plate: string;
+      current_mileage?: number;
+    };
+    install_date: string;
+    remove_date: string;
+    mileage_installed?: number;
+    mileage_removed?: number;
+  }>;
 }
 
 interface TireUpdateData {
   current_pressure: number;
-  temperature: number;
+  mileage_installed: number;
   tread_depth: number;
   condition: string;
   notes: string;
@@ -93,12 +104,11 @@ const TireManagementPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  // Modal states
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [selectedTire, setSelectedTire] = useState<TireData | null>(null);
   const [updateData, setUpdateData] = useState<TireUpdateData>({
     current_pressure: 0,
-    temperature: 0,
+    mileage_installed: 0,
     tread_depth: 0,
     condition: 'good',
     notes: ''
@@ -123,7 +133,6 @@ const TireManagementPage = () => {
   
   const location = useLocation();
 
-  // ✅ Add condition mapping for display
   const conditionMapping: { [key: string]: string } = {
     'new': 'Baru',
     'good': 'Baik',
@@ -141,35 +150,42 @@ const TireManagementPage = () => {
     return conditionMapping[condition] || condition;
   };
 
-  // --- HELPER FUNCTIONS ---
-  // Generate tire positions with A/B designation for dual tires
+  const calculateTireKilometers = (tire: TireData) => {
+    console.log('Vehicle current_mileage:', selectedVehicle?.current_mileage);
+    console.log('Tire mileage_installed:', tire.mileage_installed);
+    
+    if (!selectedVehicle?.current_mileage) {
+      return tire.mileage_installed || 0;
+    }
+    
+    if (tire.mileage_installed !== undefined && tire.mileage_installed !== null) {
+      const result = selectedVehicle.current_mileage - tire.mileage_installed;
+      console.log('Calculated kilometers:', result);
+      return result;
+    }
+    return 0;
+  };
+
   const generateTirePositions = (tireCount: number, spareTireCount: number): string[] => {
     const positions = [];
     
-    // Always have front tires
     positions.push('FL', 'FR');
     
-    // Calculate rear tire configuration
     const rearTireCount = tireCount - 2;
     
     if (rearTireCount === 2) {
-      // Single rear axle (4-tire vehicle)
       positions.push('RL1', 'RR1');
     } else if (rearTireCount === 4) {
-      // Dual rear axle (6-tire vehicle) - inner/outer designation
       positions.push('RL1A', 'RL1B', 'RR1A', 'RR1B');
     } else if (rearTireCount === 8) {
-      // 10-tire vehicle - TWO rear axles with dual tires each
       positions.push('RL1A', 'RL1B', 'RR1A', 'RR1B', 'RL2A', 'RL2B', 'RR2A', 'RR2B');
     } else if (rearTireCount >= 6) {
-      // Large vehicles - create proper dual axle configuration
-      const axleCount = Math.ceil(rearTireCount / 4); // 4 tires per axle
+      const axleCount = Math.ceil(rearTireCount / 4);
       for (let axle = 1; axle <= axleCount; axle++) {
         positions.push(`RL${axle}A`, `RL${axle}B`, `RR${axle}A`, `RR${axle}B`);
       }
     }
     
-    // Add spare tires
     for (let spare = 1; spare <= spareTireCount; spare++) {
       positions.push(`SPARE${spare}`);
     }
@@ -177,7 +193,6 @@ const TireManagementPage = () => {
     return positions;
   };
 
-  // Group positions by type for better layout
   const groupTirePositions = (positions: string[]) => {
     return {
       front: positions.filter(pos => pos.startsWith('F')),
@@ -186,23 +201,19 @@ const TireManagementPage = () => {
     };
   };
 
-  // FIXED: Group rear tires by axle with A/B designation support
   const groupRearTiresByAxle = (rearPositions: string[]) => {
     console.log('=== GROUPING DEBUG ===');
     console.log('Input rear positions:', rearPositions);
     const axles: string[][] = [];
     
-    // If no rear positions, return empty array
     if (rearPositions.length === 0) {
       console.log('No rear positions - returning empty array');
       return axles;
     }
     
-    // Group by axle number (1, 2, 3, etc.)
     const axleMap = new Map<number, string[]>();
     
     rearPositions.forEach(pos => {
-      // Extract axle number from position (RL1A -> 1, RL2B -> 2, RL1 -> 1)
       const axleMatch = pos.match(/(\d+)/);
       const axleNum = axleMatch ? parseInt(axleMatch[0]) : 1;
 
@@ -216,24 +227,19 @@ const TireManagementPage = () => {
 
     console.log('Axle map:', Array.from(axleMap.entries()));
     
-    // Convert to array of axles, properly sorted
     Array.from(axleMap.keys()).sort().forEach(axleNum => {
       const axleTires = axleMap.get(axleNum)!;
       
-      // Sort all tires for this axle: Left tires first (A then B), then Right tires (A then B)
-      const sortedTires = axleTires.sort((a, b) => {
-        // First sort by side (L before R)
+      const sortedTires = axleTires.sort((a: string, b: string) => {
         if (a.includes('L') && b.includes('R')) return -1;
         if (a.includes('R') && b.includes('L')) return 1;
         
-        // Then sort by A/B designation within the same side
         if (a.includes('A') && b.includes('B')) return -1;
         if (a.includes('B') && b.includes('A')) return 1;
         
         return a.localeCompare(b);
       });
       
-      // Add the entire axle as one group
       console.log(`Axle ${axleNum} sorted tires:`, sortedTires);
       axles.push(sortedTires);
     });
@@ -243,7 +249,6 @@ const TireManagementPage = () => {
     return axles;
   };
 
-  // --- API CALLS ---
   const fetchVehicles = useCallback(async () => {
     try {
       const response = await apiClient.get('/tires/vehicles');
@@ -283,7 +288,6 @@ const TireManagementPage = () => {
     }
   }, []);
 
-  // --- EFFECTS ---
   useEffect(() => {
     const initialize = async () => {
       setLoading(true);
@@ -306,7 +310,6 @@ const TireManagementPage = () => {
     initialize();
   }, [location.search, fetchVehicles, fetchVehicleTireStatus]);
 
-  // --- EVENT HANDLERS ---
   const handleVehicleChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const vehicleIdStr = e.target.value;
     setSelectedVehicleId(vehicleIdStr);
@@ -329,10 +332,10 @@ const TireManagementPage = () => {
     setSelectedTire(tire);
     setUpdateData({
       current_pressure: tire.current_pressure,
-      temperature: tire.temperature,
+      mileage_installed: tire.mileage_installed || 0,
       tread_depth: tire.tread_depth,
       condition: tire.condition,
-      notes: tire.notes || '' // ✅ Load existing notes
+      notes: tire.notes || ''
     });
     setUpdateModalOpen(true);
   };
@@ -397,13 +400,10 @@ const TireManagementPage = () => {
     setConfirmModalOpen(true);
   };
 
-  // --- RENDER FUNCTIONS ---
-  // Enhanced tire rendering with A/B designation display
   const renderTire = (tireStatus: TireStatus) => {
     const { position, tire } = tireStatus;
     const isInstalled = tire !== null;
     
-    // Format position display for A/B designation
     const displayPosition = position.length > 3 ? 
       `${position.slice(0, -1)}\n${position.slice(-1)}` : position;
     
@@ -424,11 +424,9 @@ const TireManagementPage = () => {
     );
   };
 
-  // ✅ Enhanced info box with notes display
   const renderInfoBox = (tireStatus: TireStatus) => {
     const { position, installed, tire } = tireStatus;
 
-    // Determine tire type for styling
     const tireType = position.includes('A') ? 'outer' : position.includes('B') ? 'inner' : 'single';
 
     if (!installed || !tire) {
@@ -467,9 +465,9 @@ const TireManagementPage = () => {
           <div>Pasang: {new Date(tire.install_date).toLocaleDateString('id-ID')}</div>
           <div>Tekanan: {tire.current_pressure} PSI</div>
           <div>Tapak: {tire.tread_depth} mm</div>
+          <div>Kilometer: {calculateTireKilometers(tire).toLocaleString('id-ID')} km</div>
           <div>Kondisi: {getConditionDisplay(tire.condition)}</div>
           <div>Terakhir Update: {tire.updated_at ? new Date(tire.updated_at).toLocaleString('id-ID') : '-'}</div>
-          {/* ✅ Add notes display */}
           {tire.notes && (
             <div className="tire-notes">
               <strong>Catatan:</strong> {tire.notes}
@@ -486,7 +484,6 @@ const TireManagementPage = () => {
     );
   };
 
-  // Enhanced vehicle layout with better dual tire display
   const renderVehicleLayout = () => {
     if (!selectedVehicle) return null;
 
@@ -504,11 +501,9 @@ const TireManagementPage = () => {
     const groupedPositions = groupTirePositions(expectedPositions);
     const rearAxles = groupRearTiresByAxle(groupedPositions.rear);
 
-    // Get unique left and right positions from grouped positions directly
     const leftFrontPositions = groupedPositions.front.filter(pos => pos.includes('L'));
     const rightFrontPositions = groupedPositions.front.filter(pos => pos.includes('R'));
     
-    // Get left and right rear positions directly from groupedPositions.rear
     const leftRearPositions = groupedPositions.rear.filter(pos => pos.startsWith('RL'));
     const rightRearPositions = groupedPositions.rear.filter(pos => pos.startsWith('RR'));
 
@@ -521,16 +516,11 @@ const TireManagementPage = () => {
         </div>
 
         <div className="truck-layout-container">
-          {/* LEFT COLUMN */}
           <div className="left-info-column">
-            {/* Front Left */}
             {leftFrontPositions.map(pos => renderInfoBox(getTireByPosition(pos)))}
-            
-            {/* Rear Left */}
             {leftRearPositions.map(pos => renderInfoBox(getTireByPosition(pos)))}
           </div>
 
-          {/* CENTER - VISUAL ONLY */}
           <div className="truck-visual-container">
             <div className="truck-header">
               <div className="truck-info-line">
@@ -542,7 +532,6 @@ const TireManagementPage = () => {
             </div>
 
             <div className="truck-body">
-              {/* Front Axle Visual */}
               <div className="axle-section front-axle">
                 <div className="tire-pair">
                   {leftFrontPositions.map(pos => renderTire(getTireByPosition(pos)))}
@@ -551,7 +540,6 @@ const TireManagementPage = () => {
                 </div>
               </div>
 
-              {/* Spare Tires - Only visual, no info boxes */}
               {groupedPositions.spare.length > 0 && (
                 <div className="truck-chassis">
                   <div className="spare-section">
@@ -565,7 +553,6 @@ const TireManagementPage = () => {
                 </div>
               )}
 
-              {/* Rear Axles Visual */}
               {rearAxles.map((axlePositions, axleIndex) => (
                 <div key={`axle-${axleIndex}`} className="axle-section rear-axle">
                   <div className="axle-label">As {axleIndex + 1}</div>
@@ -599,15 +586,9 @@ const TireManagementPage = () => {
             </div>
           </div>
 
-          {/* RIGHT COLUMN */}
           <div className="right-info-column">
-            {/* Front Right */}
             {rightFrontPositions.map(pos => renderInfoBox(getTireByPosition(pos)))}
-            
-            {/* Rear Right */}
             {rightRearPositions.map(pos => renderInfoBox(getTireByPosition(pos)))}
-            
-            {/* Spare tire info boxes */}
             {groupedPositions.spare.map(pos => 
               renderInfoBox(getTireByPosition(pos))
             )}
@@ -645,7 +626,6 @@ const TireManagementPage = () => {
         )}
       </div>
 
-      {/* Confirmation Modal */}
       {confirmModalOpen && (
         <div className="modal-overlay">
           <div className="modal">
@@ -672,7 +652,7 @@ const TireManagementPage = () => {
         </div>
       )}
 
-      {/* Install Modal */}
+      {/* ✅ UPDATED INSTALL MODAL */}
       {installModalOpen && (
         <div className="modal-overlay">
           <div className="modal">
@@ -711,11 +691,23 @@ const TireManagementPage = () => {
                       <div 
                         key={instance.id}
                         className={`tire-option ${installData.tire_instance_id === instance.id ? 'selected' : ''}`}
-                        onClick={() => setInstallData(prev => ({ 
-                          ...prev, 
-                          tire_instance_id: instance.id, 
-                          tire_inventory_id: null 
-                        }))}
+                        onClick={() => {
+                          // ✅ Get tire's historical mileage
+                          let tireMileage = selectedVehicle?.current_mileage || 0;
+                          
+                          if (instance.installations && instance.installations.length > 0) {
+                            const lastInstallation = instance.installations[0];
+                            // Use mileage_removed if available, otherwise mileage_installed
+                            tireMileage = lastInstallation.mileage_removed || lastInstallation.mileage_installed || tireMileage;
+                          }
+
+                          setInstallData(prev => ({ 
+                            ...prev, 
+                            tire_instance_id: instance.id, 
+                            tire_inventory_id: null,
+                            mileage_installed: tireMileage // ✅ Use tire's historical mileage
+                          }));
+                        }}
                       >
                         <div>{instance.tireInventory.tire_brand} {instance.tireInventory.tire_size}</div>
                         <div>S/N: {instance.tire_serial_number} | Tapak: {instance.current_tread_depth}mm</div>
@@ -726,31 +718,32 @@ const TireManagementPage = () => {
                 </div>
               </div>
             ) : (
-            <div className="form-group">
-              <label>Pilih Ban dari Inventaris:</label>
-              <div className="tire-selection">
-                {availableTires.length === 0 ? (
-                  <p className="no-data">Tidak ada ban baru yang tersedia</p>
-                ) : (
-                  availableTires.map((tire) => (
-                    <div 
-                      key={tire.id}
-                      className={`tire-option ${installData.tire_instance_id === tire.id ? 'selected' : ''}`}
-                      onClick={() => setInstallData(prev => ({ 
-                        ...prev, 
-                        tire_instance_id: tire.id,
-                        tire_inventory_id: null 
-                      }))}
-                    >
-                      <div><strong>S/N:</strong> {tire.tire_serial_number}</div>
-                      <div><strong>Merek:</strong> {tire.tireInventory.tire_brand}</div>
-                      <div><strong>Ukuran:</strong> {tire.tireInventory.tire_size}</div>
-                      <div><strong>Tgl Beli:</strong> {new Date(tire.purchase_date).toLocaleDateString('id-ID')}</div>
-                    </div>
-                  ))
-                )}
+              <div className="form-group">
+                <label>Pilih Ban dari Inventaris:</label>
+                <div className="tire-selection">
+                  {availableTires.length === 0 ? (
+                    <p className="no-data">Tidak ada ban baru yang tersedia</p>
+                  ) : (
+                    availableTires.map((tire) => (
+                      <div 
+                        key={tire.id}
+                        className={`tire-option ${installData.tire_instance_id === tire.id ? 'selected' : ''}`}
+                        onClick={() => setInstallData(prev => ({ 
+                          ...prev, 
+                          tire_instance_id: tire.id,
+                          tire_inventory_id: null,
+                          mileage_installed: selectedVehicle?.current_mileage || 0 // ✅ For new tires, use vehicle mileage
+                        }))}
+                      >
+                        <div><strong>S/N:</strong> {tire.tire_serial_number}</div>
+                        <div><strong>Merek:</strong> {tire.tireInventory.tire_brand}</div>
+                        <div><strong>Ukuran:</strong> {tire.tireInventory.tire_size}</div>
+                        <div><strong>Tgl Beli:</strong> {new Date(tire.purchase_date).toLocaleDateString('id-ID')}</div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
-            </div>
             )}
 
             <div className="form-group">
@@ -770,14 +763,20 @@ const TireManagementPage = () => {
             <div className="form-group">
               <label>Kilometer Saat Pasang:</label>
               <input 
-                type="number" 
+                type="number"
                 value={installData.mileage_installed}
-                onChange={(e) => setInstallData(prev => ({ 
+                onChange={(e) => setInstallData(prev => ({
                   ...prev, 
-                  mileage_installed: parseInt(e.target.value) || 0 
+                  mileage_installed: parseInt(e.target.value) || 0
                 }))}
                 min="0"
               />
+              {/* ✅ Add helper text */}
+              {useSpecificInstance && installData.tire_instance_id && (
+                <small className="text-gray-600" style={{fontSize: '12px', color: '#666', marginTop: '4px', display: 'block'}}>
+                  * Mileage otomatis diisi berdasarkan riwayat ban yang dipilih
+                </small>
+              )}
             </div>
 
             <div className="modal-buttons">
@@ -799,7 +798,6 @@ const TireManagementPage = () => {
         </div>
       )}
 
-      {/* ✅ Updated Update Modal with complete conditions */}
       {updateModalOpen && selectedTire && (
         <div className="modal-overlay">
           <div className="modal">
@@ -821,21 +819,6 @@ const TireManagementPage = () => {
             </div>
 
             <div className="form-group">
-              <label>Suhu (°C):</label>
-              <input 
-                type="number" 
-                step="0.1"
-                value={updateData.temperature}
-                onChange={(e) => setUpdateData(prev => ({
-                  ...prev, 
-                  temperature: parseFloat(e.target.value) || 0
-                }))}
-                min="-50"
-                max="200"
-              />
-            </div>
-
-            <div className="form-group">
               <label>Kedalaman Tapak (mm):</label>
               <input 
                 type="number" 
@@ -847,6 +830,19 @@ const TireManagementPage = () => {
                 }))}
                 min="0"
                 max="20"
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Kilometer Saat Pasang:</label>
+              <input 
+                type="number"
+                value={updateData.mileage_installed}
+                onChange={(e) => setUpdateData(prev => ({
+                  ...prev, 
+                  mileage_installed: parseInt(e.target.value) || 0
+                }))}
+                min="0"
               />
             </div>
 

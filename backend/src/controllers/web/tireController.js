@@ -6,7 +6,7 @@ const { Op } = require('sequelize');
 exports.updateTireData = async (req, res, next) => {
   try {
     const { tireId } = req.params; // This is VehicleTire ID
-    const { current_pressure, temperature, tread_depth, condition, notes } = req.body;
+    const { current_pressure, mileage_installed, tread_depth, condition, notes } = req.body;
     
     const tire = await VehicleTire.findByPk(tireId);
     
@@ -20,11 +20,24 @@ exports.updateTireData = async (req, res, next) => {
     // Update tire data
     await tire.update({
       current_pressure: current_pressure ?? tire.current_pressure,
-      temperature: temperature ?? tire.temperature,
+      mileage_installed: mileage_installed ?? tire.mileage_installed,  // ← Add this line
       tread_depth: tread_depth ?? tire.tread_depth,
       condition: condition ?? tire.condition,
       notes: notes ?? tire.notes
     });
+    
+    if (mileage_installed !== undefined) {
+      await VehicleTire.update(
+        { mileage_installed: mileage_installed },
+        {
+          where: {
+            tire_instance_id: tire.tire_instance_id,
+            status: 'removed'
+          }
+        }
+      );
+      console.log(`Updated mileage_installed to ${mileage_installed} for removed records of tire instance ${tire.tire_instance_id}`);
+    }
 
     // Create inspection record for history
     await TireInspection.create({
@@ -33,7 +46,7 @@ exports.updateTireData = async (req, res, next) => {
       inspection_date: new Date(),
       tread_depth: tread_depth ?? tire.tread_depth,
       air_pressure: current_pressure ?? tire.current_pressure,
-      temperature: temperature ?? tire.temperature,
+      temperature: 25.0, // ✅ Set default temperature for inspection record
       condition: condition ?? tire.condition,
       notes: `Inspection: ${notes || 'Routine update'}`,
       inspector_name: req.user?.username || 'System'
@@ -83,6 +96,8 @@ exports.removeTire = async (req, res, next) => {
         message: 'This tire has already been removed.'
       });
     }
+
+    const vehicle = await Vehicle.findByPk(vehicleTire.vehicle_id);
 
     // ✅ SMART NOTES MANAGEMENT
     const smartNotesManager = (existingNotes) => {
@@ -152,6 +167,7 @@ exports.removeTire = async (req, res, next) => {
     await vehicleTire.update({
       status: 'removed',
       remove_date: new Date(),
+      mileage_removed: vehicle.current_mileage || 0,  // ✅ Add this line
       notes: finalNotes
     });
 
@@ -457,7 +473,7 @@ exports.getAvailableTireInstances = async (req, res, next) => {
           model: VehicleTire,
           as: 'installations',
           // FIX: Added 'id' and 'vehicle_id' to the attributes list
-          attributes: ['id', 'vehicle_id', 'remove_date'],
+          attributes: ['id', 'vehicle_id', 'remove_date', 'install_date', 'mileage_installed', 'mileage_removed'],
           include: [
             {
               model: Vehicle,
@@ -551,6 +567,30 @@ exports.installTireInstance = async (req, res, next) => {
     // ✅ Store original status before updating (fixes inventory bug)
     const originalStatus = tireInstance.status;
 
+    // ✅ DETERMINE CORRECT MILEAGE_INSTALLED VALUE
+    let baseMileage = mileage_installed || vehicle.current_mileage || 0;
+
+    if (tireInstance.status === 'removed') {
+      const lastRemoval = await VehicleTire.findOne({
+        where: {
+          tire_instance_id: tire_instance_id,
+          status: 'removed',
+          mileage_removed: { [Op.not]: null }
+        },
+        order: [['remove_date', 'DESC']],
+        limit: 1
+      });
+      
+      if (lastRemoval?.mileage_removed) {
+        baseMileage = lastRemoval.mileage_removed;
+        console.log(`Using previous removal mileage: ${baseMileage} for tire ${tireInstance.tire_serial_number}`);
+      } else {
+        console.log(`No removal mileage found, using default: ${baseMileage} for tire ${tireInstance.tire_serial_number}`);
+      }
+    } else {
+      console.log(`New tire installation, using mileage: ${baseMileage} for tire ${tireInstance.tire_serial_number}`);
+    }
+
     // ✅ Preserve notes from tire instance when creating vehicle tire
     const installationNote = `Dipasang: ${new Date().toLocaleDateString('id-ID')} di ${vehicle.license_plate} posisi ${position}`;
     const preservedNotes = tireInstance.notes ? 
@@ -564,14 +604,14 @@ exports.installTireInstance = async (req, res, next) => {
       tire_instance_id: tire_instance_id,
       position,
       install_date: new Date(),
-      mileage_installed: mileage_installed || vehicle.current_mileage || 0,
+      mileage_installed: baseMileage, // ✅ Use accumulated mileage
       recommended_pressure: recommended_pressure || 35,
       current_pressure: recommended_pressure || 35,
       tread_depth: tireInstance.current_tread_depth,
       temperature: 25.0,
       condition: (tireInstance.condition === 'new') ? 'good' : tireInstance.condition,
       status: 'active',
-      notes: preservedNotes // ✅ Preserve notes from tire instance
+      notes: preservedNotes
     });
 
     // Update tire instance status to 'installed'
@@ -749,6 +789,7 @@ exports.getVehicleTireStatus = async (req, res, next) => {
             tread_depth: tire.tread_depth,
             condition: tire.condition,
             install_date: tire.install_date,
+            mileage_installed: tire.mileage_installed, // ✅ Add this line
             updated_at: tire.updated_at, // Added update date
             brand: tireInfo.tire_brand,
             size: tireInfo.tire_size,
