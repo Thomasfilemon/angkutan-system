@@ -469,4 +469,15 @@ DeliveryOrder.hasMany(DeliveryOrderPayments, {
   as: 'payments_depositGroup',
 });
 
+PurchaseOrder.belongsTo(DepositGroup, {
+  foreignKey: "deposit_group_id",
+  as: "depositGroup",
+});
+DepositGroup.hasMany(PurchaseOrder, {
+  foreignKey: "deposit_group_id",
+  as: "purchaseOrders",
+});
+
+
+
 module.exports = db;

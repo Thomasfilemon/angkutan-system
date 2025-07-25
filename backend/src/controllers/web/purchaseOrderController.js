@@ -43,6 +43,13 @@ exports.getAllPurchaseOrders = async (req, res, next) => {
             attributes: ["id", "do_number", "status", "actual_load_quantity"],
             required: false,
           },
+          // ✅ NEW: Include deposit group information
+          {
+            model: require("../../models").DepositGroup,
+            as: "depositGroup",
+            attributes: ["id", "group_name", "status", "remaining_quantity", "target_quantity"],
+            required: false,
+          }
         ],
         order: [["created_at", "DESC"]],
         limit: parseInt(limit),
@@ -69,6 +76,15 @@ exports.getAllPurchaseOrders = async (req, res, next) => {
           po.poDeliveryOrders?.filter((d) => d.status === "completed").length ||
           0;
 
+        // ✅ NEW: Extract deposit group info
+        const depositGroup = po.depositGroup ? {
+          id: po.depositGroup.id,
+          name: po.depositGroup.group_name,
+          status: po.depositGroup.status,
+          remaining_quantity: parseFloat(po.depositGroup.remaining_quantity || 0),
+          target_quantity: parseFloat(po.depositGroup.target_quantity || 0)
+        } : null;
+
         return {
           ...po.toJSON(),
           delivered_quantity: totalDelivered,
@@ -82,18 +98,29 @@ exports.getAllPurchaseOrders = async (req, res, next) => {
                 : 0,
           },
           can_create_do: remainingQuantity > 0 && po.status !== "cancelled",
+          // ✅ NEW: Add deposit group info to response
+          deposit_group: depositGroup,
+          is_deposit_linked: !!depositGroup,
         };
       })
     );
 
+    // ✅ NEW: Add deposit group stats
+    const depositStats = {
+      linked_to_deposit: enhancedPOs.filter(po => po.is_deposit_linked).length,
+      not_linked: enhancedPOs.filter(po => !po.is_deposit_linked).length,
+    };
+
     // Calculate summary stats
     const stats = {
-      total: enhancedPOs.length, // ✅ FIX: Use actual results, not DB count
+      total: enhancedPOs.length,
       active: enhancedPOs.filter((po) =>
         ["confirmed", "partial"].includes(po.status)
       ).length,
       completed: enhancedPOs.filter((po) => po.status === "completed").length,
       cancelled: enhancedPOs.filter((po) => po.status === "cancelled").length,
+      // ✅ NEW: Add deposit group statistics
+      deposit_group_stats: depositStats,
     };
 
     res.json({
@@ -200,7 +227,19 @@ exports.createPurchaseOrder = async (req, res, next) => {
       unload_latitude,
       unload_longitude,
       notes,
+      deposit_group_id
     } = req.body;
+
+    if (deposit_group_id) {
+      const { DepositGroup } = require("../../models");
+      const groupExists = await DepositGroup.findByPk(deposit_group_id);
+      if (!groupExists) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Deposit group not found' 
+        });
+      }
+    }
 
     const calculateTotalAmount = (quantity, unit, unitPrice) => {
       const qty = parseFloat(quantity) || 0;
@@ -250,6 +289,7 @@ exports.createPurchaseOrder = async (req, res, next) => {
       unload_latitude,
       unload_longitude,
       notes,
+      deposit_group_id,
       status: "confirmed",
     });
 
@@ -273,23 +313,43 @@ exports.createPurchaseOrder = async (req, res, next) => {
     }
     next(err);
   }
+  
 };
 
 // Update PO
 // Update PO
 exports.updatePurchaseOrder = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
   try {
     const { id } = req.params;
-    const { recordAsAdjustment, ...updateData } = req.body;
-    const po = await PurchaseOrder.findByPk(id);
+    const { recordAsAdjustment, deposit_group_id, ...updateData } = req.body;
+
+    const po = await PurchaseOrder.findByPk(id, { transaction });
     if (!po) {
+      await transaction.rollback();
       return res.status(404).json({
         success: false,
         message: "Purchase Order not found",
       });
     }
 
-    // Handle quantity mutation only when recordAsAdjustment is true
+    // ✅ Handle deposit group changes
+    if (deposit_group_id !== undefined && deposit_group_id !== po.deposit_group_id) {
+      if (deposit_group_id) {
+        const { DepositGroup, DepositGroupMember } = require("../../models");
+        const group = await DepositGroup.findByPk(deposit_group_id, { transaction });
+        if (!group) {
+          await transaction.rollback();
+          return res.status(400).json({ 
+            success: false, 
+            message: 'Deposit group not found' 
+          });
+        }
+      }
+      updateData.deposit_group_id = deposit_group_id;
+    }
+
+    // Handle quantity mutation only when recordAsAdjustment is true  
     if (updateData.total_quantity) {
       const newQuantity = parseFloat(updateData.total_quantity);
       const oldQuantity = parseFloat(po.total_quantity);
@@ -298,21 +358,81 @@ exports.updatePurchaseOrder = async (req, res, next) => {
         po.quantity_mutasi = [...(po.quantity_mutasi || []), oldQuantity];
       }
 
-      po.total_quantity = newQuantity;
+      updateData.total_quantity = newQuantity;
     }
 
     // Apply other fields from updateData
-    po.set(updateData);
+    await po.update(updateData, { transaction });
 
-    // Save all changes
-    await po.save();
+    // ✅ Retroactively link existing DOs to new deposit group
+    if (updateData.deposit_group_id) {
+      const { DepositGroupMember } = require("../../models");
+      
+      const existingDOs = await DeliveryOrder.findAll({
+        where: { purchase_order_id: id },
+        include: [{
+          model: DepositGroupMember,
+          as: 'groupMemberships',
+          required: false
+        }],
+        transaction
+      });
+
+      for (const doItem of existingDOs) {
+        const isAlreadyInGroup = doItem.groupMemberships && doItem.groupMemberships.length > 0;
+        
+        if (!isAlreadyInGroup) {
+          await DepositGroupMember.create({
+            group_id: updateData.deposit_group_id,
+            delivery_order_id: doItem.id,
+            quantity: doItem.minimal_load_quantity
+          }, { transaction });
+          
+          console.log(`✅ Retroactively added DO ${doItem.do_number} to deposit group ${updateData.deposit_group_id}`);
+        }
+      }
+    } else if (deposit_group_id === null) {
+      // ✅ Handle unlinking from deposit group
+      const { DepositGroupMember } = require("../../models");
+      
+      const existingDOs = await DeliveryOrder.findAll({
+        where: { purchase_order_id: id },
+        transaction
+      });
+
+      for (const doItem of existingDOs) {
+        await DepositGroupMember.destroy({
+          where: { delivery_order_id: doItem.id },
+          transaction
+        });
+        
+        console.log(`✅ Removed DO ${doItem.do_number} from deposit group`);
+      }
+    }
+
+    await transaction.commit();
+
+    // ✅ Return updated PO with deposit group info
+    const updatedPO = await PurchaseOrder.findByPk(id, {
+      include: [{
+        model: require("../../models").DepositGroup,
+        as: 'depositGroup',
+        attributes: ['id', 'group_name', 'status', 'remaining_quantity'],
+        required: false
+      }]
+    });
 
     res.json({
       success: true,
       message: "Purchase Order updated successfully",
-      data: po.toJSON(),
+      data: {
+        ...updatedPO.toJSON(),
+        deposit_group_linked: !!updatedPO.deposit_group_id,
+      },
     });
   } catch (err) {
+    await transaction.rollback();
+    
     if (err.name === "SequelizeValidationError") {
       const messages = err.errors.map((e) => e.message);
       return res.status(400).json({
@@ -321,9 +441,12 @@ exports.updatePurchaseOrder = async (req, res, next) => {
         errors: messages,
       });
     }
+    
+    console.error("Error updating purchase order:", err);
     next(err);
   }
 };
+
 
 // Delete PO
 exports.deletePurchaseOrder = async (req, res, next) => {

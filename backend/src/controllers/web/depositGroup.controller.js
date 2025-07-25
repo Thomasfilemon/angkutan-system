@@ -1,4 +1,4 @@
-const { DepositGroup, DepositGroupMember, DeliveryOrder, DeliveryOrderPayments, DeliveryOrderAdjustments } = require("../../models");
+const { DepositGroup, DepositGroupMember, DeliveryOrder, DeliveryOrderPayments, DeliveryOrderAdjustments, PurchaseOrder } = require("../../models");
 const { Op, fn, col } = require("sequelize");
 
 // Helper function to get paid amount for a DO
@@ -67,10 +67,10 @@ module.exports = {
   // src/controllers/web/depositGroup.controller.js
   async createGroup(req, res) {
     try {
-      const { group_name, balance = 0, delivery_order_ids = [], purchase_order_id } = req.body;
-      const group = await DepositGroup.create({ 
-        group_name, 
-        balance: parseFloat(balance) 
+      const { group_name, balance, target_quantity, deposited_amount, unit, delivery_order_ids = [], purchase_order_id } = req.body;
+      const remaining_quantity = target_quantity; // Initial remaining = target
+      const group = await DepositGroup.create({
+        group_name, balance, target_quantity, deposited_amount, remaining_quantity, unit, status: 'active'
       });
 
       let doIdsToAdd = delivery_order_ids;
@@ -323,76 +323,102 @@ module.exports = {
 
   // Get group details with DO information
   async getGroupDetails(req, res) {
-    const { id } = req.params;
-    try {
-      const group = await DepositGroup.findByPk(id, {
-        include: [{
+  const { id } = req.params;
+  try {
+    const group = await DepositGroup.findByPk(id, {
+      include: [
+        {
           model: DepositGroupMember,
           as: "members",
           include: [{
             model: DeliveryOrder,
             as: "deliveryOrder",
             attributes: [
-              "id",
-              "do_number",
-              "customer_name",
-              "final_amount",
-              "total_amount",
-              "is_amount_finalized",
-              "payment_status",
-              "unit_price",
-              "minimal_load_quantity"
+              "id", "do_number", "customer_name", "final_amount", 
+              "total_amount", "is_amount_finalized", "payment_status",
+              "unit_price", "minimal_load_quantity"
             ],
             include: [{
               model: DeliveryOrderPayments,
               as: 'payments_depositGroup',
-              attributes: ['id', 'payment_amount'] // Include payment ID
+              attributes: ['id', 'payment_amount']
             }]
           }],
           attributes: ["id", "delivery_order_id", "quantity"]
-        }]
-      });
-
-      // Convert to plain object and calculate paid amounts
-      const plainGroup = group.get({ plain: true });
-      
-      plainGroup.members = plainGroup.members.map(member => {
-        const doItem = member.deliveryOrder;
-        
-        // Convert numeric fields
-        doItem.final_amount = parseFloat(doItem.final_amount || 0);
-        doItem.total_amount = parseFloat(doItem.total_amount || 0);
-        doItem.unit_price = parseFloat(doItem.unit_price || 0);
-        doItem.minimal_load_quantity = parseFloat(doItem.minimal_load_quantity || 0);
-        
-        // Calculate paid amount and get payment ID
-        let paid_amount = 0;
-        let payment_id = null;
-        
-        if (doItem.payments_depositGroup && doItem.payments_depositGroup.length > 0) {
-          paid_amount = doItem.payments_depositGroup.reduce(
-            (sum, payment) => sum + parseFloat(payment.payment_amount || 0), 
-            0
-          );
-          // Get the first payment ID (assuming one payment per DO)
-          payment_id = doItem.payments_depositGroup[0].id;
+        },
+        // ✅ NEW: Include linked POs
+        {
+          model: PurchaseOrder,
+          as: "purchaseOrders",
+          attributes: [
+            "id", "po_number", "customer_name", "total_quantity", 
+            "unit", "unit_price", "status"
+          ],
+          include: [{
+            model: DeliveryOrder,
+            as: "poDeliveryOrders",
+            attributes: ["id", "do_number", "status"],
+            required: false
+          }]
         }
-        
-        doItem.paid_amount = paid_amount;
-        doItem.payment_id = payment_id; // Add payment ID
-        
-        // Remove payments array
-        delete doItem.payments_depositGroup;
-        
-        return member;
-      });
+      ]
+    });
 
-      res.json(plainGroup);
-    } catch (error) {
-      console.error("Error fetching group details:", error);
-      res.status(500).json({ error: "Failed to fetch group details" });
+    if (!group) {
+      return res.status(404).json({ error: "Group not found" });
     }
-  },
+
+    const plainGroup = group.get({ plain: true });
+
+    // Process existing members (DOs)
+    plainGroup.members = plainGroup.members.map(member => {
+      const doItem = member.deliveryOrder;
+      
+      // Convert numeric fields
+      doItem.final_amount = parseFloat(doItem.final_amount || 0);
+      doItem.total_amount = parseFloat(doItem.total_amount || 0);
+      doItem.unit_price = parseFloat(doItem.unit_price || 0);
+      doItem.minimal_load_quantity = parseFloat(doItem.minimal_load_quantity || 0);
+
+      // Calculate paid amount
+      let paid_amount = 0;
+      let payment_id = null;
+      if (doItem.payments_depositGroup && doItem.payments_depositGroup.length > 0) {
+        paid_amount = doItem.payments_depositGroup.reduce(
+          (sum, payment) => sum + parseFloat(payment.payment_amount || 0),
+          0
+        );
+        payment_id = doItem.payments_depositGroup[0].id;
+      }
+
+      doItem.paid_amount = paid_amount;
+      doItem.payment_id = payment_id;
+      delete doItem.payments_depositGroup;
+
+      return member;
+    });
+
+    // ✅ NEW: Process linked POs
+    plainGroup.linkedPOs = plainGroup.purchaseOrders.map(po => ({
+      id: po.id,
+      po_number: po.po_number,
+      customer_name: po.customer_name,
+      total_quantity: po.total_quantity,
+      unit: po.unit,
+      status: po.status,
+      do_count: po.poDeliveryOrders ? po.poDeliveryOrders.length : 0,
+      dos: po.poDeliveryOrders || []
+    }));
+
+    // Remove the full purchaseOrders array
+    delete plainGroup.purchaseOrders;
+
+    res.json(plainGroup);
+  } catch (error) {
+    console.error("Error fetching group details:", error);
+    res.status(500).json({ error: "Failed to fetch group details" });
+  }
+},
 
   // Update group details
   async updateGroup(req, res) {
@@ -598,4 +624,70 @@ module.exports = {
       res.status(500).json({ error: "Failed to adjust DO price" });
     }
   },
+
+  async generateSelisihInvoice(req, res) {
+    const { group_id } = req.params;
+    const group = await DepositGroup.findByPk(group_id);
+    const totalExcess = await group.calculateSelisih();
+    if (totalExcess > 0) {
+      // Create invoice for excess (integrate with payments.controller.js)
+      const invoice = await createInvoiceForExcess(group, totalExcess); // Custom function
+      res.json({ success: true, invoice });
+    } else {
+      res.status(400).json({ error: 'No selisih to invoice' });
+    }
+  },
+
+  // Add this new method to depositGroup.controller.js
+async linkPOToGroup(req, res) {
+  const transaction = await sequelize.transaction();
+  try {
+    const { po_id, group_id } = req.body;
+    
+    // Link PO to deposit group
+    await PurchaseOrder.update(
+      { deposit_group_id: group_id },
+      { where: { id: po_id }, transaction }
+    );
+
+    // Find all DOs from this PO that aren't already in deposit groups
+    const existingDOs = await DeliveryOrder.findAll({
+      where: { purchase_order_id: po_id },
+      include: [{
+        model: DepositGroupMember,
+        as: 'groupMemberships',
+        required: false
+      }],
+      transaction
+    });
+
+    // Add DOs to deposit group if they're not already in one
+    for (const doItem of existingDOs) {
+      const isAlreadyInGroup = doItem.groupMemberships && doItem.groupMemberships.length > 0;
+      
+      if (!isAlreadyInGroup) {
+        await DepositGroupMember.create({
+          group_id: group_id,
+          delivery_order_id: doItem.id,
+          quantity: doItem.minimal_load_quantity
+        }, { transaction });
+        
+        console.log(`✅ Retroactively added DO ${doItem.do_number} to deposit group ${group_id}`);
+      }
+    }
+
+    await transaction.commit();
+    
+    res.json({
+      success: true,
+      message: 'PO linked to deposit group and existing DOs added successfully'
+    });
+    
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error linking PO to group:', error);
+    res.status(500).json({ error: 'Failed to link PO to deposit group' });
+  }
+}
+
 };

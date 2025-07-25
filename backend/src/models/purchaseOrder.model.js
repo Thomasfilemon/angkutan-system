@@ -78,6 +78,15 @@ module.exports = (sequelize) => {
         allowNull: false,
         defaultValue: DataTypes.NOW,
       },
+      deposit_group_id: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+          model: 'deposit_groups',
+          key: 'id'
+        },
+        comment: "Reference to deposit group (optional for prepaid orders)",
+      },
       status: {
         type: DataTypes.STRING,
         defaultValue: "confirmed",
@@ -118,7 +127,10 @@ module.exports = (sequelize) => {
     }
   );
 
-  // === INSTANCE METHODS ===
+  PurchaseOrder.prototype.isDepositLinked = function () {
+    return !!this.deposit_group_id;
+  };
+
   PurchaseOrder.prototype.hasLocationData = function () {
     return !!(this.load_location && this.unload_location);
   };

@@ -213,6 +213,20 @@ CREATE TABLE service_items (
 
 -- BAGIAN 3: OPERASIONAL INTI (PO & DO)
 -- =================================================================
+-- DEPOSIT GROUP TABLES
+CREATE TABLE deposit_groups (
+    id SERIAL PRIMARY KEY,
+    group_name VARCHAR(255) NOT NULL,
+    balance NUMERIC(15,2) NOT NULL DEFAULT 0,
+    target_quantity NUMERIC(10, 2) NOT NULL DEFAULT 0,
+    deposited_amount NUMERIC(15, 2) NOT NULL DEFAULT 0,
+    remaining_quantity NUMERIC(10, 2) NOT NULL DEFAULT 0,
+    unit VARCHAR(10) NOT NULL DEFAULT 'ton' CHECK (unit IN ('kilogram', 'ton', 'kubik')),
+    status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'fulfilled', 'overdrawn')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 
 CREATE TABLE purchase_orders (
   id SERIAL PRIMARY KEY,
@@ -228,6 +242,7 @@ CREATE TABLE purchase_orders (
   load_location TEXT,
   unload_location TEXT,
   order_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  deposit_group_id INTEGER REFERENCES deposit_groups(id),
   status VARCHAR(20) DEFAULT 'confirmed' CHECK (status IN ('confirmed', 'partial', 'completed', 'cancelled')),
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -415,6 +430,15 @@ CREATE TABLE big_do_tambahan_status_history (
   
   FOREIGN KEY (big_do_tambahan_id) REFERENCES big_do_tambahan(id) ON DELETE CASCADE,
   FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE deposit_group_members (
+  id SERIAL PRIMARY KEY,
+  group_id INTEGER NOT NULL REFERENCES deposit_groups(id) ON DELETE CASCADE,
+  quantity NUMERIC(15,2) NOT NULL DEFAULT 0,
+  delivery_order_id INTEGER NOT NULL REFERENCES delivery_orders(id) ON DELETE CASCADE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE (group_id, delivery_order_id) -- Prevent duplicate DO in same group
 );
 
 -- BAGIAN 4: KEUANGAN & BIAYA
@@ -622,6 +646,8 @@ CREATE INDEX idx_do_payment_history_date ON delivery_order_payment_history(chang
 CREATE INDEX idx_do_adjustments_do_id ON delivery_order_adjustments(delivery_order_id);
 CREATE INDEX idx_do_adjustments_type ON delivery_order_adjustments(adjustment_type);
 
+CREATE INDEX idx_purchase_orders_deposit_group ON purchase_orders(deposit_group_id);
+
 -- Function untuk update payment status berdasarkan total payments terhadap net_amount di invoice DO
 CREATE OR REPLACE FUNCTION update_delivery_order_payment_status()
 RETURNS TRIGGER AS $$
@@ -727,20 +753,4 @@ CREATE TRIGGER trg_recalc_pph
 BEFORE INSERT OR UPDATE ON delivery_order_invoices
 FOR EACH ROW
 EXECUTE FUNCTION recalc_do_invoice_pph();
--- DEPOSIT GROUP TABLES
-CREATE TABLE deposit_groups (
-  id SERIAL PRIMARY KEY,
-  group_name VARCHAR(255) NOT NULL,
-  balance NUMERIC(15,2) NOT NULL DEFAULT 0,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
 
-CREATE TABLE deposit_group_members (
-  id SERIAL PRIMARY KEY,
-  group_id INTEGER NOT NULL REFERENCES deposit_groups(id) ON DELETE CASCADE,
-  quantity NUMERIC(15,2) NOT NULL DEFAULT 0,
-  delivery_order_id INTEGER NOT NULL REFERENCES delivery_orders(id) ON DELETE CASCADE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE (group_id, delivery_order_id) -- Prevent duplicate DO in same group
-);

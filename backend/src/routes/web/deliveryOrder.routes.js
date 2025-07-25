@@ -37,5 +37,10 @@ router.patch(
   checkRole(["admin", "owner"]),
   webDOController.cancelDeliveryOrder
 );
+router.patch(
+  "/:id/complete-deposit",
+  checkRole(["admin", "owner"]),
+  webDOController.completeDeliveryOrder
+);
 
 module.exports = router;

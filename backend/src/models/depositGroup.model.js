@@ -21,6 +21,42 @@ module.exports = (sequelize) => {
         defaultValue: 0.0,
         comment: "Current balance of the group",
       },
+      target_quantity: {
+        type: DataTypes.DECIMAL(10, 2),
+        allowNull: false,
+        defaultValue: 0,
+        comment: "Target quantity for this deposit group",
+      },
+      deposited_amount: {
+        type: DataTypes.DECIMAL(15, 2),
+        allowNull: false,
+        defaultValue: 0,
+        comment: "Amount deposited by customer",
+      },
+      remaining_quantity: {
+        type: DataTypes.DECIMAL(10, 2),
+        allowNull: false,
+        defaultValue: 0,
+        comment: "Remaining quantity to be fulfilled",
+      },
+      unit: {
+        type: DataTypes.STRING(10),
+        allowNull: false,
+        defaultValue: 'ton',
+        validate: {
+          isIn: [['kilogram', 'ton', 'kubik']]
+        },
+        comment: "Unit of measurement",
+      },
+      status: {
+        type: DataTypes.STRING(20),
+        allowNull: false,
+        defaultValue: 'active',
+        validate: {
+          isIn: [['active', 'fulfilled', 'overdrawn']]
+        },
+        comment: "Status of the deposit group",
+      },
       created_at: {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW,
@@ -69,6 +105,25 @@ module.exports = (sequelize) => {
       return 'extra saldo';
     }
     return 'normal';
+  };
+
+  DepositGroup.prototype.reduceQuantity = async function (amount) {
+    this.remaining_quantity -= amount;
+    if (this.remaining_quantity <= 0) this.status = 'fulfilled';
+    else if (this.remaining_quantity < 0) this.status = 'overdrawn';
+    await this.save();
+  };
+
+  // Calculate selisih across DOs
+  DepositGroup.prototype.calculateSelisih = async function () {
+    const members = await this.getMembers(); // Assuming association
+    let totalExcess = 0;
+    members.forEach(member => {
+      const deliveryOrder = member.deliveryOrder; // Renamed from 'do' to avoid keyword conflict
+      const excess = deliveryOrder.actual_load_quantity - deliveryOrder.minimal_load_quantity;
+      if (excess > 0) totalExcess += excess;
+    });
+    return totalExcess;
   };
 
   return DepositGroup;

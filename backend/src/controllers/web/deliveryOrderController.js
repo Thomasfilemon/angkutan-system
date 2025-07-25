@@ -8,6 +8,7 @@ const {
   DriverProfile,
   User,
   BigDeliveryOrder,
+  DeliveryOrderAdjustments,
   sequelize,
 } = require("../../models");
 const { Op } = require("sequelize");
@@ -257,6 +258,25 @@ exports.createDeliveryOrder = async (req, res, next) => {
       },
       { transaction }
     );
+
+    if (purchase_order_id) {
+      const purchaseOrder = await PurchaseOrder.findByPk(purchase_order_id, {
+        attributes: ['id', 'deposit_group_id'],
+        transaction
+      });
+
+      if (purchaseOrder && purchaseOrder.deposit_group_id) {
+        // Automatically create deposit group membership
+        await DepositGroupMember.create({
+          group_id: purchaseOrder.deposit_group_id,
+          delivery_order_id: deliveryOrder.id,
+          quantity: minimal_load_quantity
+        }, { transaction });
+
+        console.log(`✅ Auto-added DO ${deliveryOrder.do_number} to deposit group ${purchaseOrder.deposit_group_id}`);
+      }
+    }
+
 
     // ✅ Update vehicle status
     await Vehicle.update(
@@ -946,6 +966,211 @@ exports.getDeliveryStatistics = async (req, res, next) => {
       },
     });
   } catch (err) {
+    next(err);
+  }
+};
+
+exports.completeDeliveryOrder = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+    const { actual_load_quantity, notes } = req.body;
+
+    // ✅ Find DO with PO and DepositGroup relationship
+    const deliveryOrder = await DeliveryOrder.findByPk(id, {
+      include: [
+        {
+          model: PurchaseOrder,
+          as: "purchaseOrder",
+          attributes: ["id", "deposit_group_id", "unit", "unit_price"],
+          include: [
+            {
+              model: DepositGroup,
+              as: "depositGroup",
+              attributes: ["id", "group_name", "status", "remaining_quantity"],
+            },
+          ],
+        },
+      ],
+      transaction,
+    });
+
+    if (!deliveryOrder) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: "Delivery Order not found",
+      });
+    }
+
+    if (deliveryOrder.status === "completed") {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Delivery Order is already completed",
+      });
+    }
+
+    // ✅ Check if DO is linked to deposit group
+    const po = deliveryOrder.purchaseOrder;
+    const isDepositLinked = !!(po && po.deposit_group_id);
+
+    // 🎯 AUTO-PAYMENT LOGIC: Set payment status based on deposit linkage
+    let paymentStatus;
+    let paymentConfirmationStatus;
+    let paymentConfirmedAt = null;
+
+    if (isDepositLinked) {
+      // Deposit-linked DOs are automatically paid
+      paymentStatus = "lunas";
+      paymentConfirmationStatus = "confirmed";
+      paymentConfirmedAt = new Date();
+      console.log(`✅ DO ${id} auto-paid via deposit group ${po.deposit_group_id}`);
+    } else {
+      // Regular DOs follow normal payment process
+      paymentStatus = "awaiting_confirmation";
+      paymentConfirmationStatus = "awaiting_confirmation";
+    }
+
+    // ✅ Update DO with completion data
+    const updateData = {
+      status: "completed",
+      completed_at: new Date(),
+      payment_status: paymentStatus,
+      payment_confirmation_status: paymentConfirmationStatus,
+      payment_confirmation_at: paymentConfirmedAt,
+      actual_load_quantity: actual_load_quantity || deliveryOrder.actual_load_quantity,
+      notes: notes || deliveryOrder.notes,
+    };
+
+    await deliveryOrder.update(updateData, { transaction });
+
+    // ✅ Handle deposit group logic if linked
+    if (isDepositLinked && po.depositGroup) {
+      console.log(`Processing deposit group ${po.deposit_group_id} for DO ${id}`);
+
+      const group = po.depositGroup;
+      const actualQuantity = parseFloat(updateData.actual_load_quantity);
+      
+      // Reduce quantity from deposit group
+      const newRemainingQuantity = parseFloat(group.remaining_quantity) - actualQuantity;
+      let newStatus = group.status;
+      
+      if (newRemainingQuantity <= 0) {
+        newStatus = 'fulfilled';
+      } else if (newRemainingQuantity < 0) {
+        newStatus = 'overdrawn';
+      }
+
+      // Update deposit group
+      await DepositGroup.update(
+        {
+          remaining_quantity: newRemainingQuantity,
+          status: newStatus,
+          updated_at: new Date(),
+        },
+        {
+          where: { id: group.id },
+          transaction,
+        }
+      );
+
+      // ✅ Handle excess quantities (selisih)
+      const minimalQuantity = parseFloat(deliveryOrder.minimal_load_quantity);
+      const excess = actualQuantity - minimalQuantity;
+      
+      if (excess > 0) {
+        const unitPrice = parseFloat(po.unit_price || deliveryOrder.unit_price);
+        const excessAmount = excess * unitPrice;
+
+        // Create adjustment record for excess
+        await DeliveryOrderAdjustments.create({
+          delivery_order_id: id,
+          adjustment_type: 'excess_quantity',
+          original_amount: minimalQuantity * unitPrice,
+          adjustment_amount: excessAmount,
+          final_amount: actualQuantity * unitPrice,
+          reason: `Excess quantity from deposit: ${excess.toFixed(2)} ${po.unit || 'ton'} beyond minimal load`,
+          approved_by: req.user?.id || null,
+          created_by: req.user?.id || null,
+        }, { transaction });
+
+        console.log(`📊 Recorded excess: ${excess} ${po.unit} = Rp ${excessAmount.toLocaleString('id-ID')}`);
+      }
+
+      // Create payment history record for auto-payment
+      await DeliveryOrderPaymentHistory.create({
+        delivery_order_id: id,
+        old_status: deliveryOrder.payment_status,
+        new_status: 'lunas',
+        change_reason: `Auto-paid via deposit group: ${group.group_name}`,
+        changed_by: req.user?.id || null,
+        changed_at: new Date(),
+      }, { transaction });
+    } else {
+      // Create payment history for regular DOs
+      await DeliveryOrderPaymentHistory.create({
+        delivery_order_id: id,
+        old_status: deliveryOrder.payment_status,
+        new_status: paymentStatus,
+        change_reason: 'DO completed - ready for payment confirmation',
+        changed_by: req.user?.id || null,
+        changed_at: new Date(),
+      }, { transaction });
+    }
+
+    // ✅ Free up vehicle
+    if (deliveryOrder.vehicle_id) {
+      await Vehicle.update(
+        { status: "available" },
+        { where: { id: deliveryOrder.vehicle_id }, transaction }
+      );
+    }
+
+    await transaction.commit();
+
+    // ✅ Return updated DO with enriched data
+    const updatedDO = await DeliveryOrder.findByPk(id, {
+      include: [
+        {
+          model: PurchaseOrder,
+          as: "purchaseOrder",
+          attributes: ["po_number", "customer_name", "unit", "deposit_group_id"],
+          include: [
+            {
+              model: DepositGroup,
+              as: "depositGroup",
+              attributes: ["id", "group_name", "status", "remaining_quantity"],
+            },
+          ],
+        },
+      ],
+    });
+
+    res.json({
+      success: true,
+      message: isDepositLinked 
+        ? "✅ DO completed and auto-paid via deposit group" 
+        : "DO completed successfully",
+      data: {
+        ...updatedDO.toJSON(),
+        is_auto_paid: isDepositLinked,
+        deposit_group_handled: isDepositLinked,
+        deposit_group_info: isDepositLinked ? {
+          id: updatedDO.purchaseOrder.depositGroup.id,
+          name: updatedDO.purchaseOrder.depositGroup.group_name,
+          status: updatedDO.purchaseOrder.depositGroup.status,
+          remaining_quantity: updatedDO.purchaseOrder.depositGroup.remaining_quantity,
+        } : null,
+        unit_display: updatedDO.getUnitDisplay ? updatedDO.getUnitDisplay() : updatedDO.unit,
+        financial_summary: updatedDO.getFinancialSummary ? updatedDO.getFinancialSummary() : null,
+      },
+    });
+
+  } catch (err) {
+    await transaction.rollback();
+    console.error("Error completing delivery order:", err);
     next(err);
   }
 };

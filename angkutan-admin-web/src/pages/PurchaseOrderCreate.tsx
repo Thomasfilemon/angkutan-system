@@ -1,13 +1,40 @@
 // src/pages/PurchaseOrderCreate.tsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react"; 
 import { useNavigate } from "react-router-dom";
 import apiClient from "../api/axiosConfig";
 import PurchaseOrderForm from "../components/PurchaseOrderForm";
+
+interface DepositGroup {
+  id: number;
+  group_name: string;
+  balance: number;
+  target_quantity?: number;
+  remaining_quantity?: number;
+  unit?: string;
+  status?: string;
+  created_at: string;
+  updated_at: string;
+}
 
 const PurchaseOrderCreatePage = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const [depositGroups, setDepositGroups] = useState<DepositGroup[]>([]);
+  const [selectedDepositGroup, setSelectedDepositGroup] = useState<string>("");
+
+  useEffect(() => {
+  const fetchDepositGroups = async () => {
+    try {
+      const response = await apiClient.get('/deposit-groups');
+      setDepositGroups(response.data || []);
+    } catch (error) {
+      console.error('Error fetching deposit groups:', error);
+    }
+  };
+  
+  fetchDepositGroups();
+}, []);
 
   const handleCreatePO = async (data: any) => {
     setIsLoading(true);
@@ -34,6 +61,7 @@ const PurchaseOrderCreatePage = () => {
         unload_location: data.unload_location?.trim() || null,
         notes: data.notes?.trim() || null,
         order_date: new Date().toISOString().split("T")[0], // Current date
+        deposit_group_id: selectedDepositGroup || null, // ADD THIS LINE
       };
 
       // Validate numeric fields
@@ -117,6 +145,29 @@ const PurchaseOrderCreatePage = () => {
           ← Back to Purchase Orders
         </button>
       </div>
+
+      <div className="mb-4 p-4 bg-blue-50 rounded-lg">
+      <label className="block text-sm font-medium text-gray-700 mb-2">
+        Link to Deposit Group (Optional)
+      </label>
+      <select
+        value={selectedDepositGroup}
+        onChange={(e) => setSelectedDepositGroup(e.target.value)}
+        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+      >
+        <option value="">No Deposit Group</option>
+        {depositGroups.map(group => (
+          <option key={group.id} value={group.id}>
+            {group.group_name} (Remaining: {group.remaining_quantity || 0} {group.unit || 'ton'})
+          </option>
+        ))}
+      </select>
+      {selectedDepositGroup && (
+        <p className="text-sm text-blue-600 mt-1">
+          This PO will be linked to the selected deposit group for pre-paid handling.
+        </p>
+      )}
+    </div>
 
       {error && (
         <div className="bg-red-100 border border-red-400 text-red-700 p-4 rounded mb-6">
