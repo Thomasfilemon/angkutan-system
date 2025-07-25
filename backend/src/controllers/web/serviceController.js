@@ -378,13 +378,13 @@ const createService = async (req, res, next) => {
 
         // Find or create appropriate cash category
         let cashCategory = await CashCategory.findOne({
-          where: { category_name: 'Biaya Operasional', category_type: 'expense' },
+          where: { category_name: 'Pengeluaran Mobil', category_type: 'expense' },
           transaction
         });
 
         if (!cashCategory) {
           cashCategory = await CashCategory.create({
-            category_name: 'Biaya Operasional',
+            category_name: 'Pengeluaran Mobil',
             category_type: 'expense',
             description: 'Biaya operasional kendaraan dan maintenance'
           }, { transaction });

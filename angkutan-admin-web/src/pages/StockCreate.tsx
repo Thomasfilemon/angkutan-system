@@ -1,6 +1,7 @@
 // src/pages/StockCreate.tsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import CreatableSelect from 'react-select/creatable';
 import apiClient from '../api/axiosConfig';
 
 interface StockCategory {
@@ -77,8 +78,23 @@ const StockCreatePage = () => {
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [saveToCash, setSaveToCash] = useState(true);
     const [isTempo, setIsTempo] = useState(false);
-    const [selectedAccount, setSelectedAccount] = useState("General");
     const [notaFile, setNotaFile] = useState<File | null>(null);
+    // State declarations
+    const [accounts, setAccounts] = useState<string[]>([]);
+    const [selectedAccount, setSelectedAccount] = useState<string>('General');
+
+    // Fetch accounts
+    useEffect(() => {
+    const fetchAccounts = async () => {
+        try {
+        const response = await apiClient.get('/cash/accounts');
+        setAccounts(response.data.data || []);
+        } catch (err) {
+        console.error('Failed to fetch accounts:', err);
+        }
+    };
+    fetchAccounts();
+    }, []);
 
     useEffect(() => {
         fetchCategories();
@@ -422,10 +438,16 @@ const StockCreatePage = () => {
                 cashFormData.append('description', restockDescription);
                 cashFormData.append('transaction_date', new Date().toISOString());
                 cashFormData.append('account', selectedAccount);
+                cashFormData.append('no_nota', JSON.stringify([]));
+                cashFormData.append('category_id', '9');
 
                 if (notaFile) {
-                    cashFormData.append('attachment', notaFile);
+                cashFormData.append('attachments', notaFile); // Changed from 'attachment' to 'attachments'
                 }
+
+                await apiClient.post("/cash/transactions", cashFormData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+                });
 
                 await apiClient.post("/cash/transactions", cashFormData, {
                     headers: { 'Content-Type': 'multipart/form-data' }
@@ -795,17 +817,19 @@ const StockCreatePage = () => {
                                     </div>
 
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">Akun</label>
-                                        <select
-                                            value={selectedAccount}
-                                            onChange={(e) => setSelectedAccount(e.target.value)}
-                                            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                                        >
-                                            <option value="Ewaldo">Ewaldo</option>
-                                            <option value="Malvin">Malvin</option>
-                                            <option value="Company">Company</option>
-                                            <option value="General">General</option>
-                                        </select>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Akun *</label>
+                                        <CreatableSelect
+                                            value={{ label: selectedAccount, value: selectedAccount }}
+                                            options={accounts.map(account => ({ label: account, value: account }))}
+                                            onChange={(selected) => {
+                                            const newAccount = selected?.value || 'General';
+                                            setSelectedAccount(newAccount);
+                                            }}
+                                            onCreateOption={(inputValue) => {
+                                            setSelectedAccount(inputValue);
+                                            }}
+                                            className="w-full"
+                                        />
                                     </div>
 
                                     <div>

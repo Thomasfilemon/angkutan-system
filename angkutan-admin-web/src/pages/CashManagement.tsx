@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import apiClient from '../api/axiosConfig';
+import CreatableSelect from 'react-select/creatable';
 
 interface CashCategory {
   id: number;
@@ -23,6 +24,7 @@ interface CashTransaction {
   category?: CashCategory;
   account: string;
   attachment_urls?: Array<string>;
+  no_nota?: string[];
 }
 
 interface CashSummary {
@@ -69,8 +71,25 @@ const CashManagementPage = () => {
     description: '',
     reference_number: '',
     account: 'General',
-    transaction_date: new Date().toISOString().split('T')[0]
+    transaction_date: new Date().toISOString().split('T')[0],
+    no_nota: [] as string[],
   });
+
+  const [accounts, setAccounts] = useState<string[]>([]);
+  const [selectedAccount, setSelectedAccount] = useState<string>(formData.account);
+
+  useEffect(() => {
+    const fetchAccounts = async () => {
+      try {
+        const response = await apiClient.get('/cash/accounts');
+        setAccounts(response.data.data || []);
+      } catch (err) {
+        console.error('Failed to fetch accounts:', err);
+      }
+    };
+    fetchAccounts();
+  }, []);
+
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
 
   const fetchTransactions = useCallback(async () => {
@@ -115,9 +134,23 @@ const CashManagementPage = () => {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const newFiles = Array.from(e.target.files);
-      setAttachmentFiles(prev => [...prev, ...newFiles]);
+      Array.from(e.target.files).forEach(file => handleAddFile(file));
     }
+  };
+
+  const handleAddFile = (file: File) => {
+    setAttachmentFiles((prev) => [...prev, file]);
+    setFormData((prev) => ({ ...prev, no_nota: [...prev.no_nota, ''] }));
+  };
+
+  const handleRemoveFile = (index: number) => {
+    const newFiles = [...attachmentFiles];
+    newFiles.splice(index, 1);
+    setAttachmentFiles(newFiles);
+
+  const newNotas = [...formData.no_nota];
+    newNotas.splice(index, 1);
+    setFormData((prev) => ({ ...prev, no_nota: newNotas }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -136,13 +169,20 @@ const CashManagementPage = () => {
     const submissionData = new FormData();
 
     // Append other fields
+    // Append all form data except `no_nota`
     Object.entries(formData).forEach(([key, value]) => {
-      submissionData.append(key, value);
+      if (key === 'no_nota') return; // Skip no_nota for now
+      if (typeof value === 'string' || typeof value === 'number') {
+        submissionData.append(key, value.toString());
+      } else if (Array.isArray(value)) {
+        submissionData.append(key, JSON.stringify(value)); // Serialize arrays
+      }
     });
 
-    // Append multiple files
-    attachmentFiles.forEach(file => {
-      submissionData.append('attachments', file); // Use plural 'attachments'
+    submissionData.append('no_nota', JSON.stringify(formData.no_nota));
+    
+    attachmentFiles.forEach((file) => {
+      submissionData.append('attachments', file);
     });
 
     try {
@@ -179,7 +219,8 @@ const CashManagementPage = () => {
       description: transaction.description,
       reference_number: transaction.reference_number || '',
       transaction_date: transaction.transaction_date,
-      account: transaction.account || 'General'
+      account: transaction.account || 'General',
+      no_nota: transaction.no_nota || ['']
     });
     setAttachmentFiles([]);
     setShowModal(true);
@@ -207,7 +248,8 @@ const CashManagementPage = () => {
       description: '',
       reference_number: '',
       account: 'General',
-      transaction_date: new Date().toISOString().split('T')[0]
+      transaction_date: new Date().toISOString().split('T')[0],
+      no_nota: ['']
     });
     setAttachmentFiles([]);
   };
@@ -332,21 +374,24 @@ const CashManagementPage = () => {
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             />
           </div>
+          {/* Filter Dropdown for Akun */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Akun
-            </label>
-            <select
-              value={filters.account}
-              onChange={(e) => setFilters(prev => ({ ...prev, account: e.target.value }))}
-              className="w-full border border-gray-300 rounded-md px-3 py-2"
-            >
-              <option value="All">Semua Akun</option>
-              <option value="Ewaldo">Ewaldo</option>
-              <option value="Malvin">Malvin</option>
-              <option value="Company">Company</option>
-              <option value="General">General</option>
-            </select>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Akun</label>
+            <CreatableSelect
+              value={filters.account === 'All' ? { label: 'All', value: 'All' } : { label: filters.account, value: filters.account }}
+              options={[
+                { label: 'All', value: 'All' },
+                ...accounts.map(account => ({ label: account, value: account }))
+              ]}
+              onChange={(selected) => {
+                const newAccount = selected?.value || 'All';
+                setFilters(prev => ({ ...prev, account: newAccount }));
+              }}
+              onCreateOption={(inputValue) => {
+                setFilters(prev => ({ ...prev, account: inputValue }));
+              }}
+              className="w-full"
+            />
           </div>
         </div>
         <div className="mt-4 flex gap-2">
@@ -370,20 +415,21 @@ const CashManagementPage = () => {
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Akun
-        </label>
-        <select
-          value={filters.account}
-          onChange={(e) => setFilters(prev => ({ ...prev, account: e.target.value }))}
-          className="w-full border border-gray-300 rounded-md px-3 py-2"
-        >
-          <option value="All">Semua Akun</option>
-          <option value="Ewaldo">Ewaldo</option>
-          <option value="Malvin">Malvin</option>
-          <option value="Company">Company</option>
-          <option value="General">General</option>
-        </select>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Akun *</label>
+        <CreatableSelect
+          value={{ label: selectedAccount, value: selectedAccount }}
+          options={accounts.map(account => ({ label: account, value: account }))}
+          onChange={(selected) => {
+            const newAccount = selected?.value || 'General';
+            setSelectedAccount(newAccount);
+            setFormData(prev => ({ ...prev, account: newAccount }));
+          }}
+          onCreateOption={(inputValue) => {
+            setSelectedAccount(inputValue);
+            setFormData(prev => ({ ...prev, account: inputValue }));
+          }}
+          className="w-full"
+        />
       </div>
 
       <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -411,6 +457,9 @@ const CashManagementPage = () => {
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Saldo
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  No. Nota
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Akun
@@ -481,6 +530,14 @@ const CashManagementPage = () => {
                         {formatCurrency(transaction.running_balance)}
                       </span>
                     ) : '-'}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {transaction.no_nota 
+                      ? Array.isArray(transaction.no_nota) 
+                        ? transaction.no_nota.join(', ') 
+                        : JSON.parse(transaction.no_nota).join(', ') 
+                      : '-'
+                    }
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     {transaction.account}
@@ -595,20 +652,21 @@ const CashManagementPage = () => {
               </h3>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Akun *
-                  </label>
-                  <select
-                    value={formData.account}
-                    onChange={(e) => setFormData(prev => ({ ...prev, account: e.target.value }))}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2"
-                    required
-                  >
-                    <option value="Ewaldo">Ewaldo</option>
-                    <option value="Malvin">Malvin</option>
-                    <option value="Company">Company</option>
-                    <option value="General">General</option>
-                  </select>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Akun *</label>
+                  <CreatableSelect
+                    value={{ label: selectedAccount, value: selectedAccount }}
+                    options={accounts.map(account => ({ label: account, value: account }))}
+                    onChange={(selected) => {
+                      const newAccount = selected?.value || 'General';
+                      setSelectedAccount(newAccount);
+                      setFormData(prev => ({ ...prev, account: newAccount }));
+                    }}
+                    onCreateOption={(inputValue) => {
+                      setSelectedAccount(inputValue);
+                      setFormData(prev => ({ ...prev, account: inputValue }));
+                    }}
+                    className="w-full"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -750,9 +808,23 @@ const CashManagementPage = () => {
                           <span>+</span> <span className="ml-1">Tambah Nota</span>
                         </button>
                         {attachmentFiles.length > 0 && (
-                          <span className="text-sm text-gray-600">
-                            {attachmentFiles.length} file{attachmentFiles.length > 1 ? 's' : ''} dipilih
-                          </span>
+                          <div className="mt-2">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">New Files</label>
+                            <ul className="space-y-1">
+                              {attachmentFiles.map((file, index) => (
+                                <li key={index} className="text-sm text-gray-600 flex justify-between">
+                                  <span>{file.name}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveFile(index)}
+                                    className="text-red-500 hover:text-red-700"
+                                  >
+                                    ×
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -793,6 +865,25 @@ const CashManagementPage = () => {
                     )}
                   </>
                 )}
+
+                {formData.no_nota.map((nota, index) => (
+                  <div key={index}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      No. Nota {index + 1}
+                    </label>
+                    <input
+                      type="text"
+                      value={nota}
+                      onChange={(e) => {
+                        const newNotas = [...formData.no_nota];
+                        newNotas[index] = e.target.value;
+                        setFormData({ ...formData, no_nota: newNotas });
+                      }}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2"
+                      placeholder="Masukkan nomor nota"
+                    />
+                  </div>
+                ))}
 
                 {isSpecialCategory && (
                   <div className="bg-blue-50 p-3 rounded-md text-blue-800">
