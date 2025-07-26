@@ -2,6 +2,12 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import apiClient from "../api/axiosConfig";
 
+const calculateFulfillmentPercentage = (fulfilled: number, total: number) => {
+  return fulfilled && total
+    ? (fulfilled / parseFloat(total.toString())) * 100
+    : 0;
+};
+
 interface PurchaseOrder {
   id: number;
   po_number: string;
@@ -9,20 +15,22 @@ interface PurchaseOrder {
   item_name: string;
   total_quantity: number;
   unit: string;
-  unit_price?: number;
   total_amount?: number;
-  delivered_quantity: number;
-  remaining_quantity: number;
   created_at: string;
   status: "confirmed" | "partial" | "completed" | "cancelled";
   load_location: string;
   unload_location: string;
+  fulfilled_actual: number;
+  estimated_pending: number;
+  remaining_quantity: number;
+  fulfillment_status: string;
   delivery_progress: {
     total_deliveries: number;
     completed_deliveries: number;
     percentage: number;
   };
   can_create_do: boolean;
+  big_do_context?: { type: string; message: string; big_do?: any };
 }
 
 const TripsPage = () => {
@@ -77,14 +85,17 @@ const TripsPage = () => {
           ...po,
           unit: po.unit || "ton",
           total_quantity: convert(po.total_quantity),
-          delivered_quantity: convert(po.delivered_quantity),
-          remaining_quantity: convert(po.remaining_quantity),
           delivery_progress: {
             total_deliveries: convert(po.delivery_progress.total_deliveries),
             completed_deliveries: convert(
               po.delivery_progress.completed_deliveries
             ),
-            percentage: convert(po.delivery_progress.percentage),
+            percentage:
+              po.delivery_progress?.percentage ||
+              calculateFulfillmentPercentage(
+                po.fulfilled_actual || 0, // FIXED: Fallback to 0 if missing
+                po.total_quantity || 1 // Avoid divide by zero
+              ),
           },
         };
       });
@@ -153,7 +164,7 @@ const TripsPage = () => {
     if (adjustmentType === "add") {
       newQuantity += amount;
     } else {
-      if (amount > selectedPO.total_quantity) {
+      if (amount > newQuantity) {
         alert("Deduction amount cannot exceed current quantity");
         return;
       }
@@ -192,19 +203,19 @@ const TripsPage = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-lg font-semibold text-gray-700">Total POs</h3>
+          <h3 className="text-lg font-semibold text-gray-700">Total DOs</h3>
           <p className="text-2xl font-bold text-blue-600">{stats.total}</p>
         </div>
         <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-lg font-semibold text-gray-700">Active</h3>
+          <h3 className="text-lg font-semibold text-gray-700">Active POs</h3>
           <p className="text-2xl font-bold text-yellow-600">{stats.active}</p>
         </div>
         <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-lg font-semibold text-gray-700">Completed</h3>
+          <h3 className="text-lg font-semibold text-gray-700">Completed POs</h3>
           <p className="text-2xl font-bold text-green-600">{stats.completed}</p>
         </div>
         <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-lg font-semibold text-gray-700">Cancelled</h3>
+          <h3 className="text-lg font-semibold text-gray-700">Cancelled POs</h3>
           <p className="text-2xl font-bold text-red-600">{stats.cancelled}</p>
         </div>
       </div>
@@ -268,23 +279,6 @@ const TripsPage = () => {
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Unit Price</p>
-                  {po.unit_price ? (
-                    <div>
-                      <p className="font-medium text-blue-600">
-                        {formatCurrency(po.unit_price)}/{unitDisplay}
-                      </p>
-                      {po.unit === "ton" && (
-                        <p className="text-xs text-gray-500">
-                          ({formatCurrency(po.unit_price / 1000)}/kg)
-                        </p>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-gray-400 text-sm">Not set</p>
-                  )}
-                </div>
-                <div>
                   <p className="text-sm text-gray-500">Total Amount</p>
                   {po.total_amount ? (
                     <p className="font-semibold text-green-600">
@@ -315,7 +309,7 @@ const TripsPage = () => {
                 <div className="flex justify-between items-center text-sm text-gray-600 mb-2">
                   <span>
                     Delivery Progress:{" "}
-                    {po.delivered_quantity.toLocaleString("id-ID")} /{" "}
+                    {po.fulfilled_actual.toLocaleString("id-ID")} /{" "}
                     {po.total_quantity.toLocaleString("id-ID")} {unitDisplay}
                   </span>
                   <span className="font-medium">
@@ -535,7 +529,7 @@ const TripsPage = () => {
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeWidth={1}
-                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2 2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
               />
             </svg>
           </div>

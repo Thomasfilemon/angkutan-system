@@ -1,3 +1,4 @@
+// src/models/deliveryOrder.model.js
 const { DataTypes, Sequelize } = require("sequelize");
 
 module.exports = (sequelize) => {
@@ -13,13 +14,13 @@ module.exports = (sequelize) => {
 
       // === BASIC INFO ===
       do_number: { type: DataTypes.STRING(50), allowNull: false, unique: true },
-      // Added name field here
       do_name: {
         type: DataTypes.STRING(100),
-        allowNull: true, // Set to false if mandatory
+        allowNull: true,
         comment: "Human-readable name for the delivery order",
       },
       customer_name: { type: DataTypes.STRING(100), allowNull: false },
+      // Item name diambil dari pilihan yang ada di PO (di tabel PO, nama item dipisah menggunakan koma)
       item_name: { type: DataTypes.STRING(100) },
 
       // === QUANTITY FIELDS ===
@@ -59,7 +60,6 @@ module.exports = (sequelize) => {
         comment: "Upah/bayaran untuk driver",
         validate: { min: 0 },
       },
-      // NEW: Admin-only profit field
       ongkosan: {
         type: DataTypes.DECIMAL(15, 2),
         allowNull: true,
@@ -98,7 +98,7 @@ module.exports = (sequelize) => {
       // === PAYMENT FIELDS ===
       payment_status: {
         type: DataTypes.STRING(30),
-        defaultValue: "proses_tagihan",
+        defaultValue: "awaiting_confirmation",
         validate: {
           isIn: [
             ["awaiting_confirmation", "lunas", "deposit", "proses_tagihan"],
@@ -337,5 +337,39 @@ module.exports = (sequelize) => {
     };
   };
 
+  // NEW: Method untuk validasi remaining quantity sebelum save (mirip Trigger 1)
+  DeliveryOrder.prototype.validateQuantityAgainstPO = async function (
+    isUpdate = false
+  ) {
+    const po = await this.getPurchaseOrder(); // Asumsi association belongsTo PurchaseOrder as 'purchaseOrder'
+    if (!po) throw new Error("PO not found for this DO");
+
+    const dos = await po.getDeliveryOrders({
+      where: { id: { [Sequelize.Op.ne]: isUpdate ? this.id : null } },
+    }); // Exclude self if update
+
+    let fulfilled = 0;
+    dos.forEach((d) => {
+      fulfilled +=
+        d.status === "completed"
+          ? parseFloat(d.actual_load_quantity) || 0
+          : parseFloat(d.minimal_load_quantity) || 0;
+    });
+
+    const remaining = po.total_quantity - fulfilled;
+
+    if (this.minimal_load_quantity > remaining) {
+      throw new Error(
+        `Minimal quantity exceeds remaining PO quantity: ${remaining} available`
+      );
+    }
+    if (this.actual_load_quantity && this.actual_load_quantity > remaining) {
+      throw new Error(
+        `Actual quantity exceeds remaining PO quantity: ${remaining} available`
+      );
+    }
+
+    return true; // Valid
+  };
   return DeliveryOrder;
 };

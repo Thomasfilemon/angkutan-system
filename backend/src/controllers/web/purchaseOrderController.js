@@ -5,8 +5,19 @@ const {
   Vehicle,
   DriverProfile,
   User,
+  sequelize,
 } = require("../../models");
 const { Op } = require("sequelize");
+const { Expo } = require("expo-server-sdk");
+const {
+  calculateTotalAmount,
+  calculateOngkosan,
+} = require("./deliveryOrderController"); // Import for calcs
+
+// Helper for percentage (DRY)
+const calculateFulfillmentPercentage = (fulfilled, total) => {
+  return fulfilled && total ? (fulfilled / parseFloat(total)) * 100 : 0;
+};
 
 // Get all POs with enhanced web features
 exports.getAllPurchaseOrders = async (req, res, next) => {
@@ -14,15 +25,9 @@ exports.getAllPurchaseOrders = async (req, res, next) => {
     const { status, page = 1, limit = 10, search } = req.query;
     const offset = (page - 1) * limit;
 
-    // ✅ FIXED: Remove TypeScript type annotation
     let whereClause = {};
-
     if (status) {
-      if (Array.isArray(status)) {
-        whereClause.status = { [Op.in]: status };
-      } else {
-        whereClause.status = status;
-      }
+      whereClause.status = Array.isArray(status) ? { [Op.in]: status } : status;
     }
 
     if (search) {
@@ -39,7 +44,7 @@ exports.getAllPurchaseOrders = async (req, res, next) => {
         include: [
           {
             model: DeliveryOrder,
-            as: "poDeliveryOrders",
+            as: "poDeliveryOrders", // Matches association alias
             attributes: ["id", "do_number", "status", "actual_load_quantity"],
             required: false,
           },
@@ -50,50 +55,76 @@ exports.getAllPurchaseOrders = async (req, res, next) => {
       }
     );
 
-    // Calculate remaining quantities and delivery stats
+    // Calculate remaining quantities and delivery stats with model method (FIXED: Fallback manual if method fails)
     const enhancedPOs = await Promise.all(
       purchaseOrders.map(async (po) => {
-        const totalDelivered =
-          (await DeliveryOrder.sum("actual_load_quantity", {
-            where: {
-              purchase_order_id: po.id,
-              status: "completed",
-              actual_load_quantity: { [Op.ne]: null },
-            },
-          })) || 0;
-
-        const remainingQuantity =
-          parseFloat(po.total_quantity) - totalDelivered;
-        const deliveryCount = po.poDeliveryOrders?.length || 0;
-        const completedDeliveries =
-          po.poDeliveryOrders?.filter((d) => d.status === "completed").length ||
-          0;
+        let stats;
+        try {
+          stats = await po.getRemainingAndForecast();
+        } catch (err) {
+          console.error(`Forecast failed for PO ${po.id}:`, err);
+          console.warn(`Using manual fallback for PO ${po.id}`); // FIXED: Warn for visibility
+          // Manual fallback using associations
+          const dos = await po.getPoDeliveryOrders(); // Use alias method
+          let fulfilledActual = 0;
+          let estimatedPending = 0;
+          dos.forEach((d) => {
+            if (d.status === "completed")
+              fulfilledActual += parseFloat(d.actual_load_quantity) || 0;
+            else estimatedPending += parseFloat(d.minimal_load_quantity) || 0;
+          });
+          const remaining =
+            parseFloat(po.total_quantity) -
+            (fulfilledActual + estimatedPending); // FIXED: parseFloat for safety
+          stats = {
+            fulfilled_actual: fulfilledActual,
+            estimated_pending: estimatedPending,
+            remaining_quantity: remaining > 0 ? remaining : 0,
+            fulfillment_status:
+              fulfilledActual + estimatedPending >=
+              parseFloat(po.total_quantity)
+                ? "complete"
+                : "partial",
+          };
+        }
 
         return {
           ...po.toJSON(),
-          delivered_quantity: totalDelivered,
-          remaining_quantity: remainingQuantity,
+          ...stats,
           delivery_progress: {
-            total_deliveries: deliveryCount,
-            completed_deliveries: completedDeliveries,
+            total_deliveries: po.poDeliveryOrders?.length || 0,
+            completed_deliveries:
+              po.poDeliveryOrders?.filter((d) => d.status === "completed")
+                .length || 0,
             percentage:
-              po.total_quantity > 0
-                ? (totalDelivered / parseFloat(po.total_quantity)) * 100
-                : 0,
+              (stats.fulfilled_actual / parseFloat(po.total_quantity)) * 100 ||
+              0, // FIXED: Unit-based % (fulfilled_actual / total_quantity)
+            delivered_units: stats.fulfilled_actual, // FIXED: New field for UI (sum of actual_load_quantity for completed)
+            pending_units: stats.estimated_pending, // FIXED: New field for UI (sum of minimal for non-completed)
           },
-          can_create_do: remainingQuantity > 0 && po.status !== "cancelled",
+          can_create_do:
+            stats.remaining_quantity > 0 && po.status !== "cancelled",
         };
       })
     );
 
     // Calculate summary stats
+    const [totalActive, totalCompleted, totalCancelled] = await Promise.all([
+      PurchaseOrder.count({
+        where: {
+          ...whereClause,
+          status: { [Op.in]: ["confirmed", "partial"] },
+        },
+      }),
+      PurchaseOrder.count({ where: { ...whereClause, status: "completed" } }),
+      PurchaseOrder.count({ where: { ...whereClause, status: "cancelled" } }),
+    ]);
+
     const stats = {
-      total: enhancedPOs.length, // ✅ FIX: Use actual results, not DB count
-      active: enhancedPOs.filter((po) =>
-        ["confirmed", "partial"].includes(po.status)
-      ).length,
-      completed: enhancedPOs.filter((po) => po.status === "completed").length,
-      cancelled: enhancedPOs.filter((po) => po.status === "cancelled").length,
+      total: count,
+      active: totalActive,
+      completed: totalCompleted,
+      cancelled: totalCancelled,
     };
 
     res.json({
@@ -108,6 +139,8 @@ exports.getAllPurchaseOrders = async (req, res, next) => {
       stats,
     });
   } catch (err) {
+    console.error("Error getting all POs:", err);
+    res.status(500).json({ success: false, message: err.message });
     next(err);
   }
 };
@@ -146,53 +179,68 @@ exports.getPurchaseOrderById = async (req, res, next) => {
     });
 
     if (!po) {
-      return res.status(404).json({
-        success: false,
-        message: "Purchase Order not found",
-      });
+      return res
+        .status(404)
+        .json({ success: false, message: "Purchase Order not found" });
     }
 
-    // Calculate delivery statistics
-    const totalDelivered =
-      (await DeliveryOrder.sum("actual_load_quantity", {
-        where: {
-          purchase_order_id: id,
-          status: "completed",
-          actual_load_quantity: { [Op.ne]: null },
-        },
-      })) || 0;
-
-    const remainingQuantity = parseFloat(po.total_quantity) - totalDelivered;
+    let stats;
+    try {
+      stats = await po.getRemainingAndForecast();
+    } catch (err) {
+      console.error(`Forecast failed for PO ${id}:`, err);
+      // Manual fallback
+      const dos = await po.getPoDeliveryOrders();
+      let fulfilledActual = 0;
+      let estimatedPending = 0;
+      dos.forEach((d) => {
+        if (d.status === "completed")
+          fulfilledActual += parseFloat(d.actual_load_quantity) || 0;
+        else estimatedPending += parseFloat(d.minimal_load_quantity) || 0;
+      });
+      const remaining =
+        po.total_quantity - (fulfilledActual + estimatedPending);
+      stats = {
+        fulfilled_actual: fulfilledActual,
+        estimated_pending: estimatedPending,
+        remaining_quantity: remaining > 0 ? remaining : 0,
+        fulfillment_status:
+          fulfilledActual + estimatedPending >= po.total_quantity
+            ? "complete"
+            : "partial",
+      };
+    }
 
     res.json({
       success: true,
       data: {
         ...po.toJSON(),
-        delivered_quantity: totalDelivered,
-        remaining_quantity: remainingQuantity,
+        ...stats,
         delivery_progress: {
-          percentage:
-            po.total_quantity > 0
-              ? (totalDelivered / parseFloat(po.total_quantity)) * 100
-              : 0,
-          is_complete: remainingQuantity <= 0,
+          percentage: calculateFulfillmentPercentage(
+            stats.fulfilled_actual,
+            po.total_quantity
+          ),
+          is_complete: stats.remaining_quantity <= 0,
         },
       },
     });
   } catch (err) {
+    console.error("Error getting PO by ID:", err);
+    res.status(500).json({ success: false, message: err.message });
     next(err);
   }
 };
 
 // Create new PO (enhanced for web)
 exports.createPurchaseOrder = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
   try {
     const {
       customer_name,
       item_name,
       total_quantity,
       unit,
-      unit_price,
       load_location,
       unload_location,
       load_latitude,
@@ -202,67 +250,103 @@ exports.createPurchaseOrder = async (req, res, next) => {
       notes,
     } = req.body;
 
-    const calculateTotalAmount = (quantity, unit, unitPrice) => {
-      const qty = parseFloat(quantity) || 0;
-      const price = parseFloat(unitPrice) || 0;
+    // FIXED: Validate required + numeric + unit (per model)
+    if (
+      !customer_name ||
+      !item_name ||
+      !total_quantity ||
+      isNaN(parseFloat(total_quantity)) ||
+      parseFloat(total_quantity) < 0.01 ||
+      !unit ||
+      !["kilogram", "ton", "kubik"].includes(unit)
+    ) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid or missing required fields (customer_name, item_name, total_quantity (>=0.01), unit)",
+      });
+    }
 
-      switch (unit) {
-        case "kilogram":
-          return qty * price;
-        case "ton":
-          return qty * price;
-        case "kubik":
-          return qty * price; // Direct kubik pricing
-        default:
-          return qty * price;
-      }
-    };
-
-    // Generate PO number
-    const poCount = await PurchaseOrder.count({
-      where: {
-        created_at: {
-          [Op.gte]: new Date(
-            new Date().getFullYear(),
-            new Date().getMonth(),
-            1
-          ),
-        },
-      },
-    });
-
-    const poNumber = `PO-${new Date().getFullYear()}${String(
+    // Generate PO number (FIXED: Use yearMonth from model style, uniqueness in transaction)
+    const yearMonth = `${new Date().getFullYear()}${String(
       new Date().getMonth() + 1
-    ).padStart(2, "0")}-${String(poCount + 1).padStart(4, "0")}`;
-
-    const newPO = await PurchaseOrder.create({
-      po_number: poNumber,
-      customer_name,
-      item_name,
-      total_quantity,
-      unit,
-      unit_price: unit_price || 0,
-      total_amount: calculateTotalAmount(total_quantity, unit, unit_price),
-      load_location,
-      unload_location,
-      load_latitude,
-      load_longitude,
-      unload_latitude,
-      unload_longitude,
-      notes,
-      status: "confirmed",
+    ).padStart(2, "0")}`;
+    const poCount = await PurchaseOrder.count({
+      where: { po_number: { [Op.like]: `PO-${yearMonth}-%` } },
+      transaction,
     });
+
+    let poNumber;
+    let attempts = 0;
+    do {
+      poNumber = `PO-${yearMonth}-${String(poCount + 1 + attempts).padStart(
+        4,
+        "0"
+      )}`;
+      const existing = await PurchaseOrder.findOne({
+        where: { po_number: poNumber },
+        transaction,
+      });
+      if (!existing) break;
+      attempts++;
+    } while (attempts < 10);
+
+    if (attempts >= 10) {
+      await transaction.rollback();
+      return res.status(500).json({
+        success: false,
+        message: "Failed to generate unique PO number",
+      });
+    }
+
+    const newPO = await PurchaseOrder.create(
+      {
+        po_number: poNumber,
+        customer_name,
+        item_name,
+        total_quantity,
+        unit,
+        total_amount: 0,
+        load_location,
+        unload_location,
+        load_latitude,
+        load_longitude,
+        unload_latitude,
+        unload_longitude,
+        notes,
+        status: "confirmed",
+      },
+      { transaction }
+    );
+
+    let initialStats;
+    try {
+      initialStats = await newPO.getRemainingAndForecast();
+    } catch (err) {
+      console.error(`Initial forecast failed for PO ${newPO.id}:`, err);
+      initialStats = {
+        remaining_quantity: parseFloat(total_quantity),
+        fulfilled_actual: 0,
+        estimated_pending: 0,
+        fulfillment_status: "pending",
+      }; // Manual fallback (no DOs yet)
+    }
+
+    await transaction.commit();
 
     res.status(201).json({
       success: true,
       message: "Purchase Order created successfully",
       data: {
         ...newPO.toJSON(),
-        unit_display: newPO.getUnitDisplay(),
-        price_display: newPO.getPriceDisplay(),
+        unit_display: newPO.getUnitDisplay() || unit,
+        ...initialStats,
       },
     });
   } catch (err) {
+    await transaction.rollback();
+    console.error("Error creating PO:", err);
     if (err.name === "SequelizeValidationError") {
       const messages = err.errors.map((e) => e.message);
       return res.status(400).json({
@@ -271,31 +355,88 @@ exports.createPurchaseOrder = async (req, res, next) => {
         errors: messages,
       });
     }
+    res.status(500).json({ success: false, message: err.message });
     next(err);
   }
 };
 
-// Update PO
+// Update PO (added check for total_quantity edits)
 exports.updatePurchaseOrder = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
   try {
     const { id } = req.params;
-    const po = await PurchaseOrder.findByPk(id);
+    const po = await PurchaseOrder.findByPk(id, { transaction });
 
     if (!po) {
-      return res.status(404).json({
-        success: false,
-        message: "Purchase Order not found",
-      });
+      await transaction.rollback();
+      return res
+        .status(404)
+        .json({ success: false, message: "Purchase Order not found" });
     }
 
-    const updatedPO = await po.update(req.body);
+    // FIXED: Validate updates (e.g., unit, total_quantity numeric/min)
+    if (
+      req.body.unit &&
+      !["kilogram", "ton", "kubik"].includes(req.body.unit)
+    ) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: "Invalid unit" });
+    }
+    if (req.body.total_quantity !== undefined) {
+      const newTotal = parseFloat(req.body.total_quantity);
+      if (isNaN(newTotal) || newTotal < 0.01) {
+        await transaction.rollback();
+        return res
+          .status(400)
+          .json({ success: false, message: "Invalid total_quantity (>=0.01)" });
+      }
+      if (req.user?.role !== "admin") {
+        await transaction.rollback();
+        return res.status(403).json({
+          success: false,
+          message: "Only admins can update total_quantity",
+        });
+      }
+      let stats;
+      try {
+        stats = await po.getRemainingAndForecast();
+      } catch (err) {
+        stats = { fulfilled_actual: 0 }; // Fallback
+      }
+      if (newTotal < stats.fulfilled_actual) {
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: "New total_quantity cannot be less than fulfilled amount",
+        });
+      }
+    }
+
+    const updatedPO = await po.update(req.body, { transaction });
+
+    let stats;
+    try {
+      stats = await updatedPO.getRemainingAndForecast();
+    } catch (err) {
+      console.error(`Forecast failed for updated PO ${id}:`, err);
+      stats = {
+        remaining_quantity: parseFloat(updatedPO.total_quantity),
+        fulfilled_actual: 0,
+        estimated_pending: 0,
+        fulfillment_status: "pending",
+      }; // Fallback
+    }
+
+    await transaction.commit();
 
     res.json({
       success: true,
       message: "Purchase Order updated successfully",
-      data: updatedPO,
+      data: { ...updatedPO.toJSON(), ...stats },
     });
   } catch (err) {
+    await transaction.rollback();
+    console.error("Error updating PO:", err);
     if (err.name === "SequelizeValidationError") {
       const messages = err.errors.map((e) => e.message);
       return res.status(400).json({
@@ -304,24 +445,40 @@ exports.updatePurchaseOrder = async (req, res, next) => {
         errors: messages,
       });
     }
+    res.status(500).json({ success: false, message: err.message });
     next(err);
   }
 };
 
-// Delete PO
+// Delete PO (unchanged, but added check for remaining)
 exports.deletePurchaseOrder = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
   try {
     const { id } = req.params;
-    const po = await PurchaseOrder.findByPk(id);
+    const po = await PurchaseOrder.findByPk(id, { transaction });
 
     if (!po) {
-      return res.status(404).json({
+      await transaction.rollback();
+      return res
+        .status(404)
+        .json({ success: false, message: "Purchase Order not found" });
+    }
+
+    let stats;
+    try {
+      stats = await po.getRemainingAndForecast();
+    } catch (err) {
+      console.error(`Forecast failed for delete PO ${id}:`, err);
+      stats = { fulfillment_status: po.status }; // Fallback
+    }
+    if (stats.fulfillment_status !== "complete") {
+      await transaction.rollback();
+      return res.status(400).json({
         success: false,
-        message: "Purchase Order not found",
+        message: "Cannot delete PO that is not fully completed",
       });
     }
 
-    // Check if PO has active delivery orders
     const activeDeliveries = await DeliveryOrder.count({
       where: {
         purchase_order_id: id,
@@ -336,74 +493,67 @@ exports.deletePurchaseOrder = async (req, res, next) => {
           ],
         },
       },
+      transaction,
     });
 
     if (activeDeliveries > 0) {
+      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: "Cannot delete PO with active delivery orders",
       });
     }
 
-    await po.destroy();
+    await po.destroy({ transaction });
+    await transaction.commit();
 
-    res.json({
-      success: true,
-      message: "Purchase Order deleted successfully",
-    });
+    res.json({ success: true, message: "Purchase Order deleted successfully" });
   } catch (err) {
+    await transaction.rollback();
+    console.error("Error deleting PO:", err);
+    res.status(500).json({ success: false, message: err.message });
     next(err);
   }
 };
 
-// Get PO details for creating DO
+// Get PO details for creating DO (enhanced with forecast)
 exports.getPoDetailsForNewDo = async (req, res, next) => {
   try {
     const { id } = req.params;
 
     const po = await PurchaseOrder.findByPk(id);
     if (!po) {
-      return res.status(404).json({
-        success: false,
-        message: "Purchase Order not found",
-      });
+      return res
+        .status(404)
+        .json({ success: false, message: "Purchase Order not found" });
     }
 
-    // Calculate delivered quantity
-    const totalDelivered =
-      (await DeliveryOrder.sum("actual_load_quantity", {
-        where: {
-          purchase_order_id: id,
-          status: "completed",
-          actual_load_quantity: { [Op.ne]: null },
-        },
-      })) || 0;
+    let stats;
+    try {
+      stats = await po.getRemainingAndForecast();
+    } catch (err) {
+      console.error(`Forecast failed for PO ${id}:`, err);
+      stats = {
+        remaining_quantity: parseFloat(po.total_quantity),
+        fulfilled_actual: 0,
+        estimated_pending: 0,
+        fulfillment_status: "pending",
+      }; // Fallback
+    }
 
-    const remainingQuantity = parseFloat(po.total_quantity) - totalDelivered;
-
-    if (remainingQuantity <= 0) {
+    if (stats.remaining_quantity <= 0) {
       return res.status(400).json({
         success: false,
         message: "No remaining quantity available for delivery",
       });
     }
 
-    // Generate DO number
-    const doCount = await DeliveryOrder.count({
-      where: {
-        created_at: {
-          [Op.gte]: new Date(
-            new Date().getFullYear(),
-            new Date().getMonth(),
-            1
-          ),
-        },
-      },
-    });
-
-    const generatedDoNumber = `DO-${new Date().getFullYear()}${String(
-      new Date().getMonth() + 1
-    ).padStart(2, "0")}-${String(doCount + 1).padStart(4, "0")}`;
+    // Generate DO number suggestion (FIXED: Match create)
+    const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const randomSuffix = Math.floor(Math.random() * 1000)
+      .toString()
+      .padStart(3, "0");
+    const generatedDoNumber = `DO-${timestamp}-${randomSuffix}`;
 
     res.json({
       success: true,
@@ -411,10 +561,8 @@ exports.getPoDetailsForNewDo = async (req, res, next) => {
         po_number: po.po_number,
         customer_name: po.customer_name,
         item_name: po.item_name,
-        unit_price: parseFloat(po.unit_price) || 0,
         total_quantity: parseFloat(po.total_quantity),
-        delivered_quantity: totalDelivered,
-        remaining_quantity: remainingQuantity,
+        ...stats,
         generated_do_number: generatedDoNumber,
         load_location: po.load_location || "",
         unload_location: po.unload_location || "",
@@ -422,24 +570,29 @@ exports.getPoDetailsForNewDo = async (req, res, next) => {
         load_longitude: po.load_longitude,
         unload_latitude: po.unload_latitude,
         unload_longitude: po.unload_longitude,
-        has_location_data: !!(po.load_location && po.unload_location),
+        has_location_data: po.hasLocationData(), // FIXED: Use model method
       },
     });
   } catch (err) {
+    console.error("Error getting PO details for new DO:", err);
+    res.status(500).json({ success: false, message: err.message });
     next(err);
   }
 };
 
-// Create DO from PO
+// Create DO from PO (added validation)
 exports.createDeliveryOrderFromPO = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
   try {
     const { id } = req.params; // PO ID
     const {
       driver_id,
       vehicle_id,
+      item_name,
       minimal_load_quantity,
-      trip_allowance,
-      gaji,
+      unit_price,
+      trip_allowance = 0,
+      gaji = 0,
       load_location,
       unload_location,
       load_latitude,
@@ -448,49 +601,92 @@ exports.createDeliveryOrderFromPO = async (req, res, next) => {
       unload_longitude,
     } = req.body;
 
-    // Validate PO exists
-    const po = await PurchaseOrder.findByPk(id);
+    const po = await PurchaseOrder.findByPk(id, { transaction });
     if (!po) {
-      return res.status(404).json({
-        success: false,
-        message: "Purchase Order not found",
-      });
+      await transaction.rollback();
+      return res
+        .status(404)
+        .json({ success: false, message: "Purchase Order not found" });
     }
 
     if (po.status === "completed" || po.status === "cancelled") {
+      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: "Cannot create DO from completed or cancelled Purchase Order",
       });
     }
 
-    // Check remaining quantity
-    const totalDelivered =
-      (await DeliveryOrder.sum("actual_load_quantity", {
-        where: {
-          purchase_order_id: id,
-          status: "completed",
-          actual_load_quantity: { [Op.ne]: null },
-        },
-      })) || 0;
+    // FIXED: Validate item_name
+    if (!item_name) {
+      await transaction.rollback();
+      return res
+        .status(400)
+        .json({ success: false, message: "item_name is required" });
+    }
+    const poItems = po.item_name
+      ? po.item_name.split(",").map((i) => i.trim().toLowerCase())
+      : [];
+    if (
+      poItems.length === 0 ||
+      !poItems.includes(item_name.trim().toLowerCase())
+    ) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: `Invalid item_name: "${item_name}" not found in PO items: "${po.item_name}"`,
+      });
+    }
 
-    const remainingQuantity = parseFloat(po.total_quantity) - totalDelivered;
+    // FIXED: Validate unit_price and quantities
+    if (
+      !unit_price ||
+      isNaN(parseFloat(unit_price)) ||
+      !minimal_load_quantity ||
+      isNaN(parseFloat(minimal_load_quantity))
+    ) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message:
+          "unit_price and minimal_load_quantity are required and must be numbers",
+      });
+    }
 
-    if (remainingQuantity <= 0) {
+    // Use PO's getRemainingAndForecast for initial check
+    let stats;
+    try {
+      stats = await po.getRemainingAndForecast();
+    } catch (err) {
+      console.error(`Forecast failed for PO ${id}:`, err);
+      const dos = await po.getPoDeliveryOrders({ transaction });
+      let fulfilledActual = 0;
+      let estimatedPending = 0;
+      dos.forEach((d) => {
+        if (d.status === "completed")
+          fulfilledActual += parseFloat(d.actual_load_quantity) || 0;
+        else estimatedPending += parseFloat(d.minimal_load_quantity) || 0;
+      });
+      const remaining =
+        po.total_quantity - (fulfilledActual + estimatedPending);
+      stats = { remaining_quantity: remaining > 0 ? remaining : 0 };
+    }
+    if (stats.remaining_quantity <= 0) {
+      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: "No remaining quantity in this Purchase Order",
       });
     }
-
-    if (parseFloat(minimal_load_quantity) > remainingQuantity) {
+    if (parseFloat(minimal_load_quantity) > stats.remaining_quantity) {
+      await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: `Minimal load quantity (${minimal_load_quantity}) exceeds remaining PO quantity (${remainingQuantity})`,
+        message: `Minimal load quantity (${minimal_load_quantity}) exceeds remaining PO quantity (${stats.remaining_quantity})`,
       });
     }
 
-    // Validate driver availability
+    // Validate driver/vehicle (add bigDO check like DO create)
     const activeDriverTrip = await DeliveryOrder.findOne({
       where: {
         driver_id,
@@ -505,16 +701,16 @@ exports.createDeliveryOrderFromPO = async (req, res, next) => {
           ],
         },
       },
+      transaction,
     });
-
     if (activeDriverTrip) {
+      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: "Driver is currently assigned to another active trip",
       });
     }
 
-    // Validate vehicle availability
     const activeVehicleTrip = await DeliveryOrder.findOne({
       where: {
         vehicle_id,
@@ -529,68 +725,154 @@ exports.createDeliveryOrderFromPO = async (req, res, next) => {
           ],
         },
       },
+      transaction,
     });
-
     if (activeVehicleTrip) {
+      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: "Vehicle is currently assigned to another active trip",
       });
     }
 
-    // Generate DO number
-    const doCount = await DeliveryOrder.count({
-      where: {
-        created_at: {
-          [Op.gte]: new Date(
-            new Date().getFullYear(),
-            new Date().getMonth(),
-            1
-          ),
-        },
-      },
+    const existingBigDO = await db.BigDeliveryOrder.findOne({
+      where: { driver_id, status: { [Op.in]: ["assigned", "in_progress"] } },
+      transaction,
     });
+    if (existingBigDO) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: `Driver is already assigned to Big DO: ${existingBigDO.big_do_number}`,
+      });
+    }
 
-    const doNumber = `DO-${new Date().getFullYear()}${String(
-      new Date().getMonth() + 1
-    ).padStart(2, "0")}-${String(doCount + 1).padStart(4, "0")}`;
+    // Generate DO number
+    const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    let attempts = 0;
+    let doNumber;
+    do {
+      const randomSuffix = Math.floor(Math.random() * 1000)
+        .toString()
+        .padStart(3, "0");
+      doNumber = `DO-${timestamp}-${randomSuffix}`;
+      const existing = await DeliveryOrder.findOne({
+        where: { do_number: doNumber },
+        transaction,
+      });
+      if (!existing) break;
+      attempts++;
+    } while (attempts < 100);
 
-    // Create Delivery Order
-    const newDO = await DeliveryOrder.create({
+    if (attempts >= 100) {
+      await transaction.rollback();
+      return res.status(500).json({
+        success: false,
+        message: "Failed to generate unique DO number",
+      });
+    }
+
+    // Calcs
+    const calculatedTotalAmount = calculateTotalAmount(
+      minimal_load_quantity,
+      unit_price,
+      po.unit
+    );
+    const calculatedOngkosan = calculateOngkosan(
+      calculatedTotalAmount,
+      trip_allowance,
+      gaji
+    );
+
+    // Build temp DO for validation (per DO model)
+    const tempDO = db.DeliveryOrder.build({
       purchase_order_id: id,
       driver_id,
       vehicle_id,
       do_number: doNumber,
       customer_name: po.customer_name,
-      item_name: po.item_name,
+      item_name,
       minimal_load_quantity,
-      unit_price: po.unit_price || 0,
-      total_amount:
-        parseFloat(minimal_load_quantity) * (parseFloat(po.unit_price) || 0),
+      unit: po.unit,
+      unit_price,
+      total_amount: calculatedTotalAmount,
       trip_allowance,
       gaji,
+      ongkosan: calculatedOngkosan,
+      final_amount: calculatedTotalAmount,
       load_location: load_location || po.load_location,
       unload_location: unload_location || po.unload_location,
       load_latitude: load_latitude || po.load_latitude,
       load_longitude: load_longitude || po.load_longitude,
       unload_latitude: unload_latitude || po.unload_latitude,
       unload_longitude: unload_longitude || po.unload_longitude,
-      payment_status: "proses_tagihan",
+      payment_status: "proses_tagihan", // Per DO model default (update model if changing)
       status: "assigned",
     });
 
-    // Update driver and vehicle status
-    await DriverProfile.update(
+    await tempDO.validateQuantityAgainstPO(false);
+
+    const newDO = await db.DeliveryOrder.create(tempDO.dataValues, {
+      transaction,
+    });
+
+    // Update driver/vehicle
+    await db.DriverProfile.update(
       { status: "busy" },
-      { where: { user_id: driver_id } }
+      { where: { user_id: driver_id }, transaction }
+    );
+    await db.Vehicle.update(
+      { status: "in_use" },
+      { where: { id: vehicle_id }, transaction }
     );
 
-    await Vehicle.update({ status: "in_use" }, { where: { id: vehicle_id } });
+    // Send push
+    const driverUser = await db.User.findOne({
+      where: { id: driver_id },
+      attributes: ["username", "expo_push_token"],
+      include: [
+        {
+          model: db.DriverProfile,
+          as: "driverProfile",
+          attributes: ["full_name"],
+        },
+      ],
+      transaction,
+    });
 
-    // Update PO status to partial if not already
-    if (po.status === "confirmed") {
-      await po.update({ status: "partial" });
+    if (
+      driverUser &&
+      driverUser.expo_push_token &&
+      Expo.isExpoPushToken(driverUser.expo_push_token)
+    ) {
+      const expo = new Expo();
+      const driverName =
+        driverUser.driverProfile?.full_name || driverUser.username;
+      const messages = [
+        {
+          to: driverUser.expo_push_token,
+          sound: "default",
+          title: "Tugas Pengantaran Baru",
+          body: `Halo ${driverName}, Anda telah ditugaskan untuk DO ${newDO.do_number}. Silakan cek detail pengantaran di aplikasi.`,
+          data: { do_number: newDO.do_number },
+        },
+      ];
+      try {
+        await expo.sendPushNotificationsAsync(messages);
+      } catch (pushError) {
+        console.error("Push notification error in createDOFromPO:", pushError);
+      }
     }
+
+    // Let trigger update PO
+    let updatedStats;
+    try {
+      updatedStats = await po.getRemainingAndForecast();
+    } catch (err) {
+      updatedStats = {}; // Fallback
+    }
+
+    await transaction.commit();
 
     res.status(201).json({
       success: true,
@@ -598,25 +880,23 @@ exports.createDeliveryOrderFromPO = async (req, res, next) => {
       data: {
         ...newDO.toJSON(),
         financial_summary: newDO.getFinancialSummary(),
-        remaining_po_quantity:
-          remainingQuantity - parseFloat(minimal_load_quantity),
+        remaining_po_quantity: updatedStats.remaining_quantity || 0,
+        po_stats: updatedStats,
       },
     });
   } catch (err) {
+    await transaction.rollback();
     console.error("Error creating DO from PO:", err);
+    res.status(500).json({ success: false, message: err.message });
     next(err);
   }
 };
 
-// Get available POs for delivery
+// Get available POs for delivery (enhanced with forecast)
 exports.getAvailablePOsForDelivery = async (req, res, next) => {
   try {
     const availablePOs = await PurchaseOrder.findAll({
-      where: {
-        status: {
-          [Op.in]: ["confirmed", "partial"],
-        },
-      },
+      where: { status: { [Op.in]: ["confirmed", "partial"] } },
       attributes: [
         "id",
         "po_number",
@@ -630,31 +910,28 @@ exports.getAvailablePOsForDelivery = async (req, res, next) => {
       order: [["created_at", "DESC"]],
     });
 
-    // Calculate remaining quantity for each PO
     const posWithRemaining = await Promise.all(
       availablePOs.map(async (po) => {
-        const totalDelivered =
-          (await DeliveryOrder.sum("actual_load_quantity", {
-            where: {
-              purchase_order_id: po.id,
-              status: "completed",
-              actual_load_quantity: { [Op.ne]: null },
-            },
-          })) || 0;
-
-        const remainingQuantity =
-          parseFloat(po.total_quantity) - totalDelivered;
-
+        let stats;
+        try {
+          stats = await po.getRemainingAndForecast();
+        } catch (err) {
+          console.error(`Forecast failed for available PO ${po.id}:`, err);
+          stats = {
+            remaining_quantity: parseFloat(po.total_quantity),
+            fulfilled_actual: 0,
+            estimated_pending: 0,
+            fulfillment_status: "pending",
+          };
+        }
         return {
           ...po.toJSON(),
-          delivered_quantity: totalDelivered,
-          remaining_quantity: remainingQuantity,
-          can_create_do: remainingQuantity > 0,
+          ...stats,
+          can_create_do: stats.remaining_quantity > 0,
         };
       })
     );
 
-    // Filter only POs that can create DO
     const filteredPOs = posWithRemaining.filter((po) => po.can_create_do);
 
     res.json({
@@ -663,6 +940,8 @@ exports.getAvailablePOsForDelivery = async (req, res, next) => {
       total: filteredPOs.length,
     });
   } catch (err) {
+    console.error("Error getting available POs for delivery:", err);
+    res.status(500).json({ success: false, message: err.message });
     next(err);
   }
 };

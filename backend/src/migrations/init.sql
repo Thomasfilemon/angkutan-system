@@ -218,12 +218,10 @@ CREATE TABLE purchase_orders (
   id SERIAL PRIMARY KEY,
   po_number VARCHAR(50) UNIQUE NOT NULL,
   customer_name VARCHAR(100) NOT NULL,
-  item_name VARCHAR(255) NOT NULL,
-  total_quantity NUMERIC(10, 2) NOT NULL,
-  unit VARCHAR(10) DEFAULT 'ton' 
-    CHECK (unit IN ('kilogram', 'ton', 'kubik')),
-  unit_price NUMERIC(15, 2),
-  total_amount NUMERIC(15, 2),
+  item_name VARCHAR(255),  -- Multiple items dipisah koma, e.g., "Pasir Silika, Batu Split" (NULLABLE jika opsional)
+  total_quantity NUMERIC(10, 2) NOT NULL,  -- Input manual keseluruhan
+  unit VARCHAR(10) DEFAULT 'ton' CHECK (unit IN ('kilogram', 'ton', 'kubik')),
+  total_amount NUMERIC(15, 2) DEFAULT 0,  -- Dinamis: sum dari DO (minimal for in-progress + actual for completed)
   load_location TEXT,
   unload_location TEXT,
   order_date DATE NOT NULL DEFAULT CURRENT_DATE,
@@ -264,7 +262,6 @@ CREATE TYPE unit_type AS ENUM (
     'kubik'
 );
 
-
 CREATE TABLE delivery_orders (
   id SERIAL PRIMARY KEY,
   purchase_order_id INTEGER REFERENCES purchase_orders(id) ON DELETE SET NULL,
@@ -296,7 +293,7 @@ CREATE TABLE delivery_orders (
   
   surat_jalan_photo_url TEXT[],
 
-  payment_status VARCHAR(30) NOT NULL DEFAULT 'proses_tagihan' 
+  payment_status VARCHAR(30) NOT NULL DEFAULT 'awaiting_confirmation'
     CHECK(payment_status IN ('awaiting_confirmation','lunas','deposit','proses_tagihan')),
   payment_type VARCHAR(20) CHECK(payment_type IN ('cash','transfer','deposit')),
   deposit_amount NUMERIC DEFAULT 0,
@@ -724,6 +721,59 @@ CREATE TRIGGER trg_recalc_pph
 BEFORE INSERT OR UPDATE ON delivery_order_invoices
 FOR EACH ROW
 EXECUTE FUNCTION recalc_do_invoice_pph();
+
+-- TRIGGER 2: Auto-update total_amount PO and PO status
+CREATE OR REPLACE FUNCTION update_po_total_amount()
+RETURNS TRIGGER AS $$
+DECLARE
+  fulfilled_qty NUMERIC := 0;  -- Sum of actual_load_quantity for completed DOs (tons)
+  pending_qty NUMERIC := 0;    -- Sum of minimal_load_quantity for pending DOs (tons)
+  total_amount_sum NUMERIC := 0;  -- Sum of (qty * price) for all non-cancelled DOs (Rp, for forecast)
+BEGIN
+  -- Sum quantities for status
+  SELECT 
+    COALESCE(SUM(CASE WHEN d.status = 'completed' THEN d.actual_load_quantity ELSE 0 END), 0),
+    COALESCE(SUM(CASE WHEN d.status != 'completed' AND d.status != 'cancelled' THEN d.minimal_load_quantity ELSE 0 END), 0)
+  INTO fulfilled_qty, pending_qty
+  FROM delivery_orders d 
+  WHERE d.purchase_order_id = NEW.purchase_order_id;
+
+  -- Sum monetary amounts separately for total_amount forecast
+  SELECT 
+    COALESCE(
+      SUM(CASE 
+        WHEN d.status = 'completed' THEN d.actual_load_quantity * d.unit_price 
+        ELSE d.minimal_load_quantity * d.unit_price 
+      END), 0
+    )
+  INTO total_amount_sum
+  FROM delivery_orders d 
+  WHERE d.purchase_order_id = NEW.purchase_order_id 
+    AND d.status != 'cancelled';
+
+  -- Update PO total_amount (monetary forecast)
+  UPDATE purchase_orders po
+  SET total_amount = total_amount_sum
+  WHERE po.id = NEW.purchase_order_id;
+
+  -- Update PO status based on quantities (with tiny tolerance for float rounding, e.g., 1700.01 >= 1700)
+  UPDATE purchase_orders po
+  SET status = 
+    CASE
+      WHEN fulfilled_qty + 0.01 >= po.total_quantity THEN 'completed'  -- Actual delivered meets/exceeds total
+      WHEN fulfilled_qty > 0 OR pending_qty > 0 THEN 'partial'         -- Some progress or pending
+      ELSE 'confirmed'                                                 -- Nothing started
+    END
+  WHERE po.id = NEW.purchase_order_id AND po.status != 'cancelled';
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Re-attach the trigger
+CREATE TRIGGER trg_update_po_total_after_do
+AFTER INSERT OR UPDATE ON delivery_orders
+FOR EACH ROW EXECUTE FUNCTION update_po_total_amount();
 
 -- DEPOSIT GROUP TABLES
 CREATE TABLE deposit_groups (

@@ -373,13 +373,20 @@ INSERT INTO cash_categories (category_name, category_type, description) VALUES
 ('Biaya Operasional', 'expense', 'Biaya BBM, maintenance, dll'),
 ('Pengeluaran Lain-lain', 'expense', 'Pengeluaran di luar kategori utama');
 
+-- JAYA TESTING SEEDER (MODIFIED TO MATCH SCHEMA)
+-- Contract: 120 kubik Pasir Urug @ Rp 185,000/kubik (totals dynamic via triggers)
+-- Dates: June 2025
+-- =====================================================
+
+BEGIN;
+
+-- 1️⃣ CREATE PURCHASE ORDER (Fixed: No unit_price; total_amount starts at 0, trigger will update)
 INSERT INTO purchase_orders (
   po_number, 
   customer_name, 
   item_name, 
   total_quantity, 
   unit, 
-  unit_price, 
   total_amount, 
   load_location, 
   unload_location, 
@@ -392,17 +399,16 @@ INSERT INTO purchase_orders (
   'Pasir Urug', 
   120.00, 
   'kubik', 
-  185000, -- Rp 185,000 per m³
-  22200000, -- 120 m³ × Rp 185,000/m³ = Rp 22,200,000
+  0.00, -- Start at 0; trigger will sum from DOs
   'Quarry Sukabumi, Jawa Barat',
   'Proyek Perumahan Serpong, Tangerang Selatan',
   '2025-06-01',
-  'completed', -- Status completed karena semua DO selesai
+  'confirmed', -- Start as confirmed; triggers to completed if all DOs fulfill
   'Pasir urug untuk proyek perumahan fase 2'
 )
 ON CONFLICT (po_number) DO NOTHING;
 
--- 🚛 DELIVERY ORDER 1 (Completed: 10 Juni 2025)
+-- 🚛 DELIVERY ORDER 1 (Completed: 10 Juni 2025) (Fixed: payment_status default, added final_amount)
 INSERT INTO delivery_orders (
   purchase_order_id, 
   driver_id, 
@@ -434,6 +440,7 @@ INSERT INTO delivery_orders (
   trip_allowance, 
   gaji, 
   ongkosan,
+  final_amount,
   surat_jalan_photo_url,
   payment_confirmation_status,
   created_at
@@ -450,12 +457,14 @@ INSERT INTO delivery_orders (
   'kubik',
   185000, -- Rp 185,000 per m³
   10406250, -- 56.25 m³ × Rp 185,000/m³ = Rp 10,406,250
-  'lunas',
+  'awaiting_confirmation',
   '2025-07-10',
   'Quarry Sukabumi, Jawa Barat',
-  -6.9175, 106.9270, -- Sukabumi coordinates
+  -6.9175, 
+  106.9270, -- Sukabumi coordinates
   'Proyek Perumahan Serpong, Tangerang Selatan',
-  -6.2615, 106.6900, -- Serpong coordinates
+  -6.2615, 
+  106.6900, -- Serpong coordinates
   'completed',
   '2025-06-10 06:00:00+07', -- Berangkat pagi
   '2025-06-10 09:30:00+07', -- Sampai lokasi muat
@@ -466,13 +475,50 @@ INSERT INTO delivery_orders (
   2200000, -- Uang jalan Rp 2,200,000
   600000,  -- Gaji Rp 600,000
   7606250, -- Ongkosan: 10,406,250 - 2,200,000 - 600,000 = 7,606,250
+  10406250, -- Final amount matches total
   '{uploads/surat_jalan/DO-250610-01-surat-jalan.jpg}',
-  'confirmed',
+  'awaiting_confirmation', -- Mimic trigger for completed
   '2025-06-09 15:00:00+07' -- DO dibuat sehari sebelumnya
-),
+)
+ON CONFLICT (do_number) DO NOTHING;
 
--- 🚛 DELIVERY ORDER 2 (Completed: 30 Juni 2025)
-(
+-- 🚛 DELIVERY ORDER 2 (Completed: 30 Juni 2025) (Fixed similarly)
+INSERT INTO delivery_orders (
+  purchase_order_id, 
+  driver_id, 
+  vehicle_id, 
+  do_name,
+  do_number, 
+  customer_name, 
+  item_name, 
+  minimal_load_quantity, 
+  actual_load_quantity, 
+  unit,
+  unit_price, 
+  total_amount,
+  payment_status, 
+  due_date, 
+  load_location, 
+  load_latitude, 
+  load_longitude, 
+  unload_location, 
+  unload_latitude, 
+  unload_longitude, 
+  status, 
+  departed_to_load_location_at, 
+  arrived_at_load_location_at, 
+  departed_from_load_location_at, 
+  arrived_at_unload_location_at, 
+  departed_from_unload_location_at, 
+  completed_at, 
+  trip_allowance, 
+  gaji, 
+  ongkosan,
+  final_amount,
+  surat_jalan_photo_url,
+  payment_confirmation_status,
+  created_at
+) VALUES (
   (SELECT id FROM purchase_orders WHERE po_number = 'PO/JAYA/06/2025-04'),
   (SELECT id FROM users WHERE username = 'supir_dedi'),
   (SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL'),
@@ -485,12 +531,14 @@ INSERT INTO delivery_orders (
   'kubik',
   185000, -- Rp 185,000 per m³
   11988000, -- 64.80 m³ × Rp 185,000/m³ = Rp 11,988,000
-  'lunas',
+  'awaiting_confirmation',
   '2025-07-30',
   'Quarry Sukabumi, Jawa Barat',
-  -6.9175, 106.9270, -- Sukabumi coordinates
+  -6.9175, 
+  106.9270, -- Sukabumi coordinates
   'Proyek Perumahan Serpong, Tangerang Selatan',
-  -6.2615, 106.6900, -- Serpong coordinates
+  -6.2615, 
+  106.6900, -- Serpong coordinates
   'completed',
   '2025-06-30 05:30:00+07', -- Berangkat lebih pagi
   '2025-06-30 09:00:00+07', -- Sampai lokasi muat
@@ -501,12 +549,14 @@ INSERT INTO delivery_orders (
   2300000, -- Uang jalan Rp 2,300,000 (sedikit lebih mahal)
   650000,  -- Gaji Rp 650,000
   9038000, -- Ongkosan: 11,988,000 - 2,300,000 - 650,000 = 9,038,000
+  11988000, -- Final amount matches total
   '{uploads/surat_jalan/DO-250630-02-surat-jalan.jpg}',
-  'confirmed',
+  'awaiting_confirmation', -- Mimic trigger
   '2025-06-29 16:00:00+07' -- DO dibuat sehari sebelumnya
-);
+)
+ON CONFLICT (do_number) DO NOTHING;
 
--- 💰 DRIVER EXPENSES untuk kedua DO
+-- 💰 DRIVER EXPENSES untuk kedua DO (Unchanged, but added ON CONFLICT)
 INSERT INTO driver_expenses (delivery_order_id, driver_id, jenis, amount, notes) VALUES
 -- Expenses untuk DO-250610-01
 ((SELECT id FROM delivery_orders WHERE do_number = 'DO-250610-01'), 
@@ -536,9 +586,10 @@ INSERT INTO driver_expenses (delivery_order_id, driver_id, jenis, amount, notes)
 
 ((SELECT id FROM delivery_orders WHERE do_number = 'DO-250630-02'), 
  (SELECT id FROM users WHERE username = 'supir_dedi'), 
- 'parkir', 25000, 'Parkir di lokasi proyek');
+ 'parkir', 25000, 'Parkir di lokasi proyek')
+ON CONFLICT DO NOTHING;
 
--- 🧾 SAMPLE INVOICE DATA (opsional, untuk testing payment system)
+-- 🧾 SAMPLE INVOICE DATA (Fixed: Dates, calcs consistent)
 INSERT INTO delivery_order_invoices (
   delivery_order_id,
   invoice_number,
@@ -556,31 +607,32 @@ INSERT INTO delivery_order_invoices (
 ((SELECT id FROM delivery_orders WHERE do_number = 'DO-250610-01'),
  'INV/2025/06/010',
  '2025-06-11',
- 10406250, -- Gross amount
+ 10406250,
  '2025-07-11',
- 0.50, -- PPh 0.5%
- 52031.25, -- PPh amount: 10,406,250 × 0.5%
- 10354218.8, -- Net: 10,406,250 - 52,031.25
+ 0.50,
+ 52031.25,
+ 10354218.75, -- Fixed rounding to match DECIMAL(15,2)
  'paid',
  'Invoice untuk pengiriman pasir urug batch 1',
  (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
- ),
+),
 
 -- Invoice untuk DO-250630-02
 ((SELECT id FROM delivery_orders WHERE do_number = 'DO-250630-02'),
  'INV/2025/06/030',
  '2025-07-01',
- 11988000, -- Gross amount
+ 11988000,
  '2025-07-31',
- 0.50, -- PPh 0.5%
- 59940, -- PPh amount: 11,988,000 × 0.5%
- 11928060, -- Net: 11,988,000 - 59,940
+ 0.50,
+ 59940,
+ 11928060,
  'paid',
  'Invoice untuk pengiriman pasir urug batch 2',
  (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
- );
+)
+ON CONFLICT (invoice_number) DO NOTHING;
 
--- 💸 SAMPLE PAYMENT DATA
+-- 💸 SAMPLE PAYMENT DATA (Fixed: Net amounts rounded, added received_by)
 INSERT INTO delivery_order_payments (
   delivery_order_id,
   invoice_id,
@@ -588,16 +640,19 @@ INSERT INTO delivery_order_payments (
   payment_type,
   payment_amount,
   payment_date,
-  notes
+  notes,
+  received_by
 ) VALUES
 -- Payment untuk DO-250610-01
 ((SELECT id FROM delivery_orders WHERE do_number = 'DO-250610-01'),
  (SELECT id FROM delivery_order_invoices WHERE invoice_number = 'INV/2025/06/010'),
  'TRF-20250615-001',
  'transfer',
- 10354218.8,
+ 10354218.75,
  '2025-06-15',
- 'Pembayaran lunas DO-250610-01 via transfer BCA'),
+ 'Pembayaran lunas DO-250610-01 via transfer BCA',
+ (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
+),
 
 -- Payment untuk DO-250630-02
 ((SELECT id FROM delivery_orders WHERE do_number = 'DO-250630-02'),
@@ -606,9 +661,12 @@ INSERT INTO delivery_order_payments (
  'transfer',
  11928060,
  '2025-07-05',
- 'Pembayaran lunas DO-250630-02 via transfer BCA');
+ 'Pembayaran lunas DO-250630-02 via transfer BCA',
+ (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
+)
+ON CONFLICT DO NOTHING;
 
--- 📊 PAYMENT HISTORY untuk tracking status changes
+-- 📊 PAYMENT HISTORY untuk tracking status changes (Fixed: old_status to 'awaiting_confirmation' per your info)
 INSERT INTO delivery_order_payment_history (
   delivery_order_id,
   old_status,
@@ -619,7 +677,7 @@ INSERT INTO delivery_order_payment_history (
 ) VALUES
 -- History untuk DO-250610-01
 ((SELECT id FROM delivery_orders WHERE do_number = 'DO-250610-01'),
- 'proses_tagihan',
+ 'awaiting_confirmation',
  'lunas',
  'Payment completed via transfer TRF-20250615-001',
  (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1),
@@ -627,303 +685,38 @@ INSERT INTO delivery_order_payment_history (
 
 -- History untuk DO-250630-02
 ((SELECT id FROM delivery_orders WHERE do_number = 'DO-250630-02'),
- 'proses_tagihan',
+ 'awaiting_confirmation',
  'lunas',
  'Payment completed via transfer TRF-20250705-002',
  (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1),
- '2025-07-05 16:45:00+07');
+ '2025-07-05 16:45:00+07')
+ON CONFLICT DO NOTHING;
 
--- ===============================================
--- 🎯 NEW SEEDER: PO January 2025 + 2 Completed DOs + 3 On-Going DOs (To be created)
--- Unit: ton (weight-based pricing)
--- Driver: Yoyo (supir_yoyo)
--- ===============================================
+COMMIT;
 
--- 🏗️ NEW PURCHASE ORDER (Unit: kubik)
-INSERT INTO purchase_orders (
-  po_number, 
-  customer_name, 
-  item_name, 
-  total_quantity, 
-  unit, 
-  unit_price, 
-  total_amount, 
-  load_location, 
-  unload_location, 
-  order_date, 
-  status,
-  notes
-) VALUES (
-  'PO/ADRO/07/2025-01', 
-  'PT ADARO MINERALS', 
-  'Batu Split', 
-  1000.00, 
-  'ton', 
-  110000, -- Rp 110,000 per ton
-  110000000, -- 1000 ton × Rp 110,000  = Rp 110,000,000
-  'Gunung Kunyit, Bandar Lampung',
-  'Proyek Pembangunan Smelter, Serang',
-  '2025-01-01',
-  'partial', -- Status completed karena semua DO selesai
-  'Batu Split Untuk Pembangunan Smelter'
-)
-ON CONFLICT (po_number) DO NOTHING;
-
--- 🚛 DELIVERY ORDER 1 (Completed: 10 Juni 2025)
-INSERT INTO delivery_orders (
-  purchase_order_id, 
-  driver_id, 
-  vehicle_id, 
-  do_name,
-  do_number, 
-  customer_name, 
-  item_name, 
-  minimal_load_quantity, 
-  actual_load_quantity, 
-  unit,
-  unit_price, 
-  total_amount,
-  payment_status, 
-  due_date, 
-  load_location, 
-  load_latitude, 
-  load_longitude, 
-  unload_location, 
-  unload_latitude, 
-  unload_longitude, 
-  status, 
-  departed_to_load_location_at, 
-  arrived_at_load_location_at, 
-  departed_from_load_location_at, 
-  arrived_at_unload_location_at, 
-  departed_from_unload_location_at, 
-  completed_at, 
-  trip_allowance, 
-  gaji, 
-  ongkosan,
-  surat_jalan_photo_url,
-  payment_confirmation_status,
-  created_at
-) VALUES (
-  (SELECT id FROM purchase_orders WHERE po_number = 'PO/ADRO/07/2025-01'),
-  (SELECT id FROM users WHERE username = 'supir_yoyo'),
-  (SELECT id FROM vehicles WHERE license_plate = 'BE 9090 AC'),
-  'PT ADARO MINERALS - DO-250110-01',
-  'DO-250110-01',
-  'PT ADARO MINERALS',
-  'Batu Split',
-  45.00, -- Target: 45 ton
-  45.25, -- Actual: 45.25 ton (slight excess)
-  'ton',
-  110000, -- Rp 110,000 per ton
-  4977500, -- 45.25 ton × Rp 110,000/ton = Rp 4,977,500
-  'lunas',
-  '2025-03-10',
-  'Gunung Kunyit, Bandar Lampung',
-  -5.45, 105.27,
-  'Proyek Pembangunan Smelter, Serang',
-  -6.00, 106.00,
-  'completed',
-  '2025-01-10 06:00:00+07', -- Berangkat pagi
-  '2025-01-10 09:30:00+07', -- Sampai lokasi muat
-  '2025-01-10 11:00:00+07', -- Selesai muat
-  '2025-01-10 14:30:00+07', -- Sampai lokasi bongkar
-  '2025-01-10 16:00:00+07', -- Selesai bongkar
-  '2025-01-10 18:00:00+07', -- Selesai trip
-  2500000, -- Uang jalan Rp 2,500,000
-  700000,  -- Gaji Rp 700,000
-  1777500, -- Ongkosan: 4,977,500 - 2,500,000 - 700,000 = 1,777,500
-  '{uploads/surat_jalan/DO-250610-01-surat-jalan.jpg}',
-  'confirmed',
-  '2025-01-09 15:00:00+07' -- DO dibuat sehari sebelumnya
-),
-
--- 🚛 DELIVERY ORDER 2 (Completed: 30 Juni 2025)
-(
-  (SELECT id FROM purchase_orders WHERE po_number = 'PO/ADRO/07/2025-01'),
-  (SELECT id FROM users WHERE username = 'supir_yoyo'),
-  (SELECT id FROM vehicles WHERE license_plate = 'BE 9090 AC'),
-  'PT ADARO MINERALS - DO-250129-02',
-  'DO-250129-02',
-  'PT ADARO MINERALS',
-  'Batu Split',
-  65.00, -- Target: 65 ton
-  64.75, -- Actual: 64.75 ton (slight shortage)
-  'ton',
-  110000, -- Rp 110,000 per ton
-  7122500, -- 64.75 ton × Rp 110,000/ton = Rp 7,122,500 
-  'lunas',
-  '2025-02-10',
-  'Gunung Kunyit, Bandar Lampung',
-  -5.45, 105.27,
-  'Proyek Pembangunan Smelter, Serang',
-  -6.00, 106.00,
-  'completed',
-  '2025-01-30 05:30:00+07', -- Berangkat lebih pagi
-  '2025-01-30 09:00:00+07', -- Sampai lokasi muat
-  '2025-01-30 10:30:00+07', -- Selesai muat
-  '2025-01-30 14:00:00+07', -- Sampai lokasi bongkar
-  '2025-01-30 15:30:00+07', -- Selesai bongkar
-  '2025-01-30 17:30:00+07', -- Selesai trip
-  2300000, -- Uang jalan Rp 2,300,000 (sedikit lebih mahal)
-  650000,  -- Gaji Rp 650,000
-  4172500, -- Ongkosan: 7,122,500 - 2,300,000 - 650,000 = 4,172,500
-  '{uploads/surat_jalan/DO-250630-02-surat-jalan.jpg}',
-  'confirmed',
-  '2025-01-29 16:00:00+07' -- DO dibuat sehari sebelumnya
-);
-
--- 💰 DRIVER EXPENSES untuk kedua DO
-INSERT INTO driver_expenses (delivery_order_id, driver_id, jenis, amount, notes) VALUES
--- Expenses untuk DO-250110-01
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-250110-01'), 
- (SELECT id FROM users WHERE username = 'supir_yoyo'), 
- 'bbm', 850000, 'Solar + Pertamax untuk perjalanan'),
-
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-250110-01'), 
- (SELECT id FROM users WHERE username = 'supir_yoyo'), 
- 'makan', 125000, 'Makan siang + minum di rest area'),
-
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-250110-01'), 
- (SELECT id FROM users WHERE username = 'supir_yoyo'), 
- 'tol', 75000, 'Tol Jagorawi + Serpong'),
-
--- Expenses untuk DO-250129-02
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-250129-02'), 
- (SELECT id FROM users WHERE username = 'supir_yoyo'), 
- 'bbm', 900000, 'Solar + Pertamax untuk perjalanan kedua'),
-
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-250129-02'), 
- (SELECT id FROM users WHERE username = 'supir_yoyo'), 
- 'makan', 140000, 'Makan siang + snack di perjalanan'),
-
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-250129-02'), 
- (SELECT id FROM users WHERE username = 'supir_yoyo'), 
- 'tol', 80000, 'Tol Jagorawi + Serpong (tarif naik)'),
-
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-250129-02'), 
- (SELECT id FROM users WHERE username = 'supir_yoyo'), 
- 'parkir', 25000, 'Parkir di lokasi proyek');
-
--- 🧾 SAMPLE INVOICE DATA (opsional, untuk testing payment system)
-INSERT INTO delivery_order_invoices (
-  delivery_order_id,
-  invoice_number,
-  invoice_date,
-  invoice_amount,
-  due_date,
-  pph_percentage,
-  pph_amount,
-  net_amount,
-  status,
-  notes,
-  created_by
-) VALUES
--- Invoice untuk DO-250110-01
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-250110-01'),
- 'INV/2025/01/010',
- '2025-01-11',
- 4977500, -- Gross amount
- '2025-03-11',
- 0.50, -- PPh 0.5%
- 24887.5, -- PPh amount: 4,977,500 × 0.5%
- 4952612.5, -- Net: 4,977,500 - 24,887.5
- 'paid',
- 'Invoice untuk pengiriman batu split batch 1',
- (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
- ),
-
--- Invoice untuk DO-250129-02
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-250129-02'),
- 'INV/2025/01/029',
- '2025-01-30',
- 7122500, -- Gross amount
- '2025-05-30',
- 0.50, -- PPh 0.5%
- 35612.5, -- PPh amount: 7,122,500 × 0.5%
- 7086887.5, -- Net: 7,122,500 - 35,612.5
- 'paid',
- 'Invoice untuk pengiriman batu split batch 2',
- (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1)
- );
-
--- 💸 SAMPLE PAYMENT DATA
-INSERT INTO delivery_order_payments (
-  delivery_order_id,
-  invoice_id,
-  payment_reference,
-  payment_type,
-  payment_amount,
-  payment_date,
-  notes
-) VALUES
--- Payment untuk DO-250110-01
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-250110-01'),
- (SELECT id FROM delivery_order_invoices WHERE invoice_number = 'INV/2025/01/010'),
- 'TRF-20250115-001',
- 'transfer',
- 4952612.5,
- '2025-01-15',
- 'Pembayaran lunas DO-250110-01 via transfer BCA'),
-
--- Payment untuk DO-250129-02
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-250129-02'),
- (SELECT id FROM delivery_order_invoices WHERE invoice_number = 'INV/2025/01/029'),
- 'TRF-20250205-002',
- 'transfer',
- 7086887.5,
- '2025-02-05',
- 'Pembayaran lunas DO-250129-02 via transfer BCA');
-
--- 📊 PAYMENT HISTORY untuk tracking status changes
-INSERT INTO delivery_order_payment_history (
-  delivery_order_id,
-  old_status,
-  new_status,
-  change_reason,
-  changed_by,
-  changed_at
-) VALUES
--- History untuk DO-250110-01
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-250110-01'),
- 'proses_tagihan',
- 'lunas',
- 'Payment completed via transfer TRF-20250115-001',
- (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1),
- '2025-01-15 11:30:00+07'),
-
--- History untuk DO-250129-02
-((SELECT id FROM delivery_orders WHERE do_number = 'DO-250129-02'),
- 'proses_tagihan',
- 'lunas',
- 'Payment completed via transfer TRF-20250205-002',
- (SELECT id FROM users WHERE username = 'admin_satu' LIMIT 1),
- '2025-02-05 13:44:00+07');
-
- -- =====================================================
--- 🎯 COMPREHENSIVE PAYMENT TESTING SEEDER
--- Contract: 1700 ton @ Rp 200/kg = Rp 340,000,000
+-- =====================================================
+-- PAYMENT TESTING SEEDER (MODIFIED TO MATCH SCHEMA)
+-- Contract: 1700 ton @ Rp 200/kg = Rp 340,000,000 (but totals dynamic via triggers)
 -- Date: July 10, 2025
 -- =====================================================
 
 BEGIN;
 
--- 1️⃣ CREATE PURCHASE ORDER (CORRECTED)
+-- 1️⃣ CREATE PURCHASE ORDER (Fixed: No unit_price; total_amount starts at 0, trigger will update after DOs)
 INSERT INTO purchase_orders (
-  po_number, customer_name, item_name, total_quantity, unit, unit_price, total_amount,
+  po_number, customer_name, item_name, total_quantity, unit, total_amount,
   load_location, unload_location, order_date, status, notes, created_at
 ) VALUES (
   'PO/TESTING/07/2025-001',
   'PT MAJU SEJAHTERA TESTING',
   'Pasir Silika',
-  '1700.00', -- 1700 ton
+  '1700.00',
   'ton',
-  '200000.00', -- Rp 200 per kg = Rp 200,000 per ton
-  '340000000.00', -- 1700 ton x Rp 200,000 = Rp 340M
+  '0.00',
   'Quarry Cilegon, Banten',
   'Pabrik Kaca Tangerang, Banten', 
   '2025-07-01',
-  'partial',
+  'confirmed', -- Let trigger handle
   'Testing data untuk sistem payment - BIG CONTRACT 1700 ton!',
   '2025-07-01 08:00:00+07'
 )
@@ -931,13 +724,13 @@ ON CONFLICT (po_number) DO NOTHING;
 
 -- 2️⃣ DELIVERY ORDERS WITH REALISTIC QUANTITIES
 
--- DO #1: COMPLETED - Ready for Invoice (Andi) - 300 ton
+-- DO #1: COMPLETED - Ready for Invoice (Andi) - 300 ton (Fixed: Added payment_confirmation_status to mimic trigger)
 INSERT INTO delivery_orders (
   purchase_order_id, driver_id, vehicle_id, do_name, do_number, customer_name, item_name,
   minimal_load_quantity, actual_load_quantity, unit, unit_price, total_amount,
   trip_allowance, gaji, ongkosan, final_amount,
   load_location, unload_location, 
-  payment_status, status, 
+  payment_status, status, payment_confirmation_status,
   created_at, departed_to_load_location_at, arrived_at_load_location_at,
   departed_from_load_location_at, arrived_at_unload_location_at, 
   departed_from_unload_location_at, completed_at
@@ -962,6 +755,7 @@ INSERT INTO delivery_orders (
   'Pabrik Kaca Tangerang, Banten',
   'awaiting_confirmation',
   'completed',
+  'awaiting_confirmation', -- Mimic auto_set_payment_confirmation trigger
   '2025-07-02 06:00:00+07',
   '2025-07-02 06:30:00+07',
   '2025-07-02 08:00:00+07',
@@ -1109,13 +903,13 @@ INSERT INTO delivery_order_invoices (
   '2025-07-06 09:00:00+07'
 );
 
--- DO #4: COMPLETED - Ready for Invoice (Dedi) - 200 ton
+-- DO #4: COMPLETED - Ready for Invoice (Dedi) - 200 ton (Fixed: Added payment_confirmation_status to mimic trigger)
 INSERT INTO delivery_orders (
   purchase_order_id, driver_id, vehicle_id, do_name, do_number, customer_name, item_name,
   minimal_load_quantity, actual_load_quantity, unit, unit_price, total_amount,
   trip_allowance, gaji, ongkosan, final_amount,
   load_location, unload_location,
-  payment_status, status,
+  payment_status, status, payment_confirmation_status,
   created_at, departed_to_load_location_at, arrived_at_load_location_at,
   departed_from_load_location_at, arrived_at_unload_location_at,
   departed_from_unload_location_at, completed_at
@@ -1140,6 +934,7 @@ INSERT INTO delivery_orders (
   'Pabrik Kaca Tangerang, Banten',
   'awaiting_confirmation',
   'completed',
+  'awaiting_confirmation', -- Mimic auto_set_payment_confirmation trigger
   '2025-07-05 05:30:00+07',
   '2025-07-05 06:00:00+07',
   '2025-07-05 07:45:00+07',
@@ -1192,6 +987,42 @@ INSERT INTO delivery_orders (
   1 -- Payment confirmed by user ID 1 (admin)
 );
 
+-- DO #6: ONGOING - At Unload Location (Eko) - 350 ton ✅ This makes Eko BUSY (Updated: payment_status to 'awaiting_confirmation' per schema change and intent)
+INSERT INTO delivery_orders (
+  purchase_order_id, driver_id, vehicle_id, do_name, do_number, customer_name, item_name,
+  minimal_load_quantity, actual_load_quantity, unit, unit_price, total_amount,
+  trip_allowance, gaji, ongkosan, final_amount,
+  load_location, unload_location,
+  payment_status, status,
+  created_at, departed_to_load_location_at, arrived_at_load_location_at,
+  departed_from_load_location_at, arrived_at_unload_location_at
+  -- Note: No completed_at, departed_from_unload_location_at - still ongoing
+) VALUES (
+  (SELECT id FROM purchase_orders WHERE po_number = 'PO/TESTING/07/2025-001'),
+  (SELECT id FROM users WHERE username = 'supir_eko'),
+  (SELECT id FROM vehicles WHERE license_plate = 'B 7890 MNO'),
+  'PT MAJU SEJAHTERA - DO-20250709-EKO-006',
+  'DO-20250709-EKO-006',
+  'PT MAJU SEJAHTERA TESTING',
+  'Pasir Silika',
+  '350.00', -- 350 ton
+  NULL, -- belom selesai muat barang
+  'ton',
+  '200000.00',
+  '70000000.00', -- 350 ton x Rp 200k (estimated)
+  '4000000.00',
+  '1400000.00',
+  '64600000.00',
+  '70000000.00',
+  'Quarry Cilegon, Banten',
+  'Pabrik Kaca Tangerang, Banten',
+  'awaiting_confirmation', -- ✅ Pending completion for billing
+  'at_load_location', -- at load location
+  '2025-07-09 05:45:00+07',
+  '2025-07-09 06:15:00+07',
+  '2025-07-09 07:30:00+07'
+);
+
 -- Invoice for DO #5
 INSERT INTO delivery_order_invoices (
   delivery_order_id, invoice_number, invoice_date, invoice_amount, due_date,
@@ -1229,44 +1060,6 @@ INSERT INTO delivery_order_payments (
   '2025-07-08 16:00:00+07'
 );
 
--- DO #6: ONGOING - At Unload Location (Eko) - 350 ton ✅ This makes Eko BUSY
-INSERT INTO delivery_orders (
-  purchase_order_id, driver_id, vehicle_id, do_name, do_number, customer_name, item_name,
-  minimal_load_quantity, actual_load_quantity, unit, unit_price, total_amount,
-  trip_allowance, gaji, ongkosan, final_amount,
-  load_location, unload_location,
-  payment_status, status,
-  created_at, departed_to_load_location_at, arrived_at_load_location_at,
-  departed_from_load_location_at, arrived_at_unload_location_at
-  -- Note: No completed_at, departed_from_unload_location_at - still ongoing
-) VALUES (
-  (SELECT id FROM purchase_orders WHERE po_number = 'PO/TESTING/07/2025-001'),
-  (SELECT id FROM users WHERE username = 'supir_eko'),
-  (SELECT id FROM vehicles WHERE license_plate = 'B 7890 MNO'),
-  'PT MAJU SEJAHTERA - DO-20250709-EKO-006',
-  'DO-20250709-EKO-006',
-  'PT MAJU SEJAHTERA TESTING',
-  'Pasir Silika',
-  '350.00', -- 350 ton
-  NULL, -- ongoing, belum ada actual quantity
-  'ton',
-  '200000.00',
-  '70000000.00', -- 350 ton x Rp 200k (estimated)
-  '4000000.00',
-  '1400000.00',
-  '64600000.00',
-  '70000000.00',
-  'Quarry Cilegon, Banten',
-  'Pabrik Kaca Tangerang, Banten',
-  'awaiting_confirmation', -- ✅ Still ongoing
-  'at_unload_location', -- ✅ Currently at unload location
-  '2025-07-09 05:45:00+07',
-  '2025-07-09 06:15:00+07',
-  '2025-07-09 07:30:00+07',
-  '2025-07-09 09:15:00+07',
-  '2025-07-09 11:45:00+07' -- Arrived at unload, still there
-);
-
 -- 3️⃣ UPDATE DRIVER & VEHICLE STATUS
 -- Set Eko and his vehicle to BUSY (ongoing delivery)
 UPDATE driver_profiles
@@ -1281,23 +1074,232 @@ ON CONFLICT (setting_key) DO NOTHING;
 
 COMMIT;
 
--- =====================================================
--- 🎯 TESTING DATA SUMMARY (CORRECTED)
--- =====================================================
--- PO: PO/TESTING/07/2025-001 (1700 ton @ Rp 200k/ton = Rp 340M)
---
--- DO States:
--- ✅ DO-20250702-ANDI-001    (305.5 ton) - Ready for invoice (Rp 61.1M)
--- ✅ DO-20250703-BUDI-002    (278.25 ton) - Fully paid (Rp 55.65M)
--- ✅ DO-20250704-CHARLIE-003 (252.75 ton) - Has invoice, unpaid (Rp 50.55M)
--- ✅ DO-20250705-DEDI-004    (198.5 ton) - Ready for invoice (Rp 39.7M)
--- ✅ DO-20250706-YOYO-005    (315.8 ton) - Partial payment (30M/62.84M)
--- ✅ DO-20250709-EKO-006     (350 ton) - ONGOING (Eko = BUSY)
---
--- Total actual delivered: 1,350.8 ton (target: 1700 ton) = 79.5% complete
--- Total estimated final: 1,700.8 ton = 100.05% ✓
--- Total contract value: ~Rp 340M
--- Total invoiced: Rp 230.14M
--- Total paid: Rp 85.37M
--- Outstanding: Rp 144.77M
--- =====================================================
+BEGIN;
+
+-- 1️⃣ CREATE PURCHASE ORDER WITH MULTIPLE ITEMS (aligned with controller: auto-style po_number, validated fields)
+-- Mimics controller: po_number like 'PO-YYYYMM-XXXX', unit validated, total_quantity >0.01, item_name comma-separated
+-- Total: 2500 tons aggregate; items: Pasir Silika, Batu Split, Semen
+INSERT INTO purchase_orders (
+  po_number, customer_name, item_name, total_quantity, unit, total_amount,
+  load_location, unload_location, order_date, status, notes, created_at
+) VALUES (
+  'PO-202508-003',  -- Mimics controller format (YYYYMM-XXX); adjust if you have existing counts
+  'PT BANGUN INFRA TESTING',
+  'Pasir Silika, Batu Split, Semen',  -- Comma-separated, as validated in DO controller
+  '2500.00',  -- >0.01, as per validation
+  'ton',  -- Valid unit
+  '0.00',  -- Starts at 0, trigger updates
+  'Quarry Serang, Banten',
+  'Proyek Jalan Tol Tangerang, Banten',
+  '2025-08-01',
+  'confirmed',
+  'Testing PO with multiple items - BIG CONTRACT 2500 ton! Items: Pasir Silika (main), Batu Split, Semen.',
+  '2025-08-01 09:00:00+07'
+)
+ON CONFLICT (po_number) DO NOTHING;
+
+-- 2️⃣ DELIVERY ORDERS (Mimics controller: do_number like 'DO-YYYYMMDD-XXX', item_name from PO list, calcs for total_amount/ongkosan)
+-- Quantities: Ensure sum < total_quantity (e.g., fulfilled ~1800 + pending 400 <2500) for 'partial' status
+-- Note: In real creation, controller would validate remaining qty via tempDO.validateQuantityAgainstPO()—manually check post-seed that summed minimal/actual <= PO total
+
+-- DO #1: COMPLETED - Pasir Silika, 800 ton (supir_andi)
+INSERT INTO delivery_orders (
+  purchase_order_id, driver_id, vehicle_id, do_name, do_number, customer_name, item_name,
+  minimal_load_quantity, actual_load_quantity, unit, unit_price, total_amount,
+  trip_allowance, gaji, ongkosan, final_amount,
+  load_location, unload_location,
+  payment_status, status, payment_confirmation_status,
+  created_at, departed_to_load_location_at, arrived_at_load_location_at,
+  departed_from_load_location_at, arrived_at_unload_location_at,
+  departed_from_unload_location_at, completed_at
+) VALUES (
+  (SELECT id FROM purchase_orders WHERE po_number = 'PO-202508-003'),
+  (SELECT id FROM users WHERE username = 'supir_andi'),
+  (SELECT id FROM vehicles WHERE license_plate = 'B 1234 ABC'),
+  'PT BANGUN INFRA - DO-20250802-ANDI-001',
+  'DO-20250802-001',  -- Mimics controller format (DO-YYYYMMDD-XXX)
+  'PT BANGUN INFRA TESTING',
+  'Pasir Silika',  -- Valid from PO items (controller would check)
+  '800.00',
+  '805.20',
+  'ton',
+  '180000.00',
+  '144936000.00',  -- Calc: 805.2 * 180k (matches calculateTotalAmount)
+  '4500000.00',
+  '1500000.00',
+  '138936000.00',  -- Calc: total - allowance - gaji (matches calculateOngkosan)
+  '144936000.00',
+  'Quarry Serang, Banten',
+  'Proyek Jalan Tol Tangerang, Banten',
+  'awaiting_confirmation',
+  'completed',
+  'awaiting_confirmation',
+  '2025-08-02 07:00:00+07',
+  '2025-08-02 07:30:00+07',
+  '2025-08-02 09:00:00+07',
+  '2025-08-02 10:30:00+07',
+  '2025-08-02 17:00:00+07',
+  '2025-08-02 17:30:00+07',
+  '2025-08-02 18:00:00+07'
+);
+
+-- DO #2: COMPLETED - Batu Split, 500 ton (supir_budi) - With invoice/partial payment; different item
+INSERT INTO delivery_orders (
+  purchase_order_id, driver_id, vehicle_id, do_name, do_number, customer_name, item_name,
+  minimal_load_quantity, actual_load_quantity, unit, unit_price, total_amount,
+  trip_allowance, gaji, ongkosan, final_amount,
+  load_location, unload_location,
+  payment_status, status, payment_confirmation_status,
+  created_at, departed_to_load_location_at, arrived_at_load_location_at,
+  departed_from_load_location_at, arrived_at_unload_location_at,
+  departed_from_unload_location_at, completed_at
+) VALUES (
+  (SELECT id FROM purchase_orders WHERE po_number = 'PO-202508-003'),
+  (SELECT id FROM users WHERE username = 'supir_budi'),
+  (SELECT id FROM vehicles WHERE license_plate = 'B 5678 DEF'),
+  'PT BANGUN INFRA - DO-20250803-BUDI-002',
+  'DO-20250803-002',
+  'PT BANGUN INFRA TESTING',
+  'Batu Split',
+  '500.00',
+  '498.75',
+  'ton',
+  '220000.00',
+  '109725000.00',  -- Calc: 498.75 * 220k
+  '3200000.00',
+  '1200000.00',
+  '105325000.00',  -- Calc: total - allowance - gaji
+  '109725000.00',
+  'Quarry Serang, Banten',
+  'Proyek Jalan Tol Tangerang, Banten',
+  'proses_tagihan',
+  'completed',
+  'confirmed',
+  '2025-08-03 06:30:00+07',
+  '2025-08-03 07:00:00+07',
+  '2025-08-03 08:30:00+07',
+  '2025-08-03 10:00:00+07',
+  '2025-08-03 16:30:00+07',
+  '2025-08-03 17:00:00+07',
+  '2025-08-03 17:30:00+07'
+);
+
+-- Invoice for DO #2
+INSERT INTO delivery_order_invoices (
+  delivery_order_id, invoice_number, invoice_date, invoice_amount, due_date,
+  pph_percentage, pph_amount, net_amount, status, notes, created_by, created_at
+) VALUES (
+  (SELECT id FROM delivery_orders WHERE do_number = 'DO-20250803-002'),
+  'INV/TEST/2025/08/002',
+  '2025-08-04',
+  '109725000.00',
+  '2025-09-03',
+  '0.50',
+  '548625.00',
+  '109176375.00',
+  'issued',
+  'Testing invoice for Batu Split - partial payment expected',
+  1,
+  '2025-08-04 10:00:00+07'
+);
+
+-- Partial payment for DO #2
+INSERT INTO delivery_order_payments (
+  delivery_order_id, invoice_id, payment_reference, payment_type, payment_amount,
+  payment_date, received_by, bank_account, notes, created_by, created_at
+) VALUES (
+  (SELECT id FROM delivery_orders WHERE do_number = 'DO-20250803-002'),
+  (SELECT id FROM delivery_order_invoices WHERE invoice_number = 'INV/TEST/2025/08/002'),
+  'TRF-TEST-20250805-001',
+  'transfer',
+  '50000000.00',  -- Partial ~45%
+  '2025-08-05',
+  1,
+  'BCA 1234567890',
+  'Partial payment for Batu Split DO',
+  1,
+  '2025-08-05 14:00:00+07'
+);
+
+-- DO #3: COMPLETED - Semen, 500 ton (supir_charlie)
+INSERT INTO delivery_orders (
+  purchase_order_id, driver_id, vehicle_id, do_name, do_number, customer_name, item_name,
+  minimal_load_quantity, actual_load_quantity, unit, unit_price, total_amount,
+  trip_allowance, gaji, ongkosan, final_amount,
+  load_location, unload_location,
+  payment_status, status, payment_confirmation_status,
+  created_at, departed_to_load_location_at, arrived_at_load_location_at,
+  departed_from_load_location_at, arrived_at_unload_location_at,
+  departed_from_unload_location_at, completed_at
+) VALUES (
+  (SELECT id FROM purchase_orders WHERE po_number = 'PO-202508-003'),
+  (SELECT id FROM users WHERE username = 'supir_charlie'),
+  (SELECT id FROM vehicles WHERE license_plate = 'B 9012 GHI'),
+  'PT BANGUN INFRA - DO-20250804-CHARLIE-003',
+  'DO-20250804-003',
+  'PT BANGUN INFRA TESTING',
+  'Semen',  -- Third item from PO list
+  '500.00',
+  '502.10',
+  'ton',
+  '250000.00',  -- Premium price
+  '125525000.00',  -- Calc: 502.1 * 250k
+  '3500000.00',
+  '1300000.00',
+  '120725000.00',  -- Calc: total - allowance - gaji
+  '125525000.00',
+  'Quarry Serang, Banten',
+  'Proyek Jalan Tol Tangerang, Banten',
+  'awaiting_confirmation',
+  'completed',
+  'awaiting_confirmation',
+  '2025-08-04 06:00:00+07',
+  '2025-08-04 06:45:00+07',
+  '2025-08-04 08:15:00+07',
+  '2025-08-04 09:45:00+07',
+  '2025-08-04 16:45:00+07',
+  '2025-08-04 17:15:00+07',
+  '2025-08-04 17:45:00+07'
+);
+
+-- DO #4: ONGOING - Pasir Silika, 400 ton (supir_dedi) - Makes driver/vehicle busy
+INSERT INTO delivery_orders (
+  purchase_order_id, driver_id, vehicle_id, do_name, do_number, customer_name, item_name,
+  minimal_load_quantity, actual_load_quantity, unit, unit_price, total_amount,
+  trip_allowance, gaji, ongkosan, final_amount,
+  load_location, unload_location,
+  payment_status, status,
+  created_at, departed_to_load_location_at, arrived_at_load_location_at
+) VALUES (
+  (SELECT id FROM purchase_orders WHERE po_number = 'PO-202508-003'),
+  (SELECT id FROM users WHERE username = 'supir_dedi'),
+  (SELECT id FROM vehicles WHERE license_plate = 'B 3456 JKL'),
+  'PT BANGUN INFRA - DO-20250805-DEDI-004',
+  'DO-20250805-004',
+  'PT BANGUN INFRA TESTING',
+  'Pasir Silika',
+  '400.00',
+  NULL,  -- Belum muat baranag
+  'ton',
+  '180000.00',
+  '72000000.00',  -- Estimated calc: 400 * 180k
+  '3000000.00',
+  '1100000.00',
+  '67900000.00',  -- Estimated calc: total - allowance - gaji
+  '72000000.00',
+  'Quarry Serang, Banten',
+  'Proyek Jalan Tol Tangerang, Banten',
+  'awaiting_confirmation',
+  'at_load_location',  -- Ongoing, at load location
+  '2025-08-05 05:30:00+07', -- created
+  '2025-08-05 06:00:00+07', -- departed to load location
+  '2025-08-05 07:30:00+07' -- arrived at load location
+);
+
+-- 3️⃣ UPDATE DRIVER & VEHICLE STATUS FOR ONGOING DO (now supir_dedi)
+UPDATE driver_profiles
+SET status = 'busy'
+WHERE user_id = (SELECT id FROM users WHERE username = 'supir_dedi');
+UPDATE vehicles SET status = 'in_use' WHERE license_plate = 'B 3456 JKL';
+
+COMMIT;

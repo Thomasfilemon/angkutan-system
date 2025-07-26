@@ -1,4 +1,3 @@
-// src/pages/DeliveryOrderCreatePage.tsx
 import React, { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import apiClient from "../api/axiosConfig";
@@ -117,13 +116,36 @@ const DeliveryOrderCreatePage: React.FC = () => {
     try {
       setLoading(true);
       const [poResponse, driverResponse, vehicleResponse] = await Promise.all([
-        apiClient.get("/purchase-orders", {
-          params: {
-            status: ["confirmed", "partial"]
-          }
+        apiClient
+          .get("/purchase-orders", {
+            params: {
+              status: ["confirmed", "partial"],
+            },
+          })
+          .catch((err) => {
+            console.error(
+              "PO fetch failed:",
+              err.response?.data || err.message
+            );
+            toast.error("Failed to fetch purchase orders");
+            return { data: [] };
+          }),
+        apiClient.get("/drivers").catch((err) => {
+          console.error(
+            "Drivers fetch failed:",
+            err.response?.data || err.message
+          );
+          toast.error("Failed to fetch drivers");
+          return { data: [] };
         }),
-        apiClient.get("/drivers"),
-        apiClient.get("/vehicles"),
+        apiClient.get("/vehicles").catch((err) => {
+          console.error(
+            "Vehicles fetch failed:",
+            err.response?.data || err.message
+          );
+          toast.error("Failed to fetch vehicles");
+          return { data: [] };
+        }),
       ]);
 
       // Filter POs
@@ -145,8 +167,23 @@ const DeliveryOrderCreatePage: React.FC = () => {
       );
 
       setVehicles(availableVehicles);
+
+      if (availablePOs.length === 0) {
+        toast.error(
+          "No available Purchase Orders found. You can create standalone DOs."
+        );
+      }
+      if (availableVehicles.length === 0) {
+        toast.error("No available vehicles found. Cannot create DO.");
+      }
+      if (driverResponse.data.length === 0) {
+        toast.error(
+          "No drivers found. Assign vehicles with drivers or select manually."
+        );
+      }
     } catch (err) {
-      toast.error("Failed to fetch initial data");
+      toast.error("Failed to fetch initial data. Check console for details.");
+      console.error("Initial fetch error:", err);
     } finally {
       setLoading(false);
     }
@@ -279,8 +316,10 @@ const DeliveryOrderCreatePage: React.FC = () => {
       navigate(returnUrl);
     } catch (err: any) {
       toast.error(
-        err.response?.data?.message || "Failed to create Delivery Order"
+        err.response?.data?.message ||
+          "Failed to create Delivery Order. Check console."
       );
+      console.error("Submit error:", err.response?.data || err.message);
     } finally {
       setLoading(false);
     }
@@ -359,7 +398,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
           <input
             type="text"
             value={formData.do_name}
-            onChange={(e) => 
+            onChange={(e) =>
               setFormData({ ...formData, do_name: e.target.value })
             }
             className="w-full border border-gray-300 rounded-md px-3 py-2"
@@ -553,7 +592,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
               })()}
           </div>
 
-          {/* Rest of the quantity section remains the same */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Unit *
@@ -624,8 +662,13 @@ const DeliveryOrderCreatePage: React.FC = () => {
               }
               className="w-full border border-gray-300 rounded-md px-3 py-2"
               required
+              disabled={vehicles.length === 0}
             >
-              <option value="">Select a vehicle</option>
+              <option value="">
+                {vehicles.length === 0
+                  ? "No vehicles available"
+                  : "Select a vehicle"}
+              </option>
               {vehicles.map((vehicle) => (
                 <option key={vehicle.id} value={vehicle.id}>
                   🚛 {vehicle.license_plate} ({vehicle.type})
@@ -709,7 +752,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
                   );
                   return selectedVehicle?.driver_id ? true : false;
                 }
-                return true;
+                return true; // Disable if no vehicle selected
               })()}
               required
             >
@@ -930,7 +973,8 @@ const DeliveryOrderCreatePage: React.FC = () => {
                 <span className="text-gray-600">Driver Costs:</span>
                 <div className="font-medium text-orange-600">
                   {formatCurrency(
-                    parseFloat(formData.trip_allowance + formData.gaji)
+                    (parseFloat(formData.trip_allowance) || 0) +
+                      (parseFloat(formData.gaji) || 0)
                   )}
                 </div>
               </div>
@@ -955,7 +999,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
           </button>
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || vehicles.length === 0}
             className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
             {loading ? "Creating..." : "🚀 Create Delivery Order"}

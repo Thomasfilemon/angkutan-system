@@ -11,7 +11,7 @@ module.exports = (sequelize) => {
       item_name: {
         type: DataTypes.STRING,
         allowNull: false,
-        comment: "Nama barang utama sesuai kontrak PO",
+        comment: "Nama barang utama sesuai kontrak PO, separated with comma",
       },
       total_quantity: {
         type: DataTypes.DECIMAL(10, 2),
@@ -27,19 +27,10 @@ module.exports = (sequelize) => {
         allowNull: false,
         defaultValue: "ton",
       },
-      unit_price: {
-        type: DataTypes.DECIMAL(15, 2),
-        allowNull: true,
-        comment: "Harga per unit (Rp/ton)",
-        validate: {
-          min: 0,
-          isDecimal: true,
-        },
-      },
       total_amount: {
         type: DataTypes.DECIMAL(15, 2),
         allowNull: true,
-        comment: "Total nilai PO (auto calculated)",
+        comment: "Total nilai PO (auto calculated from DOs)",
         validate: {
           min: 0,
           isDecimal: true,
@@ -88,27 +79,7 @@ module.exports = (sequelize) => {
       createdAt: "created_at",
       updatedAt: false,
       hooks: {
-        beforeSave: (po) => {
-          // Auto-calculate total_amount if unit_price and total_quantity are provided
-          if (po.unit_price && po.total_quantity) {
-            const quantity = parseFloat(po.total_quantity);
-            const unitPrice = parseFloat(po.unit_price);
-
-            switch (po.unit) {
-              case "kilogram":
-                po.total_amount = quantity * unitPrice;
-                break;
-              case "ton":
-                po.total_amount = quantity * unitPrice;
-                break;
-              case "kubik":
-                po.total_amount = quantity * unitPrice; // Direct kubik pricing
-                break;
-              default:
-                po.total_amount = quantity * unitPrice;
-            }
-          }
-        },
+        // REMOVED: beforeSave for unit_price calculation (since unit_price removed)
       },
     }
   );
@@ -118,26 +89,7 @@ module.exports = (sequelize) => {
     return !!(this.load_location && this.unload_location);
   };
 
-  PurchaseOrder.prototype.calculateTotalAmount = function () {
-    if (this.unit_price && this.total_quantity) {
-      const quantity = parseFloat(this.total_quantity);
-      const unitPrice = parseFloat(this.unit_price);
-
-      switch (this.unit) {
-        case "kilogram":
-          return quantity * unitPrice;
-        case "ton":
-          return quantity * unitPrice;
-        case "kubik":
-          return quantity * unitPrice; // Direct kubik pricing
-        default:
-          return quantity * unitPrice;
-      }
-    }
-    return 0;
-  };
-
-  // 🎯 NEW: Get unit display text
+  // 🎯 NEW: Get unit display text (unchanged)
   PurchaseOrder.prototype.getUnitDisplay = function () {
     const unitMap = {
       kilogram: "kg",
@@ -147,21 +99,43 @@ module.exports = (sequelize) => {
     return unitMap[this.unit] || this.unit;
   };
 
-  // 🎯 NEW: Get price with unit display for UI
+  // 🎯 NEW: Get price with unit display for UI (adjusted: since no unit_price, perhaps remove or make optional)
   PurchaseOrder.prototype.getPriceDisplay = function () {
-    const unitPrice = parseFloat(this.unit_price) || 0;
-    const unitDisplay = this.getUnitDisplay();
-
-    if (this.unit === "ton") {
-      // Show both per kg and per ton prices
-      const pricePerTon = unitPrice;
-      return `Rp ${unitPrice.toLocaleString(
-        "id-ID"
-      )}/${unitDisplay} (Rp ${pricePerTon.toLocaleString("id-ID")}/ton)`;
-    }
-
-    return `Rp ${unitPrice.toLocaleString("id-ID")}/${unitDisplay}`;
+    return `Unit: ${this.getUnitDisplay()} (Price per DO)`;
   };
 
+  // NEW: Method untuk hitung remaining dan forecast (mirip view, fixed variable name)
+  PurchaseOrder.prototype.getRemainingAndForecast = async function () {
+    const deliveryOrders = await this.getDeliveryOrders(); // Asumsi association hasMany DeliveryOrder as 'deliveryOrders'
+
+    let fulfilledActual = 0;
+    let estimatedPending = 0;
+
+    deliveryOrders.forEach((deliveryOrder) => {
+      // FIXED: Renamed 'do' to 'deliveryOrder' to avoid keyword conflict
+      if (deliveryOrder.status === "completed") {
+        fulfilledActual += parseFloat(deliveryOrder.actual_load_quantity) || 0;
+      } else {
+        estimatedPending +=
+          parseFloat(deliveryOrder.minimal_load_quantity) || 0;
+      }
+    });
+
+    const remaining =
+      this.total_quantity - (fulfilledActual + estimatedPending);
+    const fulfillmentStatus =
+      fulfilledActual + estimatedPending >= this.total_quantity
+        ? "complete"
+        : "partial";
+
+    return {
+      total_quantity: this.total_quantity,
+      fulfilled_actual: fulfilledActual,
+      estimated_pending: estimatedPending,
+      remaining_quantity: remaining > 0 ? remaining : 0,
+      current_total_forecast: this.total_amount, // Dari trigger DB
+      fulfillment_status: fulfillmentStatus,
+    };
+  };
   return PurchaseOrder;
 };

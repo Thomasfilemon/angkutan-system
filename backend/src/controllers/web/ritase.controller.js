@@ -24,8 +24,6 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
       payment_status,
     } = req.query;
 
-    console.log("=== Starting getPurchaseOrdersWithPaymentStatus ===");
-
     // Build date filter
     let dateFilter = {};
     if (start_date && end_date) {
@@ -80,10 +78,8 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
       order: [["created_at", "DESC"]],
     });
 
-    console.log(`Found ${purchaseOrders.length} purchase orders`);
-
     // ✅ ENHANCED CALCULATION with proper financial logic
-    // ✅ ENHANCED CALCULATION with ACTUAL PAYMENTS from delivery_order_payments table
+    // Use DO.unit_price and actual payments from delivery_order_payments
     const enrichedPOs = await Promise.all(
       purchaseOrders.map(async (po) => {
         const deliveryOrders = po.poDeliveryOrders || [];
@@ -91,11 +87,7 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
           (do_item) => do_item.status === "completed"
         );
 
-        console.log(
-          `Processing PO ${po.po_number} with ${completedDOs.length} completed DOs`
-        );
-
-        // ✅ QUANTITY PROGRESS (unchanged)
+        // ✅ QUANTITY PROGRESS
         const totalQuantity = parseFloat(po.total_quantity) || 0;
         const deliveredQuantity = completedDOs.reduce((sum, do_item) => {
           const quantity = do_item.actual_load_quantity
@@ -118,15 +110,15 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
 
         const enrichedDOs = await Promise.all(
           completedDOs.map(async (do_item) => {
-            // ✅ Calculate CORRECT billable amount
+            // ✅ Calculate CORRECT billable amount (using DO.unit_price and quantity)
             const actualQuantity =
               parseFloat(do_item.actual_load_quantity) ||
               parseFloat(do_item.minimal_load_quantity) ||
               0;
-            const unitPrice = parseFloat(po.unit_price) || 0;
+            const unitPrice = parseFloat(do_item.unit_price) || 0;
             const calculatedBillableAmount = actualQuantity * unitPrice;
 
-            // ✅ FIXED: Get ACTUAL payment amount from delivery_order_payments table
+            // ✅ Get ACTUAL payment amount from delivery_order_payments table
             const actualPaidAmount =
               (await DeliveryOrderPayments.sum("payment_amount", {
                 where: { delivery_order_id: do_item.id },
@@ -140,20 +132,11 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
             totalActualPaidAmount += actualPaidAmount;
             totalPaymentVariance += paymentVariance;
 
-            console.log(`✅ DO ${do_item.do_number}:`, {
-              actualQuantity,
-              unitPrice,
-              calculatedBillableAmount,
-              actualPaidAmount, // This should now be 6,114,600
-              paymentVariance,
-              ongkosan_field: parseFloat(do_item.ongkosan), // For comparison
-            });
-
             return {
               ...do_item.toJSON(),
-              calculated_billable_amount: calculatedBillableAmount || "",
-              actual_paid_amount: actualPaidAmount || "", // ✅ Now from payments table
-              payment_variance: paymentVariance || "",
+              calculated_billable_amount: calculatedBillableAmount,
+              actual_paid_amount: actualPaidAmount,
+              payment_variance: paymentVariance,
               is_overpaid: paymentVariance > 0,
               is_underpaid: paymentVariance < 0,
               payment_status_calculated:
@@ -166,7 +149,7 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
           })
         );
 
-        // ✅ PAYMENT SUMMARY with CORRECT logic (unchanged logic, but correct data)
+        // ✅ PAYMENT SUMMARY
         let aggregatedStatus = "no_completed_do";
 
         if (completedDOs.length > 0) {
@@ -224,29 +207,21 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
           ).length,
         };
 
-        console.log(`✅ PO ${po.po_number} Summary:`, {
-          totalCalculatedAmount,
-          totalActualPaidAmount, // Should now be 6,114,600
-          totalPaymentVariance, // Should now be negative (underpaid)
-          paymentPercentage: paymentPercentage.toFixed(2),
-          aggregatedStatus,
-        });
-
         return {
           ...po.toJSON(),
-          payment_summary: paymentSummary || "",
+          payment_summary: paymentSummary,
           quantity_progress: {
-            total_quantity: totalQuantity || "",
-            delivered_quantity: deliveredQuantity || "",
-            remaining_quantity: remainingQuantity || "",
-            delivery_percentage: deliveryPercentage || "",
+            total_quantity: totalQuantity,
+            delivered_quantity: deliveredQuantity,
+            remaining_quantity: remainingQuantity,
+            delivery_percentage: deliveryPercentage,
           },
-          enriched_dos: enrichedDOs || "",
+          enriched_dos: enrichedDOs,
         };
       })
     );
 
-    // Filter by payment status (unchanged)
+    // Filter by payment status
     let filteredPOs = enrichedPOs;
     if (payment_status && payment_status !== "all") {
       filteredPOs = enrichedPOs.filter(
@@ -287,8 +262,6 @@ exports.getPurchaseOrdersWithPaymentStatus = async (req, res, next) => {
       ),
     };
 
-    console.log("✅ Dashboard Stats:", dashboardStats);
-
     res.json({
       success: true,
       data: {
@@ -321,17 +294,17 @@ exports.getPurchaseOrderPaymentDetail = async (req, res, next) => {
             {
               model: Vehicle,
               as: "vehicle",
-              attributes: ["id", "license_plate", "type"],
+              attributes: ["license_plate", "type"],
             },
             {
               model: User,
               as: "driver",
-              attributes: ["id", "username"],
+              attributes: ["username"],
               include: [
                 {
                   model: DriverProfile,
                   as: "driverProfile",
-                  attributes: ["full_name", "phone"],
+                  attributes: ["full_name"],
                 },
               ],
             },
@@ -392,21 +365,15 @@ exports.getPurchaseOrderPaymentDetail = async (req, res, next) => {
 
       total_contract_value: parseFloat(purchaseOrder.total_amount) || 0,
       total_billable_amount: completedDOs.reduce((sum, do_item) => {
-        // 1. Ambil quantity (kg)
-        let quantityKg = 0;
-        if (do_item.actual_load_quantity) {
-          quantityKg = parseFloat(do_item.actual_load_quantity);
-        } else if (do_item.minimal_load_quantity) {
-          quantityKg = parseFloat(do_item.minimal_load_quantity);
-        }
+        // Calculate based on DO fields
+        const actualQuantity =
+          parseFloat(do_item.actual_load_quantity) ||
+          parseFloat(do_item.minimal_load_quantity) ||
+          0;
+        const unitPrice = parseFloat(do_item.unit_price) || 0;
+        let billable = actualQuantity * unitPrice;
 
-        // 2. Ambil unit price dari PO
-        const unitPrice = parseFloat(purchaseOrder.unit_price) || 0;
-
-        // 3. Hitung billable dasar
-        let billable = unitPrice * quantityKg;
-
-        // 4. Tambahkan pajak jika ada (misal dari invoices atau field lain)
+        // Add tax from invoices
         let tax = 0;
         if (do_item.invoices && do_item.invoices.length > 0) {
           tax = do_item.invoices.reduce(
@@ -418,7 +385,7 @@ exports.getPurchaseOrderPaymentDetail = async (req, res, next) => {
           );
         }
 
-        // 5. Tambahkan biaya tambahan/adjustment jika ada
+        // Add adjustments
         let adjustment = 0;
         if (do_item.adjustments && do_item.adjustments.length > 0) {
           adjustment = do_item.adjustments.reduce(
@@ -427,7 +394,6 @@ exports.getPurchaseOrderPaymentDetail = async (req, res, next) => {
           );
         }
 
-        // 6. Total billable untuk DO ini
         return sum + billable + tax + adjustment;
       }, 0),
       total_paid_amount: 0, // Will be calculated below
@@ -466,11 +432,11 @@ exports.getPurchaseOrderPaymentDetail = async (req, res, next) => {
         });
 
         const totalPaid = doPayments.reduce(
-          (sum, payment) => sum + parseFloat(payment.payment_amount),
+          (sum, pay) => sum + parseFloat(pay.payment_amount),
           0
         );
         const totalInvoiced = doInvoices.reduce(
-          (sum, invoice) => sum + parseFloat(invoice.net_amount),
+          (sum, inv) => sum + parseFloat(inv.net_amount),
           0
         );
         const finalAmount = parseFloat(do_item.total_amount) || 0;
@@ -478,18 +444,18 @@ exports.getPurchaseOrderPaymentDetail = async (req, res, next) => {
         return {
           ...do_item.toJSON(),
           payment_details: {
-            total_invoiced: totalInvoiced || "",
-            total_paid: totalPaid || "",
-            remaining_amount: finalAmount - totalPaid || "",
+            total_invoiced: totalInvoiced,
+            total_paid: totalPaid,
+            remaining_amount: finalAmount - totalPaid,
             payment_percentage:
-              finalAmount > 0 ? (totalPaid / finalAmount) * 100 : 0 || "",
-            payment_count: doPayments.length || "",
-            invoice_count: doInvoices.length || "",
+              finalAmount > 0 ? (totalPaid / finalAmount) * 100 : 0,
+            payment_count: doPayments.length,
+            invoice_count: doInvoices.length,
             last_payment_date:
-              doPayments.length > 0 ? doPayments[0].payment_date : null || "",
+              doPayments.length > 0 ? doPayments[0].payment_date : null,
           },
-          payments: doPayments || "",
-          invoices: doInvoices || "",
+          payments: doPayments,
+          invoices: doInvoices,
         };
       })
     );
@@ -518,7 +484,6 @@ exports.getPurchaseOrderPaymentDetail = async (req, res, next) => {
 };
 
 // ✅ 3. Get DO Payment Management Detail
-// ritase.controller.js
 exports.getDeliveryOrderPaymentDetail = async (req, res, next) => {
   try {
     const { do_id } = req.params;
@@ -619,7 +584,7 @@ exports.getDeliveryOrderPaymentDetail = async (req, res, next) => {
       parseFloat(deliveryOrder.minimal_load_quantity) ||
       0;
     const unitPrice = parseFloat(deliveryOrder.unit_price) || 0;
-    const unit = deliveryOrder.unit || "kilogram";
+    const unit = deliveryOrder.unit || "ton"; // Schema default is 'ton'
 
     const calculateUnitAwareAmount = (quantity, unit, unitPrice) => {
       switch (unit) {
@@ -653,7 +618,7 @@ exports.getDeliveryOrderPaymentDetail = async (req, res, next) => {
     const paymentSummary = {
       original_amount: correctTotalAmount,
       final_amount:
-        parseFloat(deliveryOrder.total_amount) || correctTotalAmount,
+        parseFloat(deliveryOrder.final_amount) || correctTotalAmount,
       calculated_bill: correctTotalAmount - taxAmount + totalAdjustments,
       total_invoiced: invoices.reduce(
         (sum, inv) => sum + (parseFloat(inv.net_amount) || 0),
@@ -809,7 +774,6 @@ exports.createDeliveryOrderInvoice = async (req, res, next) => {
 };
 
 // ✅ 6. Record Payment for DO
-// ✅ 6. Record Payment for DO
 exports.recordDeliveryOrderPayment = async (req, res, next) => {
   try {
     const { do_id } = req.params;
@@ -938,7 +902,7 @@ exports.createPriceAdjustment = async (req, res, next) => {
     const originalAmount =
       parseFloat(deliveryOrder.final_amount) ||
       parseFloat(deliveryOrder.total_amount) ||
-      0;
+      0; // Use current final as base
     const delta = parseFloat(adjustment_amount);
     if (isNaN(delta)) {
       await transaction.rollback();
@@ -948,7 +912,7 @@ exports.createPriceAdjustment = async (req, res, next) => {
       });
     }
 
-    // Validate delta sign based on type (flex your schema types)
+    // Validate delta sign based on type
     if (["penalty", "incident"].includes(adjustment_type) && delta >= 0) {
       await transaction.rollback();
       return res.status(400).json({
@@ -1039,7 +1003,7 @@ exports.updatePriceAdjustment = async (req, res, next) => {
 
     const originalAmount =
       parseFloat(deliveryOrder.final_amount) ||
-      parseFloat(deliveryOrder.ongkosan) ||
+      parseFloat(deliveryOrder.total_amount) ||
       0; // Use current final as base
     const delta = parseFloat(adjustment_amount);
     if (isNaN(delta)) {
@@ -1068,7 +1032,7 @@ exports.updatePriceAdjustment = async (req, res, next) => {
 
     await deliveryOrder.update({ final_amount: finalAmount }, { transaction });
 
-    // Recalc invoices (same as create)
+    // Recalc invoices to finalAmount
     const invoices = await DeliveryOrderInvoices.findAll({
       where: { delivery_order_id: do_id },
     });
@@ -1090,7 +1054,7 @@ exports.updatePriceAdjustment = async (req, res, next) => {
 
 // Delete Price Adjustment
 exports.deletePriceAdjustment = async (req, res, next) => {
-  const transaction = await Sequelize.transaction();
+  const transaction = await sequelize.transaction();
   try {
     const { do_id, adjustment_id } = req.params;
 
@@ -1108,7 +1072,7 @@ exports.deletePriceAdjustment = async (req, res, next) => {
 
     const deliveryOrder = await DeliveryOrder.findByPk(do_id);
     if (deliveryOrder) {
-      const resetAmount = deliveryOrder.ongkosan; // Reset to original ongkosan
+      const resetAmount = deliveryOrder.total_amount; // Reset to original total_amount (schema has total_amount as calc from qty*price)
       await deliveryOrder.update(
         { final_amount: resetAmount },
         { transaction }
@@ -1221,14 +1185,20 @@ exports.getRitaseDashboard = async (req, res, next) => {
         },
       }),
 
-      // Financial totals
-      DeliveryOrder.sum("ongkosan", {
-        where: { ...whereClause, payment_status: "lunas" },
-      }) || 0,
+      // Financial totals (use final_amount where available)
+      DeliveryOrder.sum(
+        Sequelize.literal("COALESCE(final_amount, total_amount)"),
+        {
+          where: { ...whereClause, payment_status: "lunas" },
+        }
+      ) || 0,
 
-      DeliveryOrder.sum("ongkosan", {
-        where: { ...whereClause, payment_status: "deposit" },
-      }) || 0,
+      DeliveryOrder.sum(
+        Sequelize.literal("COALESCE(final_amount, total_amount)"),
+        {
+          where: { ...whereClause, payment_status: "deposit" },
+        }
+      ) || 0,
 
       DeliveryOrder.sum("trip_allowance", { where: whereClause }) || 0,
       DeliveryOrder.sum("gaji", { where: whereClause }) || 0,
@@ -1271,19 +1241,19 @@ exports.getRitaseDashboard = async (req, res, next) => {
         vehicle.completed_trips++;
       }
 
-      const ongkosan =
-        parseFloat(order.final_amount) || parseFloat(order.ongkosan) || 0;
+      const income =
+        parseFloat(order.final_amount) || parseFloat(order.total_amount) || 0;
       const tripAllowance = parseFloat(order.trip_allowance) || 0;
       const gaji = parseFloat(order.gaji) || 0;
 
-      vehicle.gross_income += ongkosan;
+      vehicle.gross_income += income;
       vehicle.trip_allowance += tripAllowance;
       vehicle.gaji += gaji;
 
       if (order.payment_status === "lunas") {
-        vehicle.lunas_income += ongkosan;
+        vehicle.lunas_income += income;
       } else if (order.payment_status === "deposit") {
-        vehicle.deposit_income += ongkosan;
+        vehicle.deposit_income += income;
       }
 
       vehicle.net_profit =
@@ -1295,7 +1265,7 @@ exports.getRitaseDashboard = async (req, res, next) => {
       (a, b) => b.gross_income - a.gross_income
     );
 
-    // Calculate payment status summary
+    // Calculate payment summary
     const paymentSummary = {
       lunas: lunasAmount,
       deposit: depositAmount,
@@ -1329,7 +1299,7 @@ exports.getRitaseDashboard = async (req, res, next) => {
           payment_summary: paymentSummary,
         },
         vehicle_performance: vehicleArray,
-        period: period,
+        period,
         date_range: { start_date, end_date },
       },
     });
@@ -1422,7 +1392,9 @@ exports.getVehiclePerformance = async (req, res, next) => {
       gross_income: deliveryOrders.reduce(
         (sum, order) =>
           sum +
-          (parseFloat(order.final_amount) || parseFloat(order.ongkosan) || 0),
+          (parseFloat(order.final_amount) ||
+            parseFloat(order.total_amount) ||
+            0),
         0
       ),
       trip_allowance: deliveryOrders.reduce(
@@ -1438,7 +1410,9 @@ exports.getVehiclePerformance = async (req, res, next) => {
         .reduce(
           (sum, order) =>
             sum +
-            (parseFloat(order.final_amount) || parseFloat(order.ongkosan) || 0),
+            (parseFloat(order.final_amount) ||
+              parseFloat(order.total_amount) ||
+              0),
           0
         ),
       deposit_income: deliveryOrders
@@ -1446,7 +1420,9 @@ exports.getVehiclePerformance = async (req, res, next) => {
         .reduce(
           (sum, order) =>
             sum +
-            (parseFloat(order.final_amount) || parseFloat(order.ongkosan) || 0),
+            (parseFloat(order.final_amount) ||
+              parseFloat(order.total_amount) ||
+              0),
           0
         ),
     };
@@ -1471,9 +1447,9 @@ exports.getVehiclePerformance = async (req, res, next) => {
       actual_load_quantity: order.actual_load_quantity
         ? parseFloat(order.actual_load_quantity)
         : null,
-      ongkosan: parseFloat(order.ongkosan) || 0,
+      total_amount: parseFloat(order.total_amount) || 0,
       final_amount:
-        parseFloat(order.final_amount) || parseFloat(order.ongkosan) || 0,
+        parseFloat(order.final_amount) || parseFloat(order.total_amount) || 0,
       trip_allowance: parseFloat(order.trip_allowance) || 0,
       gaji: parseFloat(order.gaji) || 0,
       payment_status: order.payment_status,
@@ -1595,16 +1571,22 @@ exports.exportRitaseExcel = async (req, res, next) => {
       whereClause.vehicle_id = vehicle_id;
     }
 
-    // Get financial totals
+    // Get financial totals (use final_amount)
     const [lunasAmount, depositAmount, totalUangJalan, totalGaji] =
       await Promise.all([
-        DeliveryOrder.sum("ongkosan", {
-          where: { ...whereClause, payment_status: "lunas" },
-        }) || 0,
+        DeliveryOrder.sum(
+          Sequelize.literal("COALESCE(final_amount, total_amount)"),
+          {
+            where: { ...whereClause, payment_status: "lunas" },
+          }
+        ) || 0,
 
-        DeliveryOrder.sum("ongkosan", {
-          where: { ...whereClause, payment_status: "deposit" },
-        }) || 0,
+        DeliveryOrder.sum(
+          Sequelize.literal("COALESCE(final_amount, total_amount)"),
+          {
+            where: { ...whereClause, payment_status: "deposit" },
+          }
+        ) || 0,
 
         DeliveryOrder.sum("trip_allowance", { where: whereClause }) || 0,
         DeliveryOrder.sum("gaji", { where: whereClause }) || 0,
@@ -1715,7 +1697,7 @@ exports.exportRitaseExcel = async (req, res, next) => {
         quantity: order.actual_load_quantity || order.minimal_load_quantity,
         ongkosan: `Rp ${(
           parseFloat(order.final_amount) ||
-          parseFloat(order.ongkosan) ||
+          parseFloat(order.total_amount) ||
           0
         ).toLocaleString("id-ID")}`,
         uang_jalan: `Rp ${(
@@ -1753,7 +1735,9 @@ exports.exportRitaseExcel = async (req, res, next) => {
       const vehicleGrossIncome = orders.reduce(
         (sum, order) =>
           sum +
-          (parseFloat(order.final_amount) || parseFloat(order.ongkosan) || 0),
+          (parseFloat(order.final_amount) ||
+            parseFloat(order.total_amount) ||
+            0),
         0
       );
       const vehicleUangJalan = orders.reduce(
@@ -1812,7 +1796,7 @@ exports.exportRitaseExcel = async (req, res, next) => {
           order.actual_load_quantity || order.minimal_load_quantity,
           `Rp ${(
             parseFloat(order.final_amount) ||
-            parseFloat(order.ongkosan) ||
+            parseFloat(order.total_amount) ||
             0
           ).toLocaleString("id-ID")}`,
           `Rp ${(parseFloat(order.trip_allowance) || 0).toLocaleString(
@@ -1864,23 +1848,4 @@ exports.getPurchaseOrderListSimple = async (req, res, next) => {
   }
 };
 
-module.exports = {
-  // Existing exports
-  getRitaseDashboard: exports.getRitaseDashboard,
-  getVehiclePerformance: exports.getVehiclePerformance,
-  updatePaymentStatus: exports.updatePaymentStatus,
-  exportRitaseExcel: exports.exportRitaseExcel,
-
-  // New PO-focused exports
-  getPurchaseOrdersWithPaymentStatus:
-    exports.getPurchaseOrdersWithPaymentStatus,
-  getPurchaseOrderPaymentDetail: exports.getPurchaseOrderPaymentDetail,
-  getPurchaseOrderListSimple: exports.getPurchaseOrderListSimple,
-  getDeliveryOrderPaymentDetail: exports.getDeliveryOrderPaymentDetail,
-  confirmDeliveryOrderForPayment: exports.confirmDeliveryOrderForPayment,
-  createDeliveryOrderInvoice: exports.createDeliveryOrderInvoice,
-  recordDeliveryOrderPayment: exports.recordDeliveryOrderPayment,
-  createPriceAdjustment: exports.createPriceAdjustment,
-  updatePriceAdjustment: exports.updatePriceAdjustment,
-  deletePriceAdjustment: exports.deletePriceAdjustment,
-};
+module.exports = exports; // Export all functions

@@ -1,4 +1,3 @@
-// src/pages/PurchaseOrderDetail.tsx
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import apiClient from "../api/axiosConfig";
@@ -88,21 +87,48 @@ const PurchaseOrderDetailPage = () => {
         const response = await apiClient.get(`/purchase-orders/${id}`);
         const data = response.data.data || response.data;
 
+        // 🎯 FIX: Map API fields to interface (e.g., fulfilled_actual -> delivered_quantity)
+        const mappedData = {
+          ...data,
+          delivered_quantity: data.fulfilled_actual ?? 0, // Key fix: Use API's "fulfilled_actual"
+          remaining_quantity: data.remaining_quantity ?? 0,
+          total_quantity: parseFloat(data.total_quantity) ?? 0, // Ensure numbers
+          total_amount: parseFloat(data.total_amount) ?? 0,
+          delivery_progress: {
+            percentage: data.delivery_progress?.percentage ?? 0,
+            is_complete: data.delivery_progress?.is_complete ?? false,
+          },
+          poDeliveryOrders: (data.poDeliveryOrders ?? []).map(
+            (doItem: any) => ({
+              ...doItem,
+              minimal_load_quantity:
+                parseFloat(doItem.minimal_load_quantity) ?? 0,
+              actual_load_quantity:
+                parseFloat(doItem.actual_load_quantity) ?? null,
+              total_amount: parseFloat(doItem.total_amount) ?? 0,
+              ongkosan: parseFloat(doItem.ongkosan) ?? null,
+            })
+          ),
+        };
+
         // 🎯 NEW: Ensure unit field exists with fallback
-        if (!data.unit) {
+        if (!mappedData.unit) {
           console.warn('PO data missing unit field, defaulting to "ton"');
-          data.unit = "ton";
+          mappedData.unit = "ton";
         }
 
         // 🎯 NEW: Ensure delivery orders have unit field
-        if (data.poDeliveryOrders) {
-          data.poDeliveryOrders = data.poDeliveryOrders.map((dOrder: any) => ({
+        mappedData.poDeliveryOrders = mappedData.poDeliveryOrders.map(
+          (dOrder: { unit: any }) => ({
             ...dOrder,
-            unit: dOrder.unit || data.unit, // Inherit from PO if missing
-          }));
-        }
+            unit: dOrder.unit || mappedData.unit, // Inherit from PO if missing
+          })
+        );
 
-        setPO(data);
+        // Debug log for sanity
+        console.log("Mapped PO data:", mappedData);
+
+        setPO(mappedData as PurchaseOrderDetail);
       } catch (err) {
         setError("Failed to fetch purchase order details.");
         console.error(err);

@@ -188,10 +188,10 @@ const DeliveryOrderDetailPage = () => {
         </h1>
         <div className="space-x-2">
           <button
-            onClick={() => navigate("/delivery-orders")}
+            onClick={() => navigate(-1)}
             className="bg-gray-500 hover:bg-gray-700 text-white px-4 py-2 rounded"
           >
-            ← Back to List
+            ← Back
           </button>
           {deliveryOrder.status !== "completed" &&
             deliveryOrder.status !== "cancelled" && (
