@@ -142,8 +142,10 @@ module.exports = {
             }
 
             // Update payment status
-            await deliveryOrder.update({ payment_status: 'lunas' });
-          }
+          await deliveryOrder.update({ 
+            payment_status: 'lunas',
+            payment_confirmation_status: 'confirmed'  // Add this line
+          });          }
         }
       }
 
@@ -442,48 +444,68 @@ module.exports = {
     }
   },
 
-  async updateMemberQuantity(req, res) {
-    const { id } = req.params; // member ID
-    const { quantity } = req.body;
-    try {
-      // Find the group member and associated delivery order
-      const member = await DepositGroupMember.findByPk(id, {
-        include: [{
-          model: DeliveryOrder,
-          as: "deliveryOrder",
-          attributes: ['id', 'unit_price', 'minimal_load_quantity']
-        }]
-      });
-      if (!member) {
-        return res.status(404).json({ error: "Group member not found" });
-      }
-
-      const doItem = member.deliveryOrder;
-      const unitPrice = parseFloat(doItem.unit_price);
-      const newFinalAmount = quantity * unitPrice;
-
-      // Update member quantity
-      await member.update({ quantity });
-
-      // Update DeliveryOrder's total and final amount only
-      await doItem.update({
-        total_amount: newFinalAmount,
-        final_amount: newFinalAmount
-      });
-
-      // Do NOT update or create payment records here
-      // The paid_amount will be calculated from existing payment records in getGroupDetails
-
-      res.json({ 
-        success: true, 
-        member,
-        message: "Quantity updated successfully"
-      });
-    } catch (error) {
-      console.error("Error updating quantity:", error);
-      res.status(500).json({ error: "Failed to update quantity" });
+async updateMemberQuantity(req, res) {
+  const { id } = req.params; // member ID
+  const { quantity } = req.body;
+  
+  try {
+    // Find the group member and associated delivery order
+    const member = await DepositGroupMember.findByPk(id, {
+      include: [{
+        model: DeliveryOrder,
+        as: "deliveryOrder",
+        attributes: ['id', 'unit_price', 'minimal_load_quantity']
+      }]
+    });
+    
+    if (!member) {
+      return res.status(404).json({ error: "Group member not found" });
     }
-  },
+
+    const doItem = member.deliveryOrder;
+    const unitPrice = parseFloat(doItem.unit_price);
+    
+    // ✅ NEW: Calculate the delta changes
+    const oldQuantity = parseFloat(member.quantity);
+    const newQuantity = parseFloat(quantity);
+    const qtyDelta = newQuantity - oldQuantity;
+    const amountDelta = qtyDelta * unitPrice;
+    const newFinalAmount = newQuantity * unitPrice;
+
+    // Update member quantity
+    await member.update({ quantity: newQuantity });
+
+    // ✅ NEW: Update DeliveryOrder with actual_load_quantity
+    await doItem.update({
+      actual_load_quantity: newQuantity,
+      total_amount: newFinalAmount,
+      final_amount: newFinalAmount
+    });
+
+    // ✅ NEW: Update group balance and remaining_quantity
+    const group = await DepositGroup.findByPk(member.group_id);
+    if (group) {
+      // Reduce remaining_quantity and balance by the delta
+      group.remaining_quantity = parseFloat(group.remaining_quantity) - qtyDelta;
+      group.balance = parseFloat(group.balance) - amountDelta;
+      
+      // Update status if needed
+      if (group.remaining_quantity <= 0) group.status = 'fulfilled';
+      else if (group.remaining_quantity < 0) group.status = 'overdrawn';
+      
+      await group.save();
+    }
+
+    res.json({ 
+      success: true, 
+      member,
+      message: "Quantity updated successfully and group totals recalculated"
+    });
+  } catch (error) {
+    console.error("Error updating quantity:", error);
+    res.status(500).json({ error: "Failed to update quantity" });
+  }
+},
   // Add DO to group
   async addDOToGroup(req, res) {
     try {
@@ -638,7 +660,6 @@ module.exports = {
     }
   },
 
-  // Add this new method to depositGroup.controller.js
 async linkPOToGroup(req, res) {
   const transaction = await sequelize.transaction();
   try {
@@ -672,7 +693,13 @@ async linkPOToGroup(req, res) {
           quantity: doItem.minimal_load_quantity
         }, { transaction });
         
-        console.log(`✅ Retroactively added DO ${doItem.do_number} to deposit group ${group_id}`);
+        // ✅ ADD THIS: Mark DO as prepaid since it's now in a deposit group
+        await doItem.update({ 
+          payment_status: 'lunas',
+          payment_confirmation_status: 'confirmed'
+        }, { transaction });
+        
+        console.log(`✅ Retroactively added DO ${doItem.do_number} to deposit group ${group_id} and marked as paid`);
       }
     }
 
@@ -689,5 +716,6 @@ async linkPOToGroup(req, res) {
     res.status(500).json({ error: 'Failed to link PO to deposit group' });
   }
 }
+
 
 };

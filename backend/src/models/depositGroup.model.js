@@ -75,9 +75,15 @@ module.exports = (sequelize) => {
         beforeUpdate: (group) => {
           group.updated_at = new Date();
         },
+        // ✅ ADD THIS: Prevent negative values
+        beforeSave: (grp) => {
+          if (grp.remaining_quantity < 0) grp.remaining_quantity = 0;
+          if (grp.balance < 0) grp.balance = 0;
+        }
       },
     }
   );
+  
 
   // Instance methods
   DepositGroup.prototype.getStatus = async function() {

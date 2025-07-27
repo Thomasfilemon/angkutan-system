@@ -852,6 +852,10 @@ module.exports = {
           .json({ success: false, message: "Invalid payment_type value" });
       }
 
+      const doRec = await DeliveryOrder.findByPk(doId);
+      if (doRec.payment_status === 'lunas')
+        return res.status(400).json({ success:false, message:'DO already paid' });
+
       // Validate payment_amount
       const amount = toMoney(payment_amount);
       if (amount <= 0) {
