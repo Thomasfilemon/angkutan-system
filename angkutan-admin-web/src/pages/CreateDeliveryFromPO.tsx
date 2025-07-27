@@ -14,13 +14,6 @@ import apiClient from "../api/axiosConfig";
 import { GeoSearchControl, OpenStreetMapProvider } from "leaflet-geosearch";
 import "leaflet-geosearch/dist/geosearch.css";
 
-const DefaultIcon = L.Icon.Default as any;
-DefaultIcon.mergeOptions({
-  iconRetinaUrl: require("leaflet/dist/images/marker-icon-2x.png"),
-  iconUrl: require("leaflet/dist/images/marker-icon.png"),
-  shadowUrl: require("leaflet/dist/images/marker-shadow.png"),
-});
-
 const loadIcon = new L.Icon({
   iconUrl:
     "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png",
@@ -82,8 +75,10 @@ interface LocationMarker {
 
 interface DOFormData {
   do_name: string;
+  item_name: string; // NEW: Added for item selection
   vehicle_id: string;
   minimal_load_quantity: string;
+  unit_price: string;
   trip_allowance: string;
   gaji: string;
   ongkosan: string;
@@ -132,9 +127,10 @@ const CreateDeliveryFromPO: React.FC = () => {
   const { poId } = useParams<{ poId: string }>();
   const navigate = useNavigate();
   const [poDetails, setPODetails] = useState<PODetails | null>(null);
+  const [poItems, setPoItems] = useState<string[]>([]); // NEW: Split PO item_name
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<string[]>([]); // IMPROVED: Collect multiple errors
   const [showMap, setShowMap] = useState(false);
   const [markers, setMarkers] = useState<LocationMarker[]>([]);
   const [selectedLocationType, setSelectedLocationType] = useState<
@@ -143,8 +139,10 @@ const CreateDeliveryFromPO: React.FC = () => {
   const [formDataList, setFormDataList] = useState<DOFormData[]>([
     {
       do_name: "",
+      item_name: "",
       vehicle_id: "",
       minimal_load_quantity: "",
+      unit_price: "",
       trip_allowance: "",
       gaji: "",
       ongkosan: "",
@@ -178,26 +176,16 @@ const CreateDeliveryFromPO: React.FC = () => {
     unitPrice: number,
     unit: string
   ) => {
-    switch (unit) {
-      case "kilogram":
-        return quantity * unitPrice;
-      case "ton":
-        return quantity * unitPrice;
-      case "kubik":
-        return quantity * unitPrice;
-      default:
-        return quantity * unitPrice;
-    }
+    // Matches backend: direct qty * price per unit
+    return quantity * unitPrice;
   };
 
-  const calculateOngkosan = (
-    formData: DOFormData,
-    poUnitPrice?: number,
-    poUnit?: string
-  ): number => {
-    if (!poUnitPrice || !poUnit || !formData.minimal_load_quantity) return 0;
+  const calculateOngkosan = (formData: DOFormData, poUnit?: string): number => {
+    if (!formData.unit_price || !poUnit || !formData.minimal_load_quantity)
+      return 0;
     const quantity = parseFloat(formData.minimal_load_quantity);
-    const totalRevenue = calculateTotalAmount(quantity, poUnitPrice, poUnit);
+    const unitPrice = parseFloat(formData.unit_price);
+    const totalRevenue = calculateTotalAmount(quantity, unitPrice, poUnit);
     const operationalCosts =
       (parseFloat(formData.trip_allowance) || 0) +
       (parseFloat(formData.gaji) || 0);
@@ -216,16 +204,20 @@ const CreateDeliveryFromPO: React.FC = () => {
       const response = await apiClient.get(`/purchase-orders/${poId}`);
       const details = response.data.data || response.data;
 
-      if (!details.unit) {
-        console.warn('PO data missing unit field, defaulting to "ton"');
-        details.unit = "ton";
-      }
-
       setPODetails(details);
+
+      // NEW: Split item_name into selectable items
+      const items = details.item_name
+        ? details.item_name.split(",").map((i: string) => i.trim())
+        : [];
+      setPoItems(items);
+
       const initialFormData = {
         do_name: "",
+        item_name: items.length === 1 ? items[0] : "", // Preselect if only one
         vehicle_id: "",
         minimal_load_quantity: "",
+        unit_price: "",
         trip_allowance: "",
         gaji: "",
         ongkosan: "",
@@ -256,7 +248,7 @@ const CreateDeliveryFromPO: React.FC = () => {
       setMarkers(initialMarkers);
     } catch (err) {
       console.error("Error fetching PO details:", err);
-      setError("Failed to fetch purchase order details.");
+      setErrors((prev) => [...prev, "Failed to fetch purchase order details."]);
     }
   };
 
@@ -274,7 +266,7 @@ const CreateDeliveryFromPO: React.FC = () => {
       );
     } catch (err) {
       console.error("Error fetching vehicles:", err);
-      setError("Failed to fetch available vehicles.");
+      setErrors((prev) => [...prev, "Failed to fetch available vehicles."]);
     }
   };
 
@@ -291,15 +283,15 @@ const CreateDeliveryFromPO: React.FC = () => {
     };
     setFormDataList(newFormDataList);
 
-    // Recalculate ongkosan for the changed form
+    // Recalculate ongkosan if relevant fields change
     if (
       e.target.name === "minimal_load_quantity" ||
+      e.target.name === "unit_price" || // NEW: Added unit_price
       e.target.name === "trip_allowance" ||
       e.target.name === "gaji"
     ) {
       newFormDataList[index].ongkosan = calculateOngkosan(
         newFormDataList[index],
-        poDetails?.unit_price,
         poDetails?.unit
       ).toString();
       setFormDataList([...newFormDataList]);
@@ -311,8 +303,10 @@ const CreateDeliveryFromPO: React.FC = () => {
       ...formDataList,
       {
         do_name: "",
+        item_name: poItems.length === 1 ? poItems[0] : "", // NEW: Preselect if only one
         vehicle_id: "",
         minimal_load_quantity: "",
+        unit_price: "",
         trip_allowance: "",
         gaji: "",
         ongkosan: "",
@@ -330,109 +324,8 @@ const CreateDeliveryFromPO: React.FC = () => {
     setFormDataList(formDataList.filter((_, i) => i !== index));
   };
 
-  const setLocation = (lat: number, lng: number, address: string) => {
-    if (!selectedLocationType) return;
-    const newFormDataList = [...formDataList];
-    newFormDataList.forEach((form, index) => {
-      if (selectedLocationType === "load") {
-        newFormDataList[index] = {
-          ...newFormDataList[index],
-          load_location: address,
-          load_latitude: lat.toString(),
-          load_longitude: lng.toString(),
-        };
-      } else {
-        newFormDataList[index] = {
-          ...newFormDataList[index],
-          unload_location: address,
-          unload_latitude: lat.toString(),
-          unload_longitude: lng.toString(),
-        };
-      }
-    });
-    setFormDataList(newFormDataList);
-    setMarkers((prev) => [
-      ...prev.filter((m) => m.type !== selectedLocationType),
-      {
-        lat,
-        lng,
-        type: selectedLocationType,
-        title: `${
-          selectedLocationType.charAt(0).toUpperCase() +
-          selectedLocationType.slice(1)
-        } Location`,
-      },
-    ]);
-    setSelectedLocationType(null);
-  };
-
-  const handleMapClick = (e: L.LeafletMouseEvent) => {
-    if (!selectedLocationType) return;
-    const { lat, lng } = e.latlng;
-    fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
-    )
-      .then((res) => res.json())
-      .then((data) =>
-        setLocation(
-          lat,
-          lng,
-          data.display_name || `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`
-        )
-      );
-  };
-
-  const handleSearchSelect = (lat: number, lng: number, label: string) => {
-    if (!selectedLocationType) {
-      alert(
-        "Please select 'Set Load Location' or 'Set Unload Location' first."
-      );
-      return;
-    }
-    setLocation(lat, lng, label);
-  };
-
-  const getSelectedVehicle = (vehicleId: string): Vehicle | undefined =>
-    vehicles.find((v) => v.id.toString() === vehicleId);
-
-  const handleProcessLocationLink = async (
-    type: "load" | "unload",
-    input: string
-  ) => {
-    setLinkProcessing((prev) => ({ ...prev, [type]: true }));
-
-    try {
-      const backendUrl = process.env.REACT_APP_API_URL || "";
-      const resp = await fetch(`${backendUrl}/utils/resolve-location`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input }),
-      });
-      const data = await resp.json();
-
-      if (data.lat && data.lng) {
-        setLocationWithType(
-          data.lat,
-          data.lng,
-          `${data.lat},${data.lng}`,
-          type
-        );
-      } else {
-        alert(
-          data.message ||
-            "Could not determine coordinates. Please check the input or enter coordinates manually."
-        );
-      }
-    } catch (error) {
-      alert(
-        "Could not process the location link. Please try again or enter coordinates manually."
-      );
-    } finally {
-      setLinkProcessing((prev) => ({ ...prev, [type]: false }));
-    }
-  };
-
-  const setLocationWithType = (
+  // MERGED: Unified location updater (removes redundancy)
+  const updateLocation = (
     lat: number,
     lng: number,
     address: string,
@@ -466,97 +359,197 @@ const CreateDeliveryFromPO: React.FC = () => {
         title: `${type.charAt(0).toUpperCase() + type.slice(1)} Location`,
       },
     ]);
+    setSelectedLocationType(null); // Auto-close selection mode
+  };
+
+  const handleMapClick = (e: L.LeafletMouseEvent) => {
+    if (!selectedLocationType) return;
+    const { lat, lng } = e.latlng;
+    fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
+    )
+      .then((res) => res.json())
+      .then((data) =>
+        updateLocation(
+          lat,
+          lng,
+          data.display_name || `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`,
+          selectedLocationType
+        )
+      );
+  };
+
+  const handleSearchSelect = (lat: number, lng: number, label: string) => {
+    if (!selectedLocationType) {
+      alert(
+        "Please select 'Set Load Location' or 'Set Unload Location' first."
+      );
+      return;
+    }
+    updateLocation(lat, lng, label, selectedLocationType);
+  };
+
+  const getSelectedVehicle = (vehicleId: string): Vehicle | undefined =>
+    vehicles.find((v) => v.id.toString() === vehicleId);
+
+  const handleProcessLocationLink = async (
+    type: "load" | "unload",
+    input: string
+  ) => {
+    if (!input) return;
+    setLinkProcessing((prev) => ({ ...prev, [type]: true }));
+    setErrors([]); // Clear previous errors
+
+    try {
+      const backendUrl = process.env.REACT_APP_API_URL || "";
+      const resp = await fetch(`${backendUrl}/utils/resolve-location`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input }),
+      });
+      const data = await resp.json();
+
+      if (data.lat && data.lng) {
+        updateLocation(data.lat, data.lng, `${data.lat},${data.lng}`, type);
+      } else {
+        setErrors((prev) => [
+          ...prev,
+          data.message ||
+            "Could not determine coordinates. Please check the input or enter coordinates manually.",
+        ]);
+      }
+    } catch (error) {
+      setErrors((prev) => [
+        ...prev,
+        "Could not process the location link. Please try again or enter coordinates manually.",
+      ]);
+    } finally {
+      setLinkProcessing((prev) => ({ ...prev, [type]: false }));
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
-    setError(null);
+    setErrors([]);
+
+    const newErrors: string[] = [];
 
     try {
       if (!poDetails || poDetails.remaining_quantity === undefined) {
-        throw new Error(
+        newErrors.push(
           "Purchase order details are incomplete. Cannot create delivery orders."
         );
+        return;
       }
 
-      for (const formData of formDataList) {
-        const selectedVehicle = getSelectedVehicle(formData.vehicle_id);
-        if (!selectedVehicle || !selectedVehicle.driver_id) {
+      for (let index = 0; index < formDataList.length; index++) {
+        // FIXED: Traditional loop, no entries() iterator
+        const formData = formDataList[index];
+        const unitPrice = parseFloat(formData.unit_price);
+        if (isNaN(unitPrice) || unitPrice <= 0) {
           throw new Error(
-            `Invalid vehicle selection for DO ${formData.do_name}`
+            `Invalid unit price (${unitPrice}) for DO ${
+              formData.do_name || index + 1
+            }. Must be a positive number.`
           );
         }
+        try {
+          const selectedVehicle = getSelectedVehicle(formData.vehicle_id);
+          if (!selectedVehicle || !selectedVehicle.driver_id) {
+            throw new Error(
+              `Invalid vehicle selection for DO ${
+                formData.do_name || index + 1
+              }`
+            );
+          }
 
-        const quantity = parseFloat(formData.minimal_load_quantity);
-        if (isNaN(quantity) || quantity <= 0) {
-          throw new Error(
-            `Invalid quantity (${quantity}) for DO ${formData.do_name}. Must be a positive number.`
+          if (!formData.item_name) {
+            throw new Error(
+              `Item name is required for DO ${formData.do_name || index + 1}`
+            );
+          }
+
+          const quantity = parseFloat(formData.minimal_load_quantity);
+          if (isNaN(quantity) || quantity <= 0) {
+            throw new Error(
+              `Invalid quantity (${quantity}) for DO ${
+                formData.do_name || index + 1
+              }. Must be a positive number.`
+            );
+          }
+          if (quantity > poDetails.remaining_quantity) {
+            throw new Error(
+              `Invalid quantity (${quantity}) for DO ${
+                formData.do_name || index + 1
+              }. Must not exceed remaining ${
+                poDetails.remaining_quantity
+              } ${getUnitDisplay(poDetails.unit || "ton")}.`
+            );
+          }
+
+          const totalAmount =
+            poDetails.unit_price && poDetails.unit
+              ? calculateTotalAmount(
+                  quantity,
+                  poDetails.unit_price,
+                  poDetails.unit
+                )
+              : 0;
+
+          const payload = {
+            purchase_order_id: poDetails.id,
+            vehicle_id: parseInt(formData.vehicle_id),
+            driver_id: selectedVehicle.driver_id,
+            do_name: formData.do_name,
+            customer_name: poDetails.customer_name,
+            item_name: formData.item_name, // NEW: Use selected item
+            minimal_load_quantity: quantity,
+            unit: poDetails.unit,
+            unit_price: unitPrice,
+            total_amount: calculateTotalAmount(
+              quantity,
+              unitPrice,
+              poDetails.unit
+            ),
+            trip_allowance: parseFloat(formData.trip_allowance),
+            gaji: parseFloat(formData.gaji),
+            ongkosan: parseFloat(formData.ongkosan),
+            load_location: formData.load_location || poDetails.load_location,
+            unload_location:
+              formData.unload_location || poDetails.unload_location,
+            load_latitude: formData.load_latitude
+              ? parseFloat(formData.load_latitude)
+              : null,
+            load_longitude: formData.load_longitude
+              ? parseFloat(formData.load_longitude)
+              : null,
+            unload_latitude: formData.unload_latitude
+              ? parseFloat(formData.unload_latitude)
+              : null,
+            unload_longitude: formData.unload_longitude
+              ? parseFloat(formData.unload_longitude)
+              : null,
+            payment_status: "proses_tagihan",
+            status: "assigned",
+          };
+
+          console.log(`Creating DO with payload:`, payload);
+          await apiClient.post("/delivery-orders", payload);
+        } catch (err: any) {
+          newErrors.push(
+            err.response?.data?.message ||
+              err.message ||
+              `Failed to create DO ${formData.do_name || index + 1}.`
           );
         }
-        if (quantity > poDetails.remaining_quantity) {
-          throw new Error(
-            `Invalid quantity (${quantity}) for DO ${
-              formData.do_name
-            }. Must not exceed remaining ${
-              poDetails.remaining_quantity
-            } ${getUnitDisplay(poDetails.unit || "ton")}.`
-          );
-        }
-
-        const totalAmount =
-          poDetails.unit_price && poDetails.unit
-            ? calculateTotalAmount(
-                quantity,
-                poDetails.unit_price,
-                poDetails.unit
-              )
-            : 0;
-
-        const payload = {
-          purchase_order_id: poDetails.id,
-          vehicle_id: parseInt(formData.vehicle_id),
-          driver_id: selectedVehicle.driver_id,
-          do_name: formData.do_name,
-          customer_name: poDetails.customer_name,
-          item_name: poDetails.item_name,
-          minimal_load_quantity: quantity,
-          unit: poDetails.unit,
-          unit_price: poDetails.unit_price,
-          total_amount: totalAmount,
-          trip_allowance: parseFloat(formData.trip_allowance),
-          gaji: parseFloat(formData.gaji),
-          ongkosan: parseFloat(formData.ongkosan),
-          load_location: formData.load_location || poDetails.load_location,
-          unload_location:
-            formData.unload_location || poDetails.unload_location,
-          load_latitude: formData.load_latitude
-            ? parseFloat(formData.load_latitude)
-            : null,
-          load_longitude: formData.load_longitude
-            ? parseFloat(formData.load_longitude)
-            : null,
-          unload_latitude: formData.unload_latitude
-            ? parseFloat(formData.unload_latitude)
-            : null,
-          unload_longitude: formData.unload_longitude
-            ? parseFloat(formData.unload_longitude)
-            : null,
-          payment_status: "proses_tagihan",
-          status: "assigned",
-        };
-
-        console.log(`Creating DO with payload:`, payload);
-        await apiClient.post("/delivery-orders", payload);
       }
-      navigate("/delivery-orders");
-    } catch (err: any) {
-      setError(
-        err.response?.data?.message ||
-          err.message ||
-          "Failed to create one or more delivery orders."
-      );
+
+      if (newErrors.length === 0) {
+        navigate("/delivery-orders");
+      }
     } finally {
+      setErrors(newErrors);
       setLoading(false);
     }
   };
@@ -587,9 +580,11 @@ const CreateDeliveryFromPO: React.FC = () => {
         </button>
       </div>
 
-      {error && (
+      {errors.length > 0 && (
         <div className="bg-red-100 border border-red-400 text-red-700 p-4 rounded mb-6">
-          {error}
+          {errors.map((err, i) => (
+            <p key={i}>{err}</p>
+          ))}
         </div>
       )}
 
@@ -607,8 +602,9 @@ const CreateDeliveryFromPO: React.FC = () => {
             <p className="font-medium">{poDetails.customer_name}</p>
           </div>
           <div>
-            <label className="text-sm text-gray-600">Item</label>
-            <p className="font-medium">{poDetails.item_name}</p>
+            <label className="text-sm text-gray-600">Items</label>
+            <p className="font-medium">{poItems.join(", ")}</p>{" "}
+            {/* IMPROVED: Show list */}
           </div>
           <div>
             <label className="text-sm text-gray-600">Remaining Qty</label>
@@ -696,6 +692,32 @@ const CreateDeliveryFromPO: React.FC = () => {
                   </p>
                 </div>
                 <div className="mt-4">
+                  {" "}
+                  {/* NEW: Item selection dropdown */}
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Item Name *
+                  </label>
+                  <select
+                    name="item_name"
+                    value={formData.item_name}
+                    onChange={(e) => handleInputChange(index, e)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    required
+                  >
+                    <option value="">Select Item</option>
+                    {poItems.map((item, i) => (
+                      <option key={i} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </select>
+                  {poItems.length === 0 && (
+                    <p className="text-sm text-red-600 mt-1">
+                      No items available in this PO.
+                    </p>
+                  )}
+                </div>
+                <div className="mt-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Minimal Load Quantity ({unitDisplay}) *
                   </label>
@@ -712,11 +734,30 @@ const CreateDeliveryFromPO: React.FC = () => {
                   />
                   <p className="text-xs text-gray-500 mt-1">
                     {poDetails?.unit === "ton" &&
-                      "💡 Enter in tons (will be calculated as kg for pricing)"}
+                      "💡 Enter in tons (price per ton)"}
                     {poDetails?.unit === "kubik" &&
                       "💡 Enter in cubic meters (volume-based)"}
                     {poDetails?.unit === "kilogram" &&
                       "💡 Enter in kilograms (weight-based)"}
+                  </p>
+                </div>
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Unit Price (Rp/{unitDisplay}) *
+                  </label>
+                  <input
+                    type="number"
+                    name="unit_price"
+                    step="0.01"
+                    value={formData.unit_price}
+                    onChange={(e) => handleInputChange(index, e)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    placeholder={`Enter price per ${unitDisplay}`}
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    💡 Set the negotiated price per {unitDisplay} for this
+                    delivery
                   </p>
                 </div>
                 <div className="mt-4">
@@ -811,7 +852,7 @@ const CreateDeliveryFromPO: React.FC = () => {
                     />
                   </div>
                 </div>
-                {formData.minimal_load_quantity && poDetails?.unit_price && (
+                {formData.minimal_load_quantity && formData.unit_price && (
                   <div className="mt-4 p-4 bg-gray-50 rounded-lg">
                     <h4 className="text-sm font-semibold text-gray-700 mb-2">
                       Revenue Calculation
@@ -826,33 +867,38 @@ const CreateDeliveryFromPO: React.FC = () => {
                       <div className="flex justify-between">
                         <span>Unit Price:</span>
                         <span>
-                          Rp {poDetails.unit_price.toLocaleString("id-ID")}/
-                          {unitDisplay}
+                          Rp{" "}
+                          {parseFloat(formData.unit_price).toLocaleString(
+                            "id-ID"
+                          )}
+                          /{unitDisplay}
                         </span>
                       </div>
-                      {poDetails.unit === "ton" && (
-                        <div className="flex justify-between text-blue-600">
-                          <span>Calculation:</span>
-                          <span>
-                            {formData.minimal_load_quantity} ton × 1000 kg/ton ×
-                            Rp {poDetails.unit_price.toLocaleString("id-ID")}/kg
-                          </span>
-                        </div>
-                      )}
+                      <div className="flex justify-between text-blue-600">
+                        <span>Calculation:</span>
+                        <span>
+                          {formData.minimal_load_quantity} {unitDisplay} × Rp{" "}
+                          {parseFloat(formData.unit_price).toLocaleString(
+                            "id-ID"
+                          )}
+                          /{unitDisplay}
+                        </span>
+                      </div>
                       <div className="flex justify-between font-semibold border-t pt-1">
                         <span>Total Revenue:</span>
                         <span>
                           Rp{" "}
                           {calculateTotalAmount(
                             parseFloat(formData.minimal_load_quantity) || 0,
-                            poDetails.unit_price,
-                            poDetails.unit
+                            parseFloat(formData.unit_price) || 0,
+                            poDetails?.unit || "ton"
                           ).toLocaleString("id-ID")}
                         </span>
                       </div>
                     </div>
                   </div>
                 )}
+
                 <div className="mt-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Load Location *
@@ -889,17 +935,17 @@ const CreateDeliveryFromPO: React.FC = () => {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setSelectedLocationType("load")}
+                    onClick={() => {
+                      setSelectedLocationType("load");
+                      setShowMap(true); // FIXED: Show map on select
+                    }}
                     className={`mt-2 px-3 py-1 rounded text-sm w-full ${
                       selectedLocationType === "load"
                         ? "bg-blue-500 text-white animate-pulse"
                         : "bg-gray-200 hover:bg-gray-300"
                     }`}
                   >
-                    {showMap &&
-                      (selectedLocationType === "load"
-                        ? "Active..."
-                        : "Set Load")}
+                    Set Load Location
                   </button>
                 </div>
                 <div className="mt-4">
@@ -938,17 +984,17 @@ const CreateDeliveryFromPO: React.FC = () => {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setSelectedLocationType("unload")}
+                    onClick={() => {
+                      setSelectedLocationType("unload");
+                      setShowMap(true); // FIXED: Show map on select
+                    }}
                     className={`mt-2 px-3 py-1 rounded text-sm w-full ${
                       selectedLocationType === "unload"
                         ? "bg-red-500 text-white animate-pulse"
                         : "bg-gray-200 hover:bg-gray-300"
                     }`}
                   >
-                    {showMap &&
-                      (selectedLocationType === "unload"
-                        ? "Active..."
-                        : "Set Unload")}
+                    Set Unload Location
                   </button>
                 </div>
               </div>
@@ -970,7 +1016,12 @@ const CreateDeliveryFromPO: React.FC = () => {
               </button>
               <button
                 type="submit"
-                disabled={loading || formDataList.some((f) => !f.vehicle_id)}
+                disabled={
+                  loading ||
+                  formDataList.some(
+                    (f) => !f.vehicle_id || !f.item_name || !f.unit_price // NEW: Required
+                  )
+                }
                 className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300"
               >
                 {loading ? "Creating..." : "Create Order"}
@@ -981,7 +1032,18 @@ const CreateDeliveryFromPO: React.FC = () => {
 
         {showMap && (
           <div className="bg-white border rounded-lg p-6">
-            <h3 className="text-lg font-semibold mb-4">Location Map</h3>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">Location Map</h3>
+              <button
+                onClick={() => {
+                  setShowMap(false);
+                  setSelectedLocationType(null);
+                }}
+                className="text-sm text-gray-500 hover:text-gray-700"
+              >
+                Close Map
+              </button>
+            </div>
             <div className="h-96 w-full">
               <MapContainer
                 center={

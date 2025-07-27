@@ -9,6 +9,7 @@ const {
   DeliveryOrderPayments,
   DeliveryOrderInvoices,
   DeliveryOrderAdjustments,
+  sequelize,
 } = require("../../models");
 const ExcelJS = require("exceljs");
 

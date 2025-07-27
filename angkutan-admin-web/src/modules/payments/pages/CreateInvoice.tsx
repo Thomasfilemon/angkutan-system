@@ -10,6 +10,7 @@ interface DeliveryOrder {
   item_name: string;
   actual_load_quantity: string;
   unit: string;
+  unit_price: number;
   financial_summary: {
     actual_total_amount: number;
     ongkosan: number;
@@ -41,15 +42,15 @@ const CreateInvoice: React.FC = () => {
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>(
     {}
   );
+  const [showPreview, setShowPreview] = useState(true); // New: Toggle for preview
 
-  // Form state
+  // Form state - status hidden, defaults to 'issued' on submit
   const [form, setForm] = useState({
     invoice_number: "",
     invoice_date: new Date().toISOString().split("T")[0],
     invoice_amount: 0,
     due_date: "",
     pph_percentage: 0.5,
-    status: "issued" as "issued" | "sent" | "paid" | "overdue" | "cancelled",
     notes: "",
   });
 
@@ -72,17 +73,21 @@ const CreateInvoice: React.FC = () => {
 
         setDoData(data);
 
-        // Use actual_total_amount from financial_summary
         const actualAmount =
           data.financial_summary?.actual_total_amount ||
           data.ongkosan ||
           data.total_amount ||
           0;
 
+        const defaultDueDate = new Date();
+        defaultDueDate.setDate(defaultDueDate.getDate() + 30);
+        const formattedDue = defaultDueDate.toISOString().split("T")[0];
+
         setForm((prev) => ({
           ...prev,
           invoice_number: generateInvoiceNumber(data.do_number),
           invoice_amount: Number(actualAmount),
+          due_date: formattedDue, // Auto-suggest +30 days
         }));
       } catch (err: any) {
         setError(
@@ -100,25 +105,26 @@ const CreateInvoice: React.FC = () => {
 
   // Handle back navigation
   const handleBack = () => {
-    navigate("payments/deliveries");
+    navigate("/payments/deliveries");
   };
 
-  // Handle input change
+  // Handle input change with smarter PPH/amount handling
   const handleChange = (
-    e: React.ChangeEvent<
-      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-    >
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => {
     const { name, value } = e.target;
-    setForm((prev) => ({
-      ...prev,
-      [name]:
-        name === "invoice_amount" || name === "pph_percentage"
-          ? parseFloat(value) || 0
-          : value,
-    }));
+    let newValue: number | string = value;
 
-    // Clear validation error when user starts typing
+    if (name === "invoice_amount" || name === "pph_percentage") {
+      newValue = parseFloat(value) || 0;
+      if (name === "pph_percentage" && (newValue < 0 || newValue > 100)) {
+        return; // Prevent invalid input
+      }
+    }
+
+    setForm((prev) => ({ ...prev, [name]: newValue }));
+
+    // Clear validation error
     if (validationErrors[name]) {
       setValidationErrors((prev) => {
         const newErrors = { ...prev };
@@ -163,7 +169,7 @@ const CreateInvoice: React.FC = () => {
     return errors;
   };
 
-  // Handle submit
+  // Handle submit with confirm if amount changed from DO
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -172,6 +178,15 @@ const CreateInvoice: React.FC = () => {
       setValidationErrors(errors);
       toast.error("Please fix the form errors");
       return;
+    }
+
+    // Confirm if invoice_amount differs from DO
+    if (
+      doData &&
+      form.invoice_amount !== doData.financial_summary.actual_total_amount
+    ) {
+      if (!window.confirm("Invoice amount differs from DO total. Proceed?"))
+        return;
     }
 
     setSaving(true);
@@ -187,7 +202,7 @@ const CreateInvoice: React.FC = () => {
         pph_percentage: form.pph_percentage,
         pph_amount: pphAmount,
         net_amount: netAmount,
-        status: form.status,
+        status: "issued", // FLEX: Fixed to 'issued' per your flow
         notes: form.notes || null,
       };
 
@@ -259,13 +274,13 @@ const CreateInvoice: React.FC = () => {
         <h1 className="text-3xl font-bold text-gray-900">Create Invoice</h1>
       </div>
 
-      {/* Delivery Order Context Card */}
-      {doData && (
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-6 mb-8 shadow-sm">
+      {/* Delivery Order Context Card - Added skeleton loading */}
+      {doData ? (
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-6 mb-8 shadow-sm transition-all duration-300 hover:shadow-md">
           <h2 className="text-lg font-semibold text-gray-800 mb-4">
             Delivery Order Information
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white/50 rounded-lg p-3">
               <span className="text-xs text-gray-500 block mb-1">
                 DO Number
@@ -287,16 +302,22 @@ const CreateInvoice: React.FC = () => {
               </span>
             </div>
             <div className="bg-white/50 rounded-lg p-3">
-              <span className="text-xs text-gray-500 block mb-1">Quantity</span>
+              <span className="text-xs text-gray-500 block mb-1">
+                Quantity & Price
+              </span>
               <span className="font-semibold text-gray-800">
                 {doData.actual_load_quantity} {doData.unit}
+              </span>
+              <span className="text-sm text-gray-600 block mt-1">
+                Rp{" "}
+                {parseFloat(String(doData.unit_price)).toLocaleString("id-ID")}
               </span>
             </div>
           </div>
 
           {/* Financial Summary */}
           <div className="mt-4 pt-4 border-t border-blue-200">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="text-center">
                 <span className="text-xs text-gray-500 block">
                   Total Amount
@@ -327,12 +348,14 @@ const CreateInvoice: React.FC = () => {
             </div>
           </div>
         </div>
+      ) : (
+        <div className="animate-pulse bg-gray-200 rounded-xl p-6 mb-8 h-48" /> // Skeleton
       )}
 
       {/* Invoice Form */}
       <form
         onSubmit={handleSubmit}
-        className="bg-white shadow-xl rounded-xl border border-gray-100"
+        className="bg-white shadow-xl rounded-xl border border-gray-100 overflow-hidden"
       >
         <div className="p-8">
           {/* Basic Information */}
@@ -341,18 +364,24 @@ const CreateInvoice: React.FC = () => {
               Invoice Details
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div>
+              <div className="relative group">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Invoice Number <span className="text-red-500">*</span>
+                  <span
+                    className="ml-1 text-gray-400 cursor-help"
+                    title="Auto-generated, but editable."
+                  >
+                    ℹ️
+                  </span>
                 </label>
                 <input
                   type="text"
                   name="invoice_number"
                   value={form.invoice_number}
                   onChange={handleChange}
-                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
+                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200 ${
                     validationErrors.invoice_number
-                      ? "border-red-300 bg-red-50"
+                      ? "border-red-300 bg-red-50 animate-shake"
                       : "border-gray-300"
                   }`}
                   placeholder="INV/2025/001"
@@ -365,18 +394,33 @@ const CreateInvoice: React.FC = () => {
                 )}
               </div>
 
-              <div>
+              <div className="relative group">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Invoice Date <span className="text-red-500">*</span>
+                  <span
+                    className="ml-1 text-gray-400 cursor-help"
+                    title="Date the invoice is issued."
+                  >
+                    ℹ️
+                  </span>
                 </label>
                 <input
                   type="date"
                   name="invoice_date"
                   value={form.invoice_date}
-                  onChange={handleChange}
-                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
+                  onChange={(e) => {
+                    handleChange(e);
+                    // Auto-update due_date suggestion
+                    const newDate = new Date(e.target.value);
+                    newDate.setDate(newDate.getDate() + 30);
+                    setForm((prev) => ({
+                      ...prev,
+                      due_date: newDate.toISOString().split("T")[0],
+                    }));
+                  }}
+                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200 ${
                     validationErrors.invoice_date
-                      ? "border-red-300 bg-red-50"
+                      ? "border-red-300 bg-red-50 animate-shake"
                       : "border-gray-300"
                   }`}
                   required
@@ -388,16 +432,22 @@ const CreateInvoice: React.FC = () => {
                 )}
               </div>
 
-              <div>
+              <div className="relative group">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Due Date
+                  <span
+                    className="ml-1 text-gray-400 cursor-help"
+                    title="Auto-suggested +30 days, editable."
+                  >
+                    ℹ️
+                  </span>
                 </label>
                 <input
                   type="date"
                   name="due_date"
                   value={form.due_date}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200"
                 />
               </div>
             </div>
@@ -410,10 +460,16 @@ const CreateInvoice: React.FC = () => {
             </h3>
             <div className="bg-gray-50 rounded-xl p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                <div>
+                <div className="relative group">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Invoice Amount (Gross){" "}
                     <span className="text-red-500">*</span>
+                    <span
+                      className="ml-1 text-gray-400 cursor-help"
+                      title="Pre-filled from DO, but adjustable."
+                    >
+                      ℹ️
+                    </span>
                   </label>
                   <input
                     type="number"
@@ -422,9 +478,9 @@ const CreateInvoice: React.FC = () => {
                     onChange={handleChange}
                     min={0}
                     step="0.01"
-                    className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
+                    className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200 ${
                       validationErrors.invoice_amount
-                        ? "border-red-300 bg-red-50"
+                        ? "border-red-300 bg-red-50 animate-shake"
                         : "border-gray-300 bg-white"
                     }`}
                     required
@@ -435,31 +491,34 @@ const CreateInvoice: React.FC = () => {
                     </p>
                   )}
                   <p className="text-xs text-gray-500 mt-1">
-                    Auto-filled from delivery order actual total amount
+                    Rp {form.invoice_amount.toLocaleString("id-ID")}
                   </p>
                 </div>
 
-                <div>
+                <div className="relative group">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     PPh Percentage (%)
+                    <span
+                      className="ml-1 text-gray-400 cursor-help"
+                      title="Enter any value 0-100 (decimals OK). Defaults to 0.5."
+                    >
+                      ℹ️
+                    </span>
                   </label>
-                  <select
+                  <input
+                    type="number"
                     name="pph_percentage"
                     value={form.pph_percentage}
                     onChange={handleChange}
-                    className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors bg-white ${
+                    min={0}
+                    max={100}
+                    step="0.01"
+                    className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200 bg-white ${
                       validationErrors.pph_percentage
-                        ? "border-red-300 bg-red-50"
+                        ? "border-red-300 bg-red-50 animate-shake"
                         : "border-gray-300"
                     }`}
-                  >
-                    <option value={0}>0% (No Tax)</option>
-                    <option value={0.5}>0.5% (Default)</option>
-                    <option value={1}>1%</option>
-                    <option value={2}>2%</option>
-                    <option value={2.5}>2.5%</option>
-                    <option value={5}>5%</option>
-                  </select>
+                  />
                   {validationErrors.pph_percentage && (
                     <p className="text-red-500 text-xs mt-1">
                       {validationErrors.pph_percentage}
@@ -468,13 +527,13 @@ const CreateInvoice: React.FC = () => {
                 </div>
               </div>
 
-              {/* Calculation Preview */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-white rounded-lg border border-gray-200">
+              {/* Calculation Preview - Added animations */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-white rounded-lg border border-gray-200 transition-all duration-300 hover:shadow-inner">
                 <div className="text-center">
                   <span className="block text-xs text-gray-500 mb-1">
                     Gross Amount
                   </span>
-                  <span className="text-lg font-semibold text-blue-600">
+                  <span className="text-lg font-semibold text-blue-600 animate-fadeIn">
                     Rp {form.invoice_amount.toLocaleString("id-ID")}
                   </span>
                 </div>
@@ -482,7 +541,7 @@ const CreateInvoice: React.FC = () => {
                   <span className="block text-xs text-gray-500 mb-1">
                     PPh Amount ({form.pph_percentage}%)
                   </span>
-                  <span className="text-lg font-semibold text-yellow-600">
+                  <span className="text-lg font-semibold text-yellow-600 animate-fadeIn">
                     Rp {pphAmount.toLocaleString("id-ID")}
                   </span>
                 </div>
@@ -490,7 +549,7 @@ const CreateInvoice: React.FC = () => {
                   <span className="block text-xs text-gray-500 mb-1">
                     Net Amount
                   </span>
-                  <span className="text-xl font-bold text-green-600">
+                  <span className="text-xl font-bold text-green-600 animate-fadeIn">
                     Rp {netAmount.toLocaleString("id-ID")}
                   </span>
                 </div>
@@ -498,79 +557,122 @@ const CreateInvoice: React.FC = () => {
             </div>
           </div>
 
-          {/* Status & Notes */}
+          {/* Additional Information */}
           <div className="mb-8">
             <h3 className="text-xl font-semibold text-gray-800 mb-6">
               Additional Information
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Status
-                </label>
-                <select
-                  name="status"
-                  value={form.status}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors bg-white"
-                >
-                  <option value="issued">Issued</option>
-                  <option value="sent">Sent</option>
-                  <option value="paid">Paid</option>
-                  <option value="overdue">Overdue</option>
-                  <option value="cancelled">Cancelled</option>
-                </select>
-              </div>
-
-              <div>
+              <div className="col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Notes
+                  <span
+                    className="ml-1 text-gray-400 cursor-help"
+                    title="Any additional info or terms."
+                  >
+                    ℹ️
+                  </span>
                 </label>
                 <textarea
                   name="notes"
                   value={form.notes}
                   onChange={handleChange}
                   rows={3}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors resize-none"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200 resize-none"
                   placeholder="Additional notes or terms..."
                 />
               </div>
             </div>
           </div>
 
+          {/* Invoice Preview - New Section */}
+          <div className="mb-8">
+            <button
+              type="button"
+              onClick={() => setShowPreview(!showPreview)}
+              className="w-full flex justify-between items-center px-4 py-3 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+            >
+              <h3 className="text-lg font-semibold text-gray-800">
+                Invoice Preview
+              </h3>
+              <svg
+                className={`w-5 h-5 transition-transform ${
+                  showPreview ? "rotate-180" : ""
+                }`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19 9l-7 7-7-7"
+                />
+              </svg>
+            </button>
+            {showPreview && (
+              <div className="mt-4 p-6 bg-white border border-gray-200 rounded-lg shadow-inner animate-fadeIn">
+                <h4 className="text-md font-bold mb-2">
+                  {form.invoice_number}
+                </h4>
+                <p className="text-sm text-gray-600 mb-1">
+                  Date: {form.invoice_date}
+                </p>
+                <p className="text-sm text-gray-600 mb-1">
+                  Due: {form.due_date || "N/A"}
+                </p>
+                <p className="text-sm text-gray-600 mb-1">
+                  Gross: Rp {form.invoice_amount.toLocaleString("id-ID")}
+                </p>
+                <p className="text-sm text-gray-600 mb-1">
+                  PPH ({form.pph_percentage}%): Rp{" "}
+                  {pphAmount.toLocaleString("id-ID")}
+                </p>
+                <p className="text-md font-semibold text-green-600">
+                  Net: Rp {netAmount.toLocaleString("id-ID")}
+                </p>
+                <p className="text-sm text-gray-600 mt-2">
+                  Notes: {form.notes || "None"}
+                </p>
+                <p className="text-xs text-gray-400 mt-4 italic">
+                  This is a preview. Submit to create.
+                </p>
+              </div>
+            )}
+          </div>
+
           {/* Error Display */}
           {error && (
-            <div className="mb-6 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg">
+            <div className="mb-6 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg animate-fadeIn">
               <p>{error}</p>
             </div>
           )}
         </div>
 
         {/* Action Buttons */}
-        <div className="bg-gray-50 px-8 py-6 rounded-b-xl">
-          <div className="flex gap-4">
-            <button
-              type="button"
-              onClick={handleBack}
-              className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
-            >
-              {saving ? (
-                <div className="flex items-center justify-center gap-2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  Creating Invoice...
-                </div>
-              ) : (
-                "Create Invoice"
-              )}
-            </button>
-          </div>
+        <div className="bg-gray-50 px-8 py-6 rounded-b-xl flex justify-end gap-4">
+          <button
+            type="button"
+            onClick={handleBack}
+            className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
+          >
+            {saving ? (
+              <div className="flex items-center justify-center gap-2">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Creating...
+              </div>
+            ) : (
+              "Create Invoice"
+            )}
+          </button>
         </div>
       </form>
     </div>

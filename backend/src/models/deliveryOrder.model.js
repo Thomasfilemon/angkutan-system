@@ -344,7 +344,7 @@ module.exports = (sequelize) => {
     const po = await this.getPurchaseOrder(); // Asumsi association belongsTo PurchaseOrder as 'purchaseOrder'
     if (!po) throw new Error("PO not found for this DO");
 
-    const dos = await po.getDeliveryOrders({
+    const dos = await po.getPoDeliveryOrders({
       where: { id: { [Sequelize.Op.ne]: isUpdate ? this.id : null } },
     }); // Exclude self if update
 

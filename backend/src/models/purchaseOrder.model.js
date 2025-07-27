@@ -84,6 +84,8 @@ module.exports = (sequelize) => {
     }
   );
 
+  // NO associate method here—your inlines in index.js handle it
+
   // === INSTANCE METHODS ===
   PurchaseOrder.prototype.hasLocationData = function () {
     return !!(this.load_location && this.unload_location);
@@ -104,9 +106,9 @@ module.exports = (sequelize) => {
     return `Unit: ${this.getUnitDisplay()} (Price per DO)`;
   };
 
-  // NEW: Method untuk hitung remaining dan forecast (mirip view, fixed variable name)
+  // FIXED: Method untuk hitung remaining dan forecast (match your inline alias "poDeliveryOrders")
   PurchaseOrder.prototype.getRemainingAndForecast = async function () {
-    const deliveryOrders = await this.getDeliveryOrders(); // Asumsi association hasMany DeliveryOrder as 'deliveryOrders'
+    const deliveryOrders = await this.getPoDeliveryOrders(); // FIXED: Matches your inline hasMany alias
 
     let fulfilledActual = 0;
     let estimatedPending = 0;

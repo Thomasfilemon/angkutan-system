@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import apiClient from "../../api/axiosConfig";
 import Select from "react-select";
@@ -123,8 +123,16 @@ const POSpecificRitaseTable: React.FC = () => {
   const [allPOs, setAllPOs] = useState<
     { id: number; po_number: string; customer_name: string }[]
   >([]);
+  const [bulkInvoiceLoading, setBulkInvoiceLoading] = useState(false);
+  const [bulkInvoiceError, setBulkInvoiceError] = useState<string | null>(null);
   const [showCreateInvoiceModal, setShowCreateInvoiceModal] = useState(false);
   const [showBulkInvoiceModal, setShowBulkInvoiceModal] = useState(false);
+  const [bulkInvoiceNumber, setBulkInvoiceNumber] = useState<string>("");
+  const [bulkPphPercentage, setBulkPphPercentage] = useState<
+    number | undefined
+  >(undefined);
+  const [bulkDueDate, setBulkDueDate] = useState<string>(""); // ISO date string, YYYY-MM-DD
+  const [bulkNotes, setBulkNotes] = useState<string>("");
   const [activeTab, setActiveTab] = useState<
     "deliveries" | "invoices" | "analytics"
   >("deliveries");
@@ -253,6 +261,73 @@ const POSpecificRitaseTable: React.FC = () => {
       prev.includes(doId) ? prev.filter((id) => id !== doId) : [...prev, doId]
     );
   };
+
+  const handleCreateBulkInvoice = useCallback(async () => {
+    if (selectedDOs.length < 2) {
+      alert("Select at least 2 delivery orders to create a bulk invoice.");
+      return;
+    }
+    setBulkInvoiceLoading(true);
+    setBulkInvoiceError(null);
+
+    try {
+      const payload: {
+        do_ids: number[];
+        invoice_number?: string;
+        pph_percentage?: number;
+        due_date?: string;
+        notes?: string;
+      } = {
+        do_ids: selectedDOs,
+      };
+      if (bulkInvoiceNumber.trim() !== "") {
+        payload.invoice_number = bulkInvoiceNumber.trim();
+      }
+      if (bulkPphPercentage !== undefined && !isNaN(bulkPphPercentage)) {
+        payload.pph_percentage = bulkPphPercentage;
+      }
+      if (bulkDueDate) {
+        payload.due_date = bulkDueDate; // Should be ISO string (YYYY-MM-DD)
+      }
+      if (bulkNotes.trim() !== "") {
+        payload.notes = bulkNotes.trim();
+      }
+
+      const response = await paymentsApi.createBulkInvoice(payload);
+
+      if (response.data?.success) {
+        alert(
+          `Bulk invoice created: ${response.data.data.bulk_invoice_number}`
+        );
+        setShowBulkInvoiceModal(false);
+        setSelectedDOs([]);
+        // Clear bulk inputs
+        setBulkInvoiceNumber("");
+        setBulkPphPercentage(undefined);
+        setBulkDueDate("");
+        setBulkNotes("");
+        // Refetch PO data for fresh invoices display
+        fetchPOData();
+      } else {
+        setBulkInvoiceError(
+          response.data.message || "Failed to create bulk invoice"
+        );
+      }
+    } catch (err: any) {
+      setBulkInvoiceError(
+        err.response?.data?.message || "Bulk invoice creation failed."
+      );
+    } finally {
+      setBulkInvoiceLoading(false);
+    }
+  }, [
+    selectedDOs,
+    bulkInvoiceNumber,
+    bulkPphPercentage,
+    bulkDueDate,
+    bulkNotes,
+    fetchPOData,
+  ]);
 
   const handleDownloadInvoice = async (invoiceId: number) => {
     try {
@@ -398,7 +473,6 @@ const POSpecificRitaseTable: React.FC = () => {
           )}
         </div>
       </div>
-
       {/* 🎯 SECTION 1: PO Summary Header (Improved layout) */}
       <div className="bg-white shadow-md rounded-lg p-6 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -504,7 +578,6 @@ const POSpecificRitaseTable: React.FC = () => {
           </div>
         </div>
       </div>
-
       {/* 🎯 SECTION 2: Navigation Tabs (Improved styling) */}
       <div className="mb-6">
         <div className="border-b border-gray-200">
@@ -545,9 +618,7 @@ const POSpecificRitaseTable: React.FC = () => {
           </nav>
         </div>
       </div>
-
       {/* 🎯 SECTION 3: Content Based on Active Tab */}
-
       {/* Deliveries Tab (Improved with search and pagination) */}
       {activeTab === "deliveries" && (
         <div className="bg-white shadow-md rounded-lg overflow-hidden">
@@ -789,7 +860,6 @@ const POSpecificRitaseTable: React.FC = () => {
           </div>
         </div>
       )}
-
       {/* Invoices Tab (Improved with sorting) */}
       {activeTab === "invoices" && (
         <div className="bg-white shadow-md rounded-lg overflow-hidden">
@@ -923,7 +993,6 @@ const POSpecificRitaseTable: React.FC = () => {
           </div>
         </div>
       )}
-
       {/* Analytics Tab (Improved with charts) */}
       {activeTab === "analytics" && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1034,6 +1103,95 @@ const POSpecificRitaseTable: React.FC = () => {
           </div>
         </div>
       )}
+      {showBulkInvoiceModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-auto">
+            <h3 className="text-lg font-semibold mb-4">Create Bulk Invoice</h3>
+
+            <p className="mb-4">
+              Creating invoices for <strong>{selectedDOs.length}</strong>{" "}
+              delivery order
+              {selectedDOs.length > 1 ? "s" : ""}.
+            </p>
+
+            <label className="block mb-2 text-sm font-medium text-gray-700">
+              Invoice Number (optional)
+            </label>
+            <input
+              type="text"
+              value={bulkInvoiceNumber}
+              onChange={(e) => setBulkInvoiceNumber(e.target.value)}
+              placeholder="Auto-generated if empty"
+              className="mb-4 w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+
+            <label className="block mb-2 text-sm font-medium text-gray-700">
+              PPH (%) (optional)
+            </label>
+            <input
+              type="number"
+              value={bulkPphPercentage !== undefined ? bulkPphPercentage : ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                setBulkPphPercentage(val ? Number(val) : undefined);
+              }}
+              placeholder="Leave empty for default"
+              min={0}
+              step={0.01}
+              className="mb-4 w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+
+            <label className="block mb-2 text-sm font-medium text-gray-700">
+              Due Date (optional)
+            </label>
+            <input
+              type="date"
+              value={bulkDueDate}
+              onChange={(e) => setBulkDueDate(e.target.value)}
+              className="mb-4 w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+
+            <label className="block mb-2 text-sm font-medium text-gray-700">
+              Notes (optional)
+            </label>
+            <textarea
+              value={bulkNotes}
+              onChange={(e) => setBulkNotes(e.target.value)}
+              placeholder="Add any notes for the bulk invoice"
+              rows={3}
+              className="mb-4 w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+
+            {bulkInvoiceError && (
+              <div className="mb-4 text-sm text-red-600 font-medium">
+                {bulkInvoiceError}
+              </div>
+            )}
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setShowBulkInvoiceModal(false)}
+                disabled={bulkInvoiceLoading}
+                className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateBulkInvoice}
+                disabled={bulkInvoiceLoading}
+                className={`px-4 py-2 rounded text-white ${
+                  bulkInvoiceLoading
+                    ? "bg-purple-300"
+                    : "bg-purple-600 hover:bg-purple-700"
+                }`}
+              >
+                {bulkInvoiceLoading ? "Creating..." : "Create"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      ;
     </div>
   );
 };

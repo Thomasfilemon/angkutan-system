@@ -113,12 +113,25 @@ const InvoiceDetail: React.FC = () => {
         <p className="text-gray-600 mb-4">
           The requested invoice could not be found.
         </p>
-        <Link
-          to={`/ritase/delivery-orders/${doId}/payment`}
-          className="text-blue-600 hover:text-blue-700"
+        <button
+          onClick={() => navigate(-1)}
+          className="flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
         >
-          ← Back to Payment Management
-        </Link>
+          <svg
+            className="h-5 w-5 mr-2"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M15 19l-7-7 7-7"
+            />
+          </svg>
+          Back
+        </button>
       </div>
     );
   }
@@ -130,15 +143,15 @@ const InvoiceDetail: React.FC = () => {
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-4">
-          <Link
-            to={`/ritase/delivery-orders/${doId}/payment`}
-            className="flex items-center text-blue-600 hover:text-blue-700 transition-colors"
+          <button
+            onClick={() => navigate(-1)}
+            className="flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
           >
             <svg
-              className="w-5 h-5 mr-2"
+              className="h-5 w-5 mr-2"
               fill="none"
-              stroke="currentColor"
               viewBox="0 0 24 24"
+              stroke="currentColor"
             >
               <path
                 strokeLinecap="round"
@@ -147,8 +160,8 @@ const InvoiceDetail: React.FC = () => {
                 d="M15 19l-7-7 7-7"
               />
             </svg>
-            Back to Payment Management
-          </Link>
+            Back
+          </button>
 
           <div className="flex gap-3">
             <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">

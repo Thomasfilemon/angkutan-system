@@ -994,9 +994,8 @@ INSERT INTO delivery_orders (
   trip_allowance, gaji, ongkosan, final_amount,
   load_location, unload_location,
   payment_status, status,
-  created_at, departed_to_load_location_at, arrived_at_load_location_at,
-  departed_from_load_location_at, arrived_at_unload_location_at
-  -- Note: No completed_at, departed_from_unload_location_at - still ongoing
+  created_at, departed_to_load_location_at, arrived_at_load_location_at
+  -- still ongoing
 ) VALUES (
   (SELECT id FROM purchase_orders WHERE po_number = 'PO/TESTING/07/2025-001'),
   (SELECT id FROM users WHERE username = 'supir_eko'),

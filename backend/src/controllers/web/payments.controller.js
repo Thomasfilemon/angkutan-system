@@ -5,6 +5,7 @@ const {
   DeliveryOrderPayments,
   DeliveryOrderPaymentHistory,
   SystemSettings,
+  sequelize,
 } = require("../../models");
 
 /**
@@ -69,6 +70,7 @@ module.exports = {
         pph_percentage: pct,
         pph_amount,
         net_amount,
+        status: "issued",
         notes,
         created_by: userId,
       });
@@ -103,6 +105,13 @@ module.exports = {
         return res
           .status(404)
           .json({ success: false, message: "Invoice not found" });
+
+      if (invoice.status === "paid") {
+        return res.status(403).json({
+          success: false,
+          message: "Cannot update a paid invoice. It's locked, dummy.",
+        });
+      }
 
       /* Recalculate when either amount or pct changes */
       if (
@@ -280,27 +289,24 @@ module.exports = {
       const { invoiceId } = req.params;
       const { status, notes } = req.body;
 
-      const allowedStatuses = [
-        "issued",
-        "sent",
-        "paid",
-        "overdue",
-        "cancelled",
-      ];
-      if (!allowedStatuses.includes(status)) {
-        return res.status(400).json({
-          success: false,
-          message: `Invalid status. Must be one of: ${allowedStatuses.join(
-            ", "
-          )}`,
-        });
-      }
-
       const invoice = await DeliveryOrderInvoices.findByPk(invoiceId);
       if (!invoice) {
         return res.status(404).json({
           success: false,
           message: "Invoice not found",
+        });
+      }
+
+      if (invoice.status !== "issued") {
+        return res.status(403).json({
+          success: false,
+          message: "Can only change status from 'issued'.",
+        });
+      }
+      if (!["sent", "cancelled"].includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: "From 'issued', can only set to 'sent' or 'cancelled'.",
         });
       }
 
@@ -485,6 +491,7 @@ module.exports = {
             pph_percentage: finalPphPercentage,
             pph_amount: doPphAmount,
             net_amount: doNetAmount,
+            status: "issued",
             notes:
               notes ||
               `Bulk invoice for ${customers[0]} - ${do_ids.length} deliveries`,
@@ -829,6 +836,7 @@ module.exports = {
    *         payment_date?, bank_account?, notes?, attachment_urls? }
    * ──────────────────────────────────────────────────────────── */
   async recordPayment(req, res, next) {
+    const transaction = await sequelize.transaction();
     try {
       const { doId } = req.params;
       const {
@@ -863,12 +871,22 @@ module.exports = {
       // Get user ID
       const userId = req.user?.id;
 
-      // Validate invoice_id if provided
+      const doRecord = await DeliveryOrder.findByPk(doId, { transaction });
+      if (!doRecord) {
+        await transaction.rollback();
+        return res
+          .status(404)
+          .json({ success: false, message: "Delivery Order not found" });
+      }
+
+      let targetInvoice = null;
       if (invoice_id) {
-        const invoice = await DeliveryOrderInvoices.findOne({
+        targetInvoice = await DeliveryOrderInvoices.findOne({
           where: { id: invoice_id, delivery_order_id: doId },
+          transaction,
         });
-        if (!invoice) {
+        if (!targetInvoice) {
+          await transaction.rollback();
           return res.status(400).json({
             success: false,
             message: "Selected invoice doesn't belong to this DO.",
@@ -890,19 +908,62 @@ module.exports = {
       }
 
       // Create payment record
-      const payment = await DeliveryOrderPayments.create({
-        delivery_order_id: doId,
-        invoice_id: invoice_id || null,
-        payment_reference,
-        payment_type,
-        payment_amount: amount,
-        payment_date: payment_date || new Date(),
-        received_by: userId,
-        bank_account,
-        notes,
-        attachment_urls: final_attachment_urls, // Store array of URLs
-        created_by: userId,
-      });
+      const payment = await DeliveryOrderPayments.create(
+        {
+          delivery_order_id: doId,
+          invoice_id: invoice_id || null,
+          payment_reference,
+          payment_type,
+          payment_amount: amount,
+          payment_date: payment_date || new Date(),
+          received_by: userId,
+          bank_account,
+          notes,
+          attachment_urls: final_attachment_urls,
+          created_by: userId,
+        },
+        { transaction }
+      );
+
+      // FLEX: Auto-check and set 'paid' for related invoice(s)
+      let invoicesToCheck = [];
+      if (targetInvoice) {
+        invoicesToCheck = [targetInvoice];
+      } else {
+        invoicesToCheck = await DeliveryOrderInvoices.findAll({
+          where: { delivery_order_id: doId, status: { [Op.ne]: "paid" } }, // Only non-paid
+          transaction,
+        });
+      }
+
+      for (const invoice of invoicesToCheck) {
+        // Sum all payments for this invoice (or DO if not linked per-invoice)
+        const totalPaid = await DeliveryOrderPayments.sum("payment_amount", {
+          where: {
+            delivery_order_id: doId,
+            ...(invoice_id ? { invoice_id: invoice.id } : {}), // Filter by invoice if specified
+          },
+          transaction,
+        });
+
+        // ROAST GUARD: Prevent overpay? Optional—uncomment if you want
+        if (totalPaid > Number(invoice.net_amount)) {
+          await transaction.rollback();
+          return res.status(400).json({
+            success: false,
+            message: "Payment would exceed invoice net amount.",
+          });
+        }
+
+        if (
+          totalPaid >= Number(invoice.net_amount) &&
+          invoice.status !== "paid"
+        ) {
+          await invoice.update({ status: "paid" }, { transaction });
+        }
+      }
+
+      await transaction.commit();
 
       /* DB trigger updates payment_status automatically */
       return res.status(201).json({
