@@ -4,6 +4,9 @@ import apiClient from "../../api/axiosConfig";
 import Select from "react-select";
 import { paymentsApi } from "../../modules/payments/api";
 import EditablePphCell from "../../modules/payments/components/EditablePphCell";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import "jspdf-autotable";
 import {
   Chart as ChartJS,
   ArcElement,
@@ -72,24 +75,42 @@ interface DeliveryOrder {
   item_name: string;
   minimal_load_quantity: string;
   actual_load_quantity?: string;
-  unit: string;
-  unit_price: string;
-  total_amount: string;
+  unit: string; // This is guaranteed by backend fallback
+  unit_price: string; // Also seems guaranteed
+  total_amount: string; // Also seems guaranteed
   payment_status: string;
   status: string;
   completed_at?: string;
   vehicle: {
+    id: number;
     license_plate: string;
     type: string;
     capacity: string;
   };
   driver: {
+    id: number;
+    username: string;
     driverProfile: {
       full_name: string;
+      phone: string;
     };
   };
   payments: Payment[];
   invoices: Invoice[];
+  adjustments: any[]; // Add if needed
+  calculated: {
+    actualQuantity: number;
+    grossIncome: number;
+    operationalCosts: number;
+    netProfit: number;
+    profitMargin: number;
+  };
+  unit_info: {
+    unit: string;
+    po_unit: string;
+    unit_mismatch: boolean;
+    unit_display: string;
+  };
 }
 
 interface Payment {
@@ -111,6 +132,7 @@ interface Invoice {
   net_amount: string;
   status: string;
   due_date?: string;
+  notes?: string;
 }
 
 const POSpecificRitaseTable: React.FC = () => {
@@ -329,28 +351,132 @@ const POSpecificRitaseTable: React.FC = () => {
     fetchPOData,
   ]);
 
-  const handleDownloadInvoice = async (invoiceId: number) => {
-    try {
-      const response = await apiClient.get(`/payments/invoices/${invoiceId}`);
-      const invoice = response.data.data;
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<
+      number | null
+    >(null);
+  
+    const handleDownloadInvoice = async (invoiceId: number) => {
+      setDownloadingInvoiceId(invoiceId);
+      try {
+        const response = await apiClient.get(`/payments/invoices/${invoiceId}`);
+        const invoiceData = response.data.data;
+  
+        generateInvoicePDF(invoiceData);
+      } catch (err) {
+        console.error("Download failed:", err);
+        alert("Failed to download invoice");
+      } finally {
+        setDownloadingInvoiceId(null);
+      }
+    };
 
-      // Create downloadable JSON/text for now
-      const dataStr = JSON.stringify(invoice, null, 2);
-      const dataBlob = new Blob([dataStr], { type: "application/json" });
-      const url = URL.createObjectURL(dataBlob);
-
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `invoice-${invoice.invoice_number}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error("Download failed:", err);
-      alert("Failed to download invoice");
-    }
-  };
+    const generateInvoicePDF = (invoiceData: any) => {
+  const { invoice, delivery_order, payments } = invoiceData;
+  const doc = new jsPDF();
+  
+  // Company Header
+  doc.setFontSize(20);
+  doc.setFont('helvetica', 'bold');
+  doc.text('INVOICE', 105, 20, { align: 'center' });
+  
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Your Company Name', 20, 35); // Replace with actual company name
+  doc.text('Your Address Line 1', 20, 42);
+  doc.text('Your Address Line 2', 20, 49);
+  doc.text('Phone: +62 XXX XXXX XXXX', 20, 56);
+  
+  // Invoice Details (Right side)
+  doc.setFont('helvetica', 'bold');
+  doc.text('Invoice Number:', 130, 35);
+  doc.text('Invoice Date:', 130, 42);
+  doc.text('Due Date:', 130, 49);
+  doc.text('DO Number:', 130, 56);
+  
+  doc.setFont('helvetica', 'normal');
+  doc.text(invoice.invoice_number, 175, 35);
+  doc.text(new Date(invoice.invoice_date).toLocaleDateString('id-ID'), 175, 42);
+  doc.text(invoice.due_date ? new Date(invoice.due_date).toLocaleDateString('id-ID') : 'N/A', 175, 49);
+  doc.text(delivery_order.do_number, 175, 56);
+  
+  // Customer Info
+  doc.setFont('helvetica', 'bold');
+  doc.text('Bill To:', 20, 75);
+  doc.setFont('helvetica', 'normal');
+  doc.text(delivery_order.customer_name, 20, 82);
+  
+  // Delivery Details Table
+  const deliveryDetails = [
+    ['Item', delivery_order.item_name],
+    ['Vehicle', delivery_order.vehicle ? `${delivery_order.vehicle.license_plate} (${delivery_order.vehicle.type})` : 'N/A'],
+    ['Driver', delivery_order.driver?.driverProfile?.full_name || delivery_order.driver?.username || 'N/A'],
+    ['Load Location', delivery_order.load_location || 'N/A'],
+    ['Unload Location', delivery_order.unload_location || 'N/A'],
+  ];
+  
+  (doc as any).autoTable({
+    startY: 95,
+    head: [['Description', 'Details']],
+    body: deliveryDetails,
+    theme: 'grid',
+    headStyles: { fillColor: [71, 85, 105] },
+    margin: { left: 20, right: 20 },
+  });
+  
+  // Amount Breakdown
+  const finalY = (doc as any).lastAutoTable.finalY + 10;
+  
+  const amountData = [
+    ['Gross Amount', `Rp ${invoice.invoice_amount.toLocaleString('id-ID')}`],
+    [`PPH (${invoice.pph_percentage}%)`, `Rp ${invoice.pph_amount.toLocaleString('id-ID')}`],
+    ['Net Amount', `Rp ${invoice.net_amount.toLocaleString('id-ID')}`],
+  ];
+  
+  (doc as any).autoTable({
+    startY: finalY,
+    body: amountData,
+    theme: 'plain',
+    styles: { halign: 'right' },
+    columnStyles: {
+      0: { halign: 'left', fontStyle: 'bold' },
+      1: { halign: 'right', fontStyle: 'bold' }
+    },
+    margin: { left: 120, right: 20 },
+  });
+  
+  // Payment History (if any)
+  if (payments && payments.length > 0) {
+    const paymentY = (doc as any).lastAutoTable.finalY + 15;
+    
+    doc.setFont('helvetica', 'bold');
+    doc.text('Payment History:', 20, paymentY);
+    
+    const paymentData = payments.map((payment: any) => [
+      new Date(payment.payment_date).toLocaleDateString('id-ID'),
+      `Rp ${payment.payment_amount.toLocaleString('id-ID')}`,
+      payment.payment_type,
+      payment.payment_reference || '-',
+    ]);
+    
+    (doc as any).autoTable({
+      startY: paymentY + 5,
+      head: [['Date', 'Amount', 'Type', 'Reference']],
+      body: paymentData,
+      theme: 'striped',
+      headStyles: { fillColor: [71, 85, 105] },
+      margin: { left: 20, right: 20 },
+    });
+  }
+  
+  // Footer
+  const pageHeight = doc.internal.pageSize.height;
+  doc.setFontSize(8);
+  doc.text('Thank you for your business!', 105, pageHeight - 20, { align: 'center' });
+  doc.text(`Generated on ${new Date().toLocaleDateString('id-ID')}`, 105, pageHeight - 15, { align: 'center' });
+  
+  // Save the PDF
+  doc.save(`invoice-${invoice.invoice_number}.pdf`);
+};
 
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
@@ -365,29 +491,168 @@ const POSpecificRitaseTable: React.FC = () => {
     }
   };
 
-  // New: CSV Export Function
-  const handleExportCSV = () => {
-    const csvContent = [
-      ["DO Number", "Customer", "Item", "Quantity", "Amount", "Status"],
-      ...processedDOs.map((do_) => [
-        do_.do_number,
-        do_.customer_name,
-        do_.item_name,
-        do_.actual_load_quantity || do_.minimal_load_quantity,
-        do_.total_amount,
-        do_.payment_status,
-      ]),
-    ]
-      .map((row) => row.join(","))
-      .join("\n");
+  // Helper: Convert quantity to KG (adjust if kubik needs special handling)
+  const convertToKg = (quantity: string, unit: string) => {
+    const qty = parseFloat(quantity) || 0;
+    switch (unit) {
+      case "ton":
+        return qty * 1000;
+      case "kilogram":
+        return qty;
+      case "kubik":
+        return qty;
+      default:
+        return qty;
+    }
+  };
 
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `ritase_${poId}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+  const handleExportExcel = () => {
+    if (!data || !data.purchase_order || !processedDOs.length) {
+      alert("No data to export!");
+      return;
+    }
+
+    const po = data.purchase_order;
+    const summary = data.summary;
+
+    // Step 1: Prep data rows with robust undef guards
+    const dataRows = processedDOs.map((do_, index) => ({
+      No: index + 1,
+      "Plat Mobil": do_.vehicle?.license_plate || "N/A", // ? for undef vehicle
+      "Tanggal Muat": do_.completed_at
+        ? new Date(do_.completed_at).toLocaleDateString("id-ID")
+        : "N/A",
+      Muatan: do_.item_name || "N/A",
+      "Quantity (KG)": convertToKg(
+        do_.actual_load_quantity || do_.minimal_load_quantity || "0",
+        do_.unit || "ton"
+      ),
+      Harga: parseFloat(do_.unit_price || "0") || 0, // FIXED: Safe fallback
+      "Total Pembayaran": parseFloat(do_.total_amount || "0") || 0, // FIXED: Safe fallback
+    }));
+
+    // Step 2: Aggregate invoices with guards
+    const invoices = processedDOs
+      .flatMap((do_) => do_.invoices || []) // FIXED: || [] if undef
+      .map((inv) => ({
+        name: inv.invoice_number || "N/A",
+        amount: parseFloat(inv.invoice_amount || "0") || 0,
+        pph_percentage: parseFloat(inv.pph_percentage || "0") || 0,
+        pph_amount: parseFloat(inv.pph_amount || "0") || 0,
+        net_amount: parseFloat(inv.net_amount || "0") || 0,
+        due_date: inv.due_date
+          ? new Date(inv.due_date).toLocaleDateString("id-ID")
+          : "N/A",
+        notes: inv.notes || "",
+      }));
+
+    // Calc summaries
+    const poTotalQty = parseFloat(po.total_quantity || "0") || 0;
+    const poTotal = summary.total_revenue || 0;
+
+    const totalAngkutQty = dataRows.reduce(
+      (sum, row) => sum + (row["Quantity (KG)"] || 0), // FIXED: Guard NaN
+      0
+    );
+    const totalAngkut = dataRows.reduce(
+      (sum, row) => sum + (row["Total Pembayaran"] || 0),
+      0
+    );
+    const selisihQty = poTotalQty * 1000 - totalAngkutQty;
+    const selisihAmount = poTotal - totalAngkut;
+
+    const totalPph = invoices.reduce(
+      (sum, inv) => sum + (inv.pph_amount || 0),
+      0
+    ); // FIXED: Extra guard
+    const grandTotal = totalAngkut - totalPph;
+
+    const totalPembayaran = invoices.reduce(
+      (sum, inv) => sum + (inv.net_amount || 0),
+      0
+    );
+    const sisaPembayaran = grandTotal - totalPembayaran;
+
+    // Step 3: Build sheet data with per-invoice PPH details
+    const sheetData = [
+      ["Rekapan Ritase A-B"],
+      [],
+      [
+        "No",
+        "Plat Mobil",
+        "Tanggal Muat",
+        "Muatan",
+        "Quantity (KG)",
+        "Harga",
+        "Total Pembayaran",
+      ],
+      ...dataRows.map((row) => Object.values(row)),
+      [],
+      ["", "", "", "", "PO", poTotalQty, "", poTotal],
+      ["", "", "", "", "Total Angkut", totalAngkutQty / 1000, "", totalAngkut],
+      ["", "", "", "", "Selisih", selisihQty / 1000, "", selisihAmount],
+      [],
+      ["TOTAL", "", "", "", totalAngkutQty / 1000, "", totalAngkut],
+      ["PPH Total (Varying per Invoice)", "", "", "", "", "", totalPph],
+      ["GRAND TOTAL", "", "", "", "", "", grandTotal],
+      [],
+      // Proforma section with added PPH details per invoice
+      [
+        "Proforma Invoices",
+        "Due Date",
+        "PPH %",
+        "PPH Amount",
+        "Net Amount",
+        "Notes",
+      ],
+      ...invoices.map((inv) => [
+        inv.name,
+        inv.due_date,
+        inv.pph_percentage,
+        inv.pph_amount,
+        inv.net_amount,
+        inv.notes,
+      ]),
+      ["TOTAL PEMBAYARAN", "", "", "", totalPembayaran, ""],
+      [
+        "SISA PEMBAYARAN =",
+        "",
+        `Rp ${grandTotal} - Rp ${totalPembayaran}`,
+        "",
+        sisaPembayaran,
+        "",
+      ],
+    ];
+
+    // Step 4: Create workbook and sheet with formatting
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+    // Formatting: Bold titles/headers, currency for amounts
+    if (ws["!ref"]) {
+      const range = XLSX.utils.decode_range(ws["!ref"]);
+      for (let R = range.s.r; R <= range.e.r; ++R) {
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+          const cellAddress = { c: C, r: R };
+          const cell = ws[XLSX.utils.encode_cell(cellAddress)];
+          if (!cell) continue;
+
+          // Your formatting logic here
+          if (R === 0 || R === 2 || R >= dataRows.length + 4) {
+            cell.s = { font: { bold: true } };
+          }
+
+          if (C === 6 || C === 3 || C === 4) {
+            cell.z = '"Rp" #,##0';
+          }
+        }
+      }
+    }
+
+    XLSX.utils.book_append_sheet(wb, ws, po.po_number || "Ritase");
+
+    // Step 5: Export
+    XLSX.writeFile(wb, `ritase_${poId}.xlsx`);
   };
 
   // Analytics Charts Data
@@ -660,10 +925,10 @@ const POSpecificRitaseTable: React.FC = () => {
                 </button>
               )}
               <button
-                onClick={handleExportCSV}
-                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 text-sm w-full sm:w-auto"
+                onClick={handleExportExcel}
+                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm w-full sm:w-auto"
               >
-                Export CSV
+                Export to Excel
               </button>
             </div>
           </div>
@@ -978,11 +1243,22 @@ const POSpecificRitaseTable: React.FC = () => {
                             }}
                           />
                           <button
-                            onClick={() => handleDownloadInvoice(invoice.id)}
-                            className="text-green-600 hover:text-green-900 text-xs"
-                          >
-                            Download
-                          </button>
+  onClick={() => handleDownloadInvoice(invoice.id)}
+  disabled={downloadingInvoiceId === invoice.id}
+  className="text-green-600 hover:text-green-900 text-xs disabled:opacity-50"
+>
+  {downloadingInvoiceId === invoice.id ? (
+    <span className="flex items-center">
+      <svg className="animate-spin -ml-1 mr-1 h-3 w-3" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+      </svg>
+      Loading...
+    </span>
+  ) : (
+    'Download'
+  )}
+</button>
                         </div>
                       </td>
                     </tr>

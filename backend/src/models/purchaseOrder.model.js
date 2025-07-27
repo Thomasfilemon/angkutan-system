@@ -50,7 +50,7 @@ module.exports = (sequelize) => {
       },
       unload_location: {
         type: DataTypes.TEXT,
-        allowNull: true, // FIXED: Made nullable
+        allowNull: true,
         comment: "Lokasi pembongkaran barang (optional)",
         validate: {
           len: {
@@ -78,9 +78,7 @@ module.exports = (sequelize) => {
       timestamps: true,
       createdAt: "created_at",
       updatedAt: false,
-      hooks: {
-        // REMOVED: beforeSave for unit_price calculation (since unit_price removed)
-      },
+      hooks: {},
     }
   );
 

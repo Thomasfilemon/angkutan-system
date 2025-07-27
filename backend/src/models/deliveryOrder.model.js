@@ -341,7 +341,7 @@ module.exports = (sequelize) => {
   DeliveryOrder.prototype.validateQuantityAgainstPO = async function (
     isUpdate = false
   ) {
-    const po = await this.getPurchaseOrder(); // Asumsi association belongsTo PurchaseOrder as 'purchaseOrder'
+    const po = await this.getPurchaseOrder();
     if (!po) throw new Error("PO not found for this DO");
 
     const dos = await po.getPoDeliveryOrders({
