@@ -25,5 +25,6 @@ router.post(
   cashController.createCashTransaction
 );
 router.put('/transactions/:id', upload.array('attachments', 5), cashController.updateCashTransaction);
+router.get('/accounts', cashController.getUniqueAccounts);
 
 module.exports = router;

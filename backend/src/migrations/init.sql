@@ -516,9 +516,10 @@ CREATE TABLE cash_transactions (
   amount NUMERIC(15,2) NOT NULL,
   description TEXT NOT NULL,
   reference_number VARCHAR(50),
-  account VARCHAR(20) NOT NULL CHECK(account IN ('Ewaldo', 'Malvin', 'Company', 'General')),
+  account VARCHAR(20) NOT NULL,
   transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
   attachment_urls TEXT[], -- <<< NEW COLUMN to store the photo path
+  no_nota TEXT[], -- <<< NEW COLUMN to store the photo path
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

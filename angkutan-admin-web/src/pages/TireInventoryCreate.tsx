@@ -1,8 +1,9 @@
 // src/pages/TireInventoryCreate.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/axiosConfig';
 import { toast } from 'react-hot-toast';
+import CreatableSelect from 'react-select/creatable';
 
 interface TireInventoryData {
   tire_brand: string;
@@ -30,8 +31,23 @@ const TireInventoryCreatePage = () => {
 
   const [saveToCash, setSaveToCash] = useState(true);
   const [isTempo, setIsTempo] = useState(false);
-  const [selectedAccount, setSelectedAccount] = useState("General");
   const [notaFile, setNotaFile] = useState<File | null>(null);
+
+  const [accounts, setAccounts] = useState<string[]>([]);
+  const [selectedAccount, setSelectedAccount] = useState<string>('General');
+
+  // Fetch accounts
+  useEffect(() => {
+    const fetchAccounts = async () => {
+      try {
+        const response = await apiClient.get('/cash/accounts');
+        setAccounts(response.data.data || []);
+      } catch (err) {
+        console.error('Failed to fetch accounts:', err);
+      }
+    };
+    fetchAccounts();
+  }, []);
 
   // ✅ Condition mapping for display
   const conditionOptions = [
@@ -123,10 +139,15 @@ const TireInventoryCreatePage = () => {
             cashFormData.append('transaction_type', transactionType);
             cashFormData.append('amount', String(totalCost));
             cashFormData.append('description', description);
-            cashFormData.append('transaction_date', formData.purchase_date);
+            cashFormData.append('transaction_date', new Date().toISOString());
             cashFormData.append('account', selectedAccount);
+            cashFormData.append('category_id', '9');
+
+            // Add no_nota as a JSON string (empty array by default)
+            cashFormData.append('no_nota', JSON.stringify([])); // ← New line
+
             if (notaFile) {
-                cashFormData.append('attachment', notaFile);
+            cashFormData.append('attachments', notaFile);
             }
 
             await apiClient.post("/cash/transactions", cashFormData, {
@@ -243,13 +264,19 @@ const TireInventoryCreatePage = () => {
                 </label>
               </div>
               <div>
-                <label className="block text-gray-700 text-sm font-bold mb-2">Akun</label>
-                <select value={selectedAccount} onChange={(e) => setSelectedAccount(e.target.value)} className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700">
-                  <option value="Ewaldo">Ewaldo</option>
-                  <option value="Malvin">Malvin</option>
-                  <option value="Company">Company</option>
-                  <option value="General">General</option>
-                </select>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Akun *</label>
+                <CreatableSelect
+                  value={{ label: selectedAccount, value: selectedAccount }}
+                  options={accounts.map(account => ({ label: account, value: account }))}
+                  onChange={(selected) => {
+                    const newAccount = selected?.value || 'General';
+                    setSelectedAccount(newAccount);
+                  }}
+                  onCreateOption={(inputValue) => {
+                    setSelectedAccount(inputValue);
+                  }}
+                  className="w-full"
+                />
               </div>
               <div className="mt-4">
                 <label className="block text-gray-700 text-sm font-bold mb-2">

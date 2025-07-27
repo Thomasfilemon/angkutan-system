@@ -497,6 +497,16 @@ const CreateDeliveryFromPO: React.FC = () => {
     setSelectedTypes(prev => [...prev, null]);
   };
 
+  const duplicateForm = (index: number) => {
+    const currentForm = formDataList[index];
+    const newForm: DOFormData = {
+      ...currentForm,
+      do_name: `${currentForm.do_name} - Copy`, // Auto-append " - Copy" to DO Name
+    };
+    setFormDataList([...formDataList, newForm]);
+    setSelectedTypes([...selectedTypes, null]); // Maintain selectedType state
+  };
+
   const removeForm = (index: number) => {
     setFormDataList(formDataList.filter((_, i) => i !== index));
     setSelectedTypes(prev => prev.filter((_, i) => i !== index));
@@ -764,18 +774,25 @@ const CreateDeliveryFromPO: React.FC = () => {
             {formDataList.map((formData, index) => (
               <div key={index} className="bg-white border rounded-lg p-6">
                 <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-semibold">
-                    Delivery Order {index + 1}
-                  </h3>
-                  {index > 0 && (
+                  <h3 className="text-lg font-semibold">Delivery Order {index + 1}</h3>
+                  <div className="flex space-x-2">
+                    {index > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => removeForm(index)}
+                        className="text-red-500 hover:text-red-700 text-sm"
+                      >
+                        Remove
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => removeForm(index)}
-                      className="text-red-500 hover:text-red-700 text-sm"
+                      onClick={() => duplicateForm(index)}
+                      className="text-blue-500 hover:text-blue-700 text-sm"
                     >
-                      Remove
+                      Duplicate
                     </button>
-                  )}
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">

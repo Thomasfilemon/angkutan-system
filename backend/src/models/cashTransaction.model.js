@@ -31,7 +31,7 @@ module.exports = (sequelize) => {
       allowNull: true
     },
     account: {
-      type: DataTypes.ENUM('Ewaldo', 'Malvin', 'Company', 'General'),
+      type: DataTypes.STRING(20),
       allowNull: false
     },
     transaction_date: {
@@ -42,7 +42,11 @@ module.exports = (sequelize) => {
     attachment_urls: {
       type: DataTypes.ARRAY(DataTypes.STRING),
       allowNull: true
-    }
+    },
+    no_nota: {
+      type: DataTypes.ARRAY(DataTypes.STRING),
+      allowNull: true
+    },
   }, {
     tableName: 'cash_transactions',
     timestamps: true,

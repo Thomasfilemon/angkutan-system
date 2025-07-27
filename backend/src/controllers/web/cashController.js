@@ -122,7 +122,8 @@ exports.getAllCashTransactions = async (req, res, next) => {
       const transactionData = transaction.toJSON();
       return {
         ...transactionData,
-        running_balance: balanceLookup[transaction.id] || 0
+        running_balance: balanceLookup[transaction.id] || 0,
+        no_nota: transactionData.no_nota || []
       };
     });
 
@@ -260,6 +261,24 @@ exports.getAllTempoTransactions = async (req, res, next) => {
   }
 };
 
+exports.getUniqueAccounts = async (req, res, next) => {
+  try {
+    const accounts = await CashTransaction.findAll({
+      attributes: [
+        [db.Sequelize.fn('DISTINCT', db.Sequelize.col('account')), 'account']
+      ],
+      raw: true
+    });
+    res.json({
+      success: true,
+      data: accounts.map(a => a.account)
+    });
+  } catch (err) {
+    console.error('Error in getUniqueAccounts:', err);
+    next(err);
+  }
+};
+
 // Create new cash transaction
 exports.createCashTransaction = async (req, res, next) => {
   if (!req.body) {
@@ -275,13 +294,26 @@ exports.createCashTransaction = async (req, res, next) => {
       description,
       reference_number,
       transaction_date,
-      account
+      account,
     } = req.body;
 
     // Handle multiple file uploads
     let attachment_urls = [];
     if (req.files && req.files.length > 0) {
       attachment_urls = req.files.map(file => `uploads/receipts/${file.filename}`);
+    }
+
+    // Parse no_nota from JSON string to array
+    let no_nota = [];
+    if (typeof req.body.no_nota === 'string') {
+      try {
+        no_nota = JSON.parse(req.body.no_nota);
+      } catch (error) {
+        // Handle invalid JSON (e.g., set to empty array)
+        no_nota = [];
+      }
+    } else if (Array.isArray(req.body.no_nota)) {
+      no_nota = req.body.no_nota;
     }
 
     // Validation
@@ -306,7 +338,8 @@ exports.createCashTransaction = async (req, res, next) => {
       reference_number: reference_number || null,
       transaction_date: transaction_date || new Date(),
       account,
-      attachment_urls: attachment_urls.length > 0 ? attachment_urls : null // Set as array
+      attachment_urls: attachment_urls.length > 0 ? attachment_urls : null,
+      no_nota: no_nota || null, // Parse if stringified
     }, { transaction });
 
     const createdTransaction = await CashTransaction.findByPk(cashTransaction.id, {
@@ -382,6 +415,17 @@ exports.updateCashTransaction = async (req, res) => {
     account,
   } = req.body;
 
+  let updatedNoNota = [];
+  if (typeof req.body.no_nota === 'string') {
+    try {
+      updatedNoNota = JSON.parse(req.body.no_nota);
+    } catch (error) {
+      updatedNoNota = [];
+    }
+  } else if (Array.isArray(req.body.no_nota)) {
+    updatedNoNota = req.body.no_nota;
+  }
+
   // Define parseCategoryId locally
   const parseCategoryId = (id) => {
     if (id === '' || id === null || id === undefined) {
@@ -402,6 +446,14 @@ exports.updateCashTransaction = async (req, res) => {
 
     const categoryId = category_id !== undefined ? parseCategoryId(category_id) : cashTransaction.category_id;
 
+    const existingUrls = cashTransaction.attachment_urls || [];
+    const newUrls = req.files?.map(file => `uploads/receipts/${file.filename}`) || [];
+    cashTransaction.attachment_urls = [...existingUrls, ...newUrls];
+
+    const existingNoNota = cashTransaction.no_nota || [];
+    const newNoNota = JSON.parse(req.body.no_nota || '[]');
+    cashTransaction.no_nota = [...existingNoNota, ...newNoNota];
+
     await cashTransaction.update({
       transaction_type: transaction_type || cashTransaction.transaction_type,
       category_id: categoryId,
@@ -410,7 +462,8 @@ exports.updateCashTransaction = async (req, res) => {
       reference_number: reference_number !== undefined ? reference_number : cashTransaction.reference_number,
       transaction_date: transaction_date || cashTransaction.transaction_date,
       account: account || cashTransaction.account,
-      // Handle attachment_urls if needed
+      no_nota: updatedNoNota !== undefined ? updatedNoNota : cashTransaction.no_nota,// Same logic
+      attachment_urls: cashTransaction.attachment_urls
     });
 
     return res.status(200).json({ message: 'Transaction updated successfully', data: cashTransaction });
