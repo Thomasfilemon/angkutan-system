@@ -899,10 +899,8 @@ exports.createPriceAdjustment = async (req, res, next) => {
       });
     }
 
-    const originalAmount =
-      parseFloat(deliveryOrder.final_amount) ||
-      parseFloat(deliveryOrder.total_amount) ||
-      0; // Use current final as base
+    const originalAmount = parseFloat(deliveryOrder.total_amount) || 0; // Use customer billing amount
+
     const delta = parseFloat(adjustment_amount);
     if (isNaN(delta)) {
       await transaction.rollback();
@@ -1001,11 +999,10 @@ exports.updatePriceAdjustment = async (req, res, next) => {
       });
     }
 
-    const originalAmount =
-      parseFloat(deliveryOrder.final_amount) ||
-      parseFloat(deliveryOrder.total_amount) ||
-      0; // Use current final as base
+    const originalAmount = parseFloat(deliveryOrder.total_amount) || 0;
+
     const delta = parseFloat(adjustment_amount);
+
     if (isNaN(delta)) {
       await transaction.rollback();
       return res.status(400).json({
@@ -1013,8 +1010,6 @@ exports.updatePriceAdjustment = async (req, res, next) => {
         message: "Invalid adjustment_amount - must be numeric",
       });
     }
-
-    // Same type validation as create...
 
     const finalAmount = originalAmount + delta;
 

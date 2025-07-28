@@ -2968,10 +2968,12 @@ const DOPaymentManagement: React.FC = () => {
                       const inputValue = e.target.value;
                       const finalValue =
                         inputValue === "" ? null : parseFloat(inputValue); // Allow empty string
+                      const originalTotalAmount =
+                        doData.delivery_order.total_amount;
                       const computedAdjustment =
                         finalValue == null
                           ? 0 // Temp 0 for preview if empty
-                          : finalValue - paymentSummary.calculated_bill;
+                          : finalValue - originalTotalAmount;
 
                       setNewAdjustment((prev) => ({
                         ...prev,
@@ -2982,7 +2984,8 @@ const DOPaymentManagement: React.FC = () => {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                   />
                   <p className="text-sm text-gray-500 mt-1">
-                    Original: {formatCurrency(paymentSummary.calculated_bill)}
+                    Original:{" "}
+                    {formatCurrency(doData.delivery_order.total_amount)}
                   </p>
 
                   <label className="block text-sm font-medium text-gray-700 mb-2 mt-4">
@@ -3054,7 +3057,7 @@ const DOPaymentManagement: React.FC = () => {
                   <div className="flex justify-between">
                     <span>Original Amount:</span>
                     <span className="font-medium">
-                      {formatCurrency(paymentSummary.calculated_bill)}
+                      {formatCurrency(doData.delivery_order.total_amount)}
                     </span>
                   </div>
                   <div className="flex justify-between">
