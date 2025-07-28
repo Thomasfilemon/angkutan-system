@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import apiClient from "../api/axiosConfig";
-import PurchaseOrderForm from "../components/PurchaseOrderForm";
+import toast from "react-hot-toast";
 
 interface PurchaseOrderData {
   id: number;
@@ -10,9 +10,7 @@ interface PurchaseOrderData {
   customer_name: string;
   item_name: string;
   total_quantity: number;
-  unit: string; // 🎯 NEW: Add unit field
-  unit_price?: number;
-  total_amount?: number;
+  unit: string;
   load_location?: string;
   unload_location?: string;
   notes?: string;
@@ -21,51 +19,106 @@ interface PurchaseOrderData {
   created_at: string;
 }
 
+interface ValidationErrors {
+  [key: string]: string;
+}
+
 const PurchaseOrderEditPage = () => {
   const { id } = useParams<{ id: string }>();
-  const [poData, setPOData] = useState<PurchaseOrderData | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isPageLoading, setIsPageLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
 
-  // 🎯 NEW: Unit display helper
-  const getUnitDisplay = (unit: string) => {
-    const unitMap = {
-      kilogram: "kg",
-      ton: "ton",
-      kubik: "m³",
-    };
-    return unitMap[unit as keyof typeof unitMap] || unit;
-  };
+  const [poData, setPOData] = useState<PurchaseOrderData | null>(null);
+  const [isPageLoading, setIsPageLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<ValidationErrors>(
+    {}
+  );
+  const [showPreview, setShowPreview] = useState(true);
 
+  // Form states (pre-filled on load)
+  const [customerName, setCustomerName] = useState("");
+  const [itemsInput, setItemsInput] = useState("");
+  const [items, setItems] = useState<string[]>([]);
+  const [totalQuantity, setTotalQuantity] = useState(0);
+  const [unit, setUnit] = useState("ton");
+  const [loadLocation, setLoadLocation] = useState("");
+  const [unloadLocation, setUnloadLocation] = useState("");
+  const [notes, setNotes] = useState("");
+  const [orderDate, setOrderDate] = useState("");
+
+  // Suggested items
+  const suggestedItems = [
+    "Pasir Silika",
+    "Batu Split",
+    "Semen",
+    "Gravel",
+    "Sand",
+  ];
+
+  // Unit options
+  const unitOptions = [
+    {
+      value: "kilogram",
+      label: "Kilogram (kg)",
+      shortLabel: "kg",
+      step: 1,
+      explanation: "Weight-based per kg",
+    },
+    {
+      value: "ton",
+      label: "Ton",
+      shortLabel: "ton",
+      step: 0.01,
+      explanation: "Weight-based per ton",
+    },
+    {
+      value: "kubik",
+      label: "Kubik (m³)",
+      shortLabel: "m³",
+      step: 0.01,
+      explanation: "Volume-based per m³",
+    },
+  ];
+
+  // Fetch PO data
   useEffect(() => {
     const fetchPO = async () => {
       try {
         setIsPageLoading(true);
         setError(null);
         const response = await apiClient.get(`/purchase-orders/${id}`);
-
-        // Handle both direct data and nested data response
         const data = response.data?.data || response.data;
 
         if (!data) {
           throw new Error("No purchase order data received");
         }
 
-        // 🎯 NEW: Ensure unit field exists with fallback
         if (!data.unit) {
-          console.warn('PO data missing unit field, defaulting to "ton"');
+          console.warn('PO missing unit, defaulting to "ton"');
           data.unit = "ton";
         }
 
         setPOData(data);
+
+        // Pre-fill form
+        setCustomerName(data.customer_name || "");
+        setItems(
+          data.item_name
+            ? data.item_name.split(", ").map((i: string) => i.trim())
+            : []
+        );
+        setTotalQuantity(data.total_quantity || 0);
+        setUnit(data.unit);
+        setLoadLocation(data.load_location || "");
+        setUnloadLocation(data.unload_location || "");
+        setNotes(data.notes || "");
+        setOrderDate(new Date(data.order_date).toISOString().split("T")[0]);
       } catch (err: any) {
-        console.error("Error fetching PO:", err);
         const errorMessage =
           err.response?.data?.message ||
           err.message ||
-          "Failed to load purchase order data.";
+          "Failed to load PO data.";
         setError(errorMessage);
       } finally {
         setIsPageLoading(false);
@@ -77,177 +130,204 @@ const PurchaseOrderEditPage = () => {
     }
   }, [id]);
 
-  const handleUpdatePO = async (data: any) => {
+  // Smart item handling
+  const handleItemsKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "," || e.key === "Enter") {
+      e.preventDefault();
+      const newItem = itemsInput.trim();
+      if (newItem && !items.includes(newItem)) {
+        setItems([...items, newItem]);
+        setItemsInput("");
+      }
+    }
+  };
+
+  const handleAddSuggestedItem = (suggested: string) => {
+    if (!items.includes(suggested)) {
+      setItems([...items, suggested]);
+    }
+  };
+
+  const handleRemoveItem = (index: number) => {
+    setItems(items.filter((_, i) => i !== index));
+  };
+
+  // Handle input change
+  const handleChange = (name: string, value: string | number) => {
+    if (name === "totalQuantity") {
+      const num = parseFloat(value as string);
+      setTotalQuantity(isNaN(num) || num < 0 ? 0 : num);
+    } else if (name === "orderDate") {
+      setOrderDate(value as string);
+    } else if (name === "unit") {
+      const newUnit = value as string;
+      if (
+        poData?.unit !== newUnit &&
+        window.confirm("Changing unit may affect existing DOs. Proceed?")
+      ) {
+        setUnit(newUnit);
+      }
+    }
+
+    if (validationErrors[name]) {
+      setValidationErrors((prev) => {
+        const newErrors = { ...prev };
+        delete newErrors[name];
+        return newErrors;
+      });
+    }
+  };
+
+  // Validation
+  const validateForm = (): ValidationErrors => {
+    const errors: ValidationErrors = {};
+
+    if (!customerName.trim()) errors.customerName = "Customer name is required";
+    if (items.length === 0) errors.items = "Add at least one item";
+    if (totalQuantity <= 0)
+      errors.totalQuantity = "Total quantity must be greater than 0";
+    if (!unitOptions.some((opt) => opt.value === unit))
+      errors.unit = "Select a valid unit";
+    if (!orderDate) errors.orderDate = "Order date is required";
+
+    return errors;
+  };
+
+  const handleUpdatePO = async () => {
+    const errors = validateForm();
+    if (Object.keys(errors).length > 0) {
+      setValidationErrors(errors);
+      toast.error("Please fix the form errors");
+      return;
+    }
+
+    // Safe check for poData existence
+    if (!poData) {
+      toast.error("PO data not loaded—reload and try again.");
+      return;
+    }
+
+    // FLEX: Use ?? for safe default if total_quantity undefined (TS happy)
+    if (
+      totalQuantity < (poData.total_quantity ?? 0) &&
+      !window.confirm("Reducing quantity—proceed?")
+    ) {
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
     try {
-      // 🎯 UPDATED: Validate required fields including unit
-      if (
-        !data.customer_name ||
-        !data.item_name ||
-        !data.total_quantity ||
-        !data.unit
-      ) {
-        throw new Error("Please fill in all required fields including unit");
-      }
-
-      // Prepare payload with proper data types
       const payload = {
-        customer_name: data.customer_name.trim(),
-        item_name: data.item_name.trim(),
-        total_quantity: parseFloat(data.total_quantity),
-        unit: data.unit, // 🎯 NEW: Include unit field
-        unit_price: data.unit_price ? parseFloat(data.unit_price) : null,
-        load_location: data.load_location?.trim() || null,
-        unload_location: data.unload_location?.trim() || null,
-        notes: data.notes?.trim() || null,
+        customer_name: customerName.trim(),
+        item_name: items.join(", ").trim(),
+        total_quantity: totalQuantity,
+        unit,
+        load_location: loadLocation.trim() || null,
+        unload_location: unloadLocation.trim() || null,
+        notes: notes.trim() || null,
+        order_date: orderDate,
       };
-
-      // Validate numeric fields
-      if (isNaN(payload.total_quantity) || payload.total_quantity <= 0) {
-        throw new Error("Total quantity must be a valid positive number");
-      }
-
-      // 🎯 NEW: Validate unit field
-      if (!["kilogram", "ton", "kubik"].includes(payload.unit)) {
-        throw new Error("Unit must be one of: kilogram, ton, or kubik");
-      }
-
-      if (
-        payload.unit_price !== null &&
-        (isNaN(payload.unit_price) || payload.unit_price < 0)
-      ) {
-        throw new Error("Unit price must be a valid non-negative number");
-      }
-
-      // 🎯 NEW: Warn about unit changes that might affect existing DOs
-      if (poData && poData.unit !== payload.unit) {
-        console.warn(
-          `⚠️ Unit changed from ${poData.unit} to ${payload.unit}. This may affect existing delivery orders.`
-        );
-      }
-
-      console.log("Updating PO with payload:", payload);
 
       const response = await apiClient.put(`/purchase-orders/${id}`, payload);
 
-      console.log("Update response:", response.data);
-
-      // Navigate back to PO detail page
-      navigate(`/trips/po/${id}`);
+      if (response.data?.success) {
+        toast.success("PO updated successfully!");
+        navigate(`/trips/po/${id}`);
+      }
     } catch (err: any) {
-      console.error("Error updating PO:", err);
-
-      let errorMessage = "An unknown error occurred.";
-
-      if (err.response?.data) {
-        // Handle different error response formats
-        if (err.response.data.message) {
-          errorMessage = err.response.data.message;
-        } else if (err.response.data.errors) {
-          errorMessage = Array.isArray(err.response.data.errors)
-            ? err.response.data.errors.join(". ")
-            : err.response.data.errors;
-        } else if (err.response.data.details) {
-          errorMessage = err.response.data.details;
-        }
-      } else if (err.message) {
-        errorMessage = err.message;
-      }
-
-      // 🎯 ENHANCED: Better error messages for unit-related issues
-      if (errorMessage.includes("unit")) {
-        errorMessage = `Unit Error: ${errorMessage}. Please ensure you select a valid unit (kilogram, ton, or kubik).`;
-      }
-
+      const errorMessage = err.response?.data?.message || "Failed to update PO";
       setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Loading state
   if (isPageLoading) {
     return (
-      <div className="flex justify-center items-center min-h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading purchase order data...</p>
-        </div>
+      <div className="flex justify-center items-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
       </div>
     );
   }
 
-  // Error state
   if (error && !poData) {
     return (
-      <div className="max-w-2xl mx-auto">
-        <div className="bg-red-100 border border-red-400 text-red-700 p-4 rounded mb-4">
-          <h3 className="font-semibold mb-2">Error Loading Purchase Order</h3>
-          <p>{error}</p>
-        </div>
-        <div className="flex space-x-4">
+      <div className="container mx-auto px-4 py-8">
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+          <p>Error: {error}</p>
           <button
             onClick={() => navigate("/trips")}
-            className="bg-gray-500 hover:bg-gray-700 text-white px-4 py-2 rounded"
+            className="mt-2 bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
           >
-            ← Back to Purchase Orders
-          </button>
-          <button
-            onClick={() => window.location.reload()}
-            className="bg-blue-500 hover:bg-blue-700 text-white px-4 py-2 rounded"
-          >
-            🔄 Retry
+            Back to Purchase Orders
           </button>
         </div>
       </div>
     );
   }
 
-  // Not found state
   if (!poData) {
     return (
-      <div className="max-w-2xl mx-auto text-center">
-        <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 p-4 rounded mb-4">
-          <h3 className="font-semibold mb-2">Purchase Order Not Found</h3>
-          <p>The purchase order with ID {id} could not be found.</p>
+      <div className="container mx-auto px-4 py-8 text-center">
+        <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded">
+          <p>Purchase Order not found.</p>
+          <button
+            onClick={() => navigate("/trips")}
+            className="mt-2 bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600"
+          >
+            Back to Purchase Orders
+          </button>
         </div>
-        <button
-          onClick={() => navigate("/trips")}
-          className="bg-gray-500 hover:bg-gray-700 text-white px-4 py-2 rounded"
-        >
-          ← Back to Purchase Orders
-        </button>
       </div>
     );
   }
 
+  // Unit display helper from your code
+  const getUnitDisplay = (unitVal: string) => {
+    const unitMap = {
+      kilogram: "kg",
+      ton: "ton",
+      kubik: "m³",
+    };
+    return unitMap[unitVal as keyof typeof unitMap] || unitVal;
+  };
+
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-800">
+    <div className="container mx-auto px-4 py-6 max-w-5xl">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-8">
+        <button
+          onClick={() => navigate(`/trips/po/${id}`)}
+          className="flex items-center gap-2 text-gray-600 hover:text-gray-800 transition-colors group"
+        >
+          <svg
+            className="w-5 h-5 group-hover:-translate-x-1 transition-transform"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M15 19l-7-7 7-7"
+            />
+          </svg>
+          <span className="font-medium">Back to Details</span>
+        </button>
+        <h1 className="text-3xl font-bold text-gray-900">
           Edit Purchase Order
         </h1>
-        <div className="space-x-2">
-          <button
-            onClick={() => navigate(`/trips/po/${id}`)}
-            className="bg-gray-500 hover:bg-gray-700 text-white px-4 py-2 rounded"
-          >
-            ← Back to Details
-          </button>
-          <button
-            onClick={() => navigate("/trips")}
-            className="bg-gray-600 hover:bg-gray-800 text-white px-4 py-2 rounded"
-          >
-            📋 All Purchase Orders
-          </button>
-        </div>
       </div>
 
-      {/* 🎯 ENHANCED: Current PO Info with Unit Display */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-        <h2 className="text-lg font-semibold mb-2">Current Purchase Order</h2>
+      {/* Current PO Info Card */}
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-6 mb-8 shadow-sm transition-all duration-300 hover:shadow-md">
+        <h2 className="text-lg font-semibold text-gray-800 mb-4">
+          Current Purchase Order
+        </h2>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
           <div>
             <span className="text-gray-600">PO Number:</span>
@@ -270,9 +350,7 @@ const PurchaseOrderEditPage = () => {
             </span>
           </div>
         </div>
-
-        {/* 🎯 NEW: Quantity and Unit Display */}
-        <div className="mt-3 pt-3 border-t border-blue-200">
+        <div className="mt-4 pt-4 border-t border-blue-200">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
             <div>
               <span className="text-gray-600">Quantity:</span>
@@ -280,74 +358,379 @@ const PurchaseOrderEditPage = () => {
                 {poData.total_quantity} {getUnitDisplay(poData.unit)}
               </span>
             </div>
-            <div>
-              <span className="text-gray-600">Unit Price:</span>
-              <span className="font-medium ml-2">
-                {poData.unit_price
-                  ? `Rp ${poData.unit_price.toLocaleString(
-                      "id-ID"
-                    )}/${getUnitDisplay(poData.unit)}`
-                  : "Not set"}
-              </span>
+            <div className="col-span-2 bg-yellow-50 border border-yellow-200 rounded p-2 text-yellow-800 text-xs">
+              ⚠️ Changing unit may affect existing DOs. Proceed with caution.
             </div>
-            <div>
-              <span className="text-gray-600">Total Amount:</span>
-              <span className="font-semibold text-green-600 ml-2">
-                {poData.total_amount
-                  ? `Rp ${poData.total_amount.toLocaleString("id-ID")}`
-                  : "Not calculated"}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* 🎯 NEW: Unit Change Warning */}
-        <div className="mt-3 pt-3 border-t border-blue-200">
-          <div className="bg-yellow-50 border border-yellow-200 rounded p-2">
-            <p className="text-xs text-yellow-800">
-              <strong>⚠️ Note:</strong> Changing the unit may affect
-              calculations. Existing delivery orders will retain their original
-              unit until manually updated.
-            </p>
           </div>
         </div>
       </div>
 
       {/* Error Display */}
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 p-4 rounded mb-6">
-          <h3 className="font-semibold mb-2">Update Error</h3>
+        <div className="mb-6 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg animate-fadeIn">
           <p>{error}</p>
-          {/* 🎯 NEW: Helper text for unit-related errors */}
-          {error.includes("unit") && (
-            <div className="mt-2 text-sm">
-              <p className="font-medium">Valid units are:</p>
-              <ul className="list-disc list-inside ml-2">
-                <li>
-                  <strong>kilogram</strong> - For weight-based pricing per kg
-                </li>
-                <li>
-                  <strong>ton</strong> - For weight-based pricing per kg
-                  (converted to tons)
-                </li>
-                <li>
-                  <strong>kubik</strong> - For volume-based pricing per m³
-                </li>
-              </ul>
-            </div>
-          )}
         </div>
       )}
 
-      {/* Form */}
-      <div className="bg-white shadow-md rounded-lg p-6">
-        <PurchaseOrderForm
-          initialData={poData}
-          onSubmit={handleUpdatePO}
-          isLoading={isLoading}
-          buttonText="Update Purchase Order"
-          isEditMode={true}
-        />
+      {/* Edit Form */}
+      <div className="bg-white shadow-xl rounded-xl border border-gray-100 overflow-hidden">
+        <div className="p-8">
+          {/* Basic Information */}
+          <div className="mb-8">
+            <h3 className="text-xl font-semibold text-gray-800 mb-6">
+              PO Details
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="relative group">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Order Date <span className="text-red-500">*</span>
+                  <span
+                    className="ml-1 text-gray-400 cursor-help"
+                    title="Edit if needed."
+                  >
+                    ℹ️
+                  </span>
+                </label>
+                <input
+                  type="date"
+                  value={orderDate}
+                  onChange={(e) => handleChange("orderDate", e.target.value)}
+                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200 ${
+                    validationErrors.orderDate
+                      ? "border-red-300 bg-red-50 animate-shake"
+                      : "border-gray-300"
+                  }`}
+                  required
+                />
+                {validationErrors.orderDate && (
+                  <p className="text-red-500 text-xs mt-1">
+                    {validationErrors.orderDate}
+                  </p>
+                )}
+              </div>
+
+              <div className="relative group">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Customer Name <span className="text-red-500">*</span>
+                  <span
+                    className="ml-1 text-gray-400 cursor-help"
+                    title="Edit full customer name."
+                  >
+                    ℹ️
+                  </span>
+                </label>
+                <input
+                  type="text"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200 ${
+                    validationErrors.customerName
+                      ? "border-red-300 bg-red-50 animate-shake"
+                      : "border-gray-300"
+                  }`}
+                  placeholder="PT Example Corp"
+                  required
+                />
+                {validationErrors.customerName && (
+                  <p className="text-red-500 text-xs mt-1">
+                    {validationErrors.customerName}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Items & Quantity */}
+          <div className="mb-8">
+            <h3 className="text-xl font-semibold text-gray-800 mb-6">
+              Items & Quantity
+            </h3>
+            <div className="bg-gray-50 rounded-xl p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div className="relative group col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Items (Edit/Add, press comma/Enter){" "}
+                    <span className="text-red-500">*</span>
+                    <span
+                      className="ml-1 text-gray-400 cursor-help"
+                      title="Edit multiple items, stored as comma-separated."
+                    >
+                      ℹ️
+                    </span>
+                  </label>
+                  <input
+                    type="text"
+                    value={itemsInput}
+                    onChange={(e) => setItemsInput(e.target.value)}
+                    onKeyDown={handleItemsKeyDown}
+                    className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200 ${
+                      validationErrors.items
+                        ? "border-red-300 bg-red-50 animate-shake"
+                        : "border-gray-300"
+                    }`}
+                    placeholder="Pasir Silika, Batu Split"
+                  />
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {items.map((item, index) => (
+                      <span
+                        key={index}
+                        className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm flex items-center"
+                      >
+                        {item}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveItem(index)}
+                          className="ml-2 text-red-600 hover:text-red-800"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  {validationErrors.items && (
+                    <p className="text-red-500 text-xs mt-1">
+                      {validationErrors.items}
+                    </p>
+                  )}
+                  <div className="mt-2">
+                    <p className="text-sm text-gray-600">Suggestions:</p>
+                    <div className="flex flex-wrap gap-2 mt-1">
+                      {suggestedItems.map((sug) => (
+                        <button
+                          key={sug}
+                          type="button"
+                          onClick={() => handleAddSuggestedItem(sug)}
+                          className="text-xs bg-gray-200 px-2 py-1 rounded hover:bg-gray-300 transition"
+                        >
+                          + {sug}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="relative group">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Total Quantity <span className="text-red-500">*</span>
+                    <span
+                      className="ml-1 text-gray-400 cursor-help"
+                      title="Positive number, decimals OK."
+                    >
+                      ℹ️
+                    </span>
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step={
+                      unitOptions.find((opt) => opt.value === unit)?.step ||
+                      0.01
+                    }
+                    value={totalQuantity}
+                    onChange={(e) =>
+                      handleChange("totalQuantity", e.target.value)
+                    }
+                    className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200 ${
+                      validationErrors.totalQuantity
+                        ? "border-red-300 bg-red-50 animate-shake"
+                        : "border-gray-300"
+                    }`}
+                    placeholder="2500.00"
+                    required
+                  />
+                  {validationErrors.totalQuantity && (
+                    <p className="text-red-500 text-xs mt-1">
+                      {validationErrors.totalQuantity}
+                    </p>
+                  )}
+                </div>
+
+                <div className="relative group">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Unit <span className="text-red-500">*</span>
+                    <span
+                      className="ml-1 text-gray-400 cursor-help"
+                      title="Changing may affect DOs—confirm."
+                    >
+                      ℹ️
+                    </span>
+                  </label>
+                  <select
+                    value={unit}
+                    onChange={(e) => handleChange("unit", e.target.value)}
+                    className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200 ${
+                      validationErrors.unit
+                        ? "border-red-300 bg-red-50 animate-shake"
+                        : "border-gray-300"
+                    }`}
+                  >
+                    {unitOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {unitOptions.find((opt) => opt.value === unit)?.explanation}
+                  </p>
+                  {validationErrors.unit && (
+                    <p className="text-red-500 text-xs mt-1">
+                      {validationErrors.unit}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Locations & Notes */}
+          <div className="mb-8">
+            <h3 className="text-xl font-semibold text-gray-800 mb-6">
+              Locations & Notes (Optional)
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Edit if needed; can specify in DOs later.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Load Location
+                  <span
+                    className="ml-1 text-gray-400 cursor-help"
+                    title="Optional pickup site."
+                  >
+                    ℹ️
+                  </span>
+                </label>
+                <textarea
+                  value={loadLocation}
+                  onChange={(e) => setLoadLocation(e.target.value)}
+                  rows={3}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200 resize-none"
+                  placeholder="Quarry Serang, Banten"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Unload Location
+                  <span
+                    className="ml-1 text-gray-400 cursor-help"
+                    title="Optional delivery site."
+                  >
+                    ℹ️
+                  </span>
+                </label>
+                <textarea
+                  value={unloadLocation}
+                  onChange={(e) => setUnloadLocation(e.target.value)}
+                  rows={3}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200 resize-none"
+                  placeholder="Proyek Jalan Tol Tangerang"
+                />
+              </div>
+
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Notes
+                  <span
+                    className="ml-1 text-gray-400 cursor-help"
+                    title="Any additional details."
+                  >
+                    ℹ️
+                  </span>
+                </label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={3}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200 resize-none"
+                  placeholder="Additional notes or requirements..."
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* PO Preview */}
+          <div className="mb-8">
+            <button
+              type="button"
+              onClick={() => setShowPreview(!showPreview)}
+              className="w-full flex justify-between items-center px-4 py-3 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors duration-200"
+            >
+              <h3 className="text-lg font-semibold text-gray-800">
+                PO Preview
+              </h3>
+              <svg
+                className={`w-5 h-5 transition-transform duration-200 ${
+                  showPreview ? "rotate-180" : ""
+                }`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19 9l-7 7-7-7"
+                />
+              </svg>
+            </button>
+            {showPreview && (
+              <div className="mt-4 p-6 bg-white border border-gray-200 rounded-lg shadow-inner animate-fadeIn transition-all duration-300">
+                <h4 className="text-md font-bold mb-2">{poData.po_number}</h4>
+                <p className="text-sm text-gray-600 mb-1">Date: {orderDate}</p>
+                <p className="text-sm text-gray-600 mb-1">
+                  Customer: {customerName || "N/A"}
+                </p>
+                <p className="text-sm text-gray-600 mb-1">
+                  Items: {items.join(", ") || "None"}
+                </p>
+                <p className="text-sm text-gray-600 mb-1">
+                  Quantity: {totalQuantity} {getUnitDisplay(unit)}
+                </p>
+                <p className="text-sm text-gray-600 mb-1">
+                  Load: {loadLocation || "N/A"}
+                </p>
+                <p className="text-sm text-gray-600 mb-1">
+                  Unload: {unloadLocation || "N/A"}
+                </p>
+                <p className="text-sm text-gray-600 mt-2">
+                  Notes: {notes || "None"}
+                </p>
+                <p className="text-xs text-gray-400 mt-4 italic">
+                  Preview of changes—submit to update.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="bg-gray-50 px-8 py-6 rounded-b-xl flex justify-end gap-4">
+          <button
+            type="button"
+            onClick={() => navigate(`/trips/po/${id}`)}
+            className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleUpdatePO}
+            disabled={isLoading}
+            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
+          >
+            {isLoading ? (
+              <div className="flex items-center justify-center gap-2">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Updating...
+              </div>
+            ) : (
+              "Update PO"
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

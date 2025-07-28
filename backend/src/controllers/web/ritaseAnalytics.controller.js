@@ -9,6 +9,7 @@ const {
   DeliveryOrderPayments,
   DeliveryOrderInvoices,
   DeliveryOrderAdjustments,
+  sequelize,
 } = require("../../models");
 const ExcelJS = require("exceljs");
 
@@ -1044,14 +1045,13 @@ exports.exportComprehensiveExcel = async (req, res, next) => {
 };
 
 /**
- * 🎯 PO-SPECIFIC COMPREHENSIVE DATA with Unit Support
+ * 🎯 PO-SPECIFIC COMPREHENSIVE DATA
  * GET /ritase/purchase-orders/:po_id/comprehensive
  */
 exports.getPOComprehensiveData = async (req, res, next) => {
   try {
     const { po_id } = req.params;
 
-    // 🎯 ENHANCED: Get PO with unit field included
     const poData = await PurchaseOrder.findByPk(po_id, {
       include: [
         {

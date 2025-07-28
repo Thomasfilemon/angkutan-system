@@ -84,16 +84,6 @@ const InvoiceList: React.FC = () => {
     );
   };
 
-  const handleStatusUpdate = async (invoiceId: number, newStatus: string) => {
-    try {
-      await paymentsApi.updateInvoiceStatus(invoiceId, { status: newStatus });
-      handleInvoiceUpdate(invoiceId, { status: newStatus });
-    } catch (err: any) {
-      console.error("Error updating status:", err);
-      alert(err.response?.data?.message || "Failed to update status");
-    }
-  };
-
   const handleExport = async (format: "excel" | "csv") => {
     try {
       const response = await paymentsApi.exportInvoices({ format, ...filters });
@@ -393,27 +383,19 @@ const InvoiceList: React.FC = () => {
 
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex items-center justify-end space-x-2">
-                      {invoice.status !== "paid" &&
-                        invoice.status !== "cancelled" && (
-                          <select
-                            value={invoice.status}
-                            onChange={(e) =>
-                              handleStatusUpdate(invoice.id, e.target.value)
-                            }
-                            className="text-xs border border-gray-300 rounded px-2 py-1"
-                          >
-                            <option value="issued">Issued</option>
-                            <option value="sent">Sent</option>
-                            <option value="paid">Paid</option>
-                            <option value="cancelled">Cancelled</option>
-                          </select>
-                        )}
-
                       <Link
                         to={`/delivery-orders/${invoice.delivery_order?.id}`}
                         className="text-indigo-600 hover:text-indigo-900 text-xs"
                       >
                         View DO
+                      </Link>
+                    </div>
+                    <div className="flex items-center justify-end space-x-2">
+                      <Link
+                        to={`/ritase/delivery-orders/${invoice.delivery_order?.id}/invoices/${invoice.id}`}
+                        className="text-indigo-600 hover:text-indigo-900 text-xs"
+                      >
+                        Invoice Detail
                       </Link>
                     </div>
                   </td>

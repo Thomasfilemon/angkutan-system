@@ -38,7 +38,7 @@ CREATE TABLE driver_profiles (
 -- BAGIAN 2: MANAJEMEN ASET & INVENTARIS
 -- =================================================================
 CREATE TYPE vehicle_status AS ENUM ('available', 'in_use', 'maintenance');
--- UPDATED VEHICLES TABLE WITH TIRE CONFIGURATION
+
 CREATE TABLE vehicles (
   id SERIAL PRIMARY KEY,
   license_plate VARCHAR(20) UNIQUE NOT NULL,
@@ -84,12 +84,11 @@ CREATE TABLE tire_instances (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- MODIFIED: vehicle_tires now requires a tire_instance_id
 CREATE TABLE vehicle_tires (
   id SERIAL PRIMARY KEY,
   vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE CASCADE,
   tire_inventory_id INTEGER REFERENCES tire_inventory(id), -- For backward compatibility & easy lookup
-  tire_instance_id INTEGER NOT NULL REFERENCES tire_instances(id), -- MODIFIED: Enforce instance tracking
+  tire_instance_id INTEGER NOT NULL REFERENCES tire_instances(id), -- Enforce instance tracking
   position VARCHAR(20) NOT NULL,
   install_date DATE NOT NULL DEFAULT CURRENT_DATE,
   remove_date DATE,
@@ -109,7 +108,7 @@ CREATE TABLE vehicle_tires (
 CREATE TABLE tire_inspections (
   id SERIAL PRIMARY KEY,
   vehicle_tire_id INTEGER REFERENCES vehicle_tires(id) ON DELETE CASCADE,
-  tire_instance_id INTEGER REFERENCES tire_instances(id), -- NEW: Direct reference to tire instance
+  tire_instance_id INTEGER REFERENCES tire_instances(id), -- Direct reference to tire instance
   inspection_date DATE NOT NULL DEFAULT CURRENT_DATE,
   tread_depth NUMERIC(4,2),
   air_pressure NUMERIC(5,2),
@@ -120,7 +119,6 @@ CREATE TABLE tire_inspections (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-
 CREATE TABLE stock_categories (
     id SERIAL PRIMARY KEY,
     category_name VARCHAR(100) NOT NULL,
@@ -128,7 +126,6 @@ CREATE TABLE stock_categories (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- CORRECTED: Removed current_stock column, will be calculated from batches
 CREATE TABLE stock_items (
     id SERIAL PRIMARY KEY,
     category_id INTEGER REFERENCES stock_categories(id),
@@ -144,7 +141,6 @@ CREATE TABLE stock_items (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- New table for FIFO batches
 CREATE TABLE stock_batches (
     id SERIAL PRIMARY KEY,
     item_id INTEGER REFERENCES stock_items(id) ON DELETE CASCADE,
@@ -160,8 +156,6 @@ CREATE TABLE stock_batches (
     UNIQUE(item_id, batch_number)
 );
 
-
--- Modified stock_transactions table with batch tracking
 CREATE TABLE stock_transactions (
     id SERIAL PRIMARY KEY,
     item_id INTEGER REFERENCES stock_items(id) ON DELETE CASCADE,
@@ -178,7 +172,6 @@ CREATE TABLE stock_transactions (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- VEHICLE SERVICES TABLE
 CREATE TABLE vehicle_services (
   id SERIAL PRIMARY KEY,
   vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE CASCADE,
@@ -213,7 +206,8 @@ CREATE TABLE service_items (
 
 -- BAGIAN 3: OPERASIONAL INTI (PO & DO)
 -- =================================================================
--- DEPOSIT GROUP TABLES
+
+-- Enhanced deposit groups system (from current)
 CREATE TABLE deposit_groups (
     id SERIAL PRIMARY KEY,
     group_name VARCHAR(255) NOT NULL,
@@ -227,22 +221,20 @@ CREATE TABLE deposit_groups (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-
 CREATE TABLE purchase_orders (
   id SERIAL PRIMARY KEY,
   po_number VARCHAR(50) UNIQUE NOT NULL,
   customer_name VARCHAR(100) NOT NULL,
-  item_name VARCHAR(255) NOT NULL,
+  item_name VARCHAR(255) NOT NULL,  -- Multiple items dipisah koma, e.g., "Pasir Silika, Batu Split"
   total_quantity NUMERIC(10, 2) NOT NULL,
-  quantity_mutasi NUMERIC(10, 2)[] DEFAULT ARRAY[]::NUMERIC(10,2)[],
-  unit VARCHAR(10) DEFAULT 'ton' 
-    CHECK (unit IN ('kilogram', 'ton', 'kubik')),
-  unit_price NUMERIC(15, 2),
-  total_amount NUMERIC(15, 2),
+  quantity_mutasi NUMERIC(10, 2)[] DEFAULT ARRAY[]::NUMERIC(10,2)[], -- Enhanced mutation tracking (from current)
+  unit VARCHAR(10) DEFAULT 'ton' CHECK (unit IN ('kilogram', 'ton', 'kubik')),
+  unit_price NUMERIC(15, 2), -- Unit price support
+  total_amount NUMERIC(15, 2) DEFAULT 0,  -- Dinamis: sum dari DO
   load_location TEXT,
   unload_location TEXT,
   order_date DATE NOT NULL DEFAULT CURRENT_DATE,
-  deposit_group_id INTEGER REFERENCES deposit_groups(id),
+  deposit_group_id INTEGER REFERENCES deposit_groups(id), -- Deposit group integration
   status VARCHAR(20) DEFAULT 'confirmed' CHECK (status IN ('confirmed', 'partial', 'completed', 'cancelled')),
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -280,7 +272,6 @@ CREATE TYPE unit_type AS ENUM (
     'kubik'
 );
 
-
 CREATE TABLE delivery_orders (
   id SERIAL PRIMARY KEY,
   purchase_order_id INTEGER REFERENCES purchase_orders(id) ON DELETE SET NULL,
@@ -294,15 +285,14 @@ CREATE TABLE delivery_orders (
   minimal_load_quantity NUMERIC(10, 2) DEFAULT 0,
   actual_load_quantity NUMERIC(10, 2),
 
-  unit VARCHAR(10) DEFAULT 'ton' 
-    CHECK (unit IN ('kilogram', 'ton', 'kubik')),
+  unit VARCHAR(10) DEFAULT 'ton' CHECK (unit IN ('kilogram', 'ton', 'kubik')),
   unit_price NUMERIC,
   total_amount NUMERIC NOT NULL,
   trip_allowance NUMERIC(15, 2) NOT NULL DEFAULT 0,
   gaji NUMERIC(15, 2) NOT NULL DEFAULT 0,
   ongkosan NUMERIC(15, 2) DEFAULT 0,
   final_amount NUMERIC(15,2),
-  is_amount_finalized BOOLEAN NOT NULL DEFAULT FALSE,
+  is_amount_finalized BOOLEAN NOT NULL DEFAULT FALSE, -- Enhanced amount finalization (from current)
   
   load_location TEXT,
   load_latitude DECIMAL(10, 8),
@@ -313,18 +303,15 @@ CREATE TABLE delivery_orders (
   
   surat_jalan_photo_url TEXT[],
 
-  payment_status VARCHAR(30) NOT NULL DEFAULT 'proses_tagihan' 
-    CHECK(payment_status IN ('awaiting_confirmation','lunas','deposit','proses_tagihan')),
+  payment_status VARCHAR(30) NOT NULL DEFAULT 'proses_tagihan' CHECK(payment_status IN ('awaiting_confirmation','lunas','deposit','proses_tagihan')),
   payment_type VARCHAR(20) CHECK(payment_type IN ('cash','transfer','deposit')),
   deposit_amount NUMERIC DEFAULT 0,
   invoice_amount NUMERIC,
   due_date DATE,
   payment_notes TEXT,
   
-
   status delivery_status NOT NULL DEFAULT 'assigned',
-  payment_confirmation_status VARCHAR(30) DEFAULT 'pending' 
-    CHECK(payment_confirmation_status IN ('pending', 'awaiting_confirmation', 'confirmed')),
+  payment_confirmation_status VARCHAR(30) DEFAULT 'pending' CHECK(payment_confirmation_status IN ('pending', 'awaiting_confirmation', 'confirmed')),
   
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   departed_to_load_location_at TIMESTAMP WITH TIME ZONE,
@@ -359,7 +346,6 @@ CREATE TABLE big_delivery_orders (
   cancellation_reason TEXT
 );
 
--- Tambahan deliveries (hitchhiker deliveries)
 CREATE TABLE big_do_tambahan (
   id SERIAL PRIMARY KEY,
   
@@ -373,7 +359,7 @@ CREATE TABLE big_do_tambahan (
   customer_address TEXT,
   item_name VARCHAR(255) NOT NULL,
   
-  -- Quantity & Pricing (✅ Using ENUM for unit)
+  -- Quantity & Pricing
   quantity DECIMAL(10,2) NOT NULL CHECK (quantity > 0),
   unit unit_type NOT NULL DEFAULT 'ton',
   unit_price DECIMAL(15,2) NOT NULL CHECK (unit_price >= 0),
@@ -387,7 +373,7 @@ CREATE TABLE big_do_tambahan (
   delivery_latitude DECIMAL(10,8) CHECK (delivery_latitude BETWEEN -90 AND 90),
   delivery_longitude DECIMAL(11,8) CHECK (delivery_longitude BETWEEN -180 AND 180),
   
-  -- Status & Documents (✅ Using ENUM)
+  -- Status & Documents
   status tambahan_status NOT NULL DEFAULT 'assigned',
   pickup_photo_url VARCHAR(500),
   delivery_photo_url VARCHAR(500),
@@ -400,11 +386,10 @@ CREATE TABLE big_do_tambahan (
   -- Notes
   notes TEXT,
   
-  -- ✅ Unique constraint for tambahan_number within Big DO
+  -- Unique constraint for tambahan_number within Big DO
   CONSTRAINT unique_tambahan_number_per_big_do UNIQUE (big_delivery_order_id, tambahan_number)
 );
 
--- Big DO status history
 CREATE TABLE big_do_status_history (
   id SERIAL PRIMARY KEY,
   big_delivery_order_id INTEGER NOT NULL,
@@ -418,7 +403,6 @@ CREATE TABLE big_do_status_history (
   FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
--- Tambahan status history
 CREATE TABLE big_do_tambahan_status_history (
   id SERIAL PRIMARY KEY,
   big_do_tambahan_id INTEGER NOT NULL,
@@ -435,7 +419,7 @@ CREATE TABLE big_do_tambahan_status_history (
 CREATE TABLE deposit_group_members (
   id SERIAL PRIMARY KEY,
   group_id INTEGER NOT NULL REFERENCES deposit_groups(id) ON DELETE CASCADE,
-  quantity NUMERIC(15,2) NOT NULL DEFAULT 0,
+  quantity NUMERIC(15,2) NOT NULL DEFAULT 0, -- Enhanced quantity tracking (from current)
   delivery_order_id INTEGER NOT NULL REFERENCES delivery_orders(id) ON DELETE CASCADE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   UNIQUE (group_id, delivery_order_id) -- Prevent duplicate DO in same group
@@ -455,7 +439,6 @@ CREATE TABLE driver_expenses (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Invoice management untuk tracking multiple invoices per DO
 CREATE TABLE delivery_order_invoices (
   id SERIAL PRIMARY KEY,
   delivery_order_id INTEGER NOT NULL REFERENCES delivery_orders(id) ON DELETE CASCADE,
@@ -500,7 +483,6 @@ CREATE TABLE delivery_order_payments (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-
 CREATE TABLE cash_categories (
   id SERIAL PRIMARY KEY,
   category_name VARCHAR(100) NOT NULL,
@@ -516,10 +498,10 @@ CREATE TABLE cash_transactions (
   amount NUMERIC(15,2) NOT NULL,
   description TEXT NOT NULL,
   reference_number VARCHAR(50),
-  account VARCHAR(20) NOT NULL,
+  account VARCHAR(20) NOT NULL, -- Enhanced flexibility: removed CHECK constraint (from current)
   transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
-  attachment_urls TEXT[], -- <<< NEW COLUMN to store the photo path
-  no_nota TEXT[], -- <<< NEW COLUMN to store the photo path
+  attachment_urls TEXT[], -- Photo attachments
+  no_nota TEXT[], -- Enhanced nota tracking (from current)
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -535,11 +517,10 @@ CREATE TABLE payment_terms (
   paid_at TIMESTAMP WITH TIME ZONE
 );
 
--- Price adjustments untuk kasus khusus (kecelakaan, UJ tambahan, etc.)
 CREATE TABLE delivery_order_adjustments (
   id SERIAL PRIMARY KEY,
   delivery_order_id INTEGER NOT NULL REFERENCES delivery_orders(id) ON DELETE CASCADE,
-  adjustment_type VARCHAR(30) NOT NULL CHECK(adjustment_type IN ('price_override', 'uj_tambahan', 'penalty', 'bonus', 'incident')),
+  adjustment_type VARCHAR(30) NOT NULL CHECK(adjustment_type IN ('price_override', 'uj_tambahan', 'penalty', 'bonus', 'incident', 'excess_quantity')),
   original_amount NUMERIC(15,2),
   adjustment_amount NUMERIC(15,2) NOT NULL,
   final_amount NUMERIC(15,2) NOT NULL,
@@ -549,7 +530,6 @@ CREATE TABLE delivery_order_adjustments (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Track payment status changes untuk audit
 CREATE TABLE delivery_order_payment_history (
   id SERIAL PRIMARY KEY,
   delivery_order_id INTEGER NOT NULL REFERENCES delivery_orders(id) ON DELETE CASCADE,
@@ -560,7 +540,6 @@ CREATE TABLE delivery_order_payment_history (
   changed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- System settings untuk configurable values
 CREATE TABLE system_settings (
   id SERIAL PRIMARY KEY,
   setting_key VARCHAR(100) NOT NULL UNIQUE,
@@ -578,7 +557,6 @@ INSERT INTO system_settings (setting_key, setting_value, data_type, description)
 ('payment_due_days', '30', 'number', 'Default payment due days from invoice date'),
 ('auto_confirm_completed_do', 'false', 'boolean', 'Auto confirm DO for payment when status becomes completed');
 
-
 -- BAGIAN 5: INDEKS UNTUK PERFORMA
 -- =================================================================
 
@@ -590,7 +568,6 @@ CREATE INDEX idx_stock_items_category ON stock_items(category_id);
 CREATE INDEX idx_stock_batches_item_id ON stock_batches(item_id);
 CREATE INDEX idx_stock_batches_purchase_date ON stock_batches(purchase_date);
 CREATE INDEX idx_stock_transactions_batch_id ON stock_transactions(batch_id);
--- ✅ Corrected indexes for FIFO batch system
 CREATE INDEX idx_stock_items_min_stock ON stock_items(min_stock);
 CREATE INDEX idx_stock_batches_quantity ON stock_batches(quantity);
 CREATE INDEX idx_stock_batches_item_quantity ON stock_batches(item_id, quantity);
@@ -626,35 +603,33 @@ CREATE INDEX idx_delivery_order_invoices_due_date ON delivery_order_invoices(due
 CREATE INDEX idx_delivery_order_payments_do_id ON delivery_order_payments(delivery_order_id);
 CREATE INDEX idx_delivery_order_payments_date ON delivery_order_payments(payment_date);
 CREATE INDEX idx_delivery_order_payments_type ON delivery_order_payments(payment_type);
--- Create indexes for performance
 CREATE INDEX idx_big_do_main_do ON big_delivery_orders(main_delivery_order_id);
 CREATE INDEX idx_big_do_driver ON big_delivery_orders(driver_id);
 CREATE INDEX idx_big_do_vehicle ON big_delivery_orders(vehicle_id);
 CREATE INDEX idx_big_do_status ON big_delivery_orders(status);
 CREATE INDEX idx_big_do_created_by ON big_delivery_orders(created_by);
-
 CREATE INDEX idx_tambahan_big_do ON big_do_tambahan(big_delivery_order_id);
 CREATE INDEX idx_tambahan_status ON big_do_tambahan(status);
 CREATE INDEX idx_tambahan_customer ON big_do_tambahan(customer_name);
-
 CREATE INDEX idx_big_do_history_big_do ON big_do_status_history(big_delivery_order_id);
 CREATE INDEX idx_big_do_history_date ON big_do_status_history(changed_at);
 CREATE INDEX idx_tambahan_history_tambahan ON big_do_tambahan_status_history(big_do_tambahan_id);
 CREATE INDEX idx_tambahan_history_date ON big_do_tambahan_status_history(changed_at);
-
 CREATE INDEX idx_do_payment_history_do_id ON delivery_order_payment_history(delivery_order_id);
 CREATE INDEX idx_do_payment_history_date ON delivery_order_payment_history(changed_at);
 CREATE INDEX idx_do_adjustments_do_id ON delivery_order_adjustments(delivery_order_id);
 CREATE INDEX idx_do_adjustments_type ON delivery_order_adjustments(adjustment_type);
+CREATE INDEX idx_purchase_orders_deposit_group ON purchase_orders(deposit_group_id); -- Enhanced indexing (from current)
 
-CREATE INDEX idx_purchase_orders_deposit_group ON purchase_orders(deposit_group_id);
+-- BAGIAN 6: TRIGGERS & FUNCTIONS
+-- =================================================================
 
--- Function untuk update payment status berdasarkan total payments terhadap net_amount di invoice DO
+-- Function untuk update payment status berdasarkan total payments
 CREATE OR REPLACE FUNCTION update_delivery_order_payment_status()
 RETURNS TRIGGER AS $$
 DECLARE
   total_paid NUMERIC(15,2);
-  billed_amount NUMERIC(15,2); -- Gross from DO
+  billed_amount NUMERIC(15,2);
   pph_amount_val NUMERIC(15,2);
   net_billed NUMERIC(15,2);
 BEGIN
@@ -686,7 +661,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Create trigger
 CREATE TRIGGER trigger_update_payment_status
   AFTER INSERT OR UPDATE ON delivery_order_payments
   FOR EACH ROW
@@ -713,13 +687,12 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Create trigger on delivery_orders
 CREATE TRIGGER trigger_auto_payment_confirmation
   BEFORE UPDATE ON delivery_orders
   FOR EACH ROW
   EXECUTE FUNCTION auto_set_payment_confirmation();
 
-
+-- Prevent confirmation change after payment
 CREATE OR REPLACE FUNCTION prevent_confirmation_change_after_payment()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -735,6 +708,7 @@ CREATE TRIGGER trg_prevent_confirmation_change
 BEFORE UPDATE ON delivery_orders
 FOR EACH ROW EXECUTE FUNCTION prevent_confirmation_change_after_payment();
 
+-- Auto-recalculate PPH for invoices
 CREATE OR REPLACE FUNCTION recalc_do_invoice_pph()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -755,3 +729,54 @@ BEFORE INSERT OR UPDATE ON delivery_order_invoices
 FOR EACH ROW
 EXECUTE FUNCTION recalc_do_invoice_pph();
 
+-- Auto-update PO total_amount and status based on DOs
+CREATE OR REPLACE FUNCTION update_po_total_amount()
+RETURNS TRIGGER AS $$
+DECLARE
+  fulfilled_qty NUMERIC := 0;  -- Sum of actual_load_quantity for completed DOs
+  pending_qty NUMERIC := 0;    -- Sum of minimal_load_quantity for pending DOs
+  total_amount_sum NUMERIC := 0;  -- Sum of (qty * price) for all non-cancelled DOs
+BEGIN
+  -- Sum quantities for status
+  SELECT 
+    COALESCE(SUM(CASE WHEN d.status = 'completed' THEN d.actual_load_quantity ELSE 0 END), 0),
+    COALESCE(SUM(CASE WHEN d.status != 'completed' AND d.status != 'cancelled' THEN d.minimal_load_quantity ELSE 0 END), 0)
+  INTO fulfilled_qty, pending_qty
+  FROM delivery_orders d 
+  WHERE d.purchase_order_id = NEW.purchase_order_id;
+
+  -- Sum monetary amounts separately for total_amount forecast
+  SELECT 
+    COALESCE(
+      SUM(CASE 
+        WHEN d.status = 'completed' THEN d.actual_load_quantity * d.unit_price 
+        ELSE d.minimal_load_quantity * d.unit_price 
+      END), 0
+    )
+  INTO total_amount_sum
+  FROM delivery_orders d 
+  WHERE d.purchase_order_id = NEW.purchase_order_id 
+    AND d.status != 'cancelled';
+
+  -- Update PO total_amount (monetary forecast)
+  UPDATE purchase_orders po
+  SET total_amount = total_amount_sum
+  WHERE po.id = NEW.purchase_order_id;
+
+  -- Update PO status based on quantities (with tiny tolerance for float rounding)
+  UPDATE purchase_orders po
+  SET status = 
+    CASE
+      WHEN fulfilled_qty + 0.01 >= po.total_quantity THEN 'completed'  -- Actual delivered meets/exceeds total
+      WHEN fulfilled_qty > 0 OR pending_qty > 0 THEN 'partial'         -- Some progress or pending
+      ELSE 'confirmed'                                                 -- Nothing started
+    END
+  WHERE po.id = NEW.purchase_order_id AND po.status != 'cancelled';
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_update_po_total_after_do
+AFTER INSERT OR UPDATE ON delivery_orders
+FOR EACH ROW EXECUTE FUNCTION update_po_total_amount();

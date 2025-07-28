@@ -1,6 +1,13 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
 import apiClient from "../api/axiosConfig";
+import debounce from "lodash/debounce";
+
+const calculateFulfillmentPercentage = (fulfilled: number, total: number) => {
+  return fulfilled && total
+    ? (fulfilled / parseFloat(total.toString())) * 100
+    : 0;
+};
 
 interface PurchaseOrder {
   id: number;
@@ -9,27 +16,33 @@ interface PurchaseOrder {
   item_name: string;
   total_quantity: number;
   unit: string;
-  unit_price?: number;
   total_amount?: number;
-  delivered_quantity: number;
-  remaining_quantity: number;
   created_at: string;
   status: "confirmed" | "partial" | "completed" | "cancelled";
   load_location: string;
   unload_location: string;
+  fulfilled_actual: number;
+  estimated_pending: number;
+  remaining_quantity: number;
+  fulfillment_status: string;
   delivery_progress: {
     total_deliveries: number;
     completed_deliveries: number;
     percentage: number;
   };
   can_create_do: boolean;
+  big_do_context?: { type: string; message: string; big_do?: any };
 }
 
 const TripsPage = () => {
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [searchTerm, setSearchTerm] = useState<string>(""); // New: Search state
+  const [page, setPage] = useState(1); // New: Pagination basics
+  const [hasMore, setHasMore] = useState(true); // For future infinite scroll
   const [stats, setStats] = useState({
     total: 0,
     active: 0,
@@ -55,57 +68,76 @@ const TripsPage = () => {
     return `Rp ${parseFloat(String(amount)).toLocaleString("id-ID")}`;
   };
 
-  const fetchPurchaseOrders = useCallback(async () => {
-    try {
-      setLoading(true);
-      const params = statusFilter !== "all" ? `?status=${statusFilter}` : "";
-      const response = await apiClient.get(`/purchase-orders${params}`);
+  const fetchPurchaseOrders = useCallback(
+    async (reset = false) => {
+      if (loading === false) setIsFetching(true); // Only activate isFetching if not first load to prevent flicker
 
-      const orders = response.data.success
-        ? response.data.data
-        : response.data || [];
-      const stats = response.data.success ? response.data.stats : null;
+      try {
+        const currentPage = reset ? 1 : page;
+        let params = `?page=${currentPage}&limit=20`;
+        if (statusFilter !== "all") params += `&status=${statusFilter}`;
+        if (searchTerm) params += `&search=${encodeURIComponent(searchTerm)}`;
 
-      const processedOrders = orders.map((po: PurchaseOrder) => {
-        // Convert quantity fields to numbers
-        const convert = (val: any): number => {
-          if (typeof val === "number") return val;
-          if (typeof val === "string") return parseFloat(val) || 0;
-          return 0;
-        };
+        const response = await apiClient.get(`/purchase-orders${params}`);
 
-        return {
-          ...po,
-          unit: po.unit || "ton",
-          total_quantity: convert(po.total_quantity),
-          delivered_quantity: convert(po.delivered_quantity),
-          remaining_quantity: convert(po.remaining_quantity),
-          delivery_progress: {
-            total_deliveries: convert(po.delivery_progress.total_deliveries),
-            completed_deliveries: convert(
-              po.delivery_progress.completed_deliveries
-            ),
-            percentage: convert(po.delivery_progress.percentage),
-          },
-        };
-      });
+        const orders = response.data.success ? response.data.data : [];
+        const fetchedStats = response.data.success ? response.data.stats : null;
+        const pagination = response.data.pagination || { totalPages: 1 };
 
-      setPurchaseOrders(processedOrders);
+        const processedOrders = orders.map((po: PurchaseOrder) => {
+          const convert = (val: any): number => parseFloat(val) || 0;
+          return {
+            ...po,
+            unit: po.unit || "ton",
+            total_quantity: convert(po.total_quantity),
+            delivery_progress: {
+              total_deliveries: convert(po.delivery_progress.total_deliveries),
+              completed_deliveries: convert(
+                po.delivery_progress.completed_deliveries
+              ),
+              percentage:
+                po.delivery_progress?.percentage ||
+                calculateFulfillmentPercentage(
+                  po.fulfilled_actual || 0,
+                  po.total_quantity || 1
+                ),
+            },
+          };
+        });
 
-      if (stats) {
-        setStats(stats);
+        if (reset) {
+          setPurchaseOrders(processedOrders);
+          setPage(2);
+        } else {
+          setPurchaseOrders((prev) => [...prev, ...processedOrders]);
+          setPage((prev) => prev + 1);
+        }
+
+        setHasMore(currentPage < pagination.totalPages);
+
+        if (fetchedStats) setStats(fetchedStats);
+      } catch (err) {
+        setError("Failed to fetch purchase orders.");
+        console.error(err);
+      } finally {
+        if (loading) setLoading(false);
+        setIsFetching(false);
       }
-    } catch (err) {
-      setError("Failed to fetch purchase orders.");
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter]);
+    },
+    [statusFilter, searchTerm /* NO page, NO purchaseOrders here */]
+  );
+
+  const debouncedFetch = useMemo(
+    () =>
+      debounce(() => {
+        fetchPurchaseOrders(true);
+      }, 300),
+    [fetchPurchaseOrders]
+  );
 
   useEffect(() => {
-    fetchPurchaseOrders();
-  }, [fetchPurchaseOrders]);
+    fetchPurchaseOrders(true);
+  }, [statusFilter, searchTerm, fetchPurchaseOrders]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -154,7 +186,7 @@ const TripsPage = () => {
     if (adjustmentType === "add") {
       newQuantity += amount;
     } else {
-      if (amount > selectedPO.total_quantity) {
+      if (amount > newQuantity) {
         alert("Deduction amount cannot exceed current quantity");
         return;
       }
@@ -176,7 +208,7 @@ const TripsPage = () => {
     }
   };
 
-  if (loading)
+  if (loading && purchaseOrders.length === 0)
     return <div className="text-center p-8">Loading purchase orders...</div>;
   if (error)
     return <div className="bg-red-100 text-red-700 p-4 rounded">{error}</div>;
@@ -192,40 +224,74 @@ const TripsPage = () => {
         </Link>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-lg font-semibold text-gray-700">Total POs</h3>
-          <p className="text-2xl font-bold text-blue-600">{stats.total}</p>
+      {stats.active + stats.completed + stats.cancelled > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div className="bg-white p-4 rounded-lg shadow">
+            <h3 className="text-lg font-semibold text-gray-700">Total PO</h3>
+            <p className="text-2xl font-bold text-blue-600">
+              {stats.active + stats.completed + stats.cancelled}
+            </p>
+          </div>
+          <div className="bg-white p-4 rounded-lg shadow">
+            <h3 className="text-lg font-semibold text-gray-700">Active POs</h3>
+            <p className="text-2xl font-bold text-yellow-600">{stats.active}</p>
+          </div>
+          <div className="bg-white p-4 rounded-lg shadow">
+            <h3 className="text-lg font-semibold text-gray-700">
+              Completed POs
+            </h3>
+            <p className="text-2xl font-bold text-green-600">
+              {stats.completed}
+            </p>
+          </div>
+          <div className="bg-white p-4 rounded-lg shadow">
+            <h3 className="text-lg font-semibold text-gray-700">
+              Cancelled POs
+            </h3>
+            <p className="text-2xl font-bold text-red-600">{stats.cancelled}</p>
+          </div>
         </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-lg font-semibold text-gray-700">Active</h3>
-          <p className="text-2xl font-bold text-yellow-600">{stats.active}</p>
+      ) : (
+        <div className="text-center p-4 bg-yellow-100 text-yellow-700 rounded mb-6">
+          Stats loading... or backend's on vacation?
         </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-lg font-semibold text-gray-700">Completed</h3>
-          <p className="text-2xl font-bold text-green-600">{stats.completed}</p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-lg font-semibold text-gray-700">Cancelled</h3>
-          <p className="text-2xl font-bold text-red-600">{stats.cancelled}</p>
-        </div>
-      </div>
+      )}
 
-      <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Filter by Status:
-        </label>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="all">All Status</option>
-          <option value="confirmed">Confirmed</option>
-          <option value="partial">Partial</option>
-          <option value="completed">Completed</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
+      <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Search POs:
+          </label>
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search by PO number, customer, or item... (e.g., PO-202508)"
+            className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            aria-label="Search purchase orders"
+          />
+          {isFetching && (
+            <div className="text-sm italic text-gray-500 mb-2">
+              Searching...
+            </div>
+          )}
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Filter by Status:
+          </label>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="all">All Status</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="partial">Partial</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
       </div>
 
       <div className="space-y-4">
@@ -270,23 +336,6 @@ const TripsPage = () => {
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Unit Price</p>
-                  {po.unit_price ? (
-                    <div>
-                      <p className="font-medium text-blue-600">
-                        {formatCurrency(po.unit_price)}/{unitDisplay}
-                      </p>
-                      {po.unit === "ton" && (
-                        <p className="text-xs text-gray-500">
-                          ({formatCurrency(po.unit_price / 1000)}/kg)
-                        </p>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-gray-400 text-sm">Not set</p>
-                  )}
-                </div>
-                <div>
                   <p className="text-sm text-gray-500">Total Amount</p>
                   {po.total_amount ? (
                     <p className="font-semibold text-green-600">
@@ -317,7 +366,7 @@ const TripsPage = () => {
                 <div className="flex justify-between items-center text-sm text-gray-600 mb-2">
                   <span>
                     Delivery Progress:{" "}
-                    {po.delivered_quantity.toLocaleString("id-ID")} /{" "}
+                    {po.fulfilled_actual.toLocaleString("id-ID")} /{" "}
                     {po.total_quantity.toLocaleString("id-ID")} {unitDisplay}
                   </span>
                   <span className="font-medium">
@@ -537,7 +586,7 @@ const TripsPage = () => {
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeWidth={1}
-                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2 2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
               />
             </svg>
           </div>
@@ -545,15 +594,28 @@ const TripsPage = () => {
             No Purchase Orders Found
           </h3>
           <p className="text-gray-500 mb-6 max-w-md mx-auto">
-            {statusFilter !== "all"
-              ? `No purchase orders with status "${statusFilter}". Try adjusting your filter.`
-              : "Get started by creating your first purchase order with flexible unit pricing (kg, ton, or m³)."}
+            {searchTerm
+              ? `Nothing matches "${searchTerm}". Try something else, genius.`
+              : statusFilter !== "all"
+              ? `No POs with status "${statusFilter}".`
+              : "Create one."}
           </p>
           <Link to="/trips/create-po">
             <button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-colors">
               Create Your First Purchase Order
             </button>
           </Link>
+        </div>
+      )}
+
+      {hasMore && !loading && (
+        <div className="text-center mt-6">
+          <button
+            onClick={() => fetchPurchaseOrders(false)} // Append next page
+            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+          >
+            Load More POs
+          </button>
         </div>
       )}
 

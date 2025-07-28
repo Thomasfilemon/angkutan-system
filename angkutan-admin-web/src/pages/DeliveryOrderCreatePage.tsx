@@ -29,9 +29,9 @@ interface Driver {
   };
 }
 
-// ✅ FIXED: Updated Vehicle interface to match API response
+// Fixed Vehicle interface to match API response
 interface Vehicle {
-  capacity: string | null; // ✅ Changed from number to string
+  capacity: string | null; // Changed from number to string to match API
   id: number;
   license_plate: string;
   type: string;
@@ -78,10 +78,10 @@ const DeliveryOrderCreatePage: React.FC = () => {
     unload_location: "",
   });
 
-  // ✅ ADD: Random PO number generator for standalone DOs
+  // Random PO number generator for standalone DOs
   const generateRandomPONumber = (): string => {
     const prefix = "STANDALONE";
-    const timestamp = new Date().getTime().toString().slice(-6); // Last 6 digits of timestamp
+    const timestamp = new Date().getTime().toString().slice(-6);
     const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
     return `${prefix}-${timestamp}-${random}`;
   };
@@ -90,7 +90,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
     fetchInitialData();
   }, []);
 
-  // ✅ ADD: Debug vehicles state changes
+  // Debug vehicles state changes
   useEffect(() => {
     console.log('🚛 Vehicles state updated:', vehicles);
     console.log('🚛 Vehicles count:', vehicles.length);
@@ -99,7 +99,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
     }
   }, [vehicles]);
 
-  // ✅ ADD: Auto-fill driver when vehicle is selected
+  // Auto-fill driver when vehicle is selected
   useEffect(() => {
     if (formData.vehicle_id) {
       const selectedVehicle = vehicles.find(
@@ -127,7 +127,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
     }
   }, [formData.vehicle_id, vehicles]);
 
-  // ✅ UPDATED: Enhanced fetchInitialData with comprehensive debugging
+  // Enhanced fetchInitialData with comprehensive debugging
   const fetchInitialData = async () => {
     try {
       setLoading(true);
@@ -136,31 +136,39 @@ const DeliveryOrderCreatePage: React.FC = () => {
       const [poResponse, driverResponse, vehicleResponse] = await Promise.all([
         apiClient.get("/purchase-orders", {
           params: { status: ["confirmed", "partial"] }
+        }).catch((err) => {
+          console.error("PO fetch failed:", err.response?.data || err.message);
+          toast.error("Failed to fetch purchase orders");
+          return { data: [] };
         }),
-        apiClient.get("/drivers"),
-        apiClient.get("/vehicles"),
+        apiClient.get("/drivers").catch((err) => {
+          console.error("Drivers fetch failed:", err.response?.data || err.message);
+          toast.error("Failed to fetch drivers");
+          return { data: [] };
+        }),
+        apiClient.get("/vehicles").catch((err) => {
+          console.error("Vehicles fetch failed:", err.response?.data || err.message);
+          toast.error("Failed to fetch vehicles");
+          return { data: [] };
+        }),
       ]);
 
       console.log('📋 Raw PO Response:', poResponse);
-      console.log('📋 PO Response Data:', poResponse.data);
       console.log('👨‍💼 Raw Driver Response:', driverResponse);
       console.log('🚛 Raw Vehicle Response:', vehicleResponse);
 
-      // ✅ FIX: Handle nested PO response structure
+      // Handle nested PO response structure
       let allPOs;
       if (poResponse.data?.data && Array.isArray(poResponse.data.data)) {
-        allPOs = poResponse.data.data; // Nested structure: { success: true, data: [...] }
+        allPOs = poResponse.data.data;
         console.log('📋 Using nested PO structure');
       } else if (Array.isArray(poResponse.data)) {
-        allPOs = poResponse.data; // Direct array
+        allPOs = poResponse.data;
         console.log('📋 Using direct PO array');
       } else {
-        allPOs = []; // Fallback
+        allPOs = [];
         console.log('📋 No PO data found, using empty array');
       }
-
-      console.log('📋 Extracted PO Data:', allPOs);
-      console.log('📋 PO Data Length:', allPOs.length);
 
       const availablePOs = allPOs.filter(
         (po: PurchaseOrder) =>
@@ -172,7 +180,13 @@ const DeliveryOrderCreatePage: React.FC = () => {
       setPurchaseOrders(availablePOs);
       console.log('✅ Purchase Orders set:', availablePOs.length);
 
-      // ✅ FIX: Handle nested driver response structure  
+      if (availablePOs.length === 0) {
+        toast.error(
+          "No available Purchase Orders found. You can create standalone DOs."
+        );
+      }
+
+      // Handle nested driver response structure  
       let driverData;
       if (driverResponse.data?.data && Array.isArray(driverResponse.data.data)) {
         driverData = driverResponse.data.data;
@@ -188,8 +202,14 @@ const DeliveryOrderCreatePage: React.FC = () => {
       setDrivers(driverData);
       console.log('✅ Drivers set:', driverData.length);
 
-      // ✅ VEHICLES: Your vehicle response is already working correctly
-      const vehicleData = vehicleResponse.data; // Direct array as shown in logs
+      if (driverData.length === 0) {
+        toast.error(
+          "No drivers found. Assign vehicles with drivers or select manually."
+        );
+      }
+
+      // Handle vehicle response
+      const vehicleData = vehicleResponse.data;
       console.log('🚛 Extracted Vehicle Data:', vehicleData);
       console.log('🚛 Vehicle Data Type:', typeof vehicleData);
       console.log('🚛 Is Array?:', Array.isArray(vehicleData));
@@ -208,7 +228,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
         });
       }
 
-      // ✅ FILTER: Vehicle filtering (this should now work)
+      // Filter available vehicles
       const availableVehicles = Array.isArray(vehicleData) ? vehicleData.filter(
         (v: any) => {
           console.log(`🚛 Filtering vehicle ${v.license_plate || v.id}, status: "${v.status}"`);
@@ -223,12 +243,16 @@ const DeliveryOrderCreatePage: React.FC = () => {
       
       setVehicles(availableVehicles);
       console.log('✅ Vehicles set in state');
+
+      if (availableVehicles.length === 0) {
+        toast.error("No available vehicles found. Cannot create DO.");
+      }
       
     } catch (err: any) {
       console.error('❌ fetchInitialData error:', err);
       console.error('❌ Error response:', err.response?.data);
       console.error('❌ Error status:', err.response?.status);
-      toast.error("Failed to fetch initial data");
+      toast.error("Failed to fetch initial data. Check console for details.");
     } finally {
       setLoading(false);
       console.log('🔍 fetchInitialData completed');
@@ -333,11 +357,10 @@ const DeliveryOrderCreatePage: React.FC = () => {
         formData.unit
       );
 
-      // ✅ ADD: Generate random PO number for standalone DOs
+      // Generate random PO number for standalone DOs
       let finalPOId = formData.purchase_order_id || null;
       let standalonePoNumber = null;
 
-      // If no PO is selected (standalone DO), generate a random PO number for system compatibility
       if (!formData.purchase_order_id) {
         standalonePoNumber = generateRandomPONumber();
         console.log('🎲 Generated random PO number for standalone DO:', standalonePoNumber);
@@ -346,7 +369,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
       const payload = {
         do_name: formData.do_name.trim(),
         purchase_order_id: finalPOId,
-        standalone_po_number: standalonePoNumber, // ✅ ADD: Send random PO number for standalone DOs
+        standalone_po_number: standalonePoNumber,
         driver_id: parseInt(formData.driver_id),
         vehicle_id: parseInt(formData.vehicle_id),
         customer_name: formData.customer_name,
@@ -368,7 +391,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
       const response = await apiClient.post("/delivery-orders", payload);
       console.log('✅ DO created successfully:', response.data);
 
-      // ✅ ADD: Show different success messages
+      // Show different success messages
       if (standalonePoNumber) {
         toast.success(`Standalone Delivery Order created successfully! Reference: ${standalonePoNumber}`);
       } else {
@@ -526,7 +549,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
             </div>
           )}
 
-          {/* ✅ ADD: Show standalone DO info */}
+          {/* Show standalone DO info */}
           {!formData.purchase_order_id && (
             <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-md">
               <div className="text-sm">
@@ -730,7 +753,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
               </span>
             </label>
             
-            {/* ✅ ADD: Debug info - Remove this after vehicles work */}
+            {/* Debug info for development */}
             {process.env.NODE_ENV === 'development' && (
               <div className="text-xs text-gray-500 mb-2">
                 Debug: {vehicles.length} vehicles loaded
@@ -746,8 +769,13 @@ const DeliveryOrderCreatePage: React.FC = () => {
               }}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
               required
+              disabled={vehicles.length === 0}
             >
-              <option value="">Select a vehicle ({vehicles.length} available)</option>
+              <option value="">
+                {vehicles.length === 0
+                  ? "No vehicles available"
+                  : `Select a vehicle (${vehicles.length} available)`}
+              </option>
               {vehicles.map((vehicle) => {
                 console.log('🚛 Rendering vehicle option:', vehicle.license_plate);
                 return (
@@ -1047,7 +1075,8 @@ const DeliveryOrderCreatePage: React.FC = () => {
                 <span className="text-gray-600">Driver Costs:</span>
                 <div className="font-medium text-orange-600">
                   {formatCurrency(
-                    parseFloat(formData.trip_allowance + formData.gaji)
+                    (parseFloat(formData.trip_allowance) || 0) +
+                      (parseFloat(formData.gaji) || 0)
                   )}
                 </div>
               </div>

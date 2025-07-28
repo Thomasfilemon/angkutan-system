@@ -1,9 +1,32 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import apiClient from "../../api/axiosConfig";
 import Select from "react-select";
 import { paymentsApi } from "../../modules/payments/api";
 import EditablePphCell from "../../modules/payments/components/EditablePphCell";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import "jspdf-autotable";
+import {
+  Chart as ChartJS,
+  ArcElement,
+  Tooltip,
+  Legend,
+  BarElement,
+  CategoryScale,
+  LinearScale,
+} from "chart.js";
+import { Pie, Bar } from "react-chartjs-2";
+
+// Register Chart.js components
+ChartJS.register(
+  ArcElement,
+  Tooltip,
+  Legend,
+  BarElement,
+  CategoryScale,
+  LinearScale
+);
 
 interface POData {
   purchase_order: {
@@ -13,7 +36,6 @@ interface POData {
     item_name: string;
     total_quantity: string;
     unit: string;
-    unit_price: string;
     total_amount: string;
     load_location: string;
     unload_location: string;
@@ -53,24 +75,42 @@ interface DeliveryOrder {
   item_name: string;
   minimal_load_quantity: string;
   actual_load_quantity?: string;
-  unit: string;
-  unit_price: string;
-  total_amount: string;
+  unit: string; // This is guaranteed by backend fallback
+  unit_price: string; // Also seems guaranteed
+  total_amount: string; // Also seems guaranteed
   payment_status: string;
   status: string;
   completed_at?: string;
   vehicle: {
+    id: number;
     license_plate: string;
     type: string;
     capacity: string;
   };
   driver: {
+    id: number;
+    username: string;
     driverProfile: {
       full_name: string;
+      phone: string;
     };
   };
   payments: Payment[];
   invoices: Invoice[];
+  adjustments: any[]; // Add if needed
+  calculated: {
+    actualQuantity: number;
+    grossIncome: number;
+    operationalCosts: number;
+    netProfit: number;
+    profitMargin: number;
+  };
+  unit_info: {
+    unit: string;
+    po_unit: string;
+    unit_mismatch: boolean;
+    unit_display: string;
+  };
 }
 
 interface Payment {
@@ -92,6 +132,7 @@ interface Invoice {
   net_amount: string;
   status: string;
   due_date?: string;
+  notes?: string;
 }
 
 const POSpecificRitaseTable: React.FC = () => {
@@ -104,8 +145,16 @@ const POSpecificRitaseTable: React.FC = () => {
   const [allPOs, setAllPOs] = useState<
     { id: number; po_number: string; customer_name: string }[]
   >([]);
+  const [bulkInvoiceLoading, setBulkInvoiceLoading] = useState(false);
+  const [bulkInvoiceError, setBulkInvoiceError] = useState<string | null>(null);
   const [showCreateInvoiceModal, setShowCreateInvoiceModal] = useState(false);
   const [showBulkInvoiceModal, setShowBulkInvoiceModal] = useState(false);
+  const [bulkInvoiceNumber, setBulkInvoiceNumber] = useState<string>("");
+  const [bulkPphPercentage, setBulkPphPercentage] = useState<
+    number | undefined
+  >(undefined);
+  const [bulkDueDate, setBulkDueDate] = useState<string>(""); // ISO date string, YYYY-MM-DD
+  const [bulkNotes, setBulkNotes] = useState<string>("");
   const [activeTab, setActiveTab] = useState<
     "deliveries" | "invoices" | "analytics"
   >("deliveries");
@@ -116,6 +165,9 @@ const POSpecificRitaseTable: React.FC = () => {
     value: string;
     label: string;
   } | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   useEffect(() => {
     if (poId) {
@@ -154,13 +206,35 @@ const POSpecificRitaseTable: React.FC = () => {
 
   const processedDOs = useMemo(() => {
     if (!data?.delivery_orders) return [];
-    if (!selectedVehicle) return data.delivery_orders;
-    return data.delivery_orders.filter(
-      (do_) =>
-        do_.vehicle.license_plate.toLowerCase() ===
-        selectedVehicle.value.toLowerCase()
-    );
-  }, [data, selectedVehicle]);
+    let filtered = data.delivery_orders;
+
+    if (selectedVehicle) {
+      filtered = filtered.filter(
+        (do_) =>
+          do_.vehicle.license_plate.toLowerCase() ===
+          selectedVehicle.value.toLowerCase()
+      );
+    }
+
+    if (searchTerm) {
+      const lowerSearch = searchTerm.toLowerCase();
+      filtered = filtered.filter(
+        (do_) =>
+          do_.do_number.toLowerCase().includes(lowerSearch) ||
+          do_.customer_name.toLowerCase().includes(lowerSearch) ||
+          do_.item_name.toLowerCase().includes(lowerSearch)
+      );
+    }
+
+    return filtered;
+  }, [data, selectedVehicle, searchTerm]);
+
+  const paginatedDOs = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return processedDOs.slice(start, start + itemsPerPage);
+  }, [processedDOs, currentPage]);
+
+  const totalPages = Math.ceil(processedDOs.length / itemsPerPage);
 
   const calculateVariance = () => {
     if (!data) return { quantity: 0, amount: 0, percentage: 0 };
@@ -173,7 +247,8 @@ const POSpecificRitaseTable: React.FC = () => {
     return {
       quantity: actualQty - targetQty,
       amount: actualAmount - targetAmount,
-      percentage: ((actualQty - targetQty) / targetQty) * 100,
+      percentage:
+        targetQty > 0 ? ((actualQty - targetQty) / targetQty) * 100 : 0,
     };
   };
 
@@ -209,28 +284,199 @@ const POSpecificRitaseTable: React.FC = () => {
     );
   };
 
-  const handleDownloadInvoice = async (invoiceId: number) => {
-    try {
-      const response = await apiClient.get(`/payments/invoices/${invoiceId}`);
-      const invoice = response.data.data;
-
-      // Create downloadable JSON/text for now
-      const dataStr = JSON.stringify(invoice, null, 2);
-      const dataBlob = new Blob([dataStr], { type: "application/json" });
-      const url = URL.createObjectURL(dataBlob);
-
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `invoice-${invoice.invoice_number}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error("Download failed:", err);
-      alert("Failed to download invoice");
+  const handleCreateBulkInvoice = useCallback(async () => {
+    if (selectedDOs.length < 2) {
+      alert("Select at least 2 delivery orders to create a bulk invoice.");
+      return;
     }
-  };
+    setBulkInvoiceLoading(true);
+    setBulkInvoiceError(null);
+
+    try {
+      const payload: {
+        do_ids: number[];
+        invoice_number?: string;
+        pph_percentage?: number;
+        due_date?: string;
+        notes?: string;
+      } = {
+        do_ids: selectedDOs,
+      };
+      if (bulkInvoiceNumber.trim() !== "") {
+        payload.invoice_number = bulkInvoiceNumber.trim();
+      }
+      if (bulkPphPercentage !== undefined && !isNaN(bulkPphPercentage)) {
+        payload.pph_percentage = bulkPphPercentage;
+      }
+      if (bulkDueDate) {
+        payload.due_date = bulkDueDate; // Should be ISO string (YYYY-MM-DD)
+      }
+      if (bulkNotes.trim() !== "") {
+        payload.notes = bulkNotes.trim();
+      }
+
+      const response = await paymentsApi.createBulkInvoice(payload);
+
+      if (response.data?.success) {
+        alert(
+          `Bulk invoice created: ${response.data.data.bulk_invoice_number}`
+        );
+        setShowBulkInvoiceModal(false);
+        setSelectedDOs([]);
+        // Clear bulk inputs
+        setBulkInvoiceNumber("");
+        setBulkPphPercentage(undefined);
+        setBulkDueDate("");
+        setBulkNotes("");
+        // Refetch PO data for fresh invoices display
+        fetchPOData();
+      } else {
+        setBulkInvoiceError(
+          response.data.message || "Failed to create bulk invoice"
+        );
+      }
+    } catch (err: any) {
+      setBulkInvoiceError(
+        err.response?.data?.message || "Bulk invoice creation failed."
+      );
+    } finally {
+      setBulkInvoiceLoading(false);
+    }
+  }, [
+    selectedDOs,
+    bulkInvoiceNumber,
+    bulkPphPercentage,
+    bulkDueDate,
+    bulkNotes,
+    fetchPOData,
+  ]);
+
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<
+      number | null
+    >(null);
+  
+    const handleDownloadInvoice = async (invoiceId: number) => {
+      setDownloadingInvoiceId(invoiceId);
+      try {
+        const response = await apiClient.get(`/payments/invoices/${invoiceId}`);
+        const invoiceData = response.data.data;
+  
+        generateInvoicePDF(invoiceData);
+      } catch (err) {
+        console.error("Download failed:", err);
+        alert("Failed to download invoice");
+      } finally {
+        setDownloadingInvoiceId(null);
+      }
+    };
+
+    const generateInvoicePDF = (invoiceData: any) => {
+  const { invoice, delivery_order, payments } = invoiceData;
+  const doc = new jsPDF();
+  
+  // Company Header
+  doc.setFontSize(20);
+  doc.setFont('helvetica', 'bold');
+  doc.text('INVOICE', 105, 20, { align: 'center' });
+  
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Your Company Name', 20, 35); // Replace with actual company name
+  doc.text('Your Address Line 1', 20, 42);
+  doc.text('Your Address Line 2', 20, 49);
+  doc.text('Phone: +62 XXX XXXX XXXX', 20, 56);
+  
+  // Invoice Details (Right side)
+  doc.setFont('helvetica', 'bold');
+  doc.text('Invoice Number:', 130, 35);
+  doc.text('Invoice Date:', 130, 42);
+  doc.text('Due Date:', 130, 49);
+  doc.text('DO Number:', 130, 56);
+  
+  doc.setFont('helvetica', 'normal');
+  doc.text(invoice.invoice_number, 175, 35);
+  doc.text(new Date(invoice.invoice_date).toLocaleDateString('id-ID'), 175, 42);
+  doc.text(invoice.due_date ? new Date(invoice.due_date).toLocaleDateString('id-ID') : 'N/A', 175, 49);
+  doc.text(delivery_order.do_number, 175, 56);
+  
+  // Customer Info
+  doc.setFont('helvetica', 'bold');
+  doc.text('Bill To:', 20, 75);
+  doc.setFont('helvetica', 'normal');
+  doc.text(delivery_order.customer_name, 20, 82);
+  
+  // Delivery Details Table
+  const deliveryDetails = [
+    ['Item', delivery_order.item_name],
+    ['Vehicle', delivery_order.vehicle ? `${delivery_order.vehicle.license_plate} (${delivery_order.vehicle.type})` : 'N/A'],
+    ['Driver', delivery_order.driver?.driverProfile?.full_name || delivery_order.driver?.username || 'N/A'],
+    ['Load Location', delivery_order.load_location || 'N/A'],
+    ['Unload Location', delivery_order.unload_location || 'N/A'],
+  ];
+  
+  (doc as any).autoTable({
+    startY: 95,
+    head: [['Description', 'Details']],
+    body: deliveryDetails,
+    theme: 'grid',
+    headStyles: { fillColor: [71, 85, 105] },
+    margin: { left: 20, right: 20 },
+  });
+  
+  // Amount Breakdown
+  const finalY = (doc as any).lastAutoTable.finalY + 10;
+  
+  const amountData = [
+    ['Gross Amount', `Rp ${invoice.invoice_amount.toLocaleString('id-ID')}`],
+    [`PPH (${invoice.pph_percentage}%)`, `Rp ${invoice.pph_amount.toLocaleString('id-ID')}`],
+    ['Net Amount', `Rp ${invoice.net_amount.toLocaleString('id-ID')}`],
+  ];
+  
+  (doc as any).autoTable({
+    startY: finalY,
+    body: amountData,
+    theme: 'plain',
+    styles: { halign: 'right' },
+    columnStyles: {
+      0: { halign: 'left', fontStyle: 'bold' },
+      1: { halign: 'right', fontStyle: 'bold' }
+    },
+    margin: { left: 120, right: 20 },
+  });
+  
+  // Payment History (if any)
+  if (payments && payments.length > 0) {
+    const paymentY = (doc as any).lastAutoTable.finalY + 15;
+    
+    doc.setFont('helvetica', 'bold');
+    doc.text('Payment History:', 20, paymentY);
+    
+    const paymentData = payments.map((payment: any) => [
+      new Date(payment.payment_date).toLocaleDateString('id-ID'),
+      `Rp ${payment.payment_amount.toLocaleString('id-ID')}`,
+      payment.payment_type,
+      payment.payment_reference || '-',
+    ]);
+    
+    (doc as any).autoTable({
+      startY: paymentY + 5,
+      head: [['Date', 'Amount', 'Type', 'Reference']],
+      body: paymentData,
+      theme: 'striped',
+      headStyles: { fillColor: [71, 85, 105] },
+      margin: { left: 20, right: 20 },
+    });
+  }
+  
+  // Footer
+  const pageHeight = doc.internal.pageSize.height;
+  doc.setFontSize(8);
+  doc.text('Thank you for your business!', 105, pageHeight - 20, { align: 'center' });
+  doc.text(`Generated on ${new Date().toLocaleDateString('id-ID')}`, 105, pageHeight - 15, { align: 'center' });
+  
+  // Save the PDF
+  doc.save(`invoice-${invoice.invoice_number}.pdf`);
+};
 
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
@@ -243,6 +489,200 @@ const POSpecificRitaseTable: React.FC = () => {
     } else {
       setSelectedDOs([]);
     }
+  };
+
+  // Helper: Convert quantity to KG (adjust if kubik needs special handling)
+  const convertToKg = (quantity: string, unit: string) => {
+    const qty = parseFloat(quantity) || 0;
+    switch (unit) {
+      case "ton":
+        return qty * 1000;
+      case "kilogram":
+        return qty;
+      case "kubik":
+        return qty;
+      default:
+        return qty;
+    }
+  };
+
+  const handleExportExcel = () => {
+    if (!data || !data.purchase_order || !processedDOs.length) {
+      alert("No data to export!");
+      return;
+    }
+
+    const po = data.purchase_order;
+    const summary = data.summary;
+
+    // Step 1: Prep data rows with robust undef guards
+    const dataRows = processedDOs.map((do_, index) => ({
+      No: index + 1,
+      "Plat Mobil": do_.vehicle?.license_plate || "N/A", // ? for undef vehicle
+      "Tanggal Muat": do_.completed_at
+        ? new Date(do_.completed_at).toLocaleDateString("id-ID")
+        : "N/A",
+      Muatan: do_.item_name || "N/A",
+      "Quantity (KG)": convertToKg(
+        do_.actual_load_quantity || do_.minimal_load_quantity || "0",
+        do_.unit || "ton"
+      ),
+      Harga: parseFloat(do_.unit_price || "0") || 0, // FIXED: Safe fallback
+      "Total Pembayaran": parseFloat(do_.total_amount || "0") || 0, // FIXED: Safe fallback
+    }));
+
+    // Step 2: Aggregate invoices with guards
+    const invoices = processedDOs
+      .flatMap((do_) => do_.invoices || []) // FIXED: || [] if undef
+      .map((inv) => ({
+        name: inv.invoice_number || "N/A",
+        amount: parseFloat(inv.invoice_amount || "0") || 0,
+        pph_percentage: parseFloat(inv.pph_percentage || "0") || 0,
+        pph_amount: parseFloat(inv.pph_amount || "0") || 0,
+        net_amount: parseFloat(inv.net_amount || "0") || 0,
+        due_date: inv.due_date
+          ? new Date(inv.due_date).toLocaleDateString("id-ID")
+          : "N/A",
+        notes: inv.notes || "",
+      }));
+
+    // Calc summaries
+    const poTotalQty = parseFloat(po.total_quantity || "0") || 0;
+    const poTotal = summary.total_revenue || 0;
+
+    const totalAngkutQty = dataRows.reduce(
+      (sum, row) => sum + (row["Quantity (KG)"] || 0), // FIXED: Guard NaN
+      0
+    );
+    const totalAngkut = dataRows.reduce(
+      (sum, row) => sum + (row["Total Pembayaran"] || 0),
+      0
+    );
+    const selisihQty = poTotalQty * 1000 - totalAngkutQty;
+    const selisihAmount = poTotal - totalAngkut;
+
+    const totalPph = invoices.reduce(
+      (sum, inv) => sum + (inv.pph_amount || 0),
+      0
+    ); // FIXED: Extra guard
+    const grandTotal = totalAngkut - totalPph;
+
+    const totalPembayaran = invoices.reduce(
+      (sum, inv) => sum + (inv.net_amount || 0),
+      0
+    );
+    const sisaPembayaran = grandTotal - totalPembayaran;
+
+    // Step 3: Build sheet data with per-invoice PPH details
+    const sheetData = [
+      ["Rekapan Ritase A-B"],
+      [],
+      [
+        "No",
+        "Plat Mobil",
+        "Tanggal Muat",
+        "Muatan",
+        "Quantity (KG)",
+        "Harga",
+        "Total Pembayaran",
+      ],
+      ...dataRows.map((row) => Object.values(row)),
+      [],
+      ["", "", "", "", "PO", poTotalQty, "", poTotal],
+      ["", "", "", "", "Total Angkut", totalAngkutQty / 1000, "", totalAngkut],
+      ["", "", "", "", "Selisih", selisihQty / 1000, "", selisihAmount],
+      [],
+      ["TOTAL", "", "", "", totalAngkutQty / 1000, "", totalAngkut],
+      ["PPH Total (Varying per Invoice)", "", "", "", "", "", totalPph],
+      ["GRAND TOTAL", "", "", "", "", "", grandTotal],
+      [],
+      // Proforma section with added PPH details per invoice
+      [
+        "Proforma Invoices",
+        "Due Date",
+        "PPH %",
+        "PPH Amount",
+        "Net Amount",
+        "Notes",
+      ],
+      ...invoices.map((inv) => [
+        inv.name,
+        inv.due_date,
+        inv.pph_percentage,
+        inv.pph_amount,
+        inv.net_amount,
+        inv.notes,
+      ]),
+      ["TOTAL PEMBAYARAN", "", "", "", totalPembayaran, ""],
+      [
+        "SISA PEMBAYARAN =",
+        "",
+        `Rp ${grandTotal} - Rp ${totalPembayaran}`,
+        "",
+        sisaPembayaran,
+        "",
+      ],
+    ];
+
+    // Step 4: Create workbook and sheet with formatting
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+    // Formatting: Bold titles/headers, currency for amounts
+    if (ws["!ref"]) {
+      const range = XLSX.utils.decode_range(ws["!ref"]);
+      for (let R = range.s.r; R <= range.e.r; ++R) {
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+          const cellAddress = { c: C, r: R };
+          const cell = ws[XLSX.utils.encode_cell(cellAddress)];
+          if (!cell) continue;
+
+          // Your formatting logic here
+          if (R === 0 || R === 2 || R >= dataRows.length + 4) {
+            cell.s = { font: { bold: true } };
+          }
+
+          if (C === 6 || C === 3 || C === 4) {
+            cell.z = '"Rp" #,##0';
+          }
+        }
+      }
+    }
+
+    XLSX.utils.book_append_sheet(wb, ws, po.po_number || "Ritase");
+
+    // Step 5: Export
+    XLSX.writeFile(wb, `ritase_${poId}.xlsx`);
+  };
+
+  // Analytics Charts Data
+  const pieData = {
+    labels: ["Completed", "Pending", "Outstanding"],
+    datasets: [
+      {
+        data: [
+          data?.summary.completed_dos ?? 0,
+          data?.summary.pending_dos ?? 0,
+          data?.summary.outstanding_payments ?? 0,
+        ],
+        backgroundColor: ["#10B981", "#3B82F6", "#EF4444"],
+      },
+    ],
+  };
+
+  const barData = {
+    labels: ["Revenue", "Costs", "Profit"],
+    datasets: [
+      {
+        label: "Financials",
+        data: [
+          data?.summary.total_revenue ?? 0,
+          data?.summary.total_operational_costs ?? 0,
+          data?.summary.total_net_profit ?? 0,
+        ],
+        backgroundColor: ["#10B981", "#F59E0B", "#3B82F6"],
+      },
+    ],
   };
 
   if (loading) {
@@ -274,12 +714,12 @@ const POSpecificRitaseTable: React.FC = () => {
   const summary = data.summary;
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="bg-white shadow-xl rounded-lg p-2 mb-4">
-        <div className="flex items-center gap-4">
+    <div className="container mx-auto px-4 py-8 max-w-7xl">
+      <div className="bg-white shadow-md rounded-lg p-4 mb-6">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
           <button
             onClick={() => navigate("/ritase/comprehensive")}
-            className="px-4 py-2 border border-gray-300 rounded-lg bg-white hover:bg-gray-50 text-gray-700"
+            className="px-4 py-2 border border-gray-300 rounded-lg bg-white hover:bg-gray-50 text-gray-700 text-sm"
           >
             ← Back
           </button>
@@ -287,7 +727,7 @@ const POSpecificRitaseTable: React.FC = () => {
             <select
               value={poId}
               onChange={(e) => navigate(`/ritase/po/${e.target.value}/table`)}
-              className="px-3 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
+              className="px-3 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 text-sm w-full sm:w-auto"
             >
               {allPOs.map((po) => (
                 <option key={po.id} value={po.id}>
@@ -298,14 +738,13 @@ const POSpecificRitaseTable: React.FC = () => {
           )}
         </div>
       </div>
-
-      {/* 🎯 SECTION 1: PO Summary Header (Excel-style) */}
-      <div className="bg-white shadow-xl rounded-lg p-6 mb-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* 🎯 SECTION 1: PO Summary Header (Improved layout) */}
+      <div className="bg-white shadow-md rounded-lg p-6 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* PO Info */}
-          <div className="lg:col-span-2">
-            <div className="flex items-center justify-between mb-4">
-              <h1 className="text-2xl font-bold text-gray-900">
+          <div className="md:col-span-2">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4">
+              <h1 className="text-2xl font-bold text-gray-900 mb-2 sm:mb-0">
                 {po.po_number}
               </h1>
               <span
@@ -321,21 +760,21 @@ const POSpecificRitaseTable: React.FC = () => {
               </span>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div>
-                <span className="text-gray-500">Customer:</span>
+                <span className="text-gray-500 block">Customer:</span>
                 <p className="font-medium">{po.customer_name}</p>
               </div>
               <div>
-                <span className="text-gray-500">Item:</span>
+                <span className="text-gray-500 block">Item:</span>
                 <p className="font-medium">{po.item_name}</p>
               </div>
               <div>
-                <span className="text-gray-500">Load Location:</span>
+                <span className="text-gray-500 block">Load Location:</span>
                 <p className="font-medium">{po.load_location}</p>
               </div>
               <div>
-                <span className="text-gray-500">Unload Location:</span>
+                <span className="text-gray-500 block">Unload Location:</span>
                 <p className="font-medium">{po.unload_location}</p>
               </div>
             </div>
@@ -351,8 +790,7 @@ const POSpecificRitaseTable: React.FC = () => {
                 <span className="text-gray-600">Target:</span>
                 <span className="font-medium">
                   {parseFloat(po.total_quantity).toLocaleString("id-ID")}{" "}
-                  {po.unit} @ Rp{" "}
-                  {parseFloat(po.unit_price).toLocaleString("id-ID")}
+                  {po.unit}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -405,8 +843,7 @@ const POSpecificRitaseTable: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* 🎯 SECTION 2: Navigation Tabs */}
+      {/* 🎯 SECTION 2: Navigation Tabs (Improved styling) */}
       <div className="mb-6">
         <div className="border-b border-gray-200">
           <nav className="-mb-px flex space-x-8">
@@ -429,7 +866,7 @@ const POSpecificRitaseTable: React.FC = () => {
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key as any)}
-                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                className={`py-4 px-1 border-b-2 font-medium text-sm ${
                   activeTab === tab.key
                     ? "border-blue-500 text-blue-600"
                     : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
@@ -446,350 +883,407 @@ const POSpecificRitaseTable: React.FC = () => {
           </nav>
         </div>
       </div>
-
       {/* 🎯 SECTION 3: Content Based on Active Tab */}
-
-      {/* Deliveries Tab */}
+      {/* Deliveries Tab (Improved with search and pagination) */}
       {activeTab === "deliveries" && (
-        <div className="bg-white shadow-xl rounded-lg overflow-hidden">
-          {/* Action Bar, tambah filter dropdown */}
-          <div className="bg-gray-50 px-6 py-4 border-b">
-            <div className="flex justify-between items-center">
-              <div className="flex items-center space-x-4">
-                <h3 className="text-lg font-medium">
-                  Delivery Orders ({processedDOs.length})
-                </h3>
-                {selectedDOs.length > 0 && (
-                  <span className="text-sm text-gray-600">
-                    {selectedDOs.length} selected
-                  </span>
-                )}
-              </div>
-              <div className="flex space-x-3 items-center">
-                <Select
-                  options={vehicleOptions}
-                  value={selectedVehicle}
-                  onChange={setSelectedVehicle}
-                  placeholder="Filter by Vehicle"
-                  isClearable
-                  className="w-48"
-                />
-                {selectedDOs.length > 1 && (
-                  <button
-                    onClick={() => setShowBulkInvoiceModal(true)}
-                    className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
-                  >
-                    Create Bulk Invoice
-                  </button>
-                )}
+        <div className="bg-white shadow-md rounded-lg overflow-hidden">
+          {/* Action Bar with search */}
+          <div className="bg-gray-50 px-6 py-4 border-b flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div className="flex items-center space-x-4 w-full sm:w-auto">
+              <h3 className="text-lg font-medium">
+                Delivery Orders ({processedDOs.length})
+              </h3>
+              {selectedDOs.length > 0 && (
+                <span className="text-sm text-gray-600">
+                  {selectedDOs.length} selected
+                </span>
+              )}
+            </div>
+            <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3 items-start sm:items-center w-full sm:w-auto">
+              <input
+                type="text"
+                placeholder="Search DO, customer, item..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm w-full sm:w-64"
+              />
+              <Select
+                options={vehicleOptions}
+                value={selectedVehicle}
+                onChange={setSelectedVehicle}
+                placeholder="Filter by Vehicle"
+                isClearable
+                className="w-full sm:w-48"
+                classNamePrefix="select"
+              />
+              {selectedDOs.length > 1 && (
                 <button
-                  onClick={() =>
-                    window.open(
-                      `/api/web/ritase/purchase-orders/${poId}/export`,
-                      "_blank"
-                    )
-                  }
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  onClick={() => setShowBulkInvoiceModal(true)}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-sm w-full sm:w-auto"
                 >
-                  Export Excel
+                  Create Bulk Invoice
                 </button>
-              </div>
+              )}
+              <button
+                onClick={handleExportExcel}
+                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm w-full sm:w-auto"
+              >
+                Export to Excel
+              </button>
             </div>
           </div>
 
           {/* DO Table */}
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="w-12 px-6 py-3 text-left">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 text-blue-600 rounded border-gray-300"
-                    onChange={handleSelectAll}
-                  />
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Vehicle & Driver
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  DO Number & Date
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Quantity
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Amount
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Payment Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Invoice Info
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {processedDOs.map((do_) => (
-                <tr key={do_.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="w-12 px-6 py-3 text-left">
                     <input
                       type="checkbox"
                       className="h-4 w-4 text-blue-600 rounded border-gray-300"
-                      checked={selectedDOs.includes(do_.id)}
-                      onChange={() => handleDOSelection(do_.id)}
-                      disabled={
-                        do_.invoices.length > 0 || do_.status !== "completed"
-                      }
-                      title={
-                        do_.invoices.length > 0
-                          ? "Sudah ada invoice, tidak bisa di-select untuk bulk"
-                          : ""
-                      }
+                      onChange={handleSelectAll}
                     />
-                  </td>
-
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-medium text-gray-900">
-                      {do_.vehicle.license_plate}
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      {do_.driver.driverProfile.full_name}
-                    </div>
-                    <div className="text-xs text-gray-400">
-                      {do_.vehicle.type}
-                    </div>
-                  </td>
-
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-medium text-gray-900">
-                      {do_.do_number}
-                    </div>
-                    {do_.completed_at && (
-                      <div className="text-sm text-gray-500">
-                        {new Date(do_.completed_at).toLocaleDateString("id-ID")}
-                      </div>
-                    )}
-                  </td>
-
-                  <td className="px-6 py-4">
-                    <div className="text-sm">
-                      <div className="text-gray-500">
-                        Target:{" "}
-                        {parseFloat(do_.minimal_load_quantity).toLocaleString(
-                          "id-ID"
-                        )}{" "}
-                        {do_.unit}
-                      </div>
-                      {do_.actual_load_quantity && (
-                        <div className="font-medium text-gray-900">
-                          Actual:{" "}
-                          {parseFloat(do_.actual_load_quantity).toLocaleString(
-                            "id-ID"
-                          )}{" "}
-                          {do_.unit}
-                        </div>
-                      )}
-                    </div>
-                  </td>
-
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-medium text-gray-900">
-                      Rp {parseFloat(do_.total_amount).toLocaleString("id-ID")}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      @ Rp {parseFloat(do_.unit_price).toLocaleString("id-ID")}/
-                      {do_.unit}
-                    </div>
-                  </td>
-
-                  <td className="px-6 py-4">
-                    {getPaymentStatusBadge(do_.payment_status)}
-                    {do_.payments.length > 0 && (
-                      <div className="text-xs text-gray-500 mt-1">
-                        {do_.payments.length} payment(s)
-                      </div>
-                    )}
-                  </td>
-
-                  <td className="px-6 py-4">
-                    {do_.invoices.length > 0 ? (
-                      <div className="space-y-1">
-                        {do_.invoices.map((invoice) => (
-                          <div key={invoice.id} className="text-xs">
-                            <div className="font-medium">
-                              {invoice.invoice_number}
-                            </div>
-                            <div className="text-gray-500">
-                              Rp{" "}
-                              {parseFloat(invoice.net_amount).toLocaleString(
-                                "id-ID"
-                              )}
-                              (PPH {invoice.pph_percentage}%)
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="text-xs text-gray-400">No invoice</span>
-                    )}
-                  </td>
-
-                  <td className="px-6 py-4 text-right text-sm font-medium">
-                    <Link
-                      to={`/ritase/delivery-orders/${do_.id}/payment`}
-                      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-semibold transition-colors"
-                    >
-                      Manage
-                    </Link>
-                  </td>
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Vehicle & Driver
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    DO Number & Date
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Quantity
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Amount
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Payment Status
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Invoice Info
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Invoices Tab */}
-      {activeTab === "invoices" && (
-        <div className="bg-white shadow-xl rounded-lg overflow-hidden">
-          <div className="px-6 py-4 border-b">
-            <h3 className="text-lg font-medium">All Invoices</h3>
-          </div>
-
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Invoice Number
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  DO Number
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date & Due
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Amount
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  PPH
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Net Amount
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {data.delivery_orders.flatMap((do_) =>
-                do_.invoices.map((invoice) => (
-                  <tr key={invoice.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                      {invoice.invoice_number}
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {paginatedDOs.map((do_) => (
+                  <tr
+                    key={do_.id}
+                    className="hover:bg-gray-50 transition-colors"
+                  >
+                    <td className="px-6 py-4">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 text-blue-600 rounded border-gray-300"
+                        checked={selectedDOs.includes(do_.id)}
+                        onChange={() => handleDOSelection(do_.id)}
+                        disabled={
+                          do_.invoices.length > 0 || do_.status !== "completed"
+                        }
+                        title={
+                          do_.invoices.length > 0
+                            ? "Sudah ada invoice, tidak bisa di-select untuk bulk"
+                            : ""
+                        }
+                      />
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {do_.do_number}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      <div>
-                        {new Date(invoice.invoice_date).toLocaleDateString(
-                          "id-ID"
-                        )}
+
+                    <td className="px-6 py-4">
+                      <div className="text-sm font-medium text-gray-900">
+                        {do_.vehicle.license_plate}
                       </div>
-                      {invoice.due_date && (
-                        <div className="text-xs">
-                          Due:{" "}
-                          {new Date(invoice.due_date).toLocaleDateString(
+                      <div className="text-sm text-gray-500">
+                        {do_.driver.driverProfile.full_name}
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        {do_.vehicle.type}
+                      </div>
+                    </td>
+
+                    <td className="px-6 py-4">
+                      <div className="text-sm font-medium text-gray-900">
+                        {do_.do_number}
+                      </div>
+                      {do_.completed_at && (
+                        <div className="text-sm text-gray-500">
+                          {new Date(do_.completed_at).toLocaleDateString(
                             "id-ID"
                           )}
                         </div>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      Rp{" "}
-                      {parseFloat(invoice.invoice_amount).toLocaleString(
-                        "id-ID"
+
+                    <td className="px-6 py-4">
+                      <div className="text-sm">
+                        <div className="text-gray-500">
+                          Target:{" "}
+                          {parseFloat(do_.minimal_load_quantity).toLocaleString(
+                            "id-ID"
+                          )}{" "}
+                          {do_.unit}
+                        </div>
+                        {do_.actual_load_quantity && (
+                          <div className="font-medium text-gray-900">
+                            Actual:{" "}
+                            {parseFloat(
+                              do_.actual_load_quantity
+                            ).toLocaleString("id-ID")}{" "}
+                            {do_.unit}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+
+                    <td className="px-6 py-4">
+                      <div className="text-sm font-medium text-gray-900">
+                        Rp{" "}
+                        {parseFloat(do_.total_amount).toLocaleString("id-ID")}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        @ Rp{" "}
+                        {parseFloat(do_.unit_price).toLocaleString("id-ID")}/
+                        {do_.unit}
+                      </div>
+                    </td>
+
+                    <td className="px-6 py-4">
+                      {getPaymentStatusBadge(do_.payment_status)}
+                      {do_.payments.length > 0 && (
+                        <div className="text-xs text-gray-500 mt-1">
+                          {do_.payments.length} payment(s)
+                        </div>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-sm">
-                      <div>{invoice.pph_percentage}%</div>
-                      <div className="text-xs text-gray-500">
-                        Rp{" "}
-                        {parseFloat(invoice.pph_amount).toLocaleString("id-ID")}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                      Rp{" "}
-                      {parseFloat(invoice.net_amount).toLocaleString("id-ID")}
-                    </td>
+
                     <td className="px-6 py-4">
-                      <span
-                        className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                          invoice.status === "paid"
-                            ? "bg-green-100 text-green-800"
-                            : invoice.status === "sent"
-                            ? "bg-blue-100 text-blue-800"
-                            : "bg-yellow-100 text-yellow-800"
-                        }`}
-                      >
-                        {invoice.status}
-                      </span>
+                      {do_.invoices.length > 0 ? (
+                        <div className="space-y-1">
+                          {do_.invoices.map((invoice) => (
+                            <div key={invoice.id} className="text-xs">
+                              <div className="font-medium">
+                                {invoice.invoice_number}
+                              </div>
+                              <div className="text-gray-500">
+                                Rp{" "}
+                                {parseFloat(invoice.net_amount).toLocaleString(
+                                  "id-ID"
+                                )}
+                                (PPH {invoice.pph_percentage}%)
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-400">
+                          No invoice
+                        </span>
+                      )}
                     </td>
+
                     <td className="px-6 py-4 text-right text-sm font-medium">
-                      <div className="flex items-center justify-end space-x-2">
-                        <EditablePphCell
-                          invoice={{
-                            id: invoice.id,
-                            pph_percentage: parseFloat(invoice.pph_percentage),
-                            pph_amount: parseFloat(invoice.pph_amount),
-                            net_amount: parseFloat(invoice.net_amount),
-                            invoice_amount: parseFloat(invoice.invoice_amount),
-                            status: invoice.status,
-                          }}
-                          onUpdate={(invoiceId, updatedData) => {
-                            // Refresh PO data setelah PPH update
-                            fetchPOData();
-                          }}
-                        />
-                        <button
-                          onClick={() => handleDownloadInvoice(invoice.id)}
-                          className="text-green-600 hover:text-green-900 text-xs"
-                        >
-                          Download
-                        </button>
-                      </div>
+                      <Link
+                        to={`/ritase/delivery-orders/${do_.id}/payment`}
+                        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-semibold transition-colors"
+                      >
+                        Manage
+                      </Link>
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          <div className="px-6 py-4 border-t flex justify-between items-center text-sm">
+            <p>
+              Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
+              {Math.min(currentPage * itemsPerPage, processedDOs.length)} of{" "}
+              {processedDOs.length} entries
+            </p>
+            <div className="space-x-2">
+              <button
+                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1 border rounded disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <button
+                onClick={() =>
+                  setCurrentPage((prev) => Math.min(prev + 1, totalPages))
+                }
+                disabled={currentPage === totalPages}
+                className="px-3 py-1 border rounded disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
         </div>
       )}
+      {/* Invoices Tab (Improved with sorting) */}
+      {activeTab === "invoices" && (
+        <div className="bg-white shadow-md rounded-lg overflow-hidden">
+          <div className="px-6 py-4 border-b">
+            <h3 className="text-lg font-medium">All Invoices</h3>
+          </div>
 
-      {/* Analytics Tab */}
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Invoice Number
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    DO Number
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Date & Due
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Amount
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    PPH
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Net Amount
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {data.delivery_orders.flatMap((do_) =>
+                  do_.invoices.map((invoice) => (
+                    <tr
+                      key={invoice.id}
+                      className="hover:bg-gray-50 transition-colors"
+                    >
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                        {invoice.invoice_number}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-500">
+                        {do_.do_number}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-500">
+                        <div>
+                          {new Date(invoice.invoice_date).toLocaleDateString(
+                            "id-ID"
+                          )}
+                        </div>
+                        {invoice.due_date && (
+                          <div className="text-xs">
+                            Due:{" "}
+                            {new Date(invoice.due_date).toLocaleDateString(
+                              "id-ID"
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900">
+                        Rp{" "}
+                        {parseFloat(invoice.invoice_amount).toLocaleString(
+                          "id-ID"
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        <div>{invoice.pph_percentage}%</div>
+                        <div className="text-xs text-gray-500">
+                          Rp{" "}
+                          {parseFloat(invoice.pph_amount).toLocaleString(
+                            "id-ID"
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                        Rp{" "}
+                        {parseFloat(invoice.net_amount).toLocaleString("id-ID")}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span
+                          className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                            invoice.status === "paid"
+                              ? "bg-green-100 text-green-800"
+                              : invoice.status === "sent"
+                              ? "bg-blue-100 text-blue-800"
+                              : "bg-yellow-100 text-yellow-800"
+                          }`}
+                        >
+                          {invoice.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right text-sm font-medium">
+                        <div className="flex items-center justify-end space-x-2">
+                          <EditablePphCell
+                            invoice={{
+                              id: invoice.id,
+                              pph_percentage: parseFloat(
+                                invoice.pph_percentage
+                              ),
+                              pph_amount: parseFloat(invoice.pph_amount),
+                              net_amount: parseFloat(invoice.net_amount),
+                              invoice_amount: parseFloat(
+                                invoice.invoice_amount
+                              ),
+                              status: invoice.status,
+                            }}
+                            onUpdate={(invoiceId, updatedData) => {
+                              // Refresh PO data setelah PPH update
+                              fetchPOData();
+                            }}
+                          />
+                          <button
+  onClick={() => handleDownloadInvoice(invoice.id)}
+  disabled={downloadingInvoiceId === invoice.id}
+  className="text-green-600 hover:text-green-900 text-xs disabled:opacity-50"
+>
+  {downloadingInvoiceId === invoice.id ? (
+    <span className="flex items-center">
+      <svg className="animate-spin -ml-1 mr-1 h-3 w-3" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+      </svg>
+      Loading...
+    </span>
+  ) : (
+    'Download'
+  )}
+</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      {/* Analytics Tab (Improved with charts) */}
       {activeTab === "analytics" && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Completion Progress */}
-          <div className="bg-white shadow rounded-lg p-6">
+          <div className="bg-white shadow-md rounded-lg p-6">
             <h3 className="text-lg font-medium mb-4">Progress Overview</h3>
-            <div className="space-y-4">
+            <div className="space-y-6">
               <div>
                 <div className="flex justify-between text-sm mb-1">
                   <span>Quantity Progress</span>
                   <span>{summary.completion_percentage.toFixed(1)}%</span>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
+                <div className="w-full bg-gray-200 rounded-full h-3">
                   <div
-                    className="bg-blue-600 h-2 rounded-full"
+                    className="bg-blue-600 h-3 rounded-full"
                     style={{
                       width: `${Math.min(summary.completion_percentage, 100)}%`,
                     }}
@@ -809,9 +1303,9 @@ const POSpecificRitaseTable: React.FC = () => {
                     %
                   </span>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
+                <div className="w-full bg-gray-200 rounded-full h-3">
                   <div
-                    className="bg-green-600 h-2 rounded-full"
+                    className="bg-green-600 h-3 rounded-full"
                     style={{
                       width: `${
                         ((summary.total_revenue -
@@ -824,10 +1318,19 @@ const POSpecificRitaseTable: React.FC = () => {
                 </div>
               </div>
             </div>
+            <div className="mt-6">
+              <Pie
+                data={pieData}
+                options={{
+                  responsive: true,
+                  plugins: { legend: { position: "bottom" } },
+                }}
+              />
+            </div>
           </div>
 
           {/* Financial Breakdown */}
-          <div className="bg-white shadow rounded-lg p-6">
+          <div className="bg-white shadow-md rounded-lg p-6">
             <h3 className="text-lg font-medium mb-4">Financial Breakdown</h3>
             <div className="space-y-3">
               <div className="flex justify-between">
@@ -863,9 +1366,108 @@ const POSpecificRitaseTable: React.FC = () => {
                 </div>
               )}
             </div>
+            <div className="mt-6">
+              <Bar
+                data={barData}
+                options={{
+                  responsive: true,
+                  indexAxis: "y" as const,
+                  plugins: { legend: { display: false } },
+                }}
+              />
+            </div>
           </div>
         </div>
       )}
+      {showBulkInvoiceModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-auto">
+            <h3 className="text-lg font-semibold mb-4">Create Bulk Invoice</h3>
+
+            <p className="mb-4">
+              Creating invoices for <strong>{selectedDOs.length}</strong>{" "}
+              delivery order
+              {selectedDOs.length > 1 ? "s" : ""}.
+            </p>
+
+            <label className="block mb-2 text-sm font-medium text-gray-700">
+              Invoice Number (optional)
+            </label>
+            <input
+              type="text"
+              value={bulkInvoiceNumber}
+              onChange={(e) => setBulkInvoiceNumber(e.target.value)}
+              placeholder="Auto-generated if empty"
+              className="mb-4 w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+
+            <label className="block mb-2 text-sm font-medium text-gray-700">
+              PPH (%) (optional)
+            </label>
+            <input
+              type="number"
+              value={bulkPphPercentage !== undefined ? bulkPphPercentage : ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                setBulkPphPercentage(val ? Number(val) : undefined);
+              }}
+              placeholder="Leave empty for default"
+              min={0}
+              step={0.01}
+              className="mb-4 w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+
+            <label className="block mb-2 text-sm font-medium text-gray-700">
+              Due Date (optional)
+            </label>
+            <input
+              type="date"
+              value={bulkDueDate}
+              onChange={(e) => setBulkDueDate(e.target.value)}
+              className="mb-4 w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+
+            <label className="block mb-2 text-sm font-medium text-gray-700">
+              Notes (optional)
+            </label>
+            <textarea
+              value={bulkNotes}
+              onChange={(e) => setBulkNotes(e.target.value)}
+              placeholder="Add any notes for the bulk invoice"
+              rows={3}
+              className="mb-4 w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+
+            {bulkInvoiceError && (
+              <div className="mb-4 text-sm text-red-600 font-medium">
+                {bulkInvoiceError}
+              </div>
+            )}
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setShowBulkInvoiceModal(false)}
+                disabled={bulkInvoiceLoading}
+                className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateBulkInvoice}
+                disabled={bulkInvoiceLoading}
+                className={`px-4 py-2 rounded text-white ${
+                  bulkInvoiceLoading
+                    ? "bg-purple-300"
+                    : "bg-purple-600 hover:bg-purple-700"
+                }`}
+              >
+                {bulkInvoiceLoading ? "Creating..." : "Create"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      ;
     </div>
   );
 };

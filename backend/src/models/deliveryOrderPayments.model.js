@@ -81,7 +81,7 @@ module.exports = (sequelize) => {
       },
       attachment_urls: {
         type: DataTypes.ARRAY(DataTypes.STRING),
-        allowNull: true
+        allowNull: true,
       },
       created_by: {
         type: DataTypes.INTEGER,

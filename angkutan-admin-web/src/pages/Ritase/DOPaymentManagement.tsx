@@ -712,6 +712,12 @@ const DOPaymentManagement: React.FC = () => {
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
+                    <span className="text-purple-100">Item Name:</span>
+                    <span className="text-white font-medium">
+                      {do_item.item_name || "N/A"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
                     <span className="text-purple-100">Actual Quantity:</span>
                     <span className="text-white font-medium">
                       {formatQuantityWithUnit(billableQuantity, unit)}
