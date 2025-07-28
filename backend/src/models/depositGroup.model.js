@@ -53,11 +53,22 @@ module.exports = (sequelize) => {
         allowNull: false,
         defaultValue: 'active',
         validate: {
-          isIn: [['active', 'fulfilled', 'overdrawn']]
+          isIn: [['active', 'fulfilled', 'overdrawn', 'cancelled', 'pending_selisih']],
         },
         comment: "Status of the deposit group",
       },
-      created_at: {
+      total_selisih_amount: {
+        type: DataTypes.DECIMAL(20, 2),
+        defaultValue: 0,
+      },
+      selisih_details: {
+        type: DataTypes.TEXT,
+      },
+      selisih_status: {
+        type: DataTypes.STRING,
+        defaultValue: 'none', // e.g., 'none', 'pending', 'paid'
+      },
+        created_at: {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW,
         field: "created_at",

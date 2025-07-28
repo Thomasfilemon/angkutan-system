@@ -943,28 +943,38 @@ exports.completeDeliveryOrder = async (req, res, next) => {
       });
     }
 
-    // Check if DO is linked to deposit group
+    // Check if DO is linked to a deposit group via its PO
     const po = deliveryOrder.purchaseOrder;
     const isDepositLinked = !!(po && po.deposit_group_id);
 
-    // Auto-payment logic: Set payment status based on deposit linkage
+    // Check if DO is a direct member of any deposit group
+    const dgMember = await DepositGroupMember.findOne({
+      where: { delivery_order_id: id },
+      include: [{ model: DepositGroup, as: 'group' }],
+      transaction,
+    });
+
+    const isInDepositGroup = !!dgMember;
+
+    // Auto-payment logic: Set payment status based on ANY deposit linkage
     let paymentStatus;
     let paymentConfirmationStatus;
     let paymentConfirmedAt = null;
 
-    if (isDepositLinked) {
-      // Deposit-linked DOs are automatically paid
+    if (isDepositLinked || isInDepositGroup) {
+      // Any deposit-linked DO should be automatically marked as paid upon completion
       paymentStatus = "lunas";
       paymentConfirmationStatus = "confirmed";
       paymentConfirmedAt = new Date();
-      console.log(`✅ DO ${id} auto-paid via deposit group ${po.deposit_group_id}`);
+      
+      console.log(`✅ DO ${id} auto-paid via deposit group - Deposit linked: ${isDepositLinked}, In group: ${isInDepositGroup}`);
     } else {
-      // Regular DOs follow normal payment process
+      // Regular DOs follow the normal payment process
       paymentStatus = "awaiting_confirmation";
       paymentConfirmationStatus = "awaiting_confirmation";
     }
 
-    // Update DO with completion data
+    // Prepare data for updating the Delivery Order
     const updateData = {
       status: "completed",
       completed_at: new Date(),
@@ -977,73 +987,66 @@ exports.completeDeliveryOrder = async (req, res, next) => {
 
     await deliveryOrder.update(updateData, { transaction });
 
-    // Update DepositGroupMember.quantity with actual quantity
-    await DepositGroupMember.update(
-      { quantity: updateData.actual_load_quantity },
-      { where: { delivery_order_id: id }, transaction }
-    );
-
-    // Handle deposit group reduction for ANY DO in a group
-    const dgMember = await DepositGroupMember.findOne({
-      where: { delivery_order_id: id },
-      include: [{ model: DepositGroup, as: 'group' }],
-      transaction,
-    });
-
+    // If the DO is part of a deposit group, update the group's balance and quantity
     if (dgMember && dgMember.group) {
       const grp = dgMember.group;
       const qtyUsed = parseFloat(updateData.actual_load_quantity);
-      const priceUsed = qtyUsed * parseFloat(deliveryOrder.unit_price);
+      // Ensure unit_price is a valid number before calculation
+      const unitPrice = parseFloat(deliveryOrder.unit_price);
+      if (isNaN(unitPrice)) {
+          throw new Error(`Invalid unit_price for DO ${deliveryOrder.id}`);
+      }
+      const priceUsed = qtyUsed * unitPrice;
 
-      console.log(`Processing deposit group ${grp.id} for DO ${id}`);
+      console.log(`🔄 Processing deposit group ${grp.id} for DO ${id}`);
+      console.log(`📊 Reducing: ${qtyUsed} qty, Rp ${priceUsed.toLocaleString('id-ID')} amount`);
 
-      // 1) Reduce remaining_quantity
-      grp.remaining_quantity = parseFloat(grp.remaining_quantity) - qtyUsed;
+      // Properly reduce both quantity and balance
+      const currentRemaining = parseFloat(grp.remaining_quantity) || 0;
+      const currentBalance = parseFloat(grp.balance) || 0;
+      
+      grp.remaining_quantity = Math.max(0, currentRemaining - qtyUsed);
+      grp.balance = Math.max(0, currentBalance - priceUsed);
 
-      // 2) Reduce saldo (balance)
-      grp.balance = parseFloat(grp.balance) - priceUsed;
-
-      // 3) Update status if needed
-      if (grp.remaining_quantity <= 0) grp.status = 'fulfilled';
-      else if (grp.remaining_quantity < 0) grp.status = 'overdrawn';
+      // Update group status based on remaining quantities
+      if (grp.remaining_quantity <= 0 && grp.balance <= 0) {
+        grp.status = 'fulfilled';
+      } else if (grp.remaining_quantity < 0 || grp.balance < 0) {
+        grp.status = 'overdrawn';
+      } else {
+        grp.status = 'active';
+      }
 
       await grp.save({ transaction });
+      
+      // Also update the quantity in the DepositGroupMember table itself
+      await dgMember.update({ quantity: qtyUsed }, { transaction });
 
-      // Force DO to be prepaid regardless of how it was added to group
-      await deliveryOrder.update(
-        { 
-          payment_status: 'lunas', 
-          payment_confirmation_status: 'confirmed',
-          payment_confirmation_at: new Date()
-        },
-        { transaction }
-      );
+      console.log(`✅ Updated deposit group: remaining ${grp.remaining_quantity}, balance Rp ${grp.balance.toLocaleString('id-ID')}`);
 
       // Handle excess quantities (selisih)
       const minimalQuantity = parseFloat(deliveryOrder.minimal_load_quantity);
       const excess = qtyUsed - minimalQuantity;
       
       if (excess > 0) {
-        const unitPrice = parseFloat(deliveryOrder.unit_price);
         const excessAmount = excess * unitPrice;
 
-        // Create adjustment record for excess
+        // Create adjustment record for excess quantity
         await DeliveryOrderAdjustments.create({
           delivery_order_id: id,
-          adjustment_type: 'excess_quantity',
-          original_amount: minimalQuantity * unitPrice,
-          adjustment_amount: excessAmount,
-          final_amount: qtyUsed * unitPrice,
-          reason: `Excess quantity from deposit: ${excess.toFixed(2)} ${deliveryOrder.unit || 'ton'} beyond minimal load`,
-          approved_by: req.user?.id || null,
-          created_by: req.user?.id || null,
+          payment_amount: priceUsed,
+          payment_type: 'deposit', // Use 'deposit' as the payment type
+          payment_date: new Date(),
+          notes: `Auto-payment from Deposit Group: ${grp.group_name}`,
+          received_by: req.user?.id,
+          created_by: req.user?.id,
         }, { transaction });
 
         console.log(`📊 Recorded excess: ${excess} ${deliveryOrder.unit} = Rp ${excessAmount.toLocaleString('id-ID')}`);
       }
     }
 
-    // Free up vehicle
+    // Free up vehicle for another trip
     if (deliveryOrder.vehicle_id) {
       await Vehicle.update(
         { status: "available" },
@@ -1053,7 +1056,7 @@ exports.completeDeliveryOrder = async (req, res, next) => {
 
     await transaction.commit();
 
-    // Return updated DO with enriched data
+    // Return updated DO with enriched data for the frontend
     const updatedDO = await DeliveryOrder.findByPk(id, {
       include: [
         {
@@ -1071,7 +1074,7 @@ exports.completeDeliveryOrder = async (req, res, next) => {
       ],
     });
 
-    const isAutoPaid = !!dgMember;
+    const isAutoPaid = !!(isDepositLinked || isInDepositGroup);
 
     res.json({
       success: true,
@@ -1100,6 +1103,7 @@ exports.completeDeliveryOrder = async (req, res, next) => {
     next(err);
   }
 };
+
 
 /**
  * 🎯 GET DELIVERY STATISTICS (Enhanced)

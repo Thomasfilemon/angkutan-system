@@ -83,9 +83,16 @@ router.put(
 
 // ✅ Invoice generation routes
 router.post(
-  "/:group_id/selisih-invoice",
+  "/:id/generate-selisih",
   checkRole(["admin", "owner"]),
   depositGroupController.generateSelisihInvoice
+);
+
+// ✅ Route for paying selisih
+router.post(
+  "/:id/pay-selisih",
+  checkRole(["admin", "owner", "finance"]),
+  depositGroupController.paySelisih
 );
 
 module.exports = router;

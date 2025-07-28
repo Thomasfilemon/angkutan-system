@@ -7,6 +7,10 @@ const {
   User,
   DriverExpense,
   DriverProfile,
+  DepositGroup, // Add DepositGroup
+  DepositGroupMember, // Add DepositGroupMember
+  DeliveryOrderAdjustments,
+  DeliveryOrderPayments, // <<< FIX: Make sure this is imported
   sequelize,
   Sequelize,
 } = require("../models");
@@ -538,86 +542,110 @@ exports.startReturnToBase = (req, res, next) => {
 
 // PATCH /api/delivery-orders/:id/complete
 exports.completeDeliveryOrder = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
   try {
-    await sequelize.transaction(async (t) => {
-      const order = await DeliveryOrder.findOne({
-        where: { id: req.params.id, driver_id: req.user.id },
-        transaction: t,
-      });
+    const { id } = req.params;
+    const { notes } = req.body || {}; 
+    const driverId = req.user.id;
 
-      if (!order) {
-        throw { status: 404, message: "Delivery Order not found." };
-      }
-
-      // Verify current status
-      if (order.status !== "otw_to_base") {
-        throw {
-          status: 400,
-          message: `Cannot complete delivery. Current status: ${order.status}`,
-        };
-      }
-
-      // Update DO Status
-      await order.update(
-        {
-          status: "completed",
-          completed_at: new Date(),
-        },
-        { transaction: t }
-      );
-
-      // === AUTO-REDUCE PO QUANTITY ===
-      if (order.purchase_order_id && order.actual_load_quantity) {
-        const po = await PurchaseOrder.findByPk(order.purchase_order_id, {
-          transaction: t,
-        });
-
-        if (po) {
-          // Calculate total delivered quantity for this PO
-          const totalDelivered = await DeliveryOrder.sum(
-            "actual_load_quantity",
-            {
-              where: {
-                purchase_order_id: order.purchase_order_id,
-                status: "completed",
-                actual_load_quantity: { [Op.ne]: null },
-              },
-              transaction: t,
-            }
-          );
-
-          console.log(
-            `PO ${po.po_number}: Total delivered = ${totalDelivered}/${po.total_quantity}`
-          );
-
-          // Update PO status if fully delivered
-          const remainingQuantity =
-            parseFloat(po.total_quantity) - (totalDelivered || 0);
-          if (remainingQuantity <= 0) {
-            await po.update({ status: "completed" }, { transaction: t });
-            console.log(`PO ${po.po_number} marked as completed`);
-          }
-        }
-      }
-
-      // Free up resources
-      await DriverProfile.update(
-        { status: "available" },
-        { where: { user_id: req.user.id }, transaction: t }
-      );
-
-      await Vehicle.update(
-        { status: "available" },
-        { where: { id: order.vehicle_id }, transaction: t }
-      );
+    const order = await DeliveryOrder.findOne({
+      where: { id: id, driver_id: driverId },
+      include: [{
+          model: PurchaseOrder,
+          as: "purchaseOrder",
+          attributes: ["id", "deposit_group_id"]
+      }],
+      transaction: transaction,
     });
+
+    if (!order) {
+      await transaction.rollback();
+      return res.status(404).json({ message: "Delivery Order not found or not assigned to you." });
+    }
+
+    if (order.status !== "otw_to_base") {
+      await transaction.rollback();
+      return res.status(400).json({
+          message: `Cannot complete delivery. Current status: ${order.status}.`,
+      });
+    }
+    
+    if (!order.actual_load_quantity) {
+        await transaction.rollback();
+        return res.status(400).json({ message: "Cannot complete order. Actual load quantity has not been confirmed." });
+    }
+
+    const dgMember = await DepositGroupMember.findOne({
+        where: { delivery_order_id: id },
+        include: [{ model: DepositGroup, as: 'depositGroup' }], 
+        transaction,
+    });
+
+    let paymentStatusUpdate = {};
+    let priceUsed = 0;
+    let grp = null;
+
+    if (dgMember && dgMember.depositGroup) {
+        paymentStatusUpdate = {
+            payment_status: 'lunas',
+            payment_confirmation_status: 'confirmed',
+            payment_confirmation_at: new Date()
+        };
+
+        grp = dgMember.depositGroup;
+        const qtyUsed = parseFloat(order.actual_load_quantity); 
+        const unitPrice = parseFloat(order.unit_price);
+        priceUsed = qtyUsed * unitPrice;
+
+        // Update group's balance and quantity
+        grp.remaining_quantity = parseFloat(grp.remaining_quantity) - qtyUsed;
+        grp.balance = parseFloat(grp.balance) - priceUsed;
+        if (grp.remaining_quantity <= 0) grp.status = 'fulfilled';
+        await grp.save({ transaction });
+        await dgMember.update({ quantity: qtyUsed }, { transaction });
+    }
+
+    // *** FIX STARTS HERE: Update the Delivery Order FIRST ***
+    await order.update({
+        status: "completed",
+        completed_at: new Date(),
+        notes: notes || order.notes,
+        ...paymentStatusUpdate
+    }, { transaction: transaction });
+    // *** FIX ENDS HERE ***
+
+    // *** THEN, create the payment record ***
+    if (dgMember && dgMember.depositGroup) {
+        await DeliveryOrderPayments.create({
+            delivery_order_id: id,
+            payment_amount: priceUsed,
+            payment_type: 'transfer', // Use an allowed payment type
+            payment_date: new Date(),
+            notes: `Auto-payment from Deposit Group: ${grp.group_name}`,
+            received_by: req.user?.id,
+            created_by: req.user?.id,
+        }, { transaction });
+    }
+
+    // Free up driver and vehicle
+    await DriverProfile.update(
+      { status: "available" },
+      { where: { user_id: driverId }, transaction: transaction }
+    );
+    await Vehicle.update(
+      { status: "available" },
+      { where: { id: order.vehicle_id }, transaction: transaction }
+    );
+
+    await transaction.commit();
 
     res.json({
       message: "Delivery Order completed successfully!",
       status_text: "Perjalanan Selesai",
     });
   } catch (err) {
-    console.error("Error completing delivery order:", err);
+    await transaction.rollback();
+    console.error("Error completing delivery order from mobile:", err);
     next(err);
   }
 };

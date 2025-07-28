@@ -15,6 +15,9 @@ interface DepositGroup {
   status?: string;
   created_at: string;
   updated_at: string;
+  total_selisih_amount?: number;
+  selisih_details?: string;
+  selisih_status?: string;
 }
 
 interface DeliveryOrder {
@@ -40,7 +43,6 @@ interface GroupMember {
   deliveryOrder: DeliveryOrder;
 }
 
-// ✅ NEW: LinkedPO interface
 interface LinkedPO {
   id: number;
   po_number: string;
@@ -56,10 +58,18 @@ interface LinkedPO {
   }>;
 }
 
-// ✅ UPDATED: Add linkedPOs to SelectedGroup
+interface SelisihCharge {
+    id: number;
+    adjustment_amount: number;
+    reason: string;
+    created_at: string;
+    status: string; // e.g., 'pending', 'paid'
+}
+  
 interface SelectedGroup extends DepositGroup {
-  members: GroupMember[];
-  linkedPOs?: LinkedPO[];
+    members: GroupMember[];
+    linkedPOs?: LinkedPO[];
+    selisih_charges?: SelisihCharge[]; // To hold selisih data
 }
 
 interface ExtraCharge {
@@ -73,7 +83,6 @@ interface ExtraCharge {
   isPaid: boolean;
 }
 
-// ✅ NEW: Available PO interface for linking
 interface AvailablePO {
   id: number;
   po_number: string;
@@ -94,9 +103,11 @@ const DepositGroupManagement: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showAddDOModal, setShowAddDOModal] = useState(false);
   const [showExtraCharges, setShowExtraCharges] = useState(false);
+  const [showPaySelisihModal, setShowPaySelisihModal] = useState(false);
+  const [selisihPaymentAmount, setSelisihPaymentAmount] = useState('');
   const [extraCharges, setExtraCharges] = useState<ExtraCharge[]>([]);
 
-  // ✅ NEW: States for PO linking
+  // States for PO linking
   const [showLinkPOModal, setShowLinkPOModal] = useState(false);
   const [availablePOs, setAvailablePOs] = useState<AvailablePO[]>([]);
   const [selectedPOId, setSelectedPOId] = useState<number | null>(null);
@@ -139,12 +150,13 @@ const DepositGroupManagement: React.FC = () => {
       confirmed: 'bg-blue-100 text-blue-800',
       partial: 'bg-yellow-100 text-yellow-800',
       completed: 'bg-green-100 text-green-800',
-      cancelled: 'bg-red-100 text-red-800'
+      cancelled: 'bg-red-100 text-red-800',
+      pending_selisih: 'bg-yellow-100 text-yellow-800' // New status
     };
 
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusColors[status as keyof typeof statusColors] || 'bg-gray-100 text-gray-800'}`}>
-        {status}
+        {status.replace('_', ' ')}
       </span>
     );
   };
@@ -196,7 +208,7 @@ const DepositGroupManagement: React.FC = () => {
     }
   };
 
-  // ✅ NEW: Fetch available POs for linking
+  // Fetch available POs for linking
   const fetchAvailablePOs = async () => {
     try {
       const response = await apiClient.get('/purchase-orders/available-for-delivery');
@@ -207,7 +219,7 @@ const DepositGroupManagement: React.FC = () => {
     }
   };
 
-  // ✅ NEW: Link PO to deposit group
+  // Link PO to deposit group
   const linkPOToGroup = async () => {
     if (!selectedGroup || !selectedPOId) return;
 
@@ -311,21 +323,37 @@ const DepositGroupManagement: React.FC = () => {
   const handleGenerateSelisih = async (groupId: number) => {
     try {
       setIsLoading(true);
-      const response = await apiClient.post(`/deposit-groups/${groupId}/selisih-invoice`);
-      toast.success('Selisih invoice generated successfully!');
+      const response = await apiClient.post(`/deposit-groups/${groupId}/generate-selisih`);
+      toast.success(response.data.message || 'Tagihan selisih berhasil dibuat!');
       
-      // Optionally refresh the groups list
-      fetchGroups();
-      if (selectedGroup?.id === groupId) {
-        fetchGroupDetails(groupId);
-      }
+      // Refresh the details to show the new selisih charge
+      fetchGroupDetails(groupId);
     } catch (error: any) {
       console.error('Error generating selisih invoice:', error);
-      toast.error(error.response?.data?.message || 'Failed to generate selisih invoice');
+      toast.error(error.response?.data?.message || 'Gagal membuat tagihan selisih.');
     } finally {
       setIsLoading(false);
     }
   };
+
+  const handlePaySelisih = async () => {
+    if (!selectedGroup || !selisihPaymentAmount) return;
+    try {
+        setIsLoading(true);
+        const response = await apiClient.post(`/deposit-groups/${selectedGroup.id}/pay-selisih`, {
+            payment_amount: parseFloat(selisihPaymentAmount)
+        });
+        toast.success(response.data.message);
+        setShowPaySelisihModal(false);
+        setSelisihPaymentAmount('');
+        fetchGroupDetails(selectedGroup.id);
+    } catch (error: any) {
+        toast.error(error.response?.data?.message || 'Failed to pay selisih.');
+    } finally {
+        setIsLoading(false);
+    }
+  };
+
 
   const payExtraCharge = async (memberId: number) => {
     try {
@@ -387,7 +415,6 @@ const DepositGroupManagement: React.FC = () => {
     }
   }, [showAddDOModal]);
 
-  // ✅ NEW: Fetch available POs when modal opens
   useEffect(() => {
     if (showLinkPOModal) {
       fetchAvailablePOs();
@@ -407,88 +434,256 @@ const DepositGroupManagement: React.FC = () => {
         </button>
       </div>
 
-      {/* Groups List */}
-      {!selectedGroup ? (
-        <div className="bg-white rounded-lg shadow">
+      {selectedGroup ? (
+        <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold">{selectedGroup.group_name}</h2>
+                <button
+                  onClick={() => setSelectedGroup(null)}
+                  className="text-gray-600 hover:text-gray-800"
+                >
+                  ← Back to Groups
+                </button>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="text-sm text-gray-600">Target Quantity</label>
+                  <div className="font-medium">
+                    {selectedGroup.target_quantity?.toLocaleString('id-ID') || 0} {getUnitDisplay(selectedGroup.unit || 'ton')}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm text-gray-600">Remaining Quantity</label>
+                  <div className="font-medium">
+                    {selectedGroup.remaining_quantity?.toLocaleString('id-ID') || 0} {getUnitDisplay(selectedGroup.unit || 'ton')}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm text-gray-600">Deposited Amount</label>
+                  <div className="font-medium">{formatCurrency(selectedGroup.deposited_amount || 0)}</div>
+                </div>
+                <div>
+                  <label className="text-sm text-gray-600">Current Balance</label>
+                  <div className="font-medium">{formatCurrency(selectedGroup.balance)}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Linked Purchase Orders Section */}
+            {selectedGroup.linkedPOs && selectedGroup.linkedPOs.length > 0 && (
+              <div className="bg-white rounded-lg shadow">
+                <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                  <h3 className="text-lg font-medium">📋 Linked Purchase Orders</h3>
+                  <button
+                    onClick={() => setShowLinkPOModal(true)}
+                    className="bg-indigo-500 hover:bg-indigo-700 text-white px-4 py-2 rounded text-sm"
+                  >
+                    + Link PO
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          PO Number
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Customer
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Quantity
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Status
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          DOs Created
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Action
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {selectedGroup.linkedPOs.map((po) => (
+                        <tr key={po.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-2 font-medium text-gray-900">{po.po_number}</td>
+                          <td className="px-4 py-2 text-gray-900">{po.customer_name}</td>
+                          <td className="px-4 py-2 text-gray-900">
+                            {po.total_quantity.toLocaleString('id-ID')} {getUnitDisplay(po.unit)}
+                          </td>
+                          <td className="px-4 py-2">
+                            {getStatusBadge(po.status)}
+                          </td>
+                          <td className="px-4 py-2">
+                            <span className="text-sm">
+                              {po.do_count} DOs
+                              {po.dos.length > 0 && (
+                                <div className="text-xs text-gray-500 mt-1">
+                                  {po.dos.map(d => d.do_number).join(', ')}
+                                </div>
+                              )}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2">
+                            {po.do_count === 0 && (
+                              <button 
+                                className="text-blue-600 hover:text-blue-800 text-sm bg-blue-100 hover:bg-blue-200 px-3 py-1 rounded"
+                                onClick={() => {
+                                  // Navigate to create DO from PO
+                                  window.open(`/admin/purchase-orders/${po.id}/create-do`, '_blank');
+                                }}
+                              >
+                                Create DO
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            
+            <div className="bg-white rounded-lg shadow">
+              <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                <h3 className="text-lg font-medium">Delivery Orders dalam Group</h3>
+                <div className="space-x-2">
+                  {(!selectedGroup.linkedPOs || selectedGroup.linkedPOs.length === 0) && (
+                    <button
+                      onClick={() => setShowLinkPOModal(true)}
+                      className="bg-indigo-500 hover:bg-indigo-700 text-white px-4 py-2 rounded text-sm"
+                    >
+                      + Link PO
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setShowAddDOModal(true)}
+                    className="bg-green-500 hover:bg-green-700 text-white px-4 py-2 rounded text-sm"
+                  >
+                    + Tambah DO
+                  </button>
+                  <button
+                    onClick={() => setShowExtraCharges(!showExtraCharges)}
+                    className="bg-purple-500 hover:bg-purple-700 text-white px-4 py-2 rounded text-sm"
+                  >
+                    {showExtraCharges ? 'Hide' : 'Show'} Extra Charges
+                  </button>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">DO Number</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Min Qty</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actual Qty</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unit Price</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Paid</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {selectedGroup.members.map((member) => {
+                      const doItem = member.deliveryOrder;
+                      const displayQuantity = member.quantity;
+                      const total = doItem.unit_price * displayQuantity;
+                      
+                      return (
+                        <tr key={member.id}>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{doItem.do_number}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{doItem.customer_name}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{doItem.minimal_load_quantity.toLocaleString('id-ID')}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-green-600">
+                            {displayQuantity.toLocaleString('id-ID')}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatCurrency(doItem.unit_price)}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatCurrency(total)}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatCurrency(doItem.paid_amount)}</td>
+                          <td className="px-6 py-4 whitespace-nowrap">{getStatusBadge(doItem.payment_status)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* *** Selisih Charges Section *** */}
+            <div className="bg-white rounded-lg shadow">
+                <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                    <h3 className="text-lg font-medium">Tagihan Selisih (Extra Quantity)</h3>
+                    <button
+                        onClick={() => handleGenerateSelisih(selectedGroup.id)}
+                        className="bg-purple-500 hover:bg-purple-700 text-white px-4 py-2 rounded text-sm"
+                        disabled={isLoading}
+                    >
+                        {isLoading ? 'Generating...' : 'Generate Tagihan Selisih'}
+                    </button>
+                </div>
+                {/* *** FIX: Show this section if status is 'pending' OR 'paid' *** */}
+                {(selectedGroup.selisih_status === 'pending' || selectedGroup.selisih_status === 'paid') ? (
+                    <div className="p-6">
+                        <div className={`p-3 rounded-md border ${selectedGroup.selisih_status === 'paid' ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
+                            <div className="flex justify-between items-center">
+                                <div>
+                                    <p className="font-semibold text-gray-800">Total Tagihan: {formatCurrency(selectedGroup.total_selisih_amount || 0)}</p>
+                                    <pre className="text-xs text-gray-600 mt-2 whitespace-pre-wrap">{selectedGroup.selisih_details}</pre>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    {/* *** FIX: Show status badge and conditionally show PAY button *** */}
+                                    {getStatusBadge(selectedGroup.selisih_status)}
+                                    {selectedGroup.selisih_status === 'pending' && (
+                                        <button
+                                            onClick={() => setShowPaySelisihModal(true)}
+                                            className="bg-green-500 hover:bg-green-700 text-white px-3 py-1 rounded text-xs font-bold"
+                                            disabled={isLoading}
+                                        >
+                                            BAYAR
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="text-center py-8">
+                        <p className="text-gray-500">Tidak ada tagihan selisih untuk group ini.</p>
+                    </div>
+                )}
+            </div>
+        </div>
+      ) : (
+          <div className="bg-white rounded-lg shadow">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Nama Group
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Target Qty
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Remaining Qty
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Deposited Amount
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Saldo
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Dibuat
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Aksi
-                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nama Group</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Target Qty</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Remaining Qty</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Deposited Amount</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Saldo</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Dibuat</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aksi</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {groups.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="px-6 py-4 text-center text-gray-500">
-                      <div className="text-center py-8">
-                        <p className="text-gray-500 mb-4">
-                          Mulai dengan membuat group deposit pertama Anda untuk mengelola saldo DO.
-                        </p>
-                        <button
-                          onClick={() => setShowCreateModal(true)}
-                          className="bg-blue-500 hover:bg-blue-700 text-white px-4 py-2 rounded"
-                        >
-                          + Buat Group Pertama
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  groups.map((group) => (
+                {groups.map((group) => (
                     <tr key={group.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="font-medium text-gray-900">{group.group_name}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
-                          {group.target_quantity?.toLocaleString('id-ID') || 0} {getUnitDisplay(group.unit || 'ton')}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
-                          {group.remaining_quantity?.toLocaleString('id-ID') || 0} {getUnitDisplay(group.unit || 'ton')}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
-                          {formatCurrency(group.deposited_amount || 0)}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
-                          {formatCurrency(group.balance)}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {getStatusBadge(group.status || 'normal')}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {formatDate(group.created_at)}
-                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap"><div className="font-medium text-gray-900">{group.group_name}</div></td>
+                      <td className="px-6 py-4 whitespace-nowrap"><div className="text-sm text-gray-900">{group.target_quantity?.toLocaleString('id-ID') || 0} {getUnitDisplay(group.unit || 'ton')}</div></td>
+                      <td className="px-6 py-4 whitespace-nowrap"><div className="text-sm text-gray-900">{group.remaining_quantity?.toLocaleString('id-ID') || 0} {getUnitDisplay(group.unit || 'ton')}</div></td>
+                      <td className="px-6 py-4 whitespace-nowrap"><div className="text-sm text-gray-900">{formatCurrency(group.deposited_amount || 0)}</div></td>
+                      <td className="px-6 py-4 whitespace-nowrap"><div className="text-sm text-gray-900">{formatCurrency(group.balance)}</div></td>
+                      <td className="px-6 py-4 whitespace-nowrap">{getStatusBadge(group.status || 'normal')}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(group.created_at)}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
                         <button
                           onClick={() => fetchGroupDetails(group.id)}
@@ -496,367 +691,55 @@ const DepositGroupManagement: React.FC = () => {
                         >
                           View
                         </button>
-                        <button
-                          onClick={() => handleGenerateSelisih(group.id)}
-                          className="text-purple-600 hover:text-purple-900 bg-purple-100 hover:bg-purple-200 px-3 py-1 rounded"
-                          disabled={isLoading}
-                        >
-                          Generate Selisih
-                        </button>
                       </td>
                     </tr>
-                  ))
-                )}
+                ))}
               </tbody>
             </table>
           </div>
         </div>
-      ) : (
-        /* Group Details View */
-        <div className="space-y-6">
-          {/* Group Header */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">{selectedGroup.group_name}</h2>
-              <button
-                onClick={() => setSelectedGroup(null)}
-                className="text-gray-600 hover:text-gray-800"
-              >
-                ← Back to Groups
-              </button>
-            </div>
-            
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div>
-                <label className="text-sm text-gray-600">Target Quantity</label>
-                <div className="font-medium">
-                  {selectedGroup.target_quantity?.toLocaleString('id-ID') || 0} {getUnitDisplay(selectedGroup.unit || 'ton')}
-                </div>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">Remaining Quantity</label>
-                <div className="font-medium">
-                  {selectedGroup.remaining_quantity?.toLocaleString('id-ID') || 0} {getUnitDisplay(selectedGroup.unit || 'ton')}
-                </div>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">Deposited Amount</label>
-                <div className="font-medium">{formatCurrency(selectedGroup.deposited_amount || 0)}</div>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">Current Balance</label>
-                <div className="font-medium">{formatCurrency(selectedGroup.balance)}</div>
-              </div>
-            </div>
-          </div>
-
-          {/* ✅ NEW: Linked Purchase Orders Section */}
-          {selectedGroup.linkedPOs && selectedGroup.linkedPOs.length > 0 && (
-            <div className="bg-white rounded-lg shadow">
-              <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-                <h3 className="text-lg font-medium">📋 Linked Purchase Orders</h3>
-                <button
-                  onClick={() => setShowLinkPOModal(true)}
-                  className="bg-indigo-500 hover:bg-indigo-700 text-white px-4 py-2 rounded text-sm"
-                >
-                  + Link PO
-                </button>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        PO Number
-                      </th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Customer
-                      </th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Quantity
-                      </th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        DOs Created
-                      </th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Action
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {selectedGroup.linkedPOs.map((po) => (
-                      <tr key={po.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-2 font-medium text-gray-900">{po.po_number}</td>
-                        <td className="px-4 py-2 text-gray-900">{po.customer_name}</td>
-                        <td className="px-4 py-2 text-gray-900">
-                          {po.total_quantity.toLocaleString('id-ID')} {getUnitDisplay(po.unit)}
-                        </td>
-                        <td className="px-4 py-2">
-                          {getStatusBadge(po.status)}
-                        </td>
-                        <td className="px-4 py-2">
-                          <span className="text-sm">
-                            {po.do_count} DOs
-                            {po.dos.length > 0 && (
-                              <div className="text-xs text-gray-500 mt-1">
-                                {po.dos.map(d => d.do_number).join(', ')}
-                              </div>
-                            )}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2">
-                          {po.do_count === 0 && (
-                            <button 
-                              className="text-blue-600 hover:text-blue-800 text-sm bg-blue-100 hover:bg-blue-200 px-3 py-1 rounded"
-                              onClick={() => {
-                                // Navigate to create DO from PO
-                                window.open(`/admin/purchase-orders/${po.id}/create-do`, '_blank');
-                              }}
-                            >
-                              Create DO
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* DOs in Group */}
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-              <h3 className="text-lg font-medium">Delivery Orders dalam Group</h3>
-              <div className="space-x-2">
-                {/* ✅ UPDATED: Show Link PO button when no linked POs exist */}
-                {(!selectedGroup.linkedPOs || selectedGroup.linkedPOs.length === 0) && (
-                  <button
-                    onClick={() => setShowLinkPOModal(true)}
-                    className="bg-indigo-500 hover:bg-indigo-700 text-white px-4 py-2 rounded text-sm"
-                  >
-                    + Link PO
-                  </button>
-                )}
-                <button
-                  onClick={() => setShowAddDOModal(true)}
-                  className="bg-green-500 hover:bg-green-700 text-white px-4 py-2 rounded text-sm"
-                >
-                  + Tambah DO
-                </button>
-                <button
-                  onClick={() => setShowExtraCharges(!showExtraCharges)}
-                  className="bg-purple-500 hover:bg-purple-700 text-white px-4 py-2 rounded text-sm"
-                >
-                  {showExtraCharges ? 'Hide' : 'Show'} Extra Charges
-                </button>
-              </div>
-            </div>
-
-            {!selectedGroup.members || selectedGroup.members.length === 0 ? (
-              <div className="text-center py-8">
-                <p className="text-gray-500 mb-4">Tidak ada DO dalam group ini</p>
-                <div className="space-x-2">
-                  <button
-                    onClick={() => setShowLinkPOModal(true)}
-                    className="bg-indigo-500 hover:bg-indigo-700 text-white px-4 py-2 rounded"
-                  >
-                    + Link PO
-                  </button>
-                  <button
-                    onClick={() => setShowAddDOModal(true)}
-                    className="bg-green-500 hover:bg-green-700 text-white px-4 py-2 rounded"
-                  >
-                    + Tambah DO
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        DO Number
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Customer
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Min Qty
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Current Qty
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Unit Price
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Total
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Dibayar
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Aksi
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {selectedGroup.members.map((member) => {
-                      const doItem = member.deliveryOrder;
-                      const total = doItem.unit_price * member.quantity;
-                      const unpaid = total - doItem.paid_amount;
-                      
-                      return (
-                        <tr key={member.id}>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                            {doItem.do_number}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {doItem.customer_name}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {doItem.minimal_load_quantity.toLocaleString('id-ID')}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <input
-                              type="number"
-                              value={member.quantity}
-                              onChange={(e) => handleQuantityInputChange(
-                                member.id, 
-                                parseFloat(e.target.value) || 0
-                              )}
-                              className="w-24 px-2 py-1 border rounded"
-                              step="0.01"
-                              min="0"
-                            />
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {formatCurrency(doItem.unit_price)}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {formatCurrency(total)}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {formatCurrency(doItem.paid_amount)}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            {getStatusBadge(doItem.payment_status)}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            {member.quantity > doItem.minimal_load_quantity && doItem.payment_status !== 'lunas' && (
-                              <button
-                                onClick={() => payExtraCharge(member.id)}
-                                className="text-green-600 hover:text-green-900 bg-green-100 hover:bg-green-200 px-3 py-1 rounded text-xs"
-                                disabled={isLoading}
-                              >
-                                Pay Extra
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* Extra Charges Section */}
-          {showExtraCharges && extraCharges.length > 0 && (
-            <div className="bg-white rounded-lg shadow">
-              <div className="px-6 py-4 border-b border-gray-200">
-                <h3 className="text-lg font-medium">Extra Charges Summary</h3>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        DO Number
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Customer
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Min Qty
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Final Qty
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Extra Qty
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Unit Price
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Extra Amount
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Status
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {extraCharges.map((charge, index) => (
-                      <tr key={index}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {charge.doNumber}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {charge.customer}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {charge.minQty.toLocaleString('id-ID')}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {charge.currentQty.toLocaleString('id-ID')}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-medium">
-                          +{charge.extraQuantity.toLocaleString('id-ID')}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {formatCurrency(charge.unitPrice)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
-                          {formatCurrency(charge.extraAmount)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {charge.isPaid ? (
-                            <span className="text-green-600 font-medium">✓ Paid</span>
-                          ) : (
-                            <span className="text-orange-600 font-medium">⏳ Pending</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr className="bg-gray-50 font-medium">
-                      <td colSpan={6} className="px-6 py-4 text-right">
-                        Total Extra Amount:
-                      </td>
-                      <td className="px-6 py-4 text-green-600 font-bold">
-                        {formatCurrency(extraCharges.reduce((sum, charge) => sum + charge.extraAmount, 0))}
-                      </td>
-                      <td></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </div>
+        
       )}
+        
+      {/* Pay Selisih Modal */}
+      {showPaySelisihModal && selectedGroup && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+            <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+                <div className="mt-3">
+                    <h3 className="text-lg font-medium text-gray-900 mb-4">Pay Selisih for {selectedGroup.group_name}</h3>
+                    <p className="text-sm text-gray-600 mb-2">Total Tagihan: {formatCurrency(selectedGroup.total_selisih_amount || 0)}</p>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Payment Amount (Rp)</label>
+                        <input
+                            type="number"
+                            value={selisihPaymentAmount}
+                            onChange={(e) => setSelisihPaymentAmount(e.target.value)}
+                            className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
+                            placeholder="Enter amount to pay"
+                            min="0"
+                        />
+                    </div>
+                    <div className="flex justify-end space-x-3 mt-6">
+                        <button
+                            onClick={() => setShowPaySelisihModal(false)}
+                            className="px-4 py-2 text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            onClick={handlePaySelisih}
+                            disabled={isLoading || !selisihPaymentAmount}
+                            className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
+                        >
+                            {isLoading ? 'Paying...' : 'Pay'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+      )}  
 
+      
       {/* Create Group Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
@@ -953,7 +836,7 @@ const DepositGroupManagement: React.FC = () => {
         </div>
       )}
 
-      {/* ✅ NEW: Link PO Modal */}
+      {/* Link PO Modal */}
       {showLinkPOModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border w-4/5 max-w-4xl shadow-lg rounded-md bg-white">

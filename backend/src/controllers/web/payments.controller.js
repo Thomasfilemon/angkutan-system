@@ -5,6 +5,8 @@ const {
   DeliveryOrderPayments,
   DeliveryOrderPaymentHistory,
   SystemSettings,
+  DepositGroup,        // ✅ ADD THIS
+  DepositGroupMember,
   sequelize,
 } = require("../../models");
 
@@ -835,7 +837,7 @@ module.exports = {
    * Body: { invoice_id?, payment_reference?, payment_type, payment_amount,
    *         payment_date?, bank_account?, notes?, attachment_urls? }
    * ──────────────────────────────────────────────────────────── */
-  async recordPayment(req, res, next) {
+   async recordPayment(req, res, next) {
     const transaction = await sequelize.transaction();
     try {
       const { doId } = req.params;
@@ -855,26 +857,27 @@ module.exports = {
         !payment_type ||
         !["cash", "transfer", "check", "giro"].includes(payment_type)
       ) {
+        await transaction.rollback();
         return res
           .status(400)
           .json({ success: false, message: "Invalid payment_type value" });
       }
 
-      const doRec = await DeliveryOrder.findByPk(doId);
-      if (doRec.payment_status === 'lunas')
-        return res.status(400).json({ success:false, message:'DO already paid' });
+      // Check if the DO is part of a deposit group first.
+      const isDepositMember = await DepositGroupMember.findOne({
+        where: { delivery_order_id: doId },
+        transaction,
+      });
 
-      // Validate payment_amount
-      const amount = toMoney(payment_amount);
-      if (amount <= 0) {
-        return res
-          .status(400)
-          .json({ success: false, message: "payment_amount must be > 0" });
+      if (isDepositMember) {
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: "This DO is managed by a deposit group and cannot be paid manually. Payment is handled upon completion.",
+        });
       }
 
-      // Get user ID
-      const userId = req.user?.id;
-
+      // Fetch the DeliveryOrder inside the transaction
       const doRecord = await DeliveryOrder.findByPk(doId, { transaction });
       if (!doRecord) {
         await transaction.rollback();
@@ -882,6 +885,23 @@ module.exports = {
           .status(404)
           .json({ success: false, message: "Delivery Order not found" });
       }
+
+      // Check payment status inside the transaction
+      if (doRecord.payment_status === 'lunas') {
+        await transaction.rollback();
+        return res.status(400).json({ success: false, message: 'DO already paid' });
+      }
+
+      // Validate payment_amount
+      const amount = toMoney(payment_amount);
+      if (amount <= 0) {
+        await transaction.rollback();
+        return res
+          .status(400)
+          .json({ success: false, message: "payment_amount must be > 0" });
+      }
+
+      const userId = req.user?.id;
 
       let targetInvoice = null;
       if (invoice_id) {
@@ -898,14 +918,13 @@ module.exports = {
         }
       }
 
-      // ✅ UPDATED: Handle multiple file uploads
+      // Handle multiple file uploads
       let final_attachment_urls = [];
       if (req.files && req.files.length > 0) {
         final_attachment_urls = req.files.map(
           (file) => `uploads/payments/${file.filename}`
         );
       } else if (attachment_urls) {
-        // Fallback to attachment_urls from request body (if provided)
         final_attachment_urls = Array.isArray(attachment_urls)
           ? attachment_urls
           : JSON.parse(attachment_urls || "[]");
@@ -929,28 +948,27 @@ module.exports = {
         { transaction }
       );
 
-      // FLEX: Auto-check and set 'paid' for related invoice(s)
+      // Auto-check and set 'paid' for related invoice(s)
       let invoicesToCheck = [];
       if (targetInvoice) {
         invoicesToCheck = [targetInvoice];
       } else {
         invoicesToCheck = await DeliveryOrderInvoices.findAll({
-          where: { delivery_order_id: doId, status: { [Op.ne]: "paid" } }, // Only non-paid
+          where: { delivery_order_id: doId, status: { [Op.ne]: "paid" } },
           transaction,
         });
       }
 
       for (const invoice of invoicesToCheck) {
-        // Sum all payments for this invoice (or DO if not linked per-invoice)
         const totalPaid = await DeliveryOrderPayments.sum("payment_amount", {
           where: {
             delivery_order_id: doId,
-            ...(invoice_id ? { invoice_id: invoice.id } : {}), // Filter by invoice if specified
+            ...(invoice_id ? { invoice_id: invoice.id } : {}),
           },
           transaction,
         });
-
-        // ROAST GUARD: Prevent overpay? Optional—uncomment if you want
+        
+        // Optional: Prevent overpayment
         if (totalPaid > Number(invoice.net_amount)) {
           await transaction.rollback();
           return res.status(400).json({
@@ -969,13 +987,14 @@ module.exports = {
 
       await transaction.commit();
 
-      /* DB trigger updates payment_status automatically */
       return res.status(201).json({
         success: true,
         message: "Payment recorded successfully",
         data: payment,
       });
     } catch (err) {
+      // Ensure rollback on any error
+      await transaction.rollback();
       return next(err);
     }
   },

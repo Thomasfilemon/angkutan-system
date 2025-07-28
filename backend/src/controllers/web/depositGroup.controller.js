@@ -1,4 +1,4 @@
-const { DepositGroup, DepositGroupMember, DeliveryOrder, DeliveryOrderPayments, DeliveryOrderAdjustments, PurchaseOrder } = require("../../models");
+const { DepositGroup, DepositGroupMember, DeliveryOrder, DeliveryOrderPayments, DeliveryOrderAdjustments, PurchaseOrder, sequelize } = require("../../models");
 const { Op, fn, col } = require("sequelize");
 
 // Helper function to get paid amount for a DO
@@ -67,10 +67,21 @@ module.exports = {
   // src/controllers/web/depositGroup.controller.js
   async createGroup(req, res) {
     try {
-      const { group_name, balance, target_quantity, deposited_amount, unit, delivery_order_ids = [], purchase_order_id } = req.body;
+       const { group_name, target_quantity, deposited_amount, unit, delivery_order_ids = [], purchase_order_id } = req.body;
+      
+      // *** FIX STARTS HERE ***
+      // The initial balance of the group should be the amount that was deposited.
+      const balance = deposited_amount; 
       const remaining_quantity = target_quantity; // Initial remaining = target
+      
       const group = await DepositGroup.create({
-        group_name, balance, target_quantity, deposited_amount, remaining_quantity, unit, status: 'active'
+        group_name, 
+        balance, // Use the deposited amount as the starting balance
+        target_quantity, 
+        deposited_amount, 
+        remaining_quantity, 
+        unit, 
+        status: 'active'
       });
 
       let doIdsToAdd = delivery_order_ids;
@@ -103,50 +114,7 @@ module.exports = {
           };
         });
 
-        await DepositGroupMember.bulkCreate(members);
-
-        // ✅ Correct payment handling (create or update)
-        for (const doId of doIdsToAdd) {
-          const deliveryOrder = await DeliveryOrder.findByPk(doId);
-          if (deliveryOrder) {
-            // Validate required fields
-            if (!deliveryOrder.unit_price || !deliveryOrder.minimal_load_quantity) {
-              throw new Error(`Missing required fields in DO ${doId}`);
-            }
-
-            // Calculate payment amount
-            const unitPrice = parseFloat(deliveryOrder.unit_price);
-            const minimalLoad = parseFloat(deliveryOrder.minimal_load_quantity);
-            const paymentAmount = unitPrice * minimalLoad;
-
-            // ✅ Check if payment exists
-            let paymentRecord = await DeliveryOrderPayments.findOne({
-              where: { delivery_order_id: doId }
-            });
-
-            // Create new payment if none exists
-            if (!paymentRecord) {
-              await DeliveryOrderPayments.create({
-                delivery_order_id: doId,
-                payment_amount: paymentAmount,
-                payment_date: new Date(),
-                payment_type: 'check',
-              });
-            } 
-            // Update existing payment
-            else {
-              await paymentRecord.update({
-                payment_amount: paymentAmount,
-                payment_date: new Date(),
-              });
-            }
-
-            // Update payment status
-          await deliveryOrder.update({ 
-            payment_status: 'lunas',
-            payment_confirmation_status: 'confirmed'  // Add this line
-          });          }
-        }
+        await DepositGroupMember.bulkCreate(members)
       }
 
       res.status(201).json(group);
@@ -324,103 +292,43 @@ module.exports = {
   },
 
   // Get group details with DO information
-  async getGroupDetails(req, res) {
-  const { id } = req.params;
-  try {
-    const group = await DepositGroup.findByPk(id, {
-      include: [
-        {
-          model: DepositGroupMember,
-          as: "members",
-          include: [{
-            model: DeliveryOrder,
-            as: "deliveryOrder",
-            attributes: [
-              "id", "do_number", "customer_name", "final_amount", 
-              "total_amount", "is_amount_finalized", "payment_status",
-              "unit_price", "minimal_load_quantity"
-            ],
+async getGroupDetails(req, res) {
+    const { id } = req.params;
+    try {
+      const group = await DepositGroup.findByPk(id, {
+        include: [
+          {
+            model: DepositGroupMember,
+            as: "members",
             include: [{
-              model: DeliveryOrderPayments,
-              as: 'payments_depositGroup',
-              attributes: ['id', 'payment_amount']
-            }]
-          }],
-          attributes: ["id", "delivery_order_id", "quantity"]
-        },
-        // ✅ NEW: Include linked POs
-        {
-          model: PurchaseOrder,
-          as: "purchaseOrders",
-          attributes: [
-            "id", "po_number", "customer_name", "total_quantity", 
-            "unit", "unit_price", "status"
-          ],
-          include: [{
-            model: DeliveryOrder,
-            as: "poDeliveryOrders",
-            attributes: ["id", "do_number", "status"],
-            required: false
-          }]
-        }
-      ]
-    });
+              model: DeliveryOrder,
+              as: "deliveryOrder",
+              attributes: [
+                "id", "do_number", "customer_name", "payment_status",
+                "unit_price", "minimal_load_quantity", "actual_load_quantity"
+              ],
+            }],
+            attributes: ["id", "delivery_order_id", "quantity"]
+          },
+          {
+            model: PurchaseOrder,
+            as: "purchaseOrders",
+            attributes: ["id", "po_number", "customer_name", "status"],
+          }
+        ]
+      });
 
-    if (!group) {
-      return res.status(404).json({ error: "Group not found" });
-    }
-
-    const plainGroup = group.get({ plain: true });
-
-    // Process existing members (DOs)
-    plainGroup.members = plainGroup.members.map(member => {
-      const doItem = member.deliveryOrder;
-      
-      // Convert numeric fields
-      doItem.final_amount = parseFloat(doItem.final_amount || 0);
-      doItem.total_amount = parseFloat(doItem.total_amount || 0);
-      doItem.unit_price = parseFloat(doItem.unit_price || 0);
-      doItem.minimal_load_quantity = parseFloat(doItem.minimal_load_quantity || 0);
-
-      // Calculate paid amount
-      let paid_amount = 0;
-      let payment_id = null;
-      if (doItem.payments_depositGroup && doItem.payments_depositGroup.length > 0) {
-        paid_amount = doItem.payments_depositGroup.reduce(
-          (sum, payment) => sum + parseFloat(payment.payment_amount || 0),
-          0
-        );
-        payment_id = doItem.payments_depositGroup[0].id;
+      if (!group) {
+        return res.status(404).json({ error: "Group not found" });
       }
+      
+      res.json(group);
 
-      doItem.paid_amount = paid_amount;
-      doItem.payment_id = payment_id;
-      delete doItem.payments_depositGroup;
-
-      return member;
-    });
-
-    // ✅ NEW: Process linked POs
-    plainGroup.linkedPOs = plainGroup.purchaseOrders.map(po => ({
-      id: po.id,
-      po_number: po.po_number,
-      customer_name: po.customer_name,
-      total_quantity: po.total_quantity,
-      unit: po.unit,
-      status: po.status,
-      do_count: po.poDeliveryOrders ? po.poDeliveryOrders.length : 0,
-      dos: po.poDeliveryOrders || []
-    }));
-
-    // Remove the full purchaseOrders array
-    delete plainGroup.purchaseOrders;
-
-    res.json(plainGroup);
-  } catch (error) {
-    console.error("Error fetching group details:", error);
-    res.status(500).json({ error: "Failed to fetch group details" });
-  }
-},
+    } catch (error) {
+      console.error("Error fetching group details:", error);
+      res.status(500).json({ error: "Failed to fetch group details" });
+    }
+  },
 
   // Update group details
   async updateGroup(req, res) {
@@ -647,16 +555,137 @@ async updateMemberQuantity(req, res) {
     }
   },
 
-  async generateSelisihInvoice(req, res) {
-    const { group_id } = req.params;
-    const group = await DepositGroup.findByPk(group_id);
-    const totalExcess = await group.calculateSelisih();
-    if (totalExcess > 0) {
-      // Create invoice for excess (integrate with payments.controller.js)
-      const invoice = await createInvoiceForExcess(group, totalExcess); // Custom function
-      res.json({ success: true, invoice });
-    } else {
-      res.status(400).json({ error: 'No selisih to invoice' });
+async generateSelisihInvoice(req, res) {
+    const transaction = await sequelize.transaction();
+    try {
+      const { id } = req.params;
+      const group = await DepositGroup.findByPk(id, {
+        include: [{
+          model: DepositGroupMember,
+          as: "members",
+          include: [{
+            model: DeliveryOrder,
+            as: "deliveryOrder",
+            where: { 
+              status: 'completed',
+              actual_load_quantity: { [Op.ne]: null } // Ensure actual quantity is recorded
+            },
+            required: true
+          }]
+        }],
+        transaction
+      });
+
+      if (!group || !group.members || group.members.length === 0) {
+        await transaction.rollback();
+        return res.status(404).json({ error: "Group not found or has no completed DOs with actual quantity." });
+      }
+
+      if (group.selisih_status !== 'none') {
+        await transaction.rollback();
+        return res.status(400).json({ message: "Tagihan selisih sudah pernah dibuat untuk group ini." });
+      }
+
+      let totalExtraAmount = 0;
+      let selisihReason = "Total selisih kuantitas dari DO berikut:\n";
+
+      for (const member of group.members) {
+        const doItem = member.deliveryOrder;
+        const minimalQty = parseFloat(doItem.minimal_load_quantity);
+        const actualQty = parseFloat(doItem.actual_load_quantity);
+        const unitPrice = parseFloat(doItem.unit_price);
+
+        if (actualQty > minimalQty) {
+          const extraQty = actualQty - minimalQty;
+          totalExtraAmount += extraQty * unitPrice;
+          selisihReason += `- ${doItem.do_number}: Kelebihan ${extraQty.toFixed(2)} ${doItem.unit || 'ton'}\n`;
+        }
+      }
+
+      if (totalExtraAmount <= 0) {
+        await transaction.rollback();
+        return res.status(400).json({ message: "Tidak ada selisih kuantitas untuk ditagihkan." });
+      }
+
+      // *** REFACTORED LOGIC: Update the group directly ***
+      group.total_selisih_amount = totalExtraAmount;
+      group.selisih_details = selisihReason;
+      group.selisih_status = 'pending';
+      group.status = 'pending_selisih'; // Also update the main status
+      await group.save({ transaction });
+      // *** END OF REFACTORED LOGIC ***
+
+      await transaction.commit();
+
+      res.json({
+        success: true,
+        message: `Tagihan selisih sebesar ${totalExtraAmount.toLocaleString('id-ID', { style: 'currency', currency: 'IDR' })} berhasil dibuat.`,
+      });
+
+    } catch (error) {
+      await transaction.rollback();
+      console.error("Error generating selisih invoice:", error);
+      res.status(500).json({ error: "Failed to generate selisih invoice" });
+    }
+  },
+
+async paySelisih(req, res) {
+    const transaction = await sequelize.transaction();
+    try {
+      const { id } = req.params;
+      const { payment_amount } = req.body;
+      const group = await DepositGroup.findByPk(id, { transaction });
+
+      if (!group) {
+        await transaction.rollback();
+        return res.status(404).json({ error: "Deposit Group not found" });
+      }
+
+      if (group.selisih_status !== 'pending') {
+        await transaction.rollback();
+        return res.status(400).json({ message: "No pending selisih to pay for this group." });
+      }
+
+      const amountToPay = parseFloat(payment_amount);
+      if (isNaN(amountToPay) || amountToPay <= 0) {
+        await transaction.rollback();
+        return res.status(400).json({ message: "Invalid payment amount provided." });
+      }
+
+      const currentSelisih = parseFloat(group.total_selisih_amount);
+      
+      // You can't pay more than what is owed
+      if (amountToPay > currentSelisih) {
+        await transaction.rollback();
+        return res.status(400).json({ message: `Payment amount cannot exceed the outstanding selisih of ${currentSelisih}.`});
+      }
+
+      const newSelisihAmount = currentSelisih - amountToPay;
+
+      group.total_selisih_amount = newSelisihAmount;
+      // Add the payment to the group's main balance
+      group.balance = parseFloat(group.balance) + amountToPay;
+
+      // If the selisih is fully paid, update the status
+      if (newSelisihAmount <= 0) {
+        group.selisih_status = 'paid';
+        // Return the group to 'active' or 'fulfilled' status
+        group.status = group.remaining_quantity <= 0 ? 'fulfilled' : 'active';
+      }
+
+      await group.save({ transaction });
+      await transaction.commit();
+
+      res.json({
+        success: true,
+        message: `Payment of ${amountToPay.toLocaleString('id-ID', { style: 'currency', currency: 'IDR' })} for selisih has been recorded.`,
+        data: group
+      });
+
+    } catch (error) {
+      await transaction.rollback();
+      console.error("Error paying selisih:", error);
+      res.status(500).json({ error: "Failed to process selisih payment" });
     }
   },
 
@@ -692,12 +721,7 @@ async linkPOToGroup(req, res) {
           delivery_order_id: doItem.id,
           quantity: doItem.minimal_load_quantity
         }, { transaction });
-        
-        // ✅ ADD THIS: Mark DO as prepaid since it's now in a deposit group
-        await doItem.update({ 
-          payment_status: 'lunas',
-          payment_confirmation_status: 'confirmed'
-        }, { transaction });
+    
         
         console.log(`✅ Retroactively added DO ${doItem.do_number} to deposit group ${group_id} and marked as paid`);
       }

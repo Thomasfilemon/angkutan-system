@@ -216,7 +216,13 @@ CREATE TABLE deposit_groups (
     deposited_amount NUMERIC(15, 2) NOT NULL DEFAULT 0,
     remaining_quantity NUMERIC(10, 2) NOT NULL DEFAULT 0,
     unit VARCHAR(10) NOT NULL DEFAULT 'ton' CHECK (unit IN ('kilogram', 'ton', 'kubik')),
-    status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'fulfilled', 'overdrawn')),
+    status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'fulfilled', 'overdrawn', 'pending_selisih', 'cancelled')),
+    
+    -- New fields for handling selisih directly
+    total_selisih_amount NUMERIC(20, 2) DEFAULT 0,
+    selisih_details TEXT,
+    selisih_status VARCHAR(255) DEFAULT 'none' CHECK (selisih_status IN ('none', 'pending', 'paid')),
+
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

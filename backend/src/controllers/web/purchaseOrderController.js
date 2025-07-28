@@ -774,6 +774,7 @@ exports.createDeliveryOrderFromPO = async (req, res, next) => {
       load_longitude,
       unload_latitude,
       unload_longitude,
+      do_name, // Added do_name
     } = req.body;
 
     const po = await PurchaseOrder.findByPk(id, { transaction });
@@ -784,216 +785,230 @@ exports.createDeliveryOrderFromPO = async (req, res, next) => {
         .json({ success: false, message: "Purchase Order not found" });
     }
 
+    // ... (All validation logic for PO status, items, quantity, driver/vehicle availability remains the same)
     if (po.status === "completed" || po.status === "cancelled") {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "Cannot create DO from completed or cancelled Purchase Order",
-      });
-    }
-
-    // Enhanced validation (from incoming)
-    if (!item_name) {
-      await transaction.rollback();
-      return res
-        .status(400)
-        .json({ success: false, message: "item_name is required" });
-    }
-    const poItems = po.item_name
-      ? po.item_name.split(",").map((i) => i.trim().toLowerCase())
-      : [];
-    if (
-      poItems.length === 0 ||
-      !poItems.includes(item_name.trim().toLowerCase())
-    ) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: `Invalid item_name: "${item_name}" not found in PO items: "${po.item_name}"`,
-      });
-    }
-
-    // Enhanced numeric validation (from incoming)
-    const finalUnitPrice = unit_price || po.unit_price;
-    if (
-      !finalUnitPrice ||
-      isNaN(parseFloat(finalUnitPrice)) ||
-      !minimal_load_quantity ||
-      isNaN(parseFloat(minimal_load_quantity))
-    ) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message:
-          "unit_price and minimal_load_quantity are required and must be numbers",
-      });
-    }
-
-    // Enhanced forecast validation (from incoming)
-    let stats;
-    try {
-      stats = await po.getRemainingAndForecast();
-    } catch (err) {
-      console.error(`Forecast failed for PO ${id}:`, err);
-      const dos = await po.getPoDeliveryOrders({ transaction });
-      let fulfilledActual = 0;
-      let estimatedPending = 0;
-      dos.forEach((d) => {
-        if (d.status === "completed")
-          fulfilledActual += parseFloat(d.actual_load_quantity) || 0;
-        else estimatedPending += parseFloat(d.minimal_load_quantity) || 0;
-      });
-      const remaining =
-        parseFloat(po.total_quantity) - (fulfilledActual + estimatedPending);
-      stats = { remaining_quantity: remaining > 0 ? remaining : 0 };
-    }
-
-    if (stats.remaining_quantity <= 0) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "No remaining quantity in this Purchase Order",
-      });
-    }
-
-    if (parseFloat(minimal_load_quantity) > stats.remaining_quantity) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: `Minimal load quantity (${minimal_load_quantity}) exceeds remaining PO quantity (${stats.remaining_quantity})`,
-      });
-    }
-
-    // Enhanced availability validation (from incoming)
-    const activeDriverTrip = await DeliveryOrder.findOne({
-      where: {
-        driver_id,
-        status: {
-          [Op.in]: [
-            "assigned",
-            "otw_to_load_location",
-            "at_load_location",
-            "otw_to_unload_location",
-            "at_unload_location",
-            "otw_to_base",
-          ],
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: "Cannot create DO from completed or cancelled Purchase Order",
+        });
+      }
+  
+      // Enhanced validation (from incoming)
+      if (!item_name) {
+        await transaction.rollback();
+        return res
+          .status(400)
+          .json({ success: false, message: "item_name is required" });
+      }
+      const poItems = po.item_name
+        ? po.item_name.split(",").map((i) => i.trim().toLowerCase())
+        : [];
+      if (
+        poItems.length === 0 ||
+        !poItems.includes(item_name.trim().toLowerCase())
+      ) {
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: `Invalid item_name: "${item_name}" not found in PO items: "${po.item_name}"`,
+        });
+      }
+  
+      // Enhanced numeric validation (from incoming)
+      const finalUnitPrice = unit_price || po.unit_price;
+      if (
+        !finalUnitPrice ||
+        isNaN(parseFloat(finalUnitPrice)) ||
+        !minimal_load_quantity ||
+        isNaN(parseFloat(minimal_load_quantity))
+      ) {
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message:
+            "unit_price and minimal_load_quantity are required and must be numbers",
+        });
+      }
+  
+      // Enhanced forecast validation (from incoming)
+      let stats;
+      try {
+        stats = await po.getRemainingAndForecast();
+      } catch (err) {
+        console.error(`Forecast failed for PO ${id}:`, err);
+        const dos = await po.getPoDeliveryOrders({ transaction });
+        let fulfilledActual = 0;
+        let estimatedPending = 0;
+        dos.forEach((d) => {
+          if (d.status === "completed")
+            fulfilledActual += parseFloat(d.actual_load_quantity) || 0;
+          else estimatedPending += parseFloat(d.minimal_load_quantity) || 0;
+        });
+        const remaining =
+          parseFloat(po.total_quantity) - (fulfilledActual + estimatedPending);
+        stats = { remaining_quantity: remaining > 0 ? remaining : 0 };
+      }
+  
+      if (stats.remaining_quantity <= 0) {
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: "No remaining quantity in this Purchase Order",
+        });
+      }
+  
+      if (parseFloat(minimal_load_quantity) > stats.remaining_quantity) {
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: `Minimal load quantity (${minimal_load_quantity}) exceeds remaining PO quantity (${stats.remaining_quantity})`,
+        });
+      }
+  
+      // Enhanced availability validation (from incoming)
+      const activeDriverTrip = await DeliveryOrder.findOne({
+        where: {
+          driver_id,
+          status: {
+            [Op.in]: [
+              "assigned",
+              "otw_to_load_location",
+              "at_load_location",
+              "otw_to_unload_location",
+              "at_unload_location",
+              "otw_to_base",
+            ],
+          },
         },
-      },
-      transaction,
-    });
-    if (activeDriverTrip) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "Driver is currently assigned to another active trip",
-      });
-    }
-
-    const activeVehicleTrip = await DeliveryOrder.findOne({
-      where: {
-        vehicle_id,
-        status: {
-          [Op.in]: [
-            "assigned",
-            "otw_to_load_location",
-            "at_load_location",
-            "otw_to_unload_location",
-            "at_unload_location",
-            "otw_to_base",
-          ],
-        },
-      },
-      transaction,
-    });
-    if (activeVehicleTrip) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "Vehicle is currently assigned to another active trip",
-      });
-    }
-
-    const existingBigDO = await BigDeliveryOrder.findOne({
-      where: { driver_id, status: { [Op.in]: ["assigned", "in_progress"] } },
-      transaction,
-    });
-    if (existingBigDO) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: `Driver is already assigned to Big DO: ${existingBigDO.big_do_number}`,
-      });
-    }
-
-    // Enhanced DO number generation (from incoming)
-    const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-    let attempts = 0;
-    let doNumber;
-    do {
-      const randomSuffix = Math.floor(Math.random() * 1000)
-        .toString()
-        .padStart(3, "0");
-      doNumber = `DO-${timestamp}-${randomSuffix}`;
-      const existing = await DeliveryOrder.findOne({
-        where: { do_number: doNumber },
         transaction,
       });
-      if (!existing) break;
-      attempts++;
-    } while (attempts < 100);
-
-    if (attempts >= 100) {
-      await transaction.rollback();
-      return res.status(500).json({
-        success: false,
-        message: "Failed to generate unique DO number",
+      if (activeDriverTrip) {
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: "Driver is currently assigned to another active trip",
+        });
+      }
+  
+      const activeVehicleTrip = await DeliveryOrder.findOne({
+        where: {
+          vehicle_id,
+          status: {
+            [Op.in]: [
+              "assigned",
+              "otw_to_load_location",
+              "at_load_location",
+              "otw_to_unload_location",
+              "at_unload_location",
+              "otw_to_base",
+            ],
+          },
+        },
+        transaction,
       });
+      if (activeVehicleTrip) {
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: "Vehicle is currently assigned to another active trip",
+        });
+      }
+  
+      const existingBigDO = await BigDeliveryOrder.findOne({
+        where: { driver_id, status: { [Op.in]: ["assigned", "in_progress"] } },
+        transaction,
+      });
+      if (existingBigDO) {
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: `Driver is already assigned to Big DO: ${existingBigDO.big_do_number}`,
+        });
+      }
+  
+      // Enhanced DO number generation (from incoming)
+      const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      let attempts = 0;
+      let doNumber;
+      do {
+        const randomSuffix = Math.floor(Math.random() * 1000)
+          .toString()
+          .padStart(3, "0");
+        doNumber = `DO-${timestamp}-${randomSuffix}`;
+        const existing = await DeliveryOrder.findOne({
+          where: { do_number: doNumber },
+          transaction,
+        });
+        if (!existing) break;
+        attempts++;
+      } while (attempts < 100);
+  
+      if (attempts >= 100) {
+        await transaction.rollback();
+        return res.status(500).json({
+          success: false,
+          message: "Failed to generate unique DO number",
+        });
+      }
+  
+      // Enhanced calculations (from incoming)
+      const calculatedTotalAmount = calculateTotalAmount(
+        minimal_load_quantity,
+        finalUnitPrice,
+        po.unit
+      );
+      const calculatedOngkosan = calculateOngkosan(
+        calculatedTotalAmount,
+        trip_allowance,
+        gaji
+      );
+  
+      // Build temp DO for validation (from incoming)
+      const tempDO = DeliveryOrder.build({
+        purchase_order_id: id,
+        driver_id,
+        vehicle_id,
+        do_number: doNumber,
+        customer_name: po.customer_name,
+        item_name,
+        minimal_load_quantity,
+        unit: po.unit,
+        unit_price: finalUnitPrice,
+        total_amount: calculatedTotalAmount,
+        trip_allowance,
+        gaji,
+        ongkosan: calculatedOngkosan,
+        load_location: load_location || po.load_location,
+        unload_location: unload_location || po.unload_location,
+        load_latitude: load_latitude || po.load_latitude,
+        load_longitude: load_longitude || po.load_longitude,
+        unload_latitude: unload_latitude || po.unload_latitude,
+        unload_longitude: unload_longitude || po.unload_longitude,
+        payment_status: "proses_tagihan",
+        status: "assigned",
+        do_name: do_name,
+      });
+  
+      if (tempDO.validateQuantityAgainstPO) {
+        await tempDO.validateQuantityAgainstPO(false);
+      }
+  
+      const newDO = await DeliveryOrder.create(tempDO.dataValues, {
+        transaction,
+      });
+    
+    // *** FIX STARTS HERE ***
+    // Automatically add the new DO to the deposit group if the parent PO is linked.
+    if (po.deposit_group_id) {
+        await DepositGroupMember.create({
+            group_id: po.deposit_group_id,
+            delivery_order_id: newDO.id,
+            quantity: newDO.minimal_load_quantity // Use the planned quantity initially
+        }, { transaction });
+        console.log(`✅ Auto-added new DO ${newDO.do_number} to deposit group ${po.deposit_group_id}`);
     }
-
-    // Enhanced calculations (from incoming)
-    const calculatedTotalAmount = calculateTotalAmount(
-      minimal_load_quantity,
-      finalUnitPrice,
-      po.unit
-    );
-    const calculatedOngkosan = calculateOngkosan(
-      calculatedTotalAmount,
-      trip_allowance,
-      gaji
-    );
-
-    // Build temp DO for validation (from incoming)
-    const tempDO = DeliveryOrder.build({
-      purchase_order_id: id,
-      driver_id,
-      vehicle_id,
-      do_number: doNumber,
-      customer_name: po.customer_name,
-      item_name,
-      minimal_load_quantity,
-      unit: po.unit,
-      unit_price: finalUnitPrice,
-      total_amount: calculatedTotalAmount,
-      trip_allowance,
-      gaji,
-      ongkosan: calculatedOngkosan,
-      load_location: load_location || po.load_location,
-      unload_location: unload_location || po.unload_location,
-      load_latitude: load_latitude || po.load_latitude,
-      load_longitude: load_longitude || po.load_longitude,
-      unload_latitude: unload_latitude || po.unload_latitude,
-      unload_longitude: unload_longitude || po.unload_longitude,
-      payment_status: "proses_tagihan",
-      status: "assigned",
-    });
-
-    if (tempDO.validateQuantityAgainstPO) {
-      await tempDO.validateQuantityAgainstPO(false);
-    }
-
-    const newDO = await DeliveryOrder.create(tempDO.dataValues, {
-      transaction,
-    });
+    // *** FIX ENDS HERE ***
 
     // Update driver and vehicle status
     await DriverProfile.update(
@@ -1006,69 +1021,70 @@ exports.createDeliveryOrderFromPO = async (req, res, next) => {
       { where: { id: vehicle_id }, transaction }
     );
 
-    // Enhanced push notifications (from incoming)
+    // ... (rest of the function for push notifications and response)
     const driverUser = await User.findOne({
-      where: { id: driver_id },
-      attributes: ["username", "expo_push_token"],
-      include: [
-        {
-          model: DriverProfile,
-          as: "driverProfile",
-          attributes: ["full_name"],
-        },
-      ],
-      transaction,
-    });
-
-    if (
-      driverUser &&
-      driverUser.expo_push_token &&
-      Expo.isExpoPushToken(driverUser.expo_push_token)
-    ) {
-      const expo = new Expo();
-      const driverName =
-        driverUser.driverProfile?.full_name || driverUser.username;
-      const messages = [
-        {
-          to: driverUser.expo_push_token,
-          sound: "default",
-          title: "Tugas Pengantaran Baru",
-          body: `Halo ${driverName}, Anda telah ditugaskan untuk DO ${newDO.do_number}. Silakan cek detail pengantaran di aplikasi.`,
-          data: { do_number: newDO.do_number },
-        },
-      ];
-      try {
-        await expo.sendPushNotificationsAsync(messages);
-      } catch (pushError) {
-        console.error("Push notification error in createDOFromPO:", pushError);
+        where: { id: driver_id },
+        attributes: ["username", "expo_push_token"],
+        include: [
+          {
+            model: DriverProfile,
+            as: "driverProfile",
+            attributes: ["full_name"],
+          },
+        ],
+        transaction,
+      });
+  
+      if (
+        driverUser &&
+        driverUser.expo_push_token &&
+        Expo.isExpoPushToken(driverUser.expo_push_token)
+      ) {
+        const expo = new Expo();
+        const driverName =
+          driverUser.driverProfile?.full_name || driverUser.username;
+        const messages = [
+          {
+            to: driverUser.expo_push_token,
+            sound: "default",
+            title: "Tugas Pengantaran Baru",
+            body: `Halo ${driverName}, Anda telah ditugaskan untuk DO ${newDO.do_number}. Silakan cek detail pengantaran di aplikasi.`,
+            data: { do_number: newDO.do_number },
+          },
+        ];
+        try {
+          await expo.sendPushNotificationsAsync(messages);
+        } catch (pushError) {
+          console.error("Push notification error in createDOFromPO:", pushError);
+        }
       }
-    }
+  
+      // Update PO status
+      if (po.status === "confirmed") {
+        await po.update({ status: "partial" }, { transaction });
+      }
+  
+      // Enhanced stats calculation (from incoming)
+      let updatedStats;
+      try {
+        updatedStats = await po.getRemainingAndForecast();
+      } catch (err) {
+        updatedStats = {};
+      }
+  
+      await transaction.commit();
+  
+      res.status(201).json({
+        success: true,
+        message: "Delivery Order created successfully from Purchase Order",
+        data: {
+          ...newDO.toJSON(),
+          financial_summary: newDO.getFinancialSummary ? newDO.getFinancialSummary() : null,
+          remaining_po_quantity: updatedStats.remaining_quantity || 0,
+          po_stats: updatedStats,
+        },
+      });
 
-    // Update PO status
-    if (po.status === "confirmed") {
-      await po.update({ status: "partial" }, { transaction });
-    }
-
-    // Enhanced stats calculation (from incoming)
-    let updatedStats;
-    try {
-      updatedStats = await po.getRemainingAndForecast();
-    } catch (err) {
-      updatedStats = {};
-    }
-
-    await transaction.commit();
-
-    res.status(201).json({
-      success: true,
-      message: "Delivery Order created successfully from Purchase Order",
-      data: {
-        ...newDO.toJSON(),
-        financial_summary: newDO.getFinancialSummary ? newDO.getFinancialSummary() : null,
-        remaining_po_quantity: updatedStats.remaining_quantity || 0,
-        po_stats: updatedStats,
-      },
-    });
   } catch (err) {
     await transaction.rollback();
     console.error("Error creating DO from PO:", err);
