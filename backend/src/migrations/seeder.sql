@@ -457,7 +457,7 @@ INSERT INTO delivery_orders (
   'kubik',
   185000, -- Rp 185,000 per m³
   10406250, -- 56.25 m³ × Rp 185,000/m³ = Rp 10,406,250
-  'awaiting_confirmation',
+  'lunas',
   '2025-07-10',
   'Quarry Sukabumi, Jawa Barat',
   -6.9175, 
@@ -477,7 +477,7 @@ INSERT INTO delivery_orders (
   7606250, -- Ongkosan: 10,406,250 - 2,200,000 - 600,000 = 7,606,250
   10406250, -- Final amount matches total
   '{uploads/surat_jalan/DO-250610-01-surat-jalan.jpg}',
-  'awaiting_confirmation', -- Mimic trigger for completed
+  'confirmed', -- Mimic trigger for completed
   '2025-06-09 15:00:00+07' -- DO dibuat sehari sebelumnya
 )
 ON CONFLICT (do_number) DO NOTHING;
