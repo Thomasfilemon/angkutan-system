@@ -680,7 +680,7 @@ BEGIN
   IF OLD.status != 'completed' AND NEW.status = 'completed' THEN
     NEW.payment_status := 'awaiting_confirmation';
     NEW.payment_confirmation_status := 'awaiting_confirmation';
-    NEW.final_amount := NEW.ongkosan; -- Set final amount to original ongkosan
+    NEW.final_amount := NEW.total_amount; -- Set final amount to original total amount
     
     -- Insert to payment history
     INSERT INTO delivery_order_payment_history 

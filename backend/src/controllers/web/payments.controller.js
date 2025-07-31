@@ -1,11 +1,14 @@
 /* eslint-disable camelcase */
 const {
   DeliveryOrder,
+  Vehicle,
+  DriverProfile,
+  User,
   DeliveryOrderInvoices,
   DeliveryOrderPayments,
   DeliveryOrderPaymentHistory,
   SystemSettings,
-  DepositGroup,        // ✅ ADD THIS
+  DepositGroup,
   DepositGroupMember,
   sequelize,
 } = require("../../models");
@@ -555,6 +558,10 @@ module.exports = {
               "do_number",
               "customer_name",
               "item_name",
+              "minimal_load_quantity", // ✅ ADDED: Quantity fields
+              "actual_load_quantity", // ✅ ADDED
+              "unit", // ✅ ADDED: Unit for quantity
+              "unit_price", // ✅ ADDED: Unit price
               "load_location",
               "unload_location",
               "vehicle_id", // If you have vehicle/driver associations, populate them below
@@ -562,10 +569,24 @@ module.exports = {
               "final_amount",
             ],
             include: [
-              // If you have Vehicle and Driver models associated, add them here
-              // Example:
-              // { model: Vehicle, as: "vehicle", attributes: ["license_plate", "type"] },
-              // { model: Driver, as: "driver", attributes: ["username", "full_name"] },
+              // ✅ FIXED: Populate vehicle and driver associations
+              {
+                model: Vehicle, // Assuming Vehicle model exists and is associated
+                as: "vehicle",
+                attributes: ["license_plate", "type"],
+              },
+              {
+                model: User, // Assuming User is the Driver model
+                as: "driver",
+                attributes: ["username"],
+                include: [
+                  {
+                    model: DriverProfile, // Assuming DriverProfile association
+                    as: "driverProfile",
+                    attributes: ["full_name"],
+                  },
+                ],
+              },
             ],
           },
           {
@@ -625,9 +646,17 @@ module.exports = {
               do_number: invoice.deliveryOrder.do_number,
               customer_name: invoice.deliveryOrder.customer_name,
               item_name: invoice.deliveryOrder.item_name,
+              minimal_load_quantity: Number(
+                invoice.deliveryOrder.minimal_load_quantity
+              ), // ✅ ADDED
+              actual_load_quantity: Number(
+                invoice.deliveryOrder.actual_load_quantity
+              ), // ✅ ADDED
+              unit: invoice.deliveryOrder.unit, // ✅ ADDED
+              unit_price: Number(invoice.deliveryOrder.unit_price), // ✅ ADDED
               load_location: invoice.deliveryOrder.load_location,
               unload_location: invoice.deliveryOrder.unload_location,
-              // Vehicle and driver if populated
+              // ✅ FIXED: Vehicle and driver populated
               vehicle: invoice.deliveryOrder.vehicle
                 ? {
                     license_plate: invoice.deliveryOrder.vehicle.license_plate,
@@ -638,7 +667,9 @@ module.exports = {
                 ? {
                     username: invoice.deliveryOrder.driver.username,
                     driverProfile: {
-                      full_name: invoice.deliveryOrder.driver.full_name,
+                      full_name:
+                        invoice.deliveryOrder.driver.driverProfile?.full_name ||
+                        "N/A",
                     },
                   }
                 : null,
@@ -837,7 +868,7 @@ module.exports = {
    * Body: { invoice_id?, payment_reference?, payment_type, payment_amount,
    *         payment_date?, bank_account?, notes?, attachment_urls? }
    * ──────────────────────────────────────────────────────────── */
-   async recordPayment(req, res, next) {
+  async recordPayment(req, res, next) {
     const transaction = await sequelize.transaction();
     try {
       const { doId } = req.params;
@@ -873,7 +904,8 @@ module.exports = {
         await transaction.rollback();
         return res.status(400).json({
           success: false,
-          message: "This DO is managed by a deposit group and cannot be paid manually. Payment is handled upon completion.",
+          message:
+            "This DO is managed by a deposit group and cannot be paid manually. Payment is handled upon completion.",
         });
       }
 
@@ -887,9 +919,11 @@ module.exports = {
       }
 
       // Check payment status inside the transaction
-      if (doRecord.payment_status === 'lunas') {
+      if (doRecord.payment_status === "lunas") {
         await transaction.rollback();
-        return res.status(400).json({ success: false, message: 'DO already paid' });
+        return res
+          .status(400)
+          .json({ success: false, message: "DO already paid" });
       }
 
       // Validate payment_amount
@@ -967,7 +1001,7 @@ module.exports = {
           },
           transaction,
         });
-        
+
         // Optional: Prevent overpayment
         if (totalPaid > Number(invoice.net_amount)) {
           await transaction.rollback();

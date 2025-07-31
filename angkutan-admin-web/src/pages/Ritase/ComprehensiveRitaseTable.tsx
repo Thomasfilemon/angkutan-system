@@ -668,50 +668,37 @@ const ComprehensiveRitaseTable: React.FC = () => {
                   </option>
                 </select>
               </div>
-              <div>
-                {/* ✅ FIXED: Added label for consistency/UX */}
+              {/* Vehicle Filter */}
+              <div className="min-w-[180px]">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Pilih PO untuk Table View
+                  Vehicle (Optional)
                 </label>
                 <Select
-                  options={poOptions}
-                  placeholder="Pilih PO..." // ✅ Shorter placeholder for better fit
+                  options={vehicleOptions}
+                  value={vehicleOptions.find(
+                    (opt) => opt.value === filters.vehicle
+                  )}
+                  onChange={(selected) =>
+                    setFilters({
+                      ...filters,
+                      vehicle: selected ? selected.value : "",
+                    })
+                  }
                   isClearable
-                  isSearchable // ✅ ADDED: Enable search for long lists—UX win
-                  classNamePrefix="react-select"
-                  onChange={(selected) => {
-                    if (selected?.value) {
-                      navigate(`/ritase/po/${selected.value}/table`);
-                    }
-                  }}
+                  placeholder="Select vehicle..."
+                  className="text-sm"
                   styles={{
                     control: (base) => ({
                       ...base,
-                      backgroundColor: "#ffffff", // ✅ FIXED: Solid white bg for visibility
-                      borderColor: "#d1d5db", // Gray-300, matches other inputs
                       minHeight: 40,
-                      boxShadow: "0 1px 2px 0 rgba(0, 0, 0, 0.05)", // Subtle shadow
-                      "&:hover": { borderColor: "#93c5fd" }, // Blue hover
-                    }),
-                    singleValue: (base) => ({ ...base, color: "#1f2937" }), // Gray-800 text
-                    menu: (base) => ({
-                      ...base,
-                      zIndex: 9999,
-                      backgroundColor: "#ffffff",
-                    }), // ✅ Higher z-index to fix positioning weirdness
-                    placeholder: (base) => ({
-                      ...base,
-                      color: "#9ca3af", // Gray-400, visible but subtle
-                      fontWeight: "normal",
-                    }),
-                    option: (base, state) => ({
-                      ...base,
-                      backgroundColor: state.isSelected
-                        ? "#3b82f6"
-                        : state.isFocused
-                        ? "#f3f4f6"
-                        : "#ffffff", // Blue selected, gray hover
-                      color: state.isSelected ? "#ffffff" : "#1f2937",
+                      borderRadius: "0.5rem",
+                      borderColor: "#d1d5db",
+                      backgroundColor: "#ffffff", // Solid for visibility
+                      "&:hover": { borderColor: "#3b82f6" },
+                      "&:focus-within": {
+                        borderColor: "#3b82f6",
+                        boxShadow: "0 0 0 2px rgba(59, 130, 246, 0.1)",
+                      },
                     }),
                   }}
                 />
@@ -788,42 +775,57 @@ const ComprehensiveRitaseTable: React.FC = () => {
 
                   {/* Filters Group - Center or right on larger screens */}
                   <div className="flex flex-wrap items-end gap-4 md:gap-6">
-                    {/* Vehicle Filter */}
-                    <div className="min-w-[180px]">
+                    <div className="min-w-[220px]">
+                      {/* ✅ FIXED: Added label for consistency/UX */}
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Vehicle (Optional)
+                        Pilih PO untuk Table View
                       </label>
                       <Select
-                        options={vehicleOptions}
-                        value={vehicleOptions.find(
-                          (opt) => opt.value === filters.vehicle
-                        )}
-                        onChange={(selected) =>
-                          setFilters({
-                            ...filters,
-                            vehicle: selected ? selected.value : "",
-                          })
-                        }
+                        options={poOptions}
+                        placeholder="Pilih PO..." // ✅ Shorter placeholder for better fit
                         isClearable
-                        placeholder="Select vehicle..."
-                        className="text-sm"
+                        isSearchable // ✅ ADDED: Enable search for long lists—UX win
+                        classNamePrefix="react-select"
+                        onChange={(selected) => {
+                          if (selected?.value) {
+                            navigate(`/ritase/po/${selected.value}/table`);
+                          }
+                        }}
                         styles={{
                           control: (base) => ({
                             ...base,
+                            backgroundColor: "#ffffff", // ✅ FIXED: Solid white bg for visibility
+                            borderColor: "#d1d5db", // Gray-300, matches other inputs
                             minHeight: 40,
-                            borderRadius: "0.5rem",
-                            borderColor: "#d1d5db",
-                            backgroundColor: "#ffffff", // Solid for visibility
-                            "&:hover": { borderColor: "#3b82f6" },
-                            "&:focus-within": {
-                              borderColor: "#3b82f6",
-                              boxShadow: "0 0 0 2px rgba(59, 130, 246, 0.1)",
-                            },
+                            boxShadow: "0 1px 2px 0 rgba(0, 0, 0, 0.05)", // Subtle shadow
+                            "&:hover": { borderColor: "#93c5fd" }, // Blue hover
+                          }),
+                          singleValue: (base) => ({
+                            ...base,
+                            color: "#1f2937",
+                          }), // Gray-800 text
+                          menu: (base) => ({
+                            ...base,
+                            zIndex: 9999,
+                            backgroundColor: "#ffffff",
+                          }), // ✅ Higher z-index to fix positioning weirdness
+                          placeholder: (base) => ({
+                            ...base,
+                            color: "#9ca3af", // Gray-400, visible but subtle
+                            fontWeight: "normal",
+                          }),
+                          option: (base, state) => ({
+                            ...base,
+                            backgroundColor: state.isSelected
+                              ? "#3b82f6"
+                              : state.isFocused
+                              ? "#f3f4f6"
+                              : "#ffffff", // Blue selected, gray hover
+                            color: state.isSelected ? "#ffffff" : "#1f2937",
                           }),
                         }}
                       />
                     </div>
-
                     {/* Records per page */}
                     <div className="min-w-[180px]">
                       <label className="block text-sm font-medium text-gray-700 mb-2">
