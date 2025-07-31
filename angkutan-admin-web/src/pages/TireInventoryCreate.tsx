@@ -36,6 +36,8 @@ const TireInventoryCreatePage = () => {
   const [accounts, setAccounts] = useState<string[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<string>('General');
 
+  const [accountInput, setAccountInput] = useState('');
+
   // Fetch accounts
   useEffect(() => {
     const fetchAccounts = async () => {
@@ -267,13 +269,21 @@ const TireInventoryCreatePage = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Akun *</label>
                 <CreatableSelect
                   value={{ label: selectedAccount, value: selectedAccount }}
+                  inputValue={accountInput}
+                  onInputChange={(newValue) => setAccountInput(newValue)}
                   options={accounts.map(account => ({ label: account, value: account }))}
                   onChange={(selected) => {
                     const newAccount = selected?.value || 'General';
                     setSelectedAccount(newAccount);
+                    setAccountInput(newAccount); // Sync input with selection
                   }}
                   onCreateOption={(inputValue) => {
                     setSelectedAccount(inputValue);
+                    setAccountInput(inputValue); // Sync input with creation
+                    // Add new account to local options
+                    if (!accounts.includes(inputValue)) {
+                      setAccounts(prev => [...prev, inputValue]);
+                    }
                   }}
                   className="w-full"
                 />

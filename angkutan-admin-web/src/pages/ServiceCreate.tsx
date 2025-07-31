@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/axiosConfig';
+import CreatableSelect from 'react-select/creatable';
 
 interface Vehicle {
   id: number;
@@ -44,6 +45,25 @@ const ServiceCreatePage = () => {
   const [saveToCash, setSaveToCash] = useState(true);
   const [isTempo, setIsTempo] = useState(false);
   const [cashAccount, setCashAccount] = useState('General');
+  const [accounts, setAccounts] = useState<string[]>([]); // Added for cash accounts
+  const [isLoadingAccounts, setIsLoadingAccounts] = useState(false);
+
+  // Fetch cash accounts on mount
+  useEffect(() => {
+    const fetchAccounts = async () => {
+      setIsLoadingAccounts(true);
+      try {
+        const response = await apiClient.get('/cash/accounts');
+        setAccounts(response.data.data || []);
+      } catch (err) {
+        console.error('Failed to fetch accounts:', err);
+      } finally {
+        setIsLoadingAccounts(false);
+      }
+    };
+    
+    fetchAccounts();
+  }, []);
 
   useEffect(() => {
     fetchVehicles();
@@ -321,16 +341,29 @@ const ServiceCreatePage = () => {
                   <label className="block text-gray-700 text-sm font-bold mb-2">
                     Akun Kas
                   </label>
-                  <select
-                    value={cashAccount}
-                    onChange={(e) => setCashAccount(e.target.value)}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  >
-                    <option value="Ewaldo">Ewaldo</option>
-                    <option value="Malvin">Malvin</option>
-                    <option value="Company">Company</option>
-                    <option value="General">General</option>
-                  </select>
+                  <CreatableSelect
+                    value={{ value: cashAccount, label: cashAccount }}
+                    options={accounts.map(account => ({
+                      value: account,
+                      label: account
+                    }))}
+                    onChange={(selected) => {
+                      setCashAccount(selected?.value || 'General');
+                    }}
+                    onCreateOption={(inputValue) => {
+                      setCashAccount(inputValue);
+                      if (!accounts.includes(inputValue)) {
+                        setAccounts(prev => [...prev, inputValue]);
+                      }
+                    }}
+                    placeholder="Cari atau buat akun..."
+                    isLoading={isLoadingAccounts}
+                    className="shadow appearance-none border rounded text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                    styles={{
+                      control: (base) => ({ ...base, minHeight: '44px' }),
+                      placeholder: (base) => ({ ...base, color: '#a0aec0' })
+                    }}
+                  />
                 </div>
 
                 {/* ✅ UPDATED: Multiple file input with enhanced UI */}

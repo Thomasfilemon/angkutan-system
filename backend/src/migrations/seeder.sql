@@ -371,7 +371,8 @@ INSERT INTO cash_categories (category_name, category_type, description) VALUES
 ('Gaji Staf', 'expense', 'Pembayaran gaji karyawan'),
 ('Pembelian Aset', 'expense', 'Pembelian kendaraan, peralatan, dll'),
 ('Biaya Operasional', 'expense', 'Biaya BBM, maintenance, dll'),
-('Pengeluaran Lain-lain', 'expense', 'Pengeluaran di luar kategori utama');
+('Pengeluaran Lain-lain', 'expense', 'Pengeluaran di luar kategori utama'),
+('Pengeluaran Mobil', 'expense', 'Pengeluaran di urusan mobil');
 
 -- JAYA TESTING SEEDER (MODIFIED TO MATCH SCHEMA)
 -- Contract: 120 kubik Pasir Urug @ Rp 185,000/kubik (totals dynamic via triggers)
