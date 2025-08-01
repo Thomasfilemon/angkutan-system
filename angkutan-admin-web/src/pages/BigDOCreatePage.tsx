@@ -15,8 +15,8 @@ interface AvailableDO {
   total_amount: number;
   driver_name: string;
   vehicle_info: string;
-  standalone_po_number?: string; // ✅ ADD: For standalone DOs
-  purchaseOrder?: {  // ✅ CHANGE: Make optional with ?
+  standalone_po_number?: string;
+  purchaseOrder?: {
     po_number: string;
     customer_name: string;
   };
@@ -39,21 +39,33 @@ interface TambahanForm {
   notes: string;
 }
 
+interface BigDOConfig {
+  selectedMainDO: AvailableDO | null;
+  tambahan: TambahanForm[];
+  bigDOData: {
+    total_trip_allowance: number;
+    total_gaji: number;
+    notes: string;
+  };
+}
+
 const BigDOCreatePage: React.FC = () => {
   const navigate = useNavigate();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [availableDOs, setAvailableDOs] = useState<AvailableDO[]>([]);
-  const [selectedMainDO, setSelectedMainDO] = useState<AvailableDO | null>(
-    null
-  );
-  const [tambahan, setTambahan] = useState<TambahanForm[]>([]);
-  const [bigDOData, setBigDOData] = useState({
-    total_trip_allowance: 0,
-    total_gaji: 0,
-    notes: "",
+  const [currentConfig, setCurrentConfig] = useState<BigDOConfig>({
+    selectedMainDO: null,
+    tambahan: [],
+    bigDOData: {
+      total_trip_allowance: 0,
+      total_gaji: 0,
+      notes: "",
+    },
   });
+  const [pendingBigDOs, setPendingBigDOs] = useState<BigDOConfig[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetchingDOs, setFetchingDOs] = useState(true);
+  const maxBigDOs = 3;
 
   const initialTambahanForm: TambahanForm = {
     customer_name: "",
@@ -72,7 +84,6 @@ const BigDOCreatePage: React.FC = () => {
     notes: "",
   };
 
-  // ✅ ADD: Helper function for PO number display
   const getPONumber = (doItem: AvailableDO) => {
     if (doItem.purchaseOrder?.po_number) {
       return doItem.purchaseOrder.po_number;
@@ -83,18 +94,13 @@ const BigDOCreatePage: React.FC = () => {
     }
   };
 
-  // Fetch available DOs
   const fetchAvailableDOs = async () => {
     try {
       setFetchingDOs(true);
       const response = await apiClient.get(
         "/big-delivery-orders/available-dos"
       );
-
-      // Handle response format
       const data = response.data.success ? response.data.data : response.data;
-
-      // ✅ FIX: Ensure numeric fields are actually numbers
       const processedData = Array.isArray(data)
         ? data.map((item: any) => ({
             ...item,
@@ -103,7 +109,6 @@ const BigDOCreatePage: React.FC = () => {
             minimal_load_quantity: parseFloat(item.minimal_load_quantity) || 0,
           }))
         : [];
-
       setAvailableDOs(processedData);
     } catch (err: any) {
       toast.error(
@@ -119,7 +124,6 @@ const BigDOCreatePage: React.FC = () => {
     fetchAvailableDOs();
   }, []);
 
-  // Calculate tambahan amount
   const calculateTambahanAmount = (
     quantity: number,
     unit: string,
@@ -127,9 +131,7 @@ const BigDOCreatePage: React.FC = () => {
   ): number => {
     switch (unit) {
       case "kilogram":
-        return quantity * unitPrice;
       case "ton":
-        return quantity * unitPrice;
       case "kubik":
         return quantity * unitPrice;
       default:
@@ -142,11 +144,17 @@ const BigDOCreatePage: React.FC = () => {
   };
 
   const addTambahan = () => {
-    setTambahan([...tambahan, { ...initialTambahanForm }]);
+    setCurrentConfig((prev) => ({
+      ...prev,
+      tambahan: [...prev.tambahan, { ...initialTambahanForm }],
+    }));
   };
 
   const removeTambahan = (index: number) => {
-    setTambahan(tambahan.filter((_, i) => i !== index));
+    setCurrentConfig((prev) => ({
+      ...prev,
+      tambahan: prev.tambahan.filter((_, i) => i !== index),
+    }));
   };
 
   const updateTambahan = (
@@ -154,26 +162,22 @@ const BigDOCreatePage: React.FC = () => {
     field: keyof TambahanForm,
     value: any
   ) => {
-    const updatedTambahan = [...tambahan];
-    updatedTambahan[index] = { ...updatedTambahan[index], [field]: value };
-    setTambahan(updatedTambahan);
+    setCurrentConfig((prev) => {
+      const updatedTambahan = [...prev.tambahan];
+      updatedTambahan[index] = { ...updatedTambahan[index], [field]: value };
+      return { ...prev, tambahan: updatedTambahan };
+    });
   };
 
-  const calculateTotalRevenue = () => {
-    // ✅ FIX: Handle both string and number types
+  const calculateTotalRevenue = (config: BigDOConfig) => {
+    if (!config.selectedMainDO) return 0;
     const mainDOAmount =
-      typeof selectedMainDO?.total_amount === "string"
-        ? parseFloat(selectedMainDO.total_amount) || 0
-        : selectedMainDO?.total_amount || 0;
-
-    const tambahanTotal = tambahan.reduce((sum, t) => {
-      return sum + calculateTambahanAmount(t.quantity, t.unit, t.unit_price);
-    }, 0);
-
-    console.log("Main DO Amount:", mainDOAmount, typeof mainDOAmount);
-    console.log("Tambahan Total:", tambahanTotal, typeof tambahanTotal);
-    console.log("Total Revenue:", mainDOAmount + tambahanTotal);
-
+      parseFloat(config.selectedMainDO.total_amount.toString()) || 0;
+    const tambahanTotal = config.tambahan.reduce(
+      (sum, t) =>
+        sum + calculateTambahanAmount(t.quantity, t.unit, t.unit_price),
+      0
+    );
     return mainDOAmount + tambahanTotal;
   };
 
@@ -187,21 +191,67 @@ const BigDOCreatePage: React.FC = () => {
     return 0;
   };
 
-  const handleCreateBigDO = async () => {
-    if (!selectedMainDO) {
-      toast.error("Please select a main delivery order");
+  const addCurrentToPending = () => {
+    if (pendingBigDOs.length >= maxBigDOs) {
+      toast.error(`Maximum of ${maxBigDOs} Big DOs allowed per creation.`);
+      return;
+    }
+    if (!currentConfig.selectedMainDO) {
+      toast.error("Select a main DO first.");
+      return;
+    }
+    if (currentConfig.tambahan.length === 0) {
+      toast.error("At least one tambahan is required for each Big DO.");
+      return;
+    }
+    setPendingBigDOs((prev) => [...prev, { ...currentConfig }]);
+    resetCurrentConfig();
+    setStep(1);
+  };
+
+  const removePendingBigDO = (index: number) => {
+    setPendingBigDOs((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const resetCurrentConfig = () => {
+    setCurrentConfig((prev) => ({
+      // Functional update for safety
+      selectedMainDO: null,
+      tambahan: [],
+      bigDOData: {
+        total_trip_allowance: 0,
+        total_gaji: 0,
+        notes: "",
+      },
+    }));
+  };
+
+  // returns all main DO ids already used in pendingBigDOs
+  const pendingMainDOIds = pendingBigDOs
+    .filter((cfg) => cfg.selectedMainDO)
+    .map((cfg) => cfg.selectedMainDO!.id);
+
+  const handleCreateAllBigDOs = async () => {
+    let allConfigs = [...pendingBigDOs];
+    if (currentConfig.selectedMainDO && currentConfig.tambahan.length > 0) {
+      allConfigs.push(currentConfig);
+    }
+
+    allConfigs = allConfigs.filter((config) => config.selectedMainDO !== null); // Null safety
+
+    if (allConfigs.length === 0) {
+      toast.error("No valid Big DOs to create");
       return;
     }
 
     try {
       setLoading(true);
-
-      const payload = {
-        main_delivery_order_id: selectedMainDO.id,
-        total_trip_allowance: bigDOData.total_trip_allowance,
-        total_gaji: bigDOData.total_gaji,
-        notes: bigDOData.notes,
-        tambahan: tambahan.map((t) => ({
+      const payloads = allConfigs.map((config) => ({
+        main_delivery_order_id: config.selectedMainDO!.id, // Non-null assertion after filter
+        total_trip_allowance: config.bigDOData.total_trip_allowance,
+        total_gaji: config.bigDOData.total_gaji,
+        notes: config.bigDOData.notes,
+        tambahan: config.tambahan.map((t) => ({
           ...t,
           total_amount: calculateTambahanAmount(
             t.quantity,
@@ -209,16 +259,16 @@ const BigDOCreatePage: React.FC = () => {
             t.unit_price
           ),
         })),
-      };
+      }));
 
-      const response = await apiClient.post("/big-delivery-orders", payload);
+      const response = await apiClient.post("/big-delivery-orders/batch", {
+        big_delivery_orders: payloads,
+      });
 
-      const bigDO = response.data.success ? response.data.data : response.data;
-
-      toast.success("Big DO created successfully!");
-      navigate(`/big-dos/${bigDO.id}`);
+      toast.success(`Successfully created ${allConfigs.length} Big DOs!`);
+      navigate("/big-dos");
     } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to create Big DO");
+      toast.error(err.response?.data?.message || "Failed to create Big DOs");
     } finally {
       setLoading(false);
     }
@@ -237,7 +287,6 @@ const BigDOCreatePage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
@@ -255,7 +304,6 @@ const BigDOCreatePage: React.FC = () => {
         </button>
       </div>
 
-      {/* Step Indicator */}
       <div className="flex items-center justify-center space-x-4 mb-8">
         {[1, 2, 3].map((stepNum) => (
           <div key={stepNum} className="flex items-center">
@@ -282,7 +330,34 @@ const BigDOCreatePage: React.FC = () => {
         ))}
       </div>
 
-      {/* Step 1: Select Main DO */}
+      {pendingBigDOs.length > 0 && (
+        <div className="bg-gray-100 p-4 rounded-lg mb-6">
+          <h3 className="font-medium mb-2">
+            Pending Big DOs ({pendingBigDOs.length}/{maxBigDOs})
+          </h3>
+          <div className="space-y-2">
+            {pendingBigDOs.map((config, index) => (
+              <div
+                key={index}
+                className="flex justify-between items-center bg-white p-3 rounded-md"
+              >
+                <span>
+                  Big DO #{index + 1}:{" "}
+                  {config.selectedMainDO?.do_number ?? "Invalid Selection"} with{" "}
+                  {config.tambahan.length} tambahan
+                </span>
+                <button
+                  onClick={() => removePendingBigDO(index)}
+                  className="text-red-500 hover:text-red-700"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {step === 1 && (
         <div className="bg-white shadow rounded-lg">
           <div className="px-6 py-4 border-b border-gray-200">
@@ -307,7 +382,7 @@ const BigDOCreatePage: React.FC = () => {
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       strokeWidth={2}
-                      d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2 2v-5m16 0h-3a2 2 0 00-2 2v3a2 2 0 01-2 2H8a2 2 0 01-2-2v-3a2 2 0 00-2-2H3"
+                      d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-3a2 2 0 00-2 2v3a2 2 0 01-2 2H8a2 2 0 01-2-2v-3a2 2 0 00-2-2H3"
                     />
                   </svg>
                 </div>
@@ -323,10 +398,11 @@ const BigDOCreatePage: React.FC = () => {
                   Big DO
                 </p>
 
-                {/* Action Buttons */}
                 <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
                   <button
-                    onClick={() => navigate("/delivery-orders/create?return=/big-dos/create")}
+                    onClick={() =>
+                      navigate("/delivery-orders/create?return=/big-dos/create")
+                    }
                     className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
                   >
                     <svg
@@ -344,9 +420,7 @@ const BigDOCreatePage: React.FC = () => {
                     </svg>
                     <span>Create New Delivery Order</span>
                   </button>
-
                   <span className="text-gray-400 text-sm">or</span>
-
                   <button
                     onClick={fetchAvailableDOs}
                     className="bg-gray-100 text-gray-700 px-6 py-3 rounded-lg hover:bg-gray-200 transition-colors flex items-center space-x-2"
@@ -368,7 +442,6 @@ const BigDOCreatePage: React.FC = () => {
                   </button>
                 </div>
 
-                {/* Additional Help Text */}
                 <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                   <div className="flex items-start space-x-2">
                     <svg
@@ -400,7 +473,6 @@ const BigDOCreatePage: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-4">
-                {/* Refresh Button when there are DOs */}
                 <div className="flex justify-between items-center">
                   <div className="text-sm text-gray-600">
                     Found {availableDOs.length} available DO
@@ -428,75 +500,88 @@ const BigDOCreatePage: React.FC = () => {
                 </div>
 
                 <div className="grid gap-4">
-                  {availableDOs.map((doItem) => (
-                    <div
-                      key={doItem.id}
-                      className={`border rounded-lg p-4 cursor-pointer transition-colors ${
-                        selectedMainDO?.id === doItem.id
-                          ? "border-blue-500 bg-blue-50"
-                          : "border-gray-200 hover:border-gray-300"
-                      }`}
-                      onClick={() => setSelectedMainDO(doItem)}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-4">
-                            <div className="font-medium text-gray-900">
-                              {doItem.do_number}
+                  {availableDOs
+                    .filter((doItem) => !pendingMainDOIds.includes(doItem.id))
+                    .map((doItem) => (
+                      <div
+                        key={doItem.id}
+                        className={`border rounded-lg p-4 cursor-pointer transition-colors ${
+                          currentConfig.selectedMainDO?.id === doItem.id
+                            ? "border-blue-500 bg-blue-50"
+                            : "border-gray-200 hover:border-gray-300"
+                        }`}
+                        onClick={() =>
+                          setCurrentConfig({
+                            ...currentConfig,
+                            selectedMainDO: doItem,
+                          })
+                        }
+                      >
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <div className="flex items-center space-x-4">
+                              <div className="font-medium text-gray-900">
+                                {doItem.do_number}
+                              </div>
+                              <div className="text-sm text-gray-600">
+                                {getPONumber(doItem)}
+                                {!doItem.purchaseOrder && (
+                                  <span className="text-xs text-gray-500 italic ml-2">
+                                    (Standalone)
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                            <div className="text-sm text-gray-600">
-                              {getPONumber(doItem)}
-                              {!doItem.purchaseOrder && (
-                                <span className="text-xs text-gray-500 italic ml-2">(Standalone)</span>
-                              )}
+                            <div className="mt-1 text-sm text-gray-600">
+                              {doItem.customer_name} • {doItem.item_name}
+                            </div>
+                            <div className="mt-1 text-sm text-gray-500">
+                              {doItem.driver_name} • {doItem.vehicle_info}
+                            </div>
+                            <div className="mt-2 text-sm">
+                              <span className="text-gray-600">
+                                {doItem.minimal_load_quantity} {doItem.unit} ×{" "}
+                                {formatCurrency(doItem.unit_price)}/
+                                {doItem.unit}
+                              </span>
+                              <span className="ml-4 font-medium text-green-600">
+                                {formatCurrency(doItem.total_amount)}
+                              </span>
                             </div>
                           </div>
-                          <div className="mt-1 text-sm text-gray-600">
-                            {doItem.customer_name} • {doItem.item_name}
+                          <div className="flex-shrink-0">
+                            {currentConfig.selectedMainDO?.id === doItem.id && (
+                              <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center">
+                                <svg
+                                  className="w-4 h-4 text-white"
+                                  fill="currentColor"
+                                  viewBox="0 0 20 20"
+                                >
+                                  <path
+                                    fillRule="evenodd"
+                                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                    clipRule="evenodd"
+                                  />
+                                </svg>
+                              </div>
+                            )}
                           </div>
-                          <div className="mt-1 text-sm text-gray-500">
-                            {doItem.driver_name} • {doItem.vehicle_info}
-                          </div>
-                          <div className="mt-2 text-sm">
-                            <span className="text-gray-600">
-                              {doItem.minimal_load_quantity} {doItem.unit} ×{" "}
-                              {formatCurrency(doItem.unit_price)}/{doItem.unit}
-                            </span>
-                            <span className="ml-4 font-medium text-green-600">
-                              {formatCurrency(doItem.total_amount)}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex-shrink-0">
-                          {selectedMainDO?.id === doItem.id && (
-                            <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center">
-                              <svg
-                                className="w-4 h-4 text-white"
-                                fill="currentColor"
-                                viewBox="0 0 20 20"
-                              >
-                                <path
-                                  fillRule="evenodd"
-                                  d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                                  clipRule="evenodd"
-                                />
-                              </svg>
-                            </div>
-                          )}
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
                 </div>
 
-                {/* Quick Action to Create More DOs */}
                 <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
                   <div className="flex items-center justify-between">
                     <div className="text-sm text-gray-600">
                       Need more delivery orders for your Big DO?
                     </div>
                     <button
-                      onClick={() => navigate("/delivery-orders/create?return=/big-dos/create")}
+                      onClick={() =>
+                        navigate(
+                          "/delivery-orders/create?return=/big-dos/create"
+                        )
+                      }
                       className="text-blue-600 hover:text-blue-800 text-sm font-medium"
                     >
                       + Create Another DO
@@ -506,7 +591,7 @@ const BigDOCreatePage: React.FC = () => {
               </div>
             )}
 
-            {selectedMainDO && (
+            {currentConfig.selectedMainDO && (
               <div className="mt-6 flex justify-end">
                 <button
                   onClick={() => setStep(2)}
@@ -521,25 +606,23 @@ const BigDOCreatePage: React.FC = () => {
       )}
 
       {/* Step 2: Add Tambahan */}
-      {step === 2 && selectedMainDO && (
+      {step === 2 && currentConfig.selectedMainDO && (
         <div className="space-y-6">
-          {/* Selected Main DO Summary */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <h3 className="font-medium text-blue-900 mb-2">Selected Main DO</h3>
             <div className="text-sm text-blue-800">
-              <strong>{selectedMainDO.do_number}</strong> •{" "}
-              <span className="text-xs text-blue-600">
-                ({getPONumber(selectedMainDO)})
-              </span> •{" "}
-              {selectedMainDO.customer_name} •
-              {formatCurrency(selectedMainDO.total_amount)}
-              {!selectedMainDO.purchaseOrder && (
-                <span className="text-xs text-blue-500 italic ml-2">(Standalone DO)</span>
+              <strong>{currentConfig.selectedMainDO.do_number}</strong> • (
+              {getPONumber(currentConfig.selectedMainDO)}) •{" "}
+              {currentConfig.selectedMainDO.customer_name} •{" "}
+              {formatCurrency(currentConfig.selectedMainDO.total_amount)}
+              {!currentConfig.selectedMainDO.purchaseOrder && (
+                <span className="text-xs text-blue-500 italic ml-2">
+                  (Standalone DO)
+                </span>
               )}
             </div>
           </div>
 
-          {/* Tambahan Section */}
           <div className="bg-white shadow rounded-lg">
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
               <div>
@@ -547,7 +630,8 @@ const BigDOCreatePage: React.FC = () => {
                   Step 2: Add Tambahan Deliveries
                 </h2>
                 <p className="text-sm text-gray-600">
-                  Add additional deliveries that will piggyback on this trip
+                  Add additional deliveries that will piggyback on this trip (at
+                  least one required)
                 </p>
               </div>
               <button
@@ -559,17 +643,16 @@ const BigDOCreatePage: React.FC = () => {
             </div>
 
             <div className="p-6">
-              {tambahan.length === 0 ? (
+              {currentConfig.tambahan.length === 0 ? (
                 <div className="text-center py-8">
                   <p className="text-gray-500">No tambahan added yet</p>
-                  <p className="text-sm text-gray-400 mt-2">
-                    You can create a Big DO with just the main DO, or add
-                    tambahan deliveries
+                  <p className="text-sm text-red-600 mt-2">
+                    At least one tambahan is required to proceed
                   </p>
                 </div>
               ) : (
                 <div className="space-y-6">
-                  {tambahan.map((item, index) => (
+                  {currentConfig.tambahan.map((item, index) => (
                     <div
                       key={index}
                       className="border border-gray-200 rounded-lg p-4"
@@ -585,7 +668,6 @@ const BigDOCreatePage: React.FC = () => {
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* Customer Info */}
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
                             Customer Name *
@@ -641,7 +723,6 @@ const BigDOCreatePage: React.FC = () => {
                           />
                         </div>
 
-                        {/* Item Info */}
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
                             Item Name *
@@ -714,7 +795,6 @@ const BigDOCreatePage: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* Locations */}
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
                             Pickup Location *
@@ -768,7 +848,6 @@ const BigDOCreatePage: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Calculated Amount */}
                       {item.quantity > 0 && item.unit_price > 0 && (
                         <div className="mt-4 p-3 bg-gray-50 rounded-md">
                           <div className="text-sm text-gray-600">
@@ -799,7 +878,8 @@ const BigDOCreatePage: React.FC = () => {
                 </button>
                 <button
                   onClick={() => setStep(3)}
-                  className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                  disabled={currentConfig.tambahan.length === 0}
+                  className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                 >
                   Next: Finalize →
                 </button>
@@ -810,9 +890,8 @@ const BigDOCreatePage: React.FC = () => {
       )}
 
       {/* Step 3: Finalize */}
-      {step === 3 && selectedMainDO && (
+      {step === 3 && currentConfig.selectedMainDO && (
         <div className="space-y-6">
-          {/* Summary */}
           <div className="bg-white shadow rounded-lg">
             <div className="px-6 py-4 border-b border-gray-200">
               <h2 className="text-lg font-medium">Step 3: Finalize Big DO</h2>
@@ -822,17 +901,20 @@ const BigDOCreatePage: React.FC = () => {
             </div>
 
             <div className="p-6 space-y-6">
-              {/* Revenue Summary */}
               <div className="bg-gray-50 rounded-lg p-4">
                 <h3 className="font-medium mb-3">Revenue Summary</h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span>Main DO ({selectedMainDO.do_number})</span>
+                    <span>
+                      Main DO ({currentConfig.selectedMainDO.do_number})
+                    </span>
                     <span className="font-medium">
-                      {formatCurrency(toNumber(selectedMainDO.total_amount))}
+                      {formatCurrency(
+                        toNumber(currentConfig.selectedMainDO.total_amount)
+                      )}
                     </span>
                   </div>
-                  {tambahan.map((item, index) => {
+                  {currentConfig.tambahan.map((item, index) => {
                     const tambahanAmount = calculateTambahanAmount(
                       item.quantity,
                       item.unit,
@@ -852,48 +934,12 @@ const BigDOCreatePage: React.FC = () => {
                   <div className="border-t pt-2 flex justify-between font-medium text-lg">
                     <span>Total Revenue</span>
                     <span className="text-green-600">
-                      {formatCurrency(calculateTotalRevenue())}
+                      {formatCurrency(calculateTotalRevenue(currentConfig))}
                     </span>
-                  </div>
-
-                  {/* ✅ FIX: Use helper function for debug info */}
-                  <div className="text-xs text-gray-500 border-t pt-2">
-                    <div>
-                      Debug: Main DO = {toNumber(selectedMainDO.total_amount)}
-                    </div>
-                    <div>
-                      Debug: Tambahan Total ={" "}
-                      {tambahan.reduce(
-                        (sum, t) =>
-                          sum +
-                          calculateTambahanAmount(
-                            t.quantity,
-                            t.unit,
-                            t.unit_price
-                          ),
-                        0
-                      )}
-                    </div>
-                    <div>
-                      Debug: Calculation ={" "}
-                      {toNumber(selectedMainDO.total_amount)} +{" "}
-                      {tambahan.reduce(
-                        (sum, t) =>
-                          sum +
-                          calculateTambahanAmount(
-                            t.quantity,
-                            t.unit,
-                            t.unit_price
-                          ),
-                        0
-                      )}{" "}
-                      = {calculateTotalRevenue()}
-                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Financial Settings */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -902,12 +948,15 @@ const BigDOCreatePage: React.FC = () => {
                   <input
                     type="number"
                     step="0.01"
-                    value={bigDOData.total_trip_allowance}
+                    value={currentConfig.bigDOData.total_trip_allowance}
                     onChange={(e) =>
-                      setBigDOData({
-                        ...bigDOData,
-                        total_trip_allowance: parseFloat(e.target.value) || 0,
-                      })
+                      setCurrentConfig((prev) => ({
+                        ...prev,
+                        bigDOData: {
+                          ...prev.bigDOData,
+                          total_trip_allowance: parseFloat(e.target.value) || 0,
+                        },
+                      }))
                     }
                     className="w-full border border-gray-300 rounded-md px-3 py-2"
                     placeholder="0"
@@ -924,12 +973,15 @@ const BigDOCreatePage: React.FC = () => {
                   <input
                     type="number"
                     step="0.01"
-                    value={bigDOData.total_gaji}
+                    value={currentConfig.bigDOData.total_gaji}
                     onChange={(e) =>
-                      setBigDOData({
-                        ...bigDOData,
-                        total_gaji: parseFloat(e.target.value) || 0,
-                      })
+                      setCurrentConfig((prev) => ({
+                        ...prev,
+                        bigDOData: {
+                          ...prev.bigDOData,
+                          total_gaji: parseFloat(e.target.value) || 0,
+                        },
+                      }))
                     }
                     className="w-full border border-gray-300 rounded-md px-3 py-2"
                     placeholder="0"
@@ -945,12 +997,12 @@ const BigDOCreatePage: React.FC = () => {
                   Notes
                 </label>
                 <textarea
-                  value={bigDOData.notes}
+                  value={currentConfig.bigDOData.notes}
                   onChange={(e) =>
-                    setBigDOData({
-                      ...bigDOData,
-                      notes: e.target.value,
-                    })
+                    setCurrentConfig((prev) => ({
+                      ...prev,
+                      bigDOData: { ...prev.bigDOData, notes: e.target.value },
+                    }))
                   }
                   className="w-full border border-gray-300 rounded-md px-3 py-2"
                   rows={3}
@@ -965,13 +1017,29 @@ const BigDOCreatePage: React.FC = () => {
                 >
                   ← Previous
                 </button>
-                <button
-                  onClick={handleCreateBigDO}
-                  disabled={loading}
-                  className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
-                >
-                  {loading ? "Creating..." : "🚀 Create Big DO"}
-                </button>
+                <div className="flex space-x-4">
+                  <button
+                    onClick={addCurrentToPending}
+                    disabled={
+                      pendingBigDOs.length >= maxBigDOs ||
+                      currentConfig.tambahan.length === 0
+                    }
+                    className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+                  >
+                    Add Another Big DO
+                  </button>
+                  <button
+                    onClick={handleCreateAllBigDOs}
+                    disabled={
+                      loading ||
+                      (pendingBigDOs.length === 0 &&
+                        currentConfig.tambahan.length === 0)
+                    }
+                    className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  >
+                    {loading ? "Creating..." : "🚀 Create All Big DOs"}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

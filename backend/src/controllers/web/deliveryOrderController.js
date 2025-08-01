@@ -15,8 +15,9 @@ const {
 } = require("../../models");
 const { Op } = require("sequelize");
 const { Expo } = require("expo-server-sdk");
+const { v4: uuidv4 } = require("uuid"); // New import for UUIDs – install if needed: npm i uuid
 
-// Enhanced calculation helpers with unit awareness
+// Enhanced calculation helpers with unit awareness (unchanged)
 const calculateTotalAmount = (quantity, unitPrice, unit) => {
   const qty = parseFloat(quantity) || 0;
   const price = parseFloat(unitPrice) || 0;
@@ -37,6 +38,329 @@ const calculateOngkosan = (totalAmount, tripAllowance, gaji) => {
   const salary = parseFloat(gaji) || 0;
 
   return total - allowance - salary;
+};
+
+// New helper: Validate driver availability
+const validateDriverAvailability = async (driver_id, transaction) => {
+  const activeDriverDelivery = await DeliveryOrder.findOne({
+    where: {
+      driver_id,
+      status: {
+        [Op.in]: [
+          "assigned",
+          "otw_to_load_location",
+          "at_load_location",
+          "otw_to_unload_location",
+          "at_unload_location",
+          "otw_to_base",
+        ],
+      },
+    },
+    transaction,
+  });
+  if (activeDriverDelivery) {
+    throw new Error(
+      `Driver is already assigned to active delivery order: ${activeDriverDelivery.do_number}`
+    );
+  }
+
+  const existingBigDO = await BigDeliveryOrder.findOne({
+    where: {
+      driver_id,
+      status: { [Op.in]: ["assigned", "in_progress"] },
+    },
+    transaction,
+  });
+  if (existingBigDO) {
+    throw new Error(
+      `Driver is already assigned to Big DO: ${existingBigDO.big_do_number}`
+    );
+  }
+};
+
+// New helper: Validate vehicle availability
+const validateVehicleAvailability = async (vehicle_id, transaction) => {
+  const activeVehicleDelivery = await DeliveryOrder.findOne({
+    where: {
+      vehicle_id,
+      status: {
+        [Op.in]: [
+          "assigned",
+          "otw_to_load_location",
+          "at_load_location",
+          "otw_to_unload_location",
+          "at_unload_location",
+          "otw_to_base",
+        ],
+      },
+    },
+    transaction,
+  });
+  if (activeVehicleDelivery) {
+    throw new Error(
+      `Vehicle is already assigned to active delivery order: ${activeVehicleDelivery.do_number}`
+    );
+  }
+};
+
+// New helper: Validate item against PO
+const validateItemAgainstPO = async (
+  purchase_order_id,
+  item_name,
+  transaction
+) => {
+  if (!purchase_order_id || !item_name) return; // Skip if standalone
+
+  const po = await PurchaseOrder.findByPk(purchase_order_id, { transaction });
+  if (!po) {
+    throw new Error("Purchase Order not found");
+  }
+  const poItems = po.item_name
+    ? po.item_name.split(",").map((i) => i.trim().toLowerCase())
+    : [];
+  if (!poItems.includes(item_name.trim().toLowerCase())) {
+    throw new Error(`Invalid item_name for PO`);
+  }
+  return po; // Return PO for further use
+};
+
+// 🎯 CREATE DELIVERY ORDER(S) - Now handles batch or single
+// POST /api/web/delivery-orders
+// Body: { delivery_orders: [{...do fields...}, ...] } for batch, or just {...do fields...} for single
+exports.createBatchDeliveryOrder = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+  try {
+    let deliveryOrdersData = req.body.delivery_orders || [req.body]; // Array-ify for uniform handling
+    if (!Array.isArray(deliveryOrdersData) || deliveryOrdersData.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message:
+          "Provide an array of delivery orders or a single object, lazy bones.",
+      });
+    }
+
+    // Batch limit – prevent abuse (adjust as needed)
+    if (deliveryOrdersData.length > 20) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Whoa, max 20 DOs per request – don't DDoS your own server.",
+      });
+    }
+
+    const createdDOs = [];
+    const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+
+    // Track used drivers/vehicles in this batch to avoid internal conflicts
+    const usedDrivers = new Set();
+    const usedVehicles = new Set();
+
+    for (const doData of deliveryOrdersData) {
+      const {
+        purchase_order_id,
+        standalone_po_number, // For standalone DOs
+        vehicle_id,
+        driver_id,
+        customer_name,
+        item_name,
+        minimal_load_quantity,
+        unit,
+        unit_price,
+        total_amount,
+        trip_allowance = 0,
+        gaji = 0,
+        ongkosan,
+        load_location,
+        unload_location,
+        load_latitude,
+        load_longitude,
+        unload_latitude,
+        unload_longitude,
+        payment_status = "proses_tagihan",
+        status = "assigned",
+        do_name,
+      } = doData;
+
+      // Basic validation
+      if (
+        !vehicle_id ||
+        !driver_id ||
+        !minimal_load_quantity ||
+        isNaN(parseFloat(minimal_load_quantity))
+      ) {
+        throw new Error(
+          "Missing or invalid required fields: vehicle_id, driver_id, minimal_load_quantity (must be number)"
+        );
+      }
+
+      // Unit validation
+      if (unit && !["kilogram", "ton", "kubik"].includes(unit)) {
+        throw new Error("Invalid unit. Must be one of: kilogram, ton, kubik");
+      }
+
+      // Check batch-internal conflicts
+      if (usedDrivers.has(driver_id)) {
+        throw new Error(
+          `Driver ${driver_id} is assigned multiple times in this batch – no cloning allowed.`
+        );
+      }
+      if (usedVehicles.has(vehicle_id)) {
+        throw new Error(
+          `Vehicle ${vehicle_id} is assigned multiple times in this batch – physics says no.`
+        );
+      }
+      usedDrivers.add(driver_id);
+      usedVehicles.add(vehicle_id);
+
+      // Validate driver and vehicle availability (DB checks)
+      await validateDriverAvailability(driver_id, transaction);
+      await validateVehicleAvailability(vehicle_id, transaction);
+
+      // Validate item against PO and get PO
+      const po = await validateItemAgainstPO(
+        purchase_order_id,
+        item_name,
+        transaction
+      );
+
+      // Fallback unit and unit_price from PO
+      let finalUnit = unit || (po ? po.unit : "ton");
+      let finalUnitPrice = unit_price || (po ? po.unit_price : null);
+
+      // Generate unique DO number with UUID
+      const uniqueSuffix = uuidv4().slice(0, 8).toUpperCase();
+      const do_number = `DO-${timestamp}-${uniqueSuffix}`;
+
+      // Calculations
+      let calculatedTotalAmount =
+        total_amount ||
+        calculateTotalAmount(minimal_load_quantity, finalUnitPrice, finalUnit);
+      let calculatedOngkosan =
+        ongkosan ||
+        calculateOngkosan(calculatedTotalAmount, trip_allowance, gaji);
+
+      // Build temp DO for validation
+      const tempDO = DeliveryOrder.build({
+        purchase_order_id,
+        driver_id,
+        vehicle_id,
+        do_number,
+        do_name,
+        customer_name,
+        item_name,
+        minimal_load_quantity,
+        unit: finalUnit,
+        unit_price: finalUnitPrice,
+        total_amount: calculatedTotalAmount,
+        trip_allowance,
+        gaji,
+        ongkosan: calculatedOngkosan,
+        load_location,
+        load_latitude,
+        load_longitude,
+        unload_location,
+        unload_latitude,
+        unload_longitude,
+        payment_status,
+        status,
+      });
+
+      // Validate remaining quantity (assuming this method exists on model)
+      if (tempDO.validateQuantityAgainstPO) {
+        await tempDO.validateQuantityAgainstPO(false); // false for create
+      }
+
+      // Create the DO
+      const deliveryOrder = await DeliveryOrder.create(tempDO.dataValues, {
+        transaction,
+        scope: "web",
+      });
+
+      // Deposit group integration
+      if (purchase_order_id && po && po.deposit_group_id) {
+        await DepositGroupMember.create(
+          {
+            group_id: po.deposit_group_id,
+            delivery_order_id: deliveryOrder.id,
+            quantity: minimal_load_quantity,
+          },
+          { transaction }
+        );
+        console.log(
+          `✅ Auto-added DO ${deliveryOrder.do_number} to deposit group ${po.deposit_group_id}`
+        );
+      }
+
+      // Update vehicle status
+      await Vehicle.update(
+        { status: "in_use" },
+        { where: { id: vehicle_id }, transaction }
+      );
+
+      // Push notification
+      const driverUser = await User.findOne({
+        where: { id: driver_id },
+        attributes: ["username", "expo_push_token"],
+        include: [
+          {
+            model: DriverProfile,
+            as: "driverProfile",
+            attributes: ["full_name"],
+          },
+        ],
+        transaction,
+      });
+
+      if (
+        driverUser &&
+        driverUser.expo_push_token &&
+        Expo.isExpoPushToken(driverUser.expo_push_token)
+      ) {
+        const expo = new Expo();
+        const driverName =
+          driverUser.driverProfile?.full_name || driverUser.username;
+        const messages = [
+          {
+            to: driverUser.expo_push_token,
+            sound: "default",
+            title: "Tugas Pengantaran Baru",
+            body: `Halo ${driverName}, Anda telah ditugaskan untuk DO ${
+              deliveryOrder.do_name || deliveryOrder.do_number
+            }. Silakan cek detail pengantaran di aplikasi.`,
+            data: { do_number: deliveryOrder.do_number },
+          },
+        ];
+
+        try {
+          await expo.sendPushNotificationsAsync(messages);
+        } catch (pushError) {
+          console.error("Push notification error:", pushError);
+          // Don't fail, just log
+        }
+      }
+
+      createdDOs.push(deliveryOrder);
+    }
+
+    await transaction.commit();
+
+    res.status(201).json({
+      success: true,
+      message: `Created ${createdDOs.length} delivery order(s) – you're welcome.`,
+      data: createdDOs.map((doItem) => ({
+        ...doItem.toJSON(),
+        unit_display: doItem.getUnitDisplay() || "N/A",
+        financial_summary: doItem.getFinancialSummary() || {},
+        big_do_context: doItem.getBigDOContext() || null,
+      })),
+    });
+  } catch (err) {
+    await transaction.rollback();
+    console.error("Error creating delivery order(s):", err);
+    res.status(500).json({ success: false, message: err.message });
+    next(err);
+  }
 };
 
 /**
@@ -273,19 +597,24 @@ exports.createDeliveryOrder = async (req, res, next) => {
     // Deposit group integration (from current)
     if (purchase_order_id) {
       const purchaseOrder = await PurchaseOrder.findByPk(purchase_order_id, {
-        attributes: ['id', 'deposit_group_id'],
-        transaction
+        attributes: ["id", "deposit_group_id"],
+        transaction,
       });
 
       if (purchaseOrder && purchaseOrder.deposit_group_id) {
         // Automatically create deposit group membership
-        await DepositGroupMember.create({
-          group_id: purchaseOrder.deposit_group_id,
-          delivery_order_id: deliveryOrder.id,
-          quantity: minimal_load_quantity
-        }, { transaction });
+        await DepositGroupMember.create(
+          {
+            group_id: purchaseOrder.deposit_group_id,
+            delivery_order_id: deliveryOrder.id,
+            quantity: minimal_load_quantity,
+          },
+          { transaction }
+        );
 
-        console.log(`✅ Auto-added DO ${deliveryOrder.do_number} to deposit group ${purchaseOrder.deposit_group_id}`);
+        console.log(
+          `✅ Auto-added DO ${deliveryOrder.do_number} to deposit group ${purchaseOrder.deposit_group_id}`
+        );
       }
     }
 
@@ -811,9 +1140,10 @@ exports.updateDeliveryOrder = async (req, res, next) => {
 
     // Enhanced response with PO stats (from incoming)
     const po = await PurchaseOrder.findByPk(updatedDO.purchase_order_id);
-    const stats = po && po.getRemainingAndForecast 
-      ? await po.getRemainingAndForecast() 
-      : null;
+    const stats =
+      po && po.getRemainingAndForecast
+        ? await po.getRemainingAndForecast()
+        : null;
 
     res.json({
       success: true,
@@ -919,7 +1249,13 @@ exports.completeDeliveryOrder = async (req, res, next) => {
             {
               model: DepositGroup,
               as: "depositGroup",
-              attributes: ["id", "group_name", "status", "remaining_quantity", "balance"],
+              attributes: [
+                "id",
+                "group_name",
+                "status",
+                "remaining_quantity",
+                "balance",
+              ],
             },
           ],
         },
@@ -950,7 +1286,7 @@ exports.completeDeliveryOrder = async (req, res, next) => {
     // Check if DO is a direct member of any deposit group
     const dgMember = await DepositGroupMember.findOne({
       where: { delivery_order_id: id },
-      include: [{ model: DepositGroup, as: 'group' }],
+      include: [{ model: DepositGroup, as: "group" }],
       transaction,
     });
 
@@ -966,8 +1302,10 @@ exports.completeDeliveryOrder = async (req, res, next) => {
       paymentStatus = "lunas";
       paymentConfirmationStatus = "confirmed";
       paymentConfirmedAt = new Date();
-      
-      console.log(`✅ DO ${id} auto-paid via deposit group - Deposit linked: ${isDepositLinked}, In group: ${isInDepositGroup}`);
+
+      console.log(
+        `✅ DO ${id} auto-paid via deposit group - Deposit linked: ${isDepositLinked}, In group: ${isInDepositGroup}`
+      );
     } else {
       // Regular DOs follow the normal payment process
       paymentStatus = "awaiting_confirmation";
@@ -981,7 +1319,8 @@ exports.completeDeliveryOrder = async (req, res, next) => {
       payment_status: paymentStatus,
       payment_confirmation_status: paymentConfirmationStatus,
       payment_confirmation_at: paymentConfirmedAt,
-      actual_load_quantity: actual_load_quantity || deliveryOrder.actual_load_quantity,
+      actual_load_quantity:
+        actual_load_quantity || deliveryOrder.actual_load_quantity,
       notes: notes || deliveryOrder.notes,
     };
 
@@ -994,55 +1333,70 @@ exports.completeDeliveryOrder = async (req, res, next) => {
       // Ensure unit_price is a valid number before calculation
       const unitPrice = parseFloat(deliveryOrder.unit_price);
       if (isNaN(unitPrice)) {
-          throw new Error(`Invalid unit_price for DO ${deliveryOrder.id}`);
+        throw new Error(`Invalid unit_price for DO ${deliveryOrder.id}`);
       }
       const priceUsed = qtyUsed * unitPrice;
 
       console.log(`🔄 Processing deposit group ${grp.id} for DO ${id}`);
-      console.log(`📊 Reducing: ${qtyUsed} qty, Rp ${priceUsed.toLocaleString('id-ID')} amount`);
+      console.log(
+        `📊 Reducing: ${qtyUsed} qty, Rp ${priceUsed.toLocaleString(
+          "id-ID"
+        )} amount`
+      );
 
       // Properly reduce both quantity and balance
       const currentRemaining = parseFloat(grp.remaining_quantity) || 0;
       const currentBalance = parseFloat(grp.balance) || 0;
-      
+
       grp.remaining_quantity = Math.max(0, currentRemaining - qtyUsed);
       grp.balance = Math.max(0, currentBalance - priceUsed);
 
       // Update group status based on remaining quantities
       if (grp.remaining_quantity <= 0 && grp.balance <= 0) {
-        grp.status = 'fulfilled';
+        grp.status = "fulfilled";
       } else if (grp.remaining_quantity < 0 || grp.balance < 0) {
-        grp.status = 'overdrawn';
+        grp.status = "overdrawn";
       } else {
-        grp.status = 'active';
+        grp.status = "active";
       }
 
       await grp.save({ transaction });
-      
+
       // Also update the quantity in the DepositGroupMember table itself
       await dgMember.update({ quantity: qtyUsed }, { transaction });
 
-      console.log(`✅ Updated deposit group: remaining ${grp.remaining_quantity}, balance Rp ${grp.balance.toLocaleString('id-ID')}`);
+      console.log(
+        `✅ Updated deposit group: remaining ${
+          grp.remaining_quantity
+        }, balance Rp ${grp.balance.toLocaleString("id-ID")}`
+      );
 
       // Handle excess quantities (selisih)
       const minimalQuantity = parseFloat(deliveryOrder.minimal_load_quantity);
       const excess = qtyUsed - minimalQuantity;
-      
+
       if (excess > 0) {
         const excessAmount = excess * unitPrice;
 
         // Create adjustment record for excess quantity
-        await DeliveryOrderAdjustments.create({
-          delivery_order_id: id,
-          payment_amount: priceUsed,
-          payment_type: 'deposit', // Use 'deposit' as the payment type
-          payment_date: new Date(),
-          notes: `Auto-payment from Deposit Group: ${grp.group_name}`,
-          received_by: req.user?.id,
-          created_by: req.user?.id,
-        }, { transaction });
+        await DeliveryOrderAdjustments.create(
+          {
+            delivery_order_id: id,
+            payment_amount: priceUsed,
+            payment_type: "deposit", // Use 'deposit' as the payment type
+            payment_date: new Date(),
+            notes: `Auto-payment from Deposit Group: ${grp.group_name}`,
+            received_by: req.user?.id,
+            created_by: req.user?.id,
+          },
+          { transaction }
+        );
 
-        console.log(`📊 Recorded excess: ${excess} ${deliveryOrder.unit} = Rp ${excessAmount.toLocaleString('id-ID')}`);
+        console.log(
+          `📊 Recorded excess: ${excess} ${
+            deliveryOrder.unit
+          } = Rp ${excessAmount.toLocaleString("id-ID")}`
+        );
       }
     }
 
@@ -1062,12 +1416,23 @@ exports.completeDeliveryOrder = async (req, res, next) => {
         {
           model: PurchaseOrder,
           as: "purchaseOrder",
-          attributes: ["po_number", "customer_name", "unit", "deposit_group_id"],
+          attributes: [
+            "po_number",
+            "customer_name",
+            "unit",
+            "deposit_group_id",
+          ],
           include: [
             {
               model: DepositGroup,
               as: "depositGroup",
-              attributes: ["id", "group_name", "status", "remaining_quantity", "balance"],
+              attributes: [
+                "id",
+                "group_name",
+                "status",
+                "remaining_quantity",
+                "balance",
+              ],
             },
           ],
         },
@@ -1078,32 +1443,37 @@ exports.completeDeliveryOrder = async (req, res, next) => {
 
     res.json({
       success: true,
-      message: isAutoPaid 
-        ? "✅ DO completed and auto-paid via deposit group" 
+      message: isAutoPaid
+        ? "✅ DO completed and auto-paid via deposit group"
         : "DO completed successfully",
       data: {
         ...updatedDO.toJSON(),
         is_auto_paid: isAutoPaid,
         deposit_group_handled: isAutoPaid,
-        deposit_group_info: dgMember && dgMember.group ? {
-          id: dgMember.group.id,
-          name: dgMember.group.group_name,
-          status: dgMember.group.status,
-          remaining_quantity: dgMember.group.remaining_quantity,
-          balance: dgMember.group.balance,
-        } : null,
-        unit_display: updatedDO.getUnitDisplay ? updatedDO.getUnitDisplay() : updatedDO.unit,
-        financial_summary: updatedDO.getFinancialSummary ? updatedDO.getFinancialSummary() : null,
+        deposit_group_info:
+          dgMember && dgMember.group
+            ? {
+                id: dgMember.group.id,
+                name: dgMember.group.group_name,
+                status: dgMember.group.status,
+                remaining_quantity: dgMember.group.remaining_quantity,
+                balance: dgMember.group.balance,
+              }
+            : null,
+        unit_display: updatedDO.getUnitDisplay
+          ? updatedDO.getUnitDisplay()
+          : updatedDO.unit,
+        financial_summary: updatedDO.getFinancialSummary
+          ? updatedDO.getFinancialSummary()
+          : null,
       },
     });
-
   } catch (err) {
     await transaction.rollback();
     console.error("Error completing delivery order:", err);
     next(err);
   }
 };
-
 
 /**
  * 🎯 GET DELIVERY STATISTICS (Enhanced)
