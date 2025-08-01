@@ -3,6 +3,11 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import apiClient from "../api/axiosConfig";
 import { toast } from "react-hot-toast";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import { GeoSearchControl, OpenStreetMapProvider } from "leaflet-geosearch";
+import "leaflet-geosearch/dist/geosearch.css";
 
 interface AvailableDO {
   id: number;
@@ -49,6 +54,14 @@ interface BigDOConfig {
   };
 }
 
+interface MarkerType {
+  lat: number;
+  lng: number;
+  title: string;
+  type: "pickup" | "delivery";
+  tambahanIndex: number;
+}
+
 const BigDOCreatePage: React.FC = () => {
   const navigate = useNavigate();
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -67,6 +80,16 @@ const BigDOCreatePage: React.FC = () => {
   const [fetchingDOs, setFetchingDOs] = useState(true);
   const maxBigDOs = 3;
 
+  // Map states
+  const [selectedTambahanIndex, setSelectedTambahanIndex] = useState<
+    number | null
+  >(null);
+  const [selectedLocationType, setSelectedLocationType] = useState<
+    "pickup" | "delivery" | null
+  >(null);
+  const [markers, setMarkers] = useState<MarkerType[]>([]);
+  const defaultCenter = { lat: -6.2088, lng: 106.8456 };
+
   const initialTambahanForm: TambahanForm = {
     customer_name: "",
     customer_phone: "",
@@ -82,6 +105,176 @@ const BigDOCreatePage: React.FC = () => {
     delivery_latitude: undefined,
     delivery_longitude: undefined,
     notes: "",
+  };
+
+  // Icons for markers
+  const pickupIcon = new L.Icon({
+    iconUrl:
+      "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png",
+    shadowUrl:
+      "https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png",
+    iconSize: [25, 41],
+    iconAnchor: [12, 41],
+    popupAnchor: [1, -34],
+    shadowSize: [41, 41],
+  });
+
+  const deliveryIcon = new L.Icon({
+    iconUrl:
+      "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png",
+    shadowUrl:
+      "https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png",
+    iconSize: [25, 41],
+    iconAnchor: [12, 41],
+    popupAnchor: [1, -34],
+    shadowSize: [41, 41],
+  });
+
+  // Map components
+  const SearchControlComponent = ({
+    onLocationFound,
+  }: {
+    onLocationFound: (lat: number, lng: number, label: string) => void;
+  }) => {
+    const map = useMap();
+
+    useEffect(() => {
+      const provider = new OpenStreetMapProvider();
+      const searchControl = new (GeoSearchControl as any)({
+        provider: provider,
+        style: "bar",
+        showMarker: false,
+        autoClose: true,
+        keepResult: true,
+      });
+
+      const onShowLocation = (e: any) => {
+        onLocationFound(e.location.y, e.location.x, e.location.label);
+      };
+
+      map.addControl(searchControl);
+      map.on("geosearch/showlocation", onShowLocation);
+
+      return () => {
+        map.removeControl(searchControl);
+        map.off("geosearch/showlocation", onShowLocation);
+      };
+    }, [map, onLocationFound]);
+
+    return null;
+  };
+
+  const MapClickHandler = ({
+    selectedTambahanIndex,
+    selectedLocationType,
+    onLocationSelect,
+    onClearSelection,
+  }: {
+    selectedTambahanIndex: number | null;
+    selectedLocationType: "pickup" | "delivery" | null;
+    onLocationSelect: (
+      lat: number,
+      lng: number,
+      address: string,
+      tambahanIndex: number,
+      type: "pickup" | "delivery"
+    ) => void;
+    onClearSelection: () => void;
+  }) => {
+    const map = useMap();
+
+    useEffect(() => {
+      const onClick = (e: L.LeafletMouseEvent) => {
+        if (selectedTambahanIndex !== null && selectedLocationType) {
+          const { lat, lng } = e.latlng;
+          fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
+          )
+            .then((res) => res.json())
+            .then((data) => {
+              const address =
+                data.display_name ||
+                `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
+              onLocationSelect(
+                lat,
+                lng,
+                address,
+                selectedTambahanIndex,
+                selectedLocationType
+              );
+              onClearSelection();
+            })
+            .catch(() => {
+              const address = `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
+              onLocationSelect(
+                lat,
+                lng,
+                address,
+                selectedTambahanIndex,
+                selectedLocationType
+              );
+              onClearSelection();
+            });
+        }
+      };
+
+      map.on("click", onClick);
+
+      return () => {
+        map.off("click", onClick);
+      };
+    }, [
+      map,
+      selectedTambahanIndex,
+      selectedLocationType,
+      onLocationSelect,
+      onClearSelection,
+    ]);
+
+    return null;
+  };
+
+  // Function to handle location selection
+  const handleLocationSelect = (
+    lat: number,
+    lng: number,
+    address: string,
+    tambahanIndex: number,
+    type: "pickup" | "delivery"
+  ) => {
+    setCurrentConfig((prev) => {
+      const updatedTambahan = [...prev.tambahan];
+      if (type === "pickup") {
+        updatedTambahan[tambahanIndex] = {
+          ...updatedTambahan[tambahanIndex],
+          pickup_location: address,
+          pickup_latitude: lat,
+          pickup_longitude: lng,
+        };
+      } else {
+        updatedTambahan[tambahanIndex] = {
+          ...updatedTambahan[tambahanIndex],
+          delivery_location: address,
+          delivery_latitude: lat,
+          delivery_longitude: lng,
+        };
+      }
+      return { ...prev, tambahan: updatedTambahan };
+    });
+
+    setMarkers((prev) => [
+      ...prev,
+      {
+        lat,
+        lng,
+        title: `${type.charAt(0).toUpperCase() + type.slice(1)} Location`,
+        type,
+        tambahanIndex,
+      },
+    ]);
+
+    setSelectedTambahanIndex(null);
+    setSelectedLocationType(null);
   };
 
   const getPONumber = (doItem: AvailableDO) => {
@@ -215,7 +408,6 @@ const BigDOCreatePage: React.FC = () => {
 
   const resetCurrentConfig = () => {
     setCurrentConfig((prev) => ({
-      // Functional update for safety
       selectedMainDO: null,
       tambahan: [],
       bigDOData: {
@@ -224,12 +416,8 @@ const BigDOCreatePage: React.FC = () => {
         notes: "",
       },
     }));
+    setMarkers([]); // Clear markers on reset
   };
-
-  // returns all main DO ids already used in pendingBigDOs
-  const pendingMainDOIds = pendingBigDOs
-    .filter((cfg) => cfg.selectedMainDO)
-    .map((cfg) => cfg.selectedMainDO!.id);
 
   const handleCreateAllBigDOs = async () => {
     let allConfigs = [...pendingBigDOs];
@@ -237,7 +425,7 @@ const BigDOCreatePage: React.FC = () => {
       allConfigs.push(currentConfig);
     }
 
-    allConfigs = allConfigs.filter((config) => config.selectedMainDO !== null); // Null safety
+    allConfigs = allConfigs.filter((config) => config.selectedMainDO !== null);
 
     if (allConfigs.length === 0) {
       toast.error("No valid Big DOs to create");
@@ -247,7 +435,7 @@ const BigDOCreatePage: React.FC = () => {
     try {
       setLoading(true);
       const payloads = allConfigs.map((config) => ({
-        main_delivery_order_id: config.selectedMainDO!.id, // Non-null assertion after filter
+        main_delivery_order_id: config.selectedMainDO!.id,
         total_trip_allowance: config.bigDOData.total_trip_allowance,
         total_gaji: config.bigDOData.total_gaji,
         notes: config.bigDOData.notes,
@@ -500,75 +688,72 @@ const BigDOCreatePage: React.FC = () => {
                 </div>
 
                 <div className="grid gap-4">
-                  {availableDOs
-                    .filter((doItem) => !pendingMainDOIds.includes(doItem.id))
-                    .map((doItem) => (
-                      <div
-                        key={doItem.id}
-                        className={`border rounded-lg p-4 cursor-pointer transition-colors ${
-                          currentConfig.selectedMainDO?.id === doItem.id
-                            ? "border-blue-500 bg-blue-50"
-                            : "border-gray-200 hover:border-gray-300"
-                        }`}
-                        onClick={() =>
-                          setCurrentConfig({
-                            ...currentConfig,
-                            selectedMainDO: doItem,
-                          })
-                        }
-                      >
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <div className="flex items-center space-x-4">
-                              <div className="font-medium text-gray-900">
-                                {doItem.do_number}
-                              </div>
-                              <div className="text-sm text-gray-600">
-                                {getPONumber(doItem)}
-                                {!doItem.purchaseOrder && (
-                                  <span className="text-xs text-gray-500 italic ml-2">
-                                    (Standalone)
-                                  </span>
-                                )}
-                              </div>
+                  {availableDOs.map((doItem) => (
+                    <div
+                      key={doItem.id}
+                      className={`border rounded-lg p-4 cursor-pointer transition-colors ${
+                        currentConfig.selectedMainDO?.id === doItem.id
+                          ? "border-blue-500 bg-blue-50"
+                          : "border-gray-200 hover:border-gray-300"
+                      }`}
+                      onClick={() =>
+                        setCurrentConfig({
+                          ...currentConfig,
+                          selectedMainDO: doItem,
+                        })
+                      }
+                    >
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-4">
+                            <div className="font-medium text-gray-900">
+                              {doItem.do_number}
                             </div>
-                            <div className="mt-1 text-sm text-gray-600">
-                              {doItem.customer_name} • {doItem.item_name}
-                            </div>
-                            <div className="mt-1 text-sm text-gray-500">
-                              {doItem.driver_name} • {doItem.vehicle_info}
-                            </div>
-                            <div className="mt-2 text-sm">
-                              <span className="text-gray-600">
-                                {doItem.minimal_load_quantity} {doItem.unit} ×{" "}
-                                {formatCurrency(doItem.unit_price)}/
-                                {doItem.unit}
-                              </span>
-                              <span className="ml-4 font-medium text-green-600">
-                                {formatCurrency(doItem.total_amount)}
-                              </span>
+                            <div className="text-sm text-gray-600">
+                              {getPONumber(doItem)}
+                              {!doItem.purchaseOrder && (
+                                <span className="text-xs text-gray-500 italic ml-2">
+                                  (Standalone)
+                                </span>
+                              )}
                             </div>
                           </div>
-                          <div className="flex-shrink-0">
-                            {currentConfig.selectedMainDO?.id === doItem.id && (
-                              <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center">
-                                <svg
-                                  className="w-4 h-4 text-white"
-                                  fill="currentColor"
-                                  viewBox="0 0 20 20"
-                                >
-                                  <path
-                                    fillRule="evenodd"
-                                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                                    clipRule="evenodd"
-                                  />
-                                </svg>
-                              </div>
-                            )}
+                          <div className="mt-1 text-sm text-gray-600">
+                            {doItem.customer_name} • {doItem.item_name}
+                          </div>
+                          <div className="mt-1 text-sm text-gray-500">
+                            {doItem.driver_name} • {doItem.vehicle_info}
+                          </div>
+                          <div className="mt-2 text-sm">
+                            <span className="text-gray-600">
+                              {doItem.minimal_load_quantity} {doItem.unit} ×{" "}
+                              {formatCurrency(doItem.unit_price)}/{doItem.unit}
+                            </span>
+                            <span className="ml-4 font-medium text-green-600">
+                              {formatCurrency(doItem.total_amount)}
+                            </span>
                           </div>
                         </div>
+                        <div className="flex-shrink-0">
+                          {currentConfig.selectedMainDO?.id === doItem.id && (
+                            <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center">
+                              <svg
+                                className="w-4 h-4 text-white"
+                                fill="currentColor"
+                                viewBox="0 0 20 20"
+                              >
+                                <path
+                                  fillRule="evenodd"
+                                  d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                  clipRule="evenodd"
+                                />
+                              </svg>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    ))}
+                    </div>
+                  ))}
                 </div>
 
                 <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
@@ -812,6 +997,23 @@ const BigDOCreatePage: React.FC = () => {
                             className="w-full border border-gray-300 rounded-md px-3 py-2"
                             required
                           />
+                          <button
+                            onClick={() => {
+                              setSelectedTambahanIndex(index);
+                              setSelectedLocationType("pickup");
+                            }}
+                            className={`mt-2 px-3 py-1 rounded text-sm w-full ${
+                              selectedTambahanIndex === index &&
+                              selectedLocationType === "pickup"
+                                ? "bg-blue-500 text-white animate-pulse"
+                                : "bg-gray-200 hover:bg-gray-300"
+                            }`}
+                          >
+                            {selectedTambahanIndex === index &&
+                            selectedLocationType === "pickup"
+                              ? "Click on map for pickup..."
+                              : "Set Pickup on Map"}
+                          </button>
                         </div>
 
                         <div>
@@ -831,6 +1033,23 @@ const BigDOCreatePage: React.FC = () => {
                             className="w-full border border-gray-300 rounded-md px-3 py-2"
                             required
                           />
+                          <button
+                            onClick={() => {
+                              setSelectedTambahanIndex(index);
+                              setSelectedLocationType("delivery");
+                            }}
+                            className={`mt-2 px-3 py-1 rounded text-sm w-full ${
+                              selectedTambahanIndex === index &&
+                              selectedLocationType === "delivery"
+                                ? "bg-red-500 text-white animate-pulse"
+                                : "bg-gray-200 hover:bg-gray-300"
+                            }`}
+                          >
+                            {selectedTambahanIndex === index &&
+                            selectedLocationType === "delivery"
+                              ? "Click on map for delivery..."
+                              : "Set Delivery on Map"}
+                          </button>
                         </div>
 
                         <div className="md:col-span-2">
@@ -884,6 +1103,71 @@ const BigDOCreatePage: React.FC = () => {
                   Next: Finalize →
                 </button>
               </div>
+            </div>
+          </div>
+
+          {/* Shared Map for all tambahan */}
+          <div className="bg-white border rounded-lg p-6">
+            <h3 className="text-lg font-semibold mb-4">Location Map</h3>
+            <div className="h-96 w-full">
+              <MapContainer
+                center={[defaultCenter.lat, defaultCenter.lng]}
+                zoom={13}
+                style={{ height: "100%", width: "100%" }}
+              >
+                <TileLayer
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  attribution="© OpenStreetMap contributors"
+                />
+                <SearchControlComponent
+                  onLocationFound={(lat, lng, label) => {
+                    if (
+                      selectedTambahanIndex !== null &&
+                      selectedLocationType
+                    ) {
+                      handleLocationSelect(
+                        lat,
+                        lng,
+                        label,
+                        selectedTambahanIndex,
+                        selectedLocationType
+                      );
+                    }
+                  }}
+                />
+                <MapClickHandler
+                  selectedTambahanIndex={selectedTambahanIndex}
+                  selectedLocationType={selectedLocationType}
+                  onLocationSelect={handleLocationSelect}
+                  onClearSelection={() => {
+                    setSelectedTambahanIndex(null);
+                    setSelectedLocationType(null);
+                  }}
+                />
+                {markers.map((m, i) => (
+                  <Marker
+                    key={i}
+                    position={[m.lat, m.lng]}
+                    icon={m.type === "pickup" ? pickupIcon : deliveryIcon}
+                  >
+                    <Popup>
+                      {m.title} for Tambahan #{m.tambahanIndex + 1}
+                    </Popup>
+                  </Marker>
+                ))}
+              </MapContainer>
+            </div>
+            <div className="mt-4 text-sm text-gray-600">
+              <p className="font-semibold">
+                💡 Click a "Set Pickup/Delivery on Map" button in a tambahan
+                form, then use the search bar or click the map.
+              </p>
+              {selectedTambahanIndex !== null && selectedLocationType && (
+                <p className="text-blue-600 mt-2">
+                  🎯 Ready to set {selectedLocationType} for Tambahan #
+                  {selectedTambahanIndex + 1}
+                </p>
+              )}
             </div>
           </div>
         </div>

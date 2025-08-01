@@ -553,7 +553,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
 
     try {
       await apiClient.post("/delivery-orders/batch", { delivery_orders });
-      navigate("/delivery-orders");
+      navigate(-1);
     } catch (err: any) {
       setErrors([err.response?.data?.message || "Failed to create DOs."]);
     } finally {
