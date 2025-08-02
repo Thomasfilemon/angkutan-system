@@ -172,11 +172,18 @@ const DeliveryOrdersPage = () => {
             </p>
           )}
         </div>
-        <Link to="/trips">
-          <button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
-            ← Back to Purchase Orders
-          </button>
-        </Link>
+        <div className="flex space-x-2">
+          <Link to="/delivery-orders/create">
+            <button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+              + Create DO
+            </button>
+          </Link>
+          <Link to="/trips">
+            <button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+              ← Back to Purchase Orders
+            </button>
+          </Link>
+        </div>
       </div>
 
       {/* Search and Status Filter */}
@@ -314,9 +321,9 @@ const DeliveryOrdersPage = () => {
                     {/* PO Number */}
                     <td className="px-4 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-700">
-                        {dOrder.purchaseOrder?.po_number || 
-                        dOrder.standalone_po_number || 
-                        `STANDALONE-${dOrder.id}`}
+                        {dOrder.purchaseOrder?.po_number ||
+                          dOrder.standalone_po_number ||
+                          `STANDALONE-${dOrder.id}`}
                       </div>
                     </td>
 

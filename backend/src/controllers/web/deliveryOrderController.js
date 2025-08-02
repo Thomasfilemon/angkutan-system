@@ -109,7 +109,7 @@ const validateItemAgainstPO = async (
   item_name,
   transaction
 ) => {
-  if (!purchase_order_id || !item_name) return; // Skip if standalone
+  if (!purchase_order_id || !item_name) return;
 
   const po = await PurchaseOrder.findByPk(purchase_order_id, { transaction });
   if (!po) {
@@ -125,7 +125,7 @@ const validateItemAgainstPO = async (
 };
 
 // 🎯 CREATE DELIVERY ORDER(S) - Now handles batch or single
-// POST /api/web/delivery-orders
+// POST /api/web/delivery-orders/batch
 // Body: { delivery_orders: [{...do fields...}, ...] } for batch, or just {...do fields...} for single
 exports.createBatchDeliveryOrder = async (req, res, next) => {
   const transaction = await sequelize.transaction();
@@ -158,7 +158,7 @@ exports.createBatchDeliveryOrder = async (req, res, next) => {
 
     for (const doData of deliveryOrdersData) {
       const {
-        purchase_order_id,
+        purchase_order_id = null,
         standalone_po_number, // For standalone DOs
         vehicle_id,
         driver_id,
@@ -216,17 +216,26 @@ exports.createBatchDeliveryOrder = async (req, res, next) => {
       // Validate driver and vehicle availability (DB checks)
       await validateDriverAvailability(driver_id, transaction);
       await validateVehicleAvailability(vehicle_id, transaction);
+      // NEW: Declare finalUnit and finalUnitPrice before if - nukes undef
+      let finalUnit = unit || "ton"; // Default for standalone or missing
+      let finalUnitPrice = unit_price || 0; // Default 0 for standalone
 
-      // Validate item against PO and get PO
-      const po = await validateItemAgainstPO(
-        purchase_order_id,
-        item_name,
-        transaction
-      );
+      // NEW: Skip PO validation if standalone (null purchase_order_id)
+      let po = null;
+      if (purchase_order_id) {
+        po = await validateItemAgainstPO(
+          purchase_order_id,
+          item_name,
+          transaction
+        );
 
-      // Fallback unit and unit_price from PO
-      let finalUnit = unit || (po ? po.unit : "ton");
-      let finalUnitPrice = unit_price || (po ? po.unit_price : null);
+        // Fallback unit and unit_price from PO
+        finalUnit = unit || (po ? po.unit : "ton");
+        finalUnitPrice = unit_price || (po ? po.unit_price : 0);
+      } else if (!customer_name || !item_name) {
+        // NEW: Extra validation for standalone - require customer/item
+        throw new Error("Standalone DO requires customer_name and item_name");
+      }
 
       // Generate unique DO number with UUID
       const uniqueSuffix = uuidv4().slice(0, 8).toUpperCase();
@@ -243,6 +252,7 @@ exports.createBatchDeliveryOrder = async (req, res, next) => {
       // Build temp DO for validation
       const tempDO = DeliveryOrder.build({
         purchase_order_id,
+        standalone_po_number,
         driver_id,
         vehicle_id,
         do_number,
@@ -266,8 +276,8 @@ exports.createBatchDeliveryOrder = async (req, res, next) => {
         status,
       });
 
-      // Validate remaining quantity (assuming this method exists on model)
-      if (tempDO.validateQuantityAgainstPO) {
+      // Validate remaining quantity ONLY if PO exists
+      if (purchase_order_id && tempDO.validateQuantityAgainstPO) {
         await tempDO.validateQuantityAgainstPO(false); // false for create
       }
 
@@ -719,7 +729,7 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
       ];
     }
 
-    // Enhanced Big DO filtering (from incoming)
+    // Enhanced Big DO filtering
     if (big_do_filter === "standalone") {
       whereClause.id = {
         [Op.notIn]: sequelize.literal(
@@ -1181,9 +1191,12 @@ exports.cancelDeliveryOrder = async (req, res, next) => {
         .json({ success: false, message: "Delivery Order not found" });
     }
 
-    // Check if DO is part of Big DO
+    // Check if DO is part of Big DO and is still valid (if big DO has been canceled, then allows cancellation)
     const bigDO = await BigDeliveryOrder.findOne({
-      where: { main_delivery_order_id: id },
+      where: {
+        main_delivery_order_id: id,
+        status: { [Op.not]: "cancelled" }, // Only consider active Big DO
+      },
       transaction,
     });
 
@@ -1210,6 +1223,14 @@ exports.cancelDeliveryOrder = async (req, res, next) => {
       await Vehicle.update(
         { status: "available" },
         { where: { id: deliveryOrder.vehicle_id }, transaction }
+      );
+    }
+
+    // Free up driver
+    if (deliveryOrder.driver_id) {
+      await User.update(
+        { status: "available" },
+        { where: { id: deliveryOrder.driver_id }, transaction }
       );
     }
 

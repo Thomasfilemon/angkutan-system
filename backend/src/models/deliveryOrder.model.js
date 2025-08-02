@@ -46,8 +46,8 @@ module.exports = (sequelize) => {
       // === FINANCIAL FIELDS ===
       unit_price: {
         type: DataTypes.DECIMAL,
-        allowNull: false, // Prevent null values
-        defaultValue: 0,  // Set a default to avoid missing data
+        allowNull: false,
+        defaultValue: 0,
         comment: "Price per unit of the delivery order",
       },
       total_amount: { type: DataTypes.DECIMAL, allowNull: false },
@@ -77,13 +77,13 @@ module.exports = (sequelize) => {
         type: DataTypes.DECIMAL(15, 2),
         allowNull: true,
         defaultValue: null,
-        comment: "Finalized amount after user input or adjustments"
+        comment: "Finalized amount after user input or adjustments",
       },
 
       is_amount_finalized: {
         type: DataTypes.BOOLEAN,
         allowNull: false,
-        defaultValue: false
+        defaultValue: false,
       },
 
       // === LOCATION FIELDS ===
@@ -150,7 +150,7 @@ module.exports = (sequelize) => {
         comment: "User ID who confirmed the payment for billing",
       },
 
-      // ✅ ENHANCED: Add payment notes field (missing from your model)
+      // Add payment notes field
       payment_notes: {
         type: DataTypes.TEXT,
         allowNull: true,
@@ -201,7 +201,7 @@ module.exports = (sequelize) => {
     }
   );
 
-  // ✅ NEW: Payment confirmation methods
+  // Payment confirmation methods
   DeliveryOrder.prototype.canConfirmForBilling = function () {
     return (
       this.status === "completed" &&
@@ -225,7 +225,7 @@ module.exports = (sequelize) => {
     );
   };
 
-  // ✅ ENHANCED: Better financial summary with confirmation status
+  // financial summary with confirmation status
   DeliveryOrder.prototype.getFinancialSummary = function () {
     const actualTotalAmount = this.calculateActualTotalAmount();
     const finalAmount = actualTotalAmount;
@@ -236,7 +236,7 @@ module.exports = (sequelize) => {
       total_for_driver: this.getTotalDriverPayment(),
       minimal_total_amount: parseFloat(this.total_amount) || 0,
       actual_total_amount: actualTotalAmount,
-      final_amount: finalAmount, // ✅ NEW: Include final amount
+      final_amount: finalAmount,
       ongkosan: parseFloat(this.ongkosan) || 0,
       net_profit:
         this.total_amount - this.getTotalDriverPayment() ||
@@ -244,7 +244,7 @@ module.exports = (sequelize) => {
       unit: this.unit,
       unit_display: this.getUnitDisplay(),
 
-      // ✅ NEW: Payment status info
+      // Payment status info
       payment_confirmation_status: this.payment_confirmation_status,
       can_confirm_billing: this.canConfirmForBilling(),
       can_create_invoice: this.canCreateInvoice(),
@@ -252,7 +252,7 @@ module.exports = (sequelize) => {
     };
   };
 
-  // ✅ NEW: Get payment confirmation status display
+  // Get payment confirmation status display
   DeliveryOrder.prototype.getPaymentConfirmationStatusText = function () {
     const statusMap = {
       pending: "Menunggu Konfirmasi",
@@ -319,15 +319,15 @@ module.exports = (sequelize) => {
       case "kilogram":
         return actualQuantity * unitPrice;
       case "ton":
-        return actualQuantity * unitPrice; // Convert ton to kg
+        return actualQuantity * unitPrice;
       case "kubik":
-        return actualQuantity * unitPrice; // Direct kubik pricing
+        return actualQuantity * unitPrice;
       default:
         return actualQuantity * unitPrice;
     }
   };
 
-  // 🎯 NEW: Get unit display text
+  // Get unit display text
   DeliveryOrder.prototype.getUnitDisplay = function () {
     const unitMap = {
       kilogram: "kg",
@@ -355,7 +355,6 @@ module.exports = (sequelize) => {
     };
   };
 
-  // NEW: Method untuk validasi remaining quantity sebelum save (mirip Trigger 1)
   DeliveryOrder.prototype.validateQuantityAgainstPO = async function (
     isUpdate = false
   ) {
@@ -364,7 +363,7 @@ module.exports = (sequelize) => {
 
     const dos = await po.getPoDeliveryOrders({
       where: { id: { [Sequelize.Op.ne]: isUpdate ? this.id : null } },
-    }); // Exclude self if update
+    });
 
     let fulfilled = 0;
     dos.forEach((d) => {
@@ -387,7 +386,7 @@ module.exports = (sequelize) => {
       );
     }
 
-    return true; // Valid
+    return true;
   };
   return DeliveryOrder;
 };

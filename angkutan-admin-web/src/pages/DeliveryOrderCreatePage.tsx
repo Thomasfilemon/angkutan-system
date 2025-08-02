@@ -3,12 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import apiClient from "../api/axiosConfig"; // Assuming this is your axios instance
+import apiClient from "../api/axiosConfig";
 import { GeoSearchControl, OpenStreetMapProvider } from "leaflet-geosearch";
 import "leaflet-geosearch/dist/geosearch.css";
-import InfiniteScroll from "react-infinite-scroll-component"; // Install: npm i react-infinite-scroll-component
+import InfiniteScroll from "react-infinite-scroll-component";
 
-// Icons and interfaces (from your code, adapted)
+// Icons and interfaces (unchanged from your code)
 const DefaultIcon = L.Icon.Default as any;
 DefaultIcon.mergeOptions({
   iconRetinaUrl: require("leaflet/dist/images/marker-icon-2x.png"),
@@ -71,9 +71,11 @@ interface Vehicle {
 
 interface DOFormData {
   do_name: string;
+  customer_name?: string; // NEW: For standalone, free input
   item_name: string;
   vehicle_id: string;
   minimal_load_quantity: string;
+  unit: string; // NEW: Free select in standalone
   unit_price: string;
   trip_allowance: string;
   gaji: string;
@@ -93,7 +95,7 @@ interface MarkerType {
   type: "load" | "unload";
 }
 
-// Map components (copied)
+// Map components (unchanged)
 const SearchControlComponent = ({
   onLocationFound,
 }: {
@@ -171,6 +173,9 @@ const MapClickHandler: React.FC<{
 const DeliveryOrderCreatePage: React.FC = () => {
   const navigate = useNavigate();
 
+  // Standalone mode state - NEW!
+  const [isStandalone, setIsStandalone] = useState<boolean>(false);
+
   // PO Selection States
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [pos, setPos] = useState<PODetails[]>([]);
@@ -185,7 +190,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [formDataList, setFormDataList] = useState<DOFormData[]>([]);
-  const [canCreate, setCanCreate] = useState<boolean>(true); // Based on selected PO's can_create_do
+  const [canCreate, setCanCreate] = useState<boolean>(true); // Based on selected PO's can_create_do or standalone
 
   // Map states
   const [selectedLocationType, setSelectedLocationType] = useState<
@@ -201,7 +206,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
 
   const defaultCenter = { lat: -6.2088, lng: 106.8456 };
 
-  // Helpers
+  // Helpers (unchanged, mostly)
   const getUnitDisplay = (unit: string) => {
     const unitMap = { kilogram: "kg", ton: "ton", kubik: "m³" };
     return unitMap[unit as keyof typeof unitMap] || unit;
@@ -222,19 +227,18 @@ const DeliveryOrderCreatePage: React.FC = () => {
     }
   };
 
-  const calculateOngkosan = (formData: DOFormData, poUnit?: string): number => {
-    if (!formData.unit_price || !poUnit || !formData.minimal_load_quantity)
-      return 0;
+  const calculateOngkosan = (formData: DOFormData, unit: string): number => {
+    if (!formData.unit_price || !formData.minimal_load_quantity) return 0;
     const quantity = parseFloat(formData.minimal_load_quantity);
     const unitPrice = parseFloat(formData.unit_price);
-    const totalRevenue = calculateTotalAmount(quantity, unitPrice, poUnit);
+    const totalRevenue = calculateTotalAmount(quantity, unitPrice, unit);
     const operationalCosts =
       (parseFloat(formData.trip_allowance) || 0) +
       (parseFloat(formData.gaji) || 0);
     return totalRevenue - operationalCosts;
   };
 
-  // Location setters
+  // Location setters (unchanged)
   const setLocationWithType = (
     lat: number,
     lng: number,
@@ -281,7 +285,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
     }
   };
 
-  // Fetch POs
+  // Fetch POs (unchanged)
   const fetchPOs = async (reset = false) => {
     try {
       const currentPage = reset ? 1 : page;
@@ -305,7 +309,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
     fetchPOs(true);
   }, [searchTerm]);
 
-  // On PO select
+  // On PO select (unchanged, but wrapped in !isStandalone)
   const handleSelectPO = async (po: PODetails) => {
     setSelectedPO(po);
     setCanCreate(po.can_create_do && po.remaining_quantity > 0);
@@ -318,9 +322,11 @@ const DeliveryOrderCreatePage: React.FC = () => {
 
     const initialFormData = {
       do_name: "",
+      customer_name: po.customer_name, // Pre-fill from PO
       item_name: items.length === 1 ? items[0] : "",
       vehicle_id: "",
       minimal_load_quantity: "",
+      unit: po.unit, // From PO
       unit_price: "",
       trip_allowance: "",
       gaji: "",
@@ -355,7 +361,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
 
     try {
       const response = await apiClient.get("/vehicles");
-      const vehiclesData = response.data.data || response.data || [];
+      const vehiclesData = response.data || response.data.data || [];
       setVehicles(
         vehiclesData.filter(
           (v: Vehicle) =>
@@ -369,7 +375,64 @@ const DeliveryOrderCreatePage: React.FC = () => {
     }
   };
 
-  // Form handlers
+  // NEW: Standalone toggle effect with vehicle fetch
+  useEffect(() => {
+    if (isStandalone) {
+      // Reset PO selection and init blank form
+      setSelectedPO(null);
+      setPoItems([]);
+      setCanCreate(true); // Always true in standalone
+      setFormDataList([
+        {
+          do_name: "",
+          customer_name: "",
+          item_name: "",
+          vehicle_id: "",
+          minimal_load_quantity: "",
+          unit: "ton", // Default unit, or add selector
+          unit_price: "",
+          trip_allowance: "",
+          gaji: "",
+          ongkosan: "",
+          load_location: "",
+          unload_location: "",
+          load_latitude: "",
+          load_longitude: "",
+          unload_latitude: "",
+          unload_longitude: "",
+        },
+      ]);
+      setMarkers([]);
+
+      // NEW: Fetch vehicles in standalone mode
+      const fetchVehiclesStandalone = async () => {
+        try {
+          const response = await apiClient.get("/vehicles");
+          const vehiclesData = response.data.data || response.data || [];
+          setVehicles(
+            vehiclesData.filter(
+              (v: Vehicle) =>
+                v.driver_id &&
+                v.driver_status === "available" &&
+                v.status === "available"
+            )
+          );
+        } catch (err) {
+          setErrors((prev) => [
+            ...prev,
+            "Failed to fetch vehicles in standalone mode.",
+          ]);
+        }
+      };
+      fetchVehiclesStandalone();
+    } else {
+      // Reset to PO mode
+      setFormDataList([]);
+      setVehicles([]); // Clear vehicles when switching back
+    }
+  }, [isStandalone]);
+
+  // Form handlers (modified for standalone)
   const handleInputChange = (
     index: number,
     e: React.ChangeEvent<
@@ -392,9 +455,13 @@ const DeliveryOrderCreatePage: React.FC = () => {
         "gaji",
       ].includes(e.target.name)
     ) {
+      const unit =
+        (isStandalone ? newFormDataList[index].unit : selectedPO?.unit) ??
+        "ton"; // FIXED: ?? 'ton' nukes undefined
+
       newFormDataList[index].ongkosan = calculateOngkosan(
         newFormDataList[index],
-        selectedPO?.unit
+        unit // Now always string—TS happy, no teleports
       ).toString();
       setFormDataList([...newFormDataList]);
     }
@@ -402,25 +469,26 @@ const DeliveryOrderCreatePage: React.FC = () => {
 
   const addForm = () => {
     if (!canCreate) return;
-    setFormDataList([
-      ...formDataList,
-      {
-        do_name: "",
-        item_name: poItems.length === 1 ? poItems[0] : "",
-        vehicle_id: "",
-        minimal_load_quantity: "",
-        unit_price: "",
-        trip_allowance: "",
-        gaji: "",
-        ongkosan: "",
-        load_location: selectedPO?.load_location || "",
-        unload_location: selectedPO?.unload_location || "",
-        load_latitude: selectedPO?.load_latitude?.toString() || "",
-        load_longitude: selectedPO?.load_longitude?.toString() || "",
-        unload_latitude: selectedPO?.unload_latitude?.toString() || "",
-        unload_longitude: selectedPO?.unload_longitude?.toString() || "",
-      },
-    ]);
+    const lastForm = formDataList[formDataList.length - 1] || {};
+    const newForm: DOFormData = {
+      do_name: `${lastForm.do_name || "New DO"} - Copy`,
+      customer_name: isStandalone ? "" : selectedPO?.customer_name || "",
+      item_name: "",
+      vehicle_id: "",
+      minimal_load_quantity: "",
+      unit: isStandalone ? "ton" : selectedPO?.unit || "ton",
+      unit_price: "",
+      trip_allowance: "",
+      gaji: "",
+      ongkosan: "",
+      load_location: lastForm.load_location || "",
+      unload_location: lastForm.unload_location || "",
+      load_latitude: lastForm.load_latitude || "",
+      load_longitude: lastForm.load_longitude || "",
+      unload_latitude: lastForm.unload_latitude || "",
+      unload_longitude: lastForm.unload_longitude || "",
+    };
+    setFormDataList([...formDataList, newForm]);
   };
 
   const duplicateForm = (index: number) => {
@@ -478,18 +546,12 @@ const DeliveryOrderCreatePage: React.FC = () => {
     }
   };
 
-  // Batch Submit
+  // Batch Submit (modified for standalone)
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!canCreate) return;
     setLoading(true);
     setErrors([]);
-
-    if (!selectedPO || selectedPO.remaining_quantity === undefined) {
-      setErrors(["No PO selected or details incomplete."]);
-      setLoading(false);
-      return;
-    }
 
     const delivery_orders = formDataList.map((formData) => {
       const unitPrice = parseFloat(formData.unit_price);
@@ -504,36 +566,46 @@ const DeliveryOrderCreatePage: React.FC = () => {
         throw new Error(`Item name required for DO ${formData.do_name}`);
 
       const quantity = parseFloat(formData.minimal_load_quantity);
-      if (
-        isNaN(quantity) ||
-        quantity <= 0 ||
-        quantity > selectedPO.remaining_quantity
-      ) {
+      if (isNaN(quantity) || quantity <= 0) {
         throw new Error(`Invalid quantity for DO ${formData.do_name}`);
       }
 
+      // In non-standalone, cap quantity
+      if (
+        !isStandalone &&
+        selectedPO &&
+        quantity > selectedPO.remaining_quantity
+      ) {
+        throw new Error(
+          `Quantity exceeds PO remaining for DO ${formData.do_name}`
+        );
+      }
+
+      const unit = isStandalone ? formData.unit : selectedPO?.unit;
       const totalAmount = calculateTotalAmount(
         quantity,
         unitPrice,
-        selectedPO.unit
+        unit ?? "ton"
       );
 
       return {
-        purchase_order_id: selectedPO.id,
+        purchase_order_id: isStandalone ? null : selectedPO?.id,
         vehicle_id: parseInt(formData.vehicle_id),
         driver_id: selectedVehicle.driver_id,
         do_name: formData.do_name,
-        customer_name: selectedPO.customer_name,
+        customer_name: isStandalone
+          ? formData.customer_name
+          : selectedPO?.customer_name,
         item_name: formData.item_name,
         minimal_load_quantity: quantity,
-        unit: selectedPO.unit,
+        unit,
         unit_price: unitPrice,
         total_amount: totalAmount,
         trip_allowance: parseFloat(formData.trip_allowance),
         gaji: parseFloat(formData.gaji),
         ongkosan: parseFloat(formData.ongkosan),
-        load_location: formData.load_location || selectedPO.load_location,
-        unload_location: formData.unload_location || selectedPO.unload_location,
+        load_location: formData.load_location,
+        unload_location: formData.unload_location,
         load_latitude: formData.load_latitude
           ? parseFloat(formData.load_latitude)
           : null,
@@ -583,7 +655,26 @@ const DeliveryOrderCreatePage: React.FC = () => {
         </div>
       )}
 
-      {!selectedPO ? (
+      {/* Standalone Toggle - NEW! */}
+      <div className="mb-6 bg-gray-100 p-4 rounded-lg">
+        <label className="flex items-center space-x-2">
+          <input
+            type="checkbox"
+            checked={isStandalone}
+            onChange={(e) => setIsStandalone(e.target.checked)}
+            className="form-checkbox h-5 w-5 text-blue-600"
+          />
+          <span className="text-lg font-medium text-gray-700">
+            Standalone Mode (No PO Required)
+          </span>
+        </label>
+        <p className="text-sm text-gray-500 mt-1">
+          Enable to create DO without linking to a Purchase Order. Allows free
+          input for customer, item, etc.
+        </p>
+      </div>
+
+      {!isStandalone && !selectedPO ? (
         <div className="bg-white border rounded-lg p-6">
           <h2 className="text-xl font-semibold mb-4">Select Purchase Order</h2>
           <input
@@ -627,45 +718,49 @@ const DeliveryOrderCreatePage: React.FC = () => {
         </div>
       ) : (
         <>
-          <button
-            onClick={() => setSelectedPO(null)}
-            className="mb-4 text-blue-500 hover:underline"
-          >
-            ← Change PO
-          </button>
+          {!isStandalone && (
+            <button
+              onClick={() => setSelectedPO(null)}
+              className="mb-4 text-blue-500 hover:underline"
+            >
+              ← Change PO
+            </button>
+          )}
 
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
-            <h2 className="text-xl font-semibold mb-4">
-              Selected Purchase Order: {selectedPO.po_number}
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-              <div>
-                <label className="text-sm text-gray-600">Customer</label>
-                <p className="font-medium">{selectedPO.customer_name}</p>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">Items</label>
-                <p className="font-medium">{poItems.join(", ")}</p>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">Remaining Qty</label>
-                <p className="font-medium text-green-600">
-                  {selectedPO.remaining_quantity?.toLocaleString("id-ID")}{" "}
-                  {getUnitDisplay(selectedPO.unit)}
-                </p>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">Unit</label>
-                <p className="font-medium">
-                  <span className="bg-blue-100 px-2 py-1 rounded text-sm">
+          {!isStandalone && selectedPO && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
+              <h2 className="text-xl font-semibold mb-4">
+                Selected Purchase Order: {selectedPO.po_number}
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                <div>
+                  <label className="text-sm text-gray-600">Customer</label>
+                  <p className="font-medium">{selectedPO.customer_name}</p>
+                </div>
+                <div>
+                  <label className="text-sm text-gray-600">Items</label>
+                  <p className="font-medium">{poItems.join(", ")}</p>
+                </div>
+                <div>
+                  <label className="text-sm text-gray-600">Remaining Qty</label>
+                  <p className="font-medium text-green-600">
+                    {selectedPO.remaining_quantity?.toLocaleString("id-ID")}{" "}
                     {getUnitDisplay(selectedPO.unit)}
-                  </span>
-                </p>
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm text-gray-600">Unit</label>
+                  <p className="font-medium">
+                    <span className="bg-blue-100 px-2 py-1 rounded text-sm">
+                      {getUnitDisplay(selectedPO.unit)}
+                    </span>
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
-          {!canCreate && (
+          {!canCreate && !isStandalone && (
             <div className="bg-red-500 text-white p-4 rounded mb-6 font-bold text-center">
               ⚠️ WARNING: This PO has no remaining quantity or cannot create new
               DOs. Forms are disabled. Select another PO to proceed.
@@ -726,28 +821,58 @@ const DeliveryOrderCreatePage: React.FC = () => {
                       </p>
                     </div>
 
+                    {/* NEW: Customer Name - Free in standalone */}
+                    {isStandalone && (
+                      <div className="mt-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Customer Name *
+                        </label>
+                        <input
+                          type="text"
+                          name="customer_name"
+                          value={formData.customer_name || ""}
+                          onChange={(e) => handleInputChange(index, e)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                          placeholder="Enter customer name"
+                          required
+                        />
+                      </div>
+                    )}
+
                     <div className="mt-4">
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Item Name *
                       </label>
-                      <select
-                        disabled={!canCreate}
-                        name="item_name"
-                        value={formData.item_name}
-                        onChange={(e) => handleInputChange(index, e)}
-                        className={`w-full px-3 py-2 border border-gray-300 rounded-md ${
-                          !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
-                        }`}
-                        required
-                      >
-                        <option value="">Select Item</option>
-                        {poItems.map((item, i) => (
-                          <option key={i} value={item}>
-                            {item}
-                          </option>
-                        ))}
-                      </select>
-                      {poItems.length === 0 && (
+                      {isStandalone ? (
+                        <input
+                          type="text"
+                          name="item_name"
+                          value={formData.item_name}
+                          onChange={(e) => handleInputChange(index, e)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                          placeholder="Enter item name"
+                          required
+                        />
+                      ) : (
+                        <select
+                          disabled={!canCreate}
+                          name="item_name"
+                          value={formData.item_name}
+                          onChange={(e) => handleInputChange(index, e)}
+                          className={`w-full px-3 py-2 border border-gray-300 rounded-md ${
+                            !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
+                          }`}
+                          required
+                        >
+                          <option value="">Select Item</option>
+                          {poItems.map((item, i) => (
+                            <option key={i} value={item}>
+                              {item}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {poItems.length === 0 && !isStandalone && (
                         <p className="text-sm text-red-600 mt-1">
                           No items available in this PO.
                         </p>
@@ -756,7 +881,12 @@ const DeliveryOrderCreatePage: React.FC = () => {
 
                     <div className="mt-4">
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Minimal Load Quantity ({getUnitDisplay(selectedPO.unit)}
+                        Minimal Load Quantity (
+                        {getUnitDisplay(
+                          isStandalone
+                            ? formData.unit
+                            : selectedPO?.unit ?? "ton"
+                        )}
                         ) *
                       </label>
                       <input
@@ -764,30 +894,66 @@ const DeliveryOrderCreatePage: React.FC = () => {
                         type="number"
                         name="minimal_load_quantity"
                         step="0.01"
-                        max={selectedPO.remaining_quantity}
+                        max={
+                          !isStandalone
+                            ? selectedPO?.remaining_quantity
+                            : undefined
+                        } // No max in standalone
                         value={formData.minimal_load_quantity}
                         onChange={(e) => handleInputChange(index, e)}
                         className={`w-full px-3 py-2 border border-gray-300 rounded-md ${
                           !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
                         }`}
-                        placeholder={`Maximum: ${
-                          selectedPO.remaining_quantity
-                        } ${getUnitDisplay(selectedPO.unit)}`}
+                        placeholder={
+                          !isStandalone
+                            ? `Maximum: ${
+                                selectedPO?.remaining_quantity ?? ""
+                              } ${getUnitDisplay(selectedPO?.unit ?? "ton")}`
+                            : "Enter quantity"
+                        }
                         required
                       />
                       <p className="text-xs text-gray-500 mt-1">
-                        {selectedPO.unit === "ton" &&
-                          "💡 Enter in tons (price per ton)"}
-                        {selectedPO.unit === "kubik" &&
+                        {isStandalone
+                          ? "No limits - enter freely"
+                          : selectedPO?.unit === "ton" &&
+                            "💡 Enter in tons (price per ton)"}
+                        {selectedPO?.unit === "kubik" &&
                           "💡 Enter in cubic meters (volume-based)"}
-                        {selectedPO.unit === "kilogram" &&
+                        {selectedPO?.unit === "kilogram" &&
                           "💡 Enter in kilograms (weight-based)"}
                       </p>
                     </div>
 
+                    {/* NEW: Unit selector in standalone */}
+                    {isStandalone && (
+                      <div className="mt-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Unit *
+                        </label>
+                        <select
+                          name="unit"
+                          value={formData.unit}
+                          onChange={(e) => handleInputChange(index, e)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                          required
+                        >
+                          <option value="kilogram">Kg</option>
+                          <option value="ton">Ton</option>
+                          <option value="kubik">m³</option>
+                        </select>
+                      </div>
+                    )}
+
                     <div className="mt-4">
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Unit Price (Rp/{getUnitDisplay(selectedPO.unit)}) *
+                        Unit Price (Rp/
+                        {getUnitDisplay(
+                          isStandalone
+                            ? formData.unit
+                            : selectedPO?.unit ?? "ton"
+                        )}
+                        ) *
                       </label>
                       <input
                         disabled={!canCreate}
@@ -800,13 +966,20 @@ const DeliveryOrderCreatePage: React.FC = () => {
                           !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
                         }`}
                         placeholder={`Enter price per ${getUnitDisplay(
-                          selectedPO.unit
+                          isStandalone
+                            ? formData.unit
+                            : selectedPO?.unit ?? "ton"
                         )}`}
                         required
                       />
                       <p className="text-xs text-gray-500 mt-1">
                         💡 Set the negotiated price per{" "}
-                        {getUnitDisplay(selectedPO.unit)} for this delivery
+                        {getUnitDisplay(
+                          isStandalone
+                            ? formData.unit
+                            : selectedPO?.unit ?? "ton"
+                        )}{" "}
+                        for this delivery
                       </p>
                     </div>
 
@@ -837,33 +1010,34 @@ const DeliveryOrderCreatePage: React.FC = () => {
                           No available vehicles.
                         </p>
                       )}
-                      {formData.vehicle_id && (
-                        <div className="bg-gray-50 p-4 rounded-md mt-2">
-                          <h4 className="font-medium text-gray-900 mb-2">
-                            Selected:
-                          </h4>
-                          <div className="grid grid-cols-2 gap-4 text-sm">
-                            <div>
-                              <span className="text-gray-600">Vehicle:</span>
-                              <p className="font-medium">
-                                {
-                                  getSelectedVehicle(formData.vehicle_id)
-                                    ?.license_plate
-                                }
-                              </p>
-                            </div>
-                            <div>
-                              <span className="text-gray-600">Driver:</span>
-                              <p className="font-medium">
-                                {
-                                  getSelectedVehicle(formData.vehicle_id)
-                                    ?.driver_name
-                                }
-                              </p>
+                      {formData.vehicle_id &&
+                        getSelectedVehicle(formData.vehicle_id) && (
+                          <div className="bg-gray-50 p-4 rounded-md mt-2">
+                            <h4 className="font-medium text-gray-900 mb-2">
+                              Selected:
+                            </h4>
+                            <div className="grid grid-cols-2 gap-4 text-sm">
+                              <div>
+                                <span className="text-gray-600">Vehicle:</span>
+                                <p className="font-medium">
+                                  {
+                                    getSelectedVehicle(formData.vehicle_id)
+                                      ?.license_plate
+                                  }
+                                </p>
+                              </div>
+                              <div>
+                                <span className="text-gray-600">Driver:</span>
+                                <p className="font-medium">
+                                  {
+                                    getSelectedVehicle(formData.vehicle_id)
+                                      ?.driver_name
+                                  }
+                                </p>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      )}
+                        )}
                     </div>
 
                     <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -926,7 +1100,11 @@ const DeliveryOrderCreatePage: React.FC = () => {
                             <span>Quantity:</span>
                             <span>
                               {formData.minimal_load_quantity}{" "}
-                              {getUnitDisplay(selectedPO.unit)}
+                              {getUnitDisplay(
+                                isStandalone
+                                  ? formData.unit
+                                  : selectedPO?.unit ?? "ton"
+                              )}
                             </span>
                           </div>
                           <div className="flex justify-between">
@@ -936,18 +1114,33 @@ const DeliveryOrderCreatePage: React.FC = () => {
                               {parseFloat(formData.unit_price).toLocaleString(
                                 "id-ID"
                               )}
-                              /{getUnitDisplay(selectedPO.unit)}
+                              /
+                              {getUnitDisplay(
+                                isStandalone
+                                  ? formData.unit
+                                  : selectedPO?.unit ?? "ton"
+                              )}
                             </span>
                           </div>
                           <div className="flex justify-between text-blue-600">
                             <span>Calculation:</span>
                             <span>
                               {formData.minimal_load_quantity}{" "}
-                              {getUnitDisplay(selectedPO.unit)} × Rp{" "}
+                              {getUnitDisplay(
+                                isStandalone
+                                  ? formData.unit
+                                  : selectedPO?.unit ?? "ton"
+                              )}{" "}
+                              × Rp{" "}
                               {parseFloat(formData.unit_price).toLocaleString(
                                 "id-ID"
                               )}
-                              /{getUnitDisplay(selectedPO.unit)}
+                              /
+                              {getUnitDisplay(
+                                isStandalone
+                                  ? formData.unit
+                                  : selectedPO?.unit ?? "ton"
+                              )}
                             </span>
                           </div>
                           <div className="flex justify-between font-semibold border-t pt-1">
@@ -957,7 +1150,9 @@ const DeliveryOrderCreatePage: React.FC = () => {
                               {calculateTotalAmount(
                                 parseFloat(formData.minimal_load_quantity) || 0,
                                 parseFloat(formData.unit_price) || 0,
-                                selectedPO.unit
+                                isStandalone
+                                  ? formData.unit
+                                  : selectedPO?.unit ?? "ton"
                               ).toLocaleString("id-ID")}
                             </span>
                           </div>
