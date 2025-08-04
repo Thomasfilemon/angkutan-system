@@ -49,6 +49,7 @@ import VehicleServiceHistory from "./pages/VehicleServiceHistory";
 import PaymentsRoutes from "./modules/payments/routes";
 import InvoiceDetail from "./pages/Ritase/InvoiceDetail";
 import DepositGroupManagement from "./pages/DepositGroupManagement";
+import DOProfitabilityReport from './pages/Ritase/DOProfitabilityReport'; // Import the new page
 import { Toaster } from "react-hot-toast";
 
 import ComprehensiveRitaseTable from "./pages/Ritase/ComprehensiveRitaseTable";
@@ -95,6 +96,7 @@ function App() {
             path="ritase/delivery-orders/:doId/invoices/:invoiceId"
             element={<InvoiceDetail />}
           />
+          <Route path="ritase/profitability" element={<DOProfitabilityReport />} />
 
           <Route path="payments/*" element={<PaymentsRoutes />} />
 

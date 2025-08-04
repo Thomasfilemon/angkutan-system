@@ -414,24 +414,6 @@ const CashManagementPage = () => {
         </div>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Akun *</label>
-        <CreatableSelect
-          value={{ label: selectedAccount, value: selectedAccount }}
-          options={accounts.map(account => ({ label: account, value: account }))}
-          onChange={(selected) => {
-            const newAccount = selected?.value || 'General';
-            setSelectedAccount(newAccount);
-            setFormData(prev => ({ ...prev, account: newAccount }));
-          }}
-          onCreateOption={(inputValue) => {
-            setSelectedAccount(inputValue);
-            setFormData(prev => ({ ...prev, account: inputValue }));
-          }}
-          className="w-full"
-        />
-      </div>
-
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">

@@ -5,7 +5,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import { router } from "expo-router";
 
-const API_BASE_URL = "https://e2779e09e4ee.ngrok-free.app/api";
+const API_BASE_URL = "https://018b04e2a719.ngrok-free.app/api";
 
 // Create a dedicated axios instance
 const apiClient = axios.create({

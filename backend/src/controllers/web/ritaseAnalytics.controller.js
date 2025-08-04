@@ -1302,3 +1302,79 @@ exports.getPOComprehensiveData = async (req, res, next) => {
     next(err);
   }
 };
+
+// New function to get the DO Profitability Report
+exports.getProfitabilityReport = async (req, res) => {
+  try {
+    // Fetch all delivery orders
+    const deliveryOrders = await DeliveryOrder.findAll({
+      include: [
+        {
+          model: PurchaseOrder,
+          as: 'purchaseOrder',
+          attributes: ['id', 'total_amount', 'po_number'], 
+        },
+        {
+          model: User,
+          as: 'driver',
+          attributes: ['id', 'username'],
+          include: [{
+            model: DriverProfile,
+            as: 'driverProfile',
+            attributes: ['full_name'] 
+          }]
+        },
+        {
+            model: Vehicle,
+            as: 'vehicle',
+            attributes: ['license_plate']
+        }
+      ],
+      order: [['created_at', 'DESC']],
+    });
+
+    // Fetch all purchase orders for the filter dropdown
+    const purchaseOrders = await PurchaseOrder.findAll({
+        attributes: ['id', 'po_number', 'customer_name'],
+        order: [['created_at', 'DESC']]
+    });
+
+    const reportData = deliveryOrders.map(doInstance => {
+      const revenue = parseFloat(doInstance.total_amount) || 0;
+      const costOfGoods = doInstance.purchaseOrder ? parseFloat(doInstance.purchaseOrder.total_amount) : 0;
+      const uangJalan = parseFloat(doInstance.trip_allowance) || 0;
+      const driverSalary = parseFloat(doInstance.gaji) || 0;
+      
+      const grossProfit = revenue - costOfGoods;
+      const netProfit = grossProfit - uangJalan - driverSalary;
+
+      return {
+        id: doInstance.id,
+        purchaseOrderId: doInstance.purchase_order_id, // Pass PO ID for filtering
+        doNumber: doInstance.do_number,
+        doName: doInstance.do_name,
+        customerName: doInstance.customer_name,
+        load_location: doInstance.load_location,
+        unload_location: doInstance.unload_location,
+        load_latitude: doInstance.load_latitude,
+        load_longitude: doInstance.load_longitude,
+        unload_latitude: doInstance.unload_latitude,
+        unload_longitude: doInstance.unload_longitude,
+        suratJalan: doInstance.do_number,
+        deliveryDate: doInstance.completed_at || doInstance.created_at,
+        vehicle: doInstance.vehicle ? doInstance.vehicle.license_plate : 'N/A',
+        driverName: doInstance.driver?.driverProfile ? doInstance.driver.driverProfile.full_name : 'N/A',
+        uangJalan: uangJalan,
+        gaji: driverSalary,
+        grossProfit: grossProfit,
+        netProfit: netProfit,
+      };
+    });
+
+    // Return both the report data and the list of POs
+    res.status(200).json({ reportData, purchaseOrders });
+  } catch (error) {
+    console.error('Error fetching profitability report:', error);
+    res.status(500).send({ message: 'Error generating profitability report', error: error.message });
+  }
+};
