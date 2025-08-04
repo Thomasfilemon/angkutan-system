@@ -1,5 +1,6 @@
 // src/models/bigDeliveryOrder.model.js
 const { DataTypes, Sequelize } = require("sequelize");
+const { v4: uuidv4 } = require("uuid");
 
 module.exports = (sequelize) => {
   const BigDeliveryOrder = sequelize.define(
@@ -168,7 +169,7 @@ module.exports = (sequelize) => {
     };
   };
 
-  // 🎯 Static method for generating Big DO numbers
+  // 🎯 Static method for generating Big DO numbers (FIXED: Added UUID suffix for batch/concurrency safety)
   BigDeliveryOrder.generateBigDONumber = async function () {
     const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
 
@@ -188,7 +189,10 @@ module.exports = (sequelize) => {
       sequence = lastSequence + 1;
     }
 
-    return `BigDO-${date}-${sequence.toString().padStart(3, "0")}`;
+    // Add short UUID suffix for uniqueness (prevents race/duplicates in batch)
+    const shortUUID = uuidv4().slice(0, 6).toUpperCase(); // 6 chars, collision-proof
+
+    return `BigDO-${date}-${sequence.toString().padStart(3, "0")}-${shortUUID}`;
   };
 
   return BigDeliveryOrder;

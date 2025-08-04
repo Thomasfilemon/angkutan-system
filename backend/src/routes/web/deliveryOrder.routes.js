@@ -22,6 +22,11 @@ router.post(
   checkRole(["admin", "owner"]),
   webDOController.createDeliveryOrder
 );
+router.post(
+  "/batch",
+  checkRole(["admin", "owner"]),
+  webDOController.createBatchDeliveryOrder
+);
 router.get(
   "/:id",
   checkRole(["admin", "owner"]),

@@ -1,1113 +1,1388 @@
-// src/pages/DeliveryOrderCreatePage.tsx
 import React, { useState, useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import apiClient from "../api/axiosConfig";
-import { toast } from "react-hot-toast";
+import { GeoSearchControl, OpenStreetMapProvider } from "leaflet-geosearch";
+import "leaflet-geosearch/dist/geosearch.css";
+import InfiniteScroll from "react-infinite-scroll-component";
 
-interface PurchaseOrder {
+// Icons and interfaces (unchanged from your code)
+const DefaultIcon = L.Icon.Default as any;
+DefaultIcon.mergeOptions({
+  iconRetinaUrl: require("leaflet/dist/images/marker-icon-2x.png"),
+  iconUrl: require("leaflet/dist/images/marker-icon.png"),
+  shadowUrl: require("leaflet/dist/images/marker-shadow.png"),
+});
+
+const loadIcon = new L.Icon({
+  iconUrl:
+    "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png",
+  shadowUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png",
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+});
+
+const unloadIcon = new L.Icon({
+  iconUrl:
+    "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png",
+  shadowUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png",
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+});
+
+interface PODetails {
   id: number;
   po_number: string;
   customer_name: string;
   item_name: string;
   unit: string;
-  unit_price: number;
+  unit_price?: number;
   total_quantity: number;
+  delivered_quantity: number;
   remaining_quantity: number;
-  can_create_do: boolean;
-  status: string;
-  load_location?: string;
-  unload_location?: string;
+  load_location: string;
+  unload_location: string;
+  load_latitude?: number;
+  load_longitude?: number;
+  unload_latitude?: number;
+  unload_longitude?: number;
+  can_create_do: boolean; // From your endpoint
 }
 
-interface Driver {
-  id: number;
-  username: string;
-  driverProfile?: {
-    full_name: string;
-    phone: string;
-    status: string;
-  };
-}
-
-// Fixed Vehicle interface to match API response
 interface Vehicle {
-  capacity: string | null; // Changed from number to string to match API
   id: number;
   license_plate: string;
   type: string;
+  capacity: string;
   status: string;
   driver_id: number | null;
   driver_name: string | null;
   driver_phone: string | null;
   driver_status: string | null;
-  driver?: {
-    id: number;
-    username: string;
-    driverProfile?: {
-      full_name: string;
-      phone: string;
-      status: string;
-    };
-  };
 }
 
+interface DOFormData {
+  do_name: string;
+  customer_name?: string; // NEW: For standalone, free input
+  item_name: string;
+  vehicle_id: string;
+  minimal_load_quantity: string;
+  unit: string; // NEW: Free select in standalone
+  unit_price: string;
+  trip_allowance: string;
+  gaji: string;
+  ongkosan: string;
+  load_location: string;
+  unload_location: string;
+  load_latitude: string;
+  load_longitude: string;
+  unload_latitude: string;
+  unload_longitude: string;
+}
+
+interface MarkerType {
+  lat: number;
+  lng: number;
+  title: string;
+  type: "load" | "unload";
+}
+
+// Map components (unchanged)
+const SearchControlComponent = ({
+  onLocationFound,
+}: {
+  onLocationFound: (lat: number, lng: number, label: string) => void;
+}) => {
+  const map = useMap();
+
+  useEffect(() => {
+    const provider = new OpenStreetMapProvider();
+    const searchControl = new (GeoSearchControl as any)({
+      provider: provider,
+      style: "bar",
+      showMarker: false,
+      autoClose: true,
+      keepResult: true,
+    });
+
+    const onShowLocation = (e: any) => {
+      onLocationFound(e.location.y, e.location.x, e.location.label);
+    };
+
+    map.addControl(searchControl);
+    map.on("geosearch/showlocation", onShowLocation);
+
+    return () => {
+      map.removeControl(searchControl);
+      map.off("geosearch/showlocation", onShowLocation);
+    };
+  }, [map, onLocationFound]);
+
+  return null;
+};
+
+const MapClickHandler: React.FC<{
+  selectedLocationType: "load" | "unload" | null;
+  onLocationSelect: (lat: number, lng: number, address: string) => void;
+  onClearSelection: () => void;
+}> = ({ selectedLocationType, onLocationSelect, onClearSelection }) => {
+  const map = useMap();
+
+  useEffect(() => {
+    const onClick = (e: L.LeafletMouseEvent) => {
+      if (selectedLocationType) {
+        const { lat, lng } = e.latlng;
+        fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
+        )
+          .then((res) => res.json())
+          .then((data) => {
+            const address =
+              data.display_name ||
+              `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
+            onLocationSelect(lat, lng, address);
+            onClearSelection();
+          })
+          .catch(() => {
+            const address = `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
+            onLocationSelect(lat, lng, address);
+            onClearSelection();
+          });
+      }
+    };
+
+    map.on("click", onClick);
+
+    return () => {
+      map.off("click", onClick);
+    };
+  }, [map, selectedLocationType, onLocationSelect, onClearSelection]);
+
+  return null;
+};
+
+// Main component
 const DeliveryOrderCreatePage: React.FC = () => {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const returnUrl = searchParams.get("return") || "/delivery-orders";
 
-  const [loading, setLoading] = useState(false);
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
-  const [drivers, setDrivers] = useState<Driver[]>([]);
+  // Standalone mode state - NEW!
+  const [isStandalone, setIsStandalone] = useState<boolean>(false);
+
+  // PO Selection States
+  const [searchTerm, setSearchTerm] = useState<string>("");
+  const [pos, setPos] = useState<PODetails[]>([]);
+  const [page, setPage] = useState<number>(1);
+  const [hasMore, setHasMore] = useState<boolean>(true);
+  const [selectedPO, setSelectedPO] = useState<PODetails | null>(null);
+  const limit = 10;
+
+  // Form States
+  const [poItems, setPoItems] = useState<string[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<string[]>([]);
+  const [formDataList, setFormDataList] = useState<DOFormData[]>([]);
+  const [canCreate, setCanCreate] = useState<boolean>(true); // Based on selected PO's can_create_do or standalone
 
-  const [formData, setFormData] = useState({
-    do_name: "",
-    purchase_order_id: "",
-    driver_id: "",
-    vehicle_id: "",
-    customer_name: "",
-    item_name: "",
-    minimal_load_quantity: 0,
-    unit: "ton",
-    unit_price: 0,
-    trip_allowance: "",
-    gaji: "",
-    ongkosan: 0,
-    load_location: "",
-    unload_location: "",
-  });
+  // Map states
+  const [selectedLocationType, setSelectedLocationType] = useState<
+    "load" | "unload" | null
+  >(null);
+  const [showMap, setShowMap] = useState<boolean>(true);
+  const [markers, setMarkers] = useState<MarkerType[]>([]);
+  const [currentFormIndex, setCurrentFormIndex] = useState<number>(0);
+  const [linkProcessing, setLinkProcessing] = useState<{
+    load: boolean;
+    unload: boolean;
+  }>({ load: false, unload: false });
 
-  // Random PO number generator for standalone DOs
-  const generateRandomPONumber = (): string => {
-    const prefix = "STANDALONE";
-    const timestamp = new Date().getTime().toString().slice(-6);
-    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-    return `${prefix}-${timestamp}-${random}`;
-  };
+  const defaultCenter = { lat: -6.2088, lng: 106.8456 };
 
-  useEffect(() => {
-    fetchInitialData();
-  }, []);
-
-  // Debug vehicles state changes
-  useEffect(() => {
-    console.log('🚛 Vehicles state updated:', vehicles);
-    console.log('🚛 Vehicles count:', vehicles.length);
-    if (vehicles.length > 0) {
-      console.log('🚛 First vehicle:', vehicles[0]);
-    }
-  }, [vehicles]);
-
-  // Auto-fill driver when vehicle is selected
-  useEffect(() => {
-    if (formData.vehicle_id) {
-      const selectedVehicle = vehicles.find(
-        (v) => v.id.toString() === formData.vehicle_id
-      );
-      if (selectedVehicle && selectedVehicle.driver_id) {
-        setFormData((prev) => ({
-          ...prev,
-          driver_id:
-            selectedVehicle.driver_id !== null
-              ? selectedVehicle.driver_id.toString()
-              : "",
-        }));
-      } else {
-        setFormData((prev) => ({
-          ...prev,
-          driver_id: "",
-        }));
-      }
-    } else {
-      setFormData((prev) => ({
-        ...prev,
-        driver_id: "",
-      }));
-    }
-  }, [formData.vehicle_id, vehicles]);
-
-  // Enhanced fetchInitialData with comprehensive debugging
-  const fetchInitialData = async () => {
-    try {
-      setLoading(true);
-      console.log('🔍 Starting fetchInitialData...');
-      
-      const [poResponse, driverResponse, vehicleResponse] = await Promise.all([
-        apiClient.get("/purchase-orders", {
-          params: { status: ["confirmed", "partial"] }
-        }).catch((err) => {
-          console.error("PO fetch failed:", err.response?.data || err.message);
-          toast.error("Failed to fetch purchase orders");
-          return { data: [] };
-        }),
-        apiClient.get("/drivers").catch((err) => {
-          console.error("Drivers fetch failed:", err.response?.data || err.message);
-          toast.error("Failed to fetch drivers");
-          return { data: [] };
-        }),
-        apiClient.get("/vehicles").catch((err) => {
-          console.error("Vehicles fetch failed:", err.response?.data || err.message);
-          toast.error("Failed to fetch vehicles");
-          return { data: [] };
-        }),
-      ]);
-
-      console.log('📋 Raw PO Response:', poResponse);
-      console.log('👨‍💼 Raw Driver Response:', driverResponse);
-      console.log('🚛 Raw Vehicle Response:', vehicleResponse);
-
-      // Handle nested PO response structure
-      let allPOs;
-      if (poResponse.data?.data && Array.isArray(poResponse.data.data)) {
-        allPOs = poResponse.data.data;
-        console.log('📋 Using nested PO structure');
-      } else if (Array.isArray(poResponse.data)) {
-        allPOs = poResponse.data;
-        console.log('📋 Using direct PO array');
-      } else {
-        allPOs = [];
-        console.log('📋 No PO data found, using empty array');
-      }
-
-      const availablePOs = allPOs.filter(
-        (po: PurchaseOrder) =>
-          po.can_create_do === true &&
-          po.remaining_quantity > 0 &&
-          po.status !== "completed"
-      );
-
-      setPurchaseOrders(availablePOs);
-      console.log('✅ Purchase Orders set:', availablePOs.length);
-
-      if (availablePOs.length === 0) {
-        toast.error(
-          "No available Purchase Orders found. You can create standalone DOs."
-        );
-      }
-
-      // Handle nested driver response structure  
-      let driverData;
-      if (driverResponse.data?.data && Array.isArray(driverResponse.data.data)) {
-        driverData = driverResponse.data.data;
-        console.log('👨‍💼 Using nested driver structure');
-      } else if (Array.isArray(driverResponse.data)) {
-        driverData = driverResponse.data;
-        console.log('👨‍💼 Using direct driver array');
-      } else {
-        driverData = [];
-        console.log('👨‍💼 No driver data found, using empty array');
-      }
-
-      setDrivers(driverData);
-      console.log('✅ Drivers set:', driverData.length);
-
-      if (driverData.length === 0) {
-        toast.error(
-          "No drivers found. Assign vehicles with drivers or select manually."
-        );
-      }
-
-      // Handle vehicle response
-      const vehicleData = vehicleResponse.data;
-      console.log('🚛 Extracted Vehicle Data:', vehicleData);
-      console.log('🚛 Vehicle Data Type:', typeof vehicleData);
-      console.log('🚛 Is Array?:', Array.isArray(vehicleData));
-      console.log('🚛 Vehicle Data Length:', vehicleData?.length || 0);
-
-      if (Array.isArray(vehicleData) && vehicleData.length > 0) {
-        console.log('🚛 First Vehicle Sample:', vehicleData[0]);
-        vehicleData.forEach((v, index) => {
-          console.log(`🚛 Vehicle ${index}:`, {
-            id: v.id,
-            license_plate: v.license_plate,
-            status: v.status,
-            driver_id: v.driver_id,
-            driver_name: v.driver_name
-          });
-        });
-      }
-
-      // Filter available vehicles
-      const availableVehicles = Array.isArray(vehicleData) ? vehicleData.filter(
-        (v: any) => {
-          console.log(`🚛 Filtering vehicle ${v.license_plate || v.id}, status: "${v.status}"`);
-          const isAvailable = v.status === "available";
-          console.log(`🚛 Vehicle ${v.license_plate || v.id} is ${isAvailable ? 'AVAILABLE' : 'NOT AVAILABLE'}`);
-          return isAvailable;
-        }
-      ) : [];
-      
-      console.log('🚛 Available Vehicles After Filter:', availableVehicles);
-      console.log('🚛 Available Vehicles Count:', availableVehicles.length);
-      
-      setVehicles(availableVehicles);
-      console.log('✅ Vehicles set in state');
-
-      if (availableVehicles.length === 0) {
-        toast.error("No available vehicles found. Cannot create DO.");
-      }
-      
-    } catch (err: any) {
-      console.error('❌ fetchInitialData error:', err);
-      console.error('❌ Error response:', err.response?.data);
-      console.error('❌ Error status:', err.response?.status);
-      toast.error("Failed to fetch initial data. Check console for details.");
-    } finally {
-      setLoading(false);
-      console.log('🔍 fetchInitialData completed');
-    }
-  };
-
-  const handlePOChange = (poId: string) => {
-    if (!poId) {
-      setFormData((prev) => ({
-        ...prev,
-        purchase_order_id: "",
-        customer_name: "",
-        item_name: "",
-        unit: "ton",
-        unit_price: 0,
-        load_location: "",
-        unload_location: "",
-      }));
-      return;
-    }
-
-    const selectedPO = purchaseOrders.find((po) => po.id.toString() === poId);
-    if (selectedPO) {
-      setFormData((prev) => ({
-        ...prev,
-        purchase_order_id: poId,
-        customer_name: selectedPO.customer_name,
-        item_name: selectedPO.item_name,
-        unit: selectedPO.unit,
-        unit_price: selectedPO.unit_price,
-        load_location: selectedPO.load_location || "",
-        unload_location: selectedPO.unload_location || "",
-      }));
-    }
+  // Helpers (unchanged, mostly)
+  const getUnitDisplay = (unit: string) => {
+    const unitMap = { kilogram: "kg", ton: "ton", kubik: "m³" };
+    return unitMap[unit as keyof typeof unitMap] || unit;
   };
 
   const calculateTotalAmount = (
     quantity: number,
     unitPrice: number,
     unit: string
-  ): number => {
+  ) => {
     switch (unit) {
       case "kilogram":
-        return quantity * unitPrice;
       case "ton":
-        return quantity * 1000 * unitPrice;
       case "kubik":
         return quantity * unitPrice;
       default:
-        return quantity * unitPrice;
+        return 0;
     }
   };
 
-  const calculateOngkosan = (): number => {
-    const totalRevenue = calculateTotalAmount(
-      formData.minimal_load_quantity,
-      formData.unit_price,
-      formData.unit
-    );
-    const tripAllowance = parseFloat(formData.trip_allowance) || 0;
-    const gaji = parseFloat(formData.gaji) || 0;
-    const operationalCosts = tripAllowance + gaji;
-
-    return Math.max(0, totalRevenue - operationalCosts);
+  const calculateOngkosan = (formData: DOFormData, unit: string): number => {
+    if (!formData.unit_price || !formData.minimal_load_quantity) return 0;
+    const quantity = parseFloat(formData.minimal_load_quantity);
+    const unitPrice = parseFloat(formData.unit_price);
+    const totalRevenue = calculateTotalAmount(quantity, unitPrice, unit);
+    const operationalCosts =
+      (parseFloat(formData.trip_allowance) || 0) +
+      (parseFloat(formData.gaji) || 0);
+    return totalRevenue - operationalCosts;
   };
 
-  // Auto-calculate ongkosan
+  // Location setters (unchanged)
+  const setLocationWithType = (
+    lat: number,
+    lng: number,
+    address: string,
+    type: "load" | "unload"
+  ) => {
+    const newFormDataList = [...formDataList];
+    if (type === "load") {
+      newFormDataList[currentFormIndex] = {
+        ...newFormDataList[currentFormIndex],
+        load_location: address,
+        load_latitude: lat.toString(),
+        load_longitude: lng.toString(),
+      };
+    } else {
+      newFormDataList[currentFormIndex] = {
+        ...newFormDataList[currentFormIndex],
+        unload_location: address,
+        unload_latitude: lat.toString(),
+        unload_longitude: lng.toString(),
+      };
+    }
+    setFormDataList(newFormDataList);
+
+    setMarkers((prev) => {
+      const filtered = prev.filter((m) => m.type !== type);
+      return [
+        ...filtered,
+        {
+          lat,
+          lng,
+          title: type === "load" ? "Load Location" : "Unload Location",
+          type,
+        },
+      ];
+    });
+
+    setSelectedLocationType(null);
+  };
+
+  const handleSearchSelect = (lat: number, lng: number, label: string) => {
+    if (selectedLocationType) {
+      setLocationWithType(lat, lng, label, selectedLocationType);
+    }
+  };
+
+  // Fetch POs (unchanged)
+  const fetchPOs = async (reset = false) => {
+    try {
+      const currentPage = reset ? 1 : page;
+      const response = await apiClient.get("/purchase-orders", {
+        params: {
+          page: currentPage,
+          limit,
+          search: searchTerm,
+        },
+      });
+      const newPos = response.data.data || [];
+      setPos(reset ? newPos : [...pos, ...newPos]);
+      setHasMore(newPos.length === limit);
+      if (!reset) setPage(currentPage + 1);
+    } catch (err) {
+      setErrors((prev) => [...prev, "Failed to fetch POs."]);
+    }
+  };
+
   useEffect(() => {
-    const ongkosan = calculateOngkosan();
-    setFormData((prev) => ({ ...prev, ongkosan }));
-  }, [
-    formData.minimal_load_quantity,
-    formData.unit_price,
-    formData.trip_allowance,
-    formData.gaji,
-    formData.unit,
-  ]);
+    fetchPOs(true);
+  }, [searchTerm]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // On PO select (unchanged, but wrapped in !isStandalone)
+  const handleSelectPO = async (po: PODetails) => {
+    setSelectedPO(po);
+    setCanCreate(po.can_create_do && po.remaining_quantity > 0);
+    setErrors([]);
 
-    if (!formData.do_name.trim()) {
-      toast.error("Please enter a delivery order name");
-      return;
+    const items = po.item_name
+      ? po.item_name.split(",").map((i) => i.trim())
+      : [];
+    setPoItems(items);
+
+    const initialFormData = {
+      do_name: "",
+      customer_name: po.customer_name, // Pre-fill from PO
+      item_name: items.length === 1 ? items[0] : "",
+      vehicle_id: "",
+      minimal_load_quantity: "",
+      unit: po.unit, // From PO
+      unit_price: "",
+      trip_allowance: "",
+      gaji: "",
+      ongkosan: "",
+      load_location: po.load_location || "",
+      unload_location: po.unload_location || "",
+      load_latitude: po.load_latitude?.toString() || "",
+      load_longitude: po.load_longitude?.toString() || "",
+      unload_latitude: po.unload_latitude?.toString() || "",
+      unload_longitude: po.unload_longitude?.toString() || "",
+    };
+    setFormDataList([initialFormData]);
+
+    const initialMarkers: MarkerType[] = [];
+    if (po.load_latitude && po.load_longitude) {
+      initialMarkers.push({
+        lat: po.load_latitude,
+        lng: po.load_longitude,
+        title: "Load Location",
+        type: "load",
+      });
     }
-
-    if (
-      !formData.driver_id ||
-      !formData.vehicle_id ||
-      !formData.minimal_load_quantity
-    ) {
-      toast.error("Please fill in all required fields");
-      return;
+    if (po.unload_latitude && po.unload_longitude) {
+      initialMarkers.push({
+        lat: po.unload_latitude,
+        lng: po.unload_longitude,
+        title: "Unload Location",
+        type: "unload",
+      });
     }
+    setMarkers(initialMarkers);
 
     try {
-      setLoading(true);
-
-      const totalAmount = calculateTotalAmount(
-        formData.minimal_load_quantity,
-        formData.unit_price,
-        formData.unit
+      const response = await apiClient.get("/vehicles");
+      const vehiclesData = response.data || response.data.data || [];
+      setVehicles(
+        vehiclesData.filter(
+          (v: Vehicle) =>
+            v.driver_id &&
+            v.driver_status === "available" &&
+            v.status === "available"
+        )
       );
+    } catch (err) {
+      setErrors((prev) => [...prev, "Failed to fetch vehicles."]);
+    }
+  };
 
-      // Generate random PO number for standalone DOs
-      let finalPOId = formData.purchase_order_id || null;
-      let standalonePoNumber = null;
+  // NEW: Standalone toggle effect with vehicle fetch
+  useEffect(() => {
+    if (isStandalone) {
+      // Reset PO selection and init blank form
+      setSelectedPO(null);
+      setPoItems([]);
+      setCanCreate(true); // Always true in standalone
+      setFormDataList([
+        {
+          do_name: "",
+          customer_name: "",
+          item_name: "",
+          vehicle_id: "",
+          minimal_load_quantity: "",
+          unit: "ton", // Default unit, or add selector
+          unit_price: "",
+          trip_allowance: "",
+          gaji: "",
+          ongkosan: "",
+          load_location: "",
+          unload_location: "",
+          load_latitude: "",
+          load_longitude: "",
+          unload_latitude: "",
+          unload_longitude: "",
+        },
+      ]);
+      setMarkers([]);
 
-      if (!formData.purchase_order_id) {
-        standalonePoNumber = generateRandomPONumber();
-        console.log('🎲 Generated random PO number for standalone DO:', standalonePoNumber);
+      // NEW: Fetch vehicles in standalone mode
+      const fetchVehiclesStandalone = async () => {
+        try {
+          const response = await apiClient.get("/vehicles");
+          const vehiclesData = response.data.data || response.data || [];
+          setVehicles(
+            vehiclesData.filter(
+              (v: Vehicle) =>
+                v.driver_id &&
+                v.driver_status === "available" &&
+                v.status === "available"
+            )
+          );
+        } catch (err) {
+          setErrors((prev) => [
+            ...prev,
+            "Failed to fetch vehicles in standalone mode.",
+          ]);
+        }
+      };
+      fetchVehiclesStandalone();
+    } else {
+      // Reset to PO mode
+      setFormDataList([]);
+      setVehicles([]); // Clear vehicles when switching back
+    }
+  }, [isStandalone]);
+
+  // Form handlers (modified for standalone)
+  const handleInputChange = (
+    index: number,
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+    >
+  ) => {
+    if (!canCreate) return; // Block changes if disabled
+    const newFormDataList = [...formDataList];
+    newFormDataList[index] = {
+      ...newFormDataList[index],
+      [e.target.name]: e.target.value,
+    };
+    setFormDataList(newFormDataList);
+
+    if (
+      [
+        "minimal_load_quantity",
+        "unit_price",
+        "trip_allowance",
+        "gaji",
+      ].includes(e.target.name)
+    ) {
+      const unit =
+        (isStandalone ? newFormDataList[index].unit : selectedPO?.unit) ??
+        "ton"; // FIXED: ?? 'ton' nukes undefined
+
+      newFormDataList[index].ongkosan = calculateOngkosan(
+        newFormDataList[index],
+        unit // Now always string—TS happy, no teleports
+      ).toString();
+      setFormDataList([...newFormDataList]);
+    }
+  };
+
+  const addForm = () => {
+    if (!canCreate) return;
+    const lastForm = formDataList[formDataList.length - 1] || {};
+    const newForm: DOFormData = {
+      do_name: `${lastForm.do_name || "New DO"} - Copy`,
+      customer_name: isStandalone ? "" : selectedPO?.customer_name || "",
+      item_name: "",
+      vehicle_id: "",
+      minimal_load_quantity: "",
+      unit: isStandalone ? "ton" : selectedPO?.unit || "ton",
+      unit_price: "",
+      trip_allowance: "",
+      gaji: "",
+      ongkosan: "",
+      load_location: lastForm.load_location || "",
+      unload_location: lastForm.unload_location || "",
+      load_latitude: lastForm.load_latitude || "",
+      load_longitude: lastForm.load_longitude || "",
+      unload_latitude: lastForm.unload_latitude || "",
+      unload_longitude: lastForm.unload_longitude || "",
+    };
+    setFormDataList([...formDataList, newForm]);
+  };
+
+  const duplicateForm = (index: number) => {
+    if (!canCreate) return;
+    const currentForm = formDataList[index];
+    const newForm: DOFormData = {
+      ...currentForm,
+      do_name: `${currentForm.do_name} - Copy`,
+    };
+    setFormDataList([...formDataList, newForm]);
+  };
+
+  const removeForm = (index: number) => {
+    if (!canCreate) return;
+    setFormDataList(formDataList.filter((_, i) => i !== index));
+  };
+
+  const getSelectedVehicle = (vehicleId: string): Vehicle | undefined =>
+    vehicles.find((v) => v.id.toString() === vehicleId);
+
+  const handleProcessLocationLink = async (
+    type: "load" | "unload",
+    input: string
+  ) => {
+    if (!canCreate || !input) return;
+    setLinkProcessing((prev) => ({ ...prev, [type]: true }));
+    setErrors([]);
+
+    try {
+      const backendUrl = process.env.REACT_APP_API_URL || "";
+      const resp = await fetch(`${backendUrl}/utils/resolve-location`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input }),
+      });
+      const data = await resp.json();
+
+      if (data.lat && data.lng) {
+        setLocationWithType(
+          data.lat,
+          data.lng,
+          `${data.lat},${data.lng}`,
+          type
+        );
+      } else {
+        setErrors((prev) => [
+          ...prev,
+          data.message || "Could not determine coordinates.",
+        ]);
+      }
+    } catch (error) {
+      setErrors((prev) => [...prev, "Could not process location."]);
+    } finally {
+      setLinkProcessing((prev) => ({ ...prev, [type]: false }));
+    }
+  };
+
+  // Batch Submit (modified for standalone)
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!canCreate) return;
+    setLoading(true);
+    setErrors([]);
+
+    const delivery_orders = formDataList.map((formData) => {
+      const unitPrice = parseFloat(formData.unit_price);
+      if (isNaN(unitPrice) || unitPrice <= 0)
+        throw new Error(`Invalid unit price for DO ${formData.do_name}`);
+
+      const selectedVehicle = getSelectedVehicle(formData.vehicle_id);
+      if (!selectedVehicle || !selectedVehicle.driver_id)
+        throw new Error(`Invalid vehicle for DO ${formData.do_name}`);
+
+      if (!formData.item_name)
+        throw new Error(`Item name required for DO ${formData.do_name}`);
+
+      const quantity = parseFloat(formData.minimal_load_quantity);
+      if (isNaN(quantity) || quantity <= 0) {
+        throw new Error(`Invalid quantity for DO ${formData.do_name}`);
       }
 
-      const payload = {
-        do_name: formData.do_name.trim(),
-        purchase_order_id: finalPOId,
-        standalone_po_number: standalonePoNumber,
-        driver_id: parseInt(formData.driver_id),
+      // In non-standalone, cap quantity
+      if (
+        !isStandalone &&
+        selectedPO &&
+        quantity > selectedPO.remaining_quantity
+      ) {
+        throw new Error(
+          `Quantity exceeds PO remaining for DO ${formData.do_name}`
+        );
+      }
+
+      const unit = isStandalone ? formData.unit : selectedPO?.unit;
+      const totalAmount = calculateTotalAmount(
+        quantity,
+        unitPrice,
+        unit ?? "ton"
+      );
+
+      return {
+        purchase_order_id: isStandalone ? null : selectedPO?.id,
         vehicle_id: parseInt(formData.vehicle_id),
-        customer_name: formData.customer_name,
+        driver_id: selectedVehicle.driver_id,
+        do_name: formData.do_name,
+        customer_name: isStandalone
+          ? formData.customer_name
+          : selectedPO?.customer_name,
         item_name: formData.item_name,
-        minimal_load_quantity: formData.minimal_load_quantity,
-        unit: formData.unit,
-        unit_price: formData.unit_price,
+        minimal_load_quantity: quantity,
+        unit,
+        unit_price: unitPrice,
         total_amount: totalAmount,
-        trip_allowance: parseFloat(formData.trip_allowance) || 0,
-        gaji: parseFloat(formData.gaji) || 0,
-        ongkosan: formData.ongkosan,
+        trip_allowance: parseFloat(formData.trip_allowance),
+        gaji: parseFloat(formData.gaji),
+        ongkosan: parseFloat(formData.ongkosan),
         load_location: formData.load_location,
         unload_location: formData.unload_location,
+        load_latitude: formData.load_latitude
+          ? parseFloat(formData.load_latitude)
+          : null,
+        load_longitude: formData.load_longitude
+          ? parseFloat(formData.load_longitude)
+          : null,
+        unload_latitude: formData.unload_latitude
+          ? parseFloat(formData.unload_latitude)
+          : null,
+        unload_longitude: formData.unload_longitude
+          ? parseFloat(formData.unload_longitude)
+          : null,
         payment_status: "proses_tagihan",
         status: "assigned",
       };
+    });
 
-      console.log('📤 Submitting payload:', payload);
-      const response = await apiClient.post("/delivery-orders", payload);
-      console.log('✅ DO created successfully:', response.data);
-
-      // Show different success messages
-      if (standalonePoNumber) {
-        toast.success(`Standalone Delivery Order created successfully! Reference: ${standalonePoNumber}`);
-      } else {
-        toast.success("Delivery Order created successfully!");
-      }
-      
-      navigate(returnUrl);
+    try {
+      await apiClient.post("/delivery-orders/batch", { delivery_orders });
+      navigate(-1);
     } catch (err: any) {
-      console.error('❌ Submit error:', err);
-      toast.error(
-        err.response?.data?.message || "Failed to create Delivery Order"
-      );
+      setErrors([err.response?.data?.message || "Failed to create DOs."]);
     } finally {
       setLoading(false);
     }
   };
 
-  const formatCurrency = (amount: number) => {
-    return `Rp ${amount.toLocaleString("id-ID")}`;
-  };
-
-  const getUnitDisplay = (unit: string) => {
-    const unitMap = { kilogram: "kg", ton: "ton", kubik: "m³" };
-    return unitMap[unit as keyof typeof unitMap] || unit;
-  };
-
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            Create Delivery Order
-          </h1>
-          <p className="text-gray-600">
-            {returnUrl.includes("big-dos")
-              ? "Create a DO for your Big Delivery Order"
-              : "Create a new delivery order"}
-          </p>
-        </div>
+    <div className="max-w-6xl mx-auto p-6">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold text-gray-800">
+          Create Delivery Order
+        </h1>
         <button
-          onClick={() => navigate(returnUrl)}
-          className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors"
+          onClick={() => navigate("/delivery-orders")}
+          className="bg-gray-500 hover:bg-gray-700 text-white px-4 py-2 rounded"
         >
           ← Back
         </button>
       </div>
 
-      {/* Quick Creation Notice */}
-      {returnUrl.includes("big-dos") && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-center space-x-2">
-            <svg
-              className="w-5 h-5 text-blue-500"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-            <div>
-              <h3 className="text-sm font-medium text-blue-900">
-                Quick DO Creation
-              </h3>
-              <p className="text-sm text-blue-700">
-                This DO will be available for your Big DO creation. Fill in the
-                essential details below.
-              </p>
-            </div>
-          </div>
+      {errors.length > 0 && (
+        <div className="bg-red-100 border border-red-400 text-red-700 p-4 rounded mb-6">
+          {errors.map((err, i) => (
+            <p key={i}>{err}</p>
+          ))}
         </div>
       )}
 
-      {/* Form */}
-      <form
-        onSubmit={handleSubmit}
-        className="bg-white shadow rounded-lg p-6 space-y-6"
-      >
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Delivery Order Name *
-          </label>
+      {/* Standalone Toggle - NEW! */}
+      <div className="mb-6 bg-gray-100 p-4 rounded-lg">
+        <label className="flex items-center space-x-2">
+          <input
+            type="checkbox"
+            checked={isStandalone}
+            onChange={(e) => setIsStandalone(e.target.checked)}
+            className="form-checkbox h-5 w-5 text-blue-600"
+          />
+          <span className="text-lg font-medium text-gray-700">
+            Standalone Mode (No PO Required)
+          </span>
+        </label>
+        <p className="text-sm text-gray-500 mt-1">
+          Enable to create DO without linking to a Purchase Order. Allows free
+          input for customer, item, etc.
+        </p>
+      </div>
+
+      {!isStandalone && !selectedPO ? (
+        <div className="bg-white border rounded-lg p-6">
+          <h2 className="text-xl font-semibold mb-4">Select Purchase Order</h2>
           <input
             type="text"
-            value={formData.do_name}
-            onChange={(e) => 
-              setFormData({ ...formData, do_name: e.target.value })
-            }
-            className="w-full border border-gray-300 rounded-md px-3 py-2"
-            placeholder="e.g., Pengiriman Pasir ke Proyek XYZ"
-            required
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search by customer name..."
+            className="w-full px-3 py-2 border border-gray-300 rounded-md mb-4"
           />
-          <p className="text-xs text-gray-500 mt-1">
-            Give a descriptive name for this delivery order
-          </p>
+          <div id="po-list" style={{ maxHeight: "400px", overflowY: "auto" }}>
+            <InfiniteScroll
+              dataLength={pos.length}
+              next={() => fetchPOs()}
+              hasMore={hasMore}
+              loader={<p className="text-center">Loading more POs...</p>}
+              scrollableTarget="po-list"
+            >
+              {pos.map((po) => (
+                <div
+                  key={po.id}
+                  onClick={() => (po.can_create_do ? handleSelectPO(po) : null)}
+                  className={`border-b p-4 ${
+                    po.can_create_do
+                      ? "cursor-pointer hover:bg-gray-100"
+                      : "cursor-not-allowed bg-gray-200"
+                  }`}
+                >
+                  <h3 className="font-bold">
+                    {po.po_number} - {po.customer_name}
+                  </h3>
+                  <p>
+                    Remaining: {po.remaining_quantity} {getUnitDisplay(po.unit)}{" "}
+                    {po.can_create_do ? "" : "(Cannot create DO)"}
+                  </p>
+                  <p>Items: {po.item_name}</p>
+                </div>
+              ))}
+            </InfiniteScroll>
+          </div>
+          {pos.length === 0 && <p>No POs found. Try adjusting search.</p>}
         </div>
-
-        {/* PO Selection (Optional) */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Purchase Order (Optional)
-          </label>
-          <select
-            value={formData.purchase_order_id}
-            onChange={(e) => handlePOChange(e.target.value)}
-            className="w-full border border-gray-300 rounded-md px-3 py-2"
-          >
-            <option value="">🆕 Create Standalone DO</option>
-            {purchaseOrders.map((po) => (
-              <option key={po.id} value={po.id}>
-                📋 {po.po_number} - {po.customer_name}
-                (Sisa: {po.remaining_quantity.toLocaleString("id-ID")}{" "}
-                {getUnitDisplay(po.unit)})
-              </option>
-            ))}
-          </select>
-
-          {formData.purchase_order_id && (
-            <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
-              {(() => {
-                const selectedPO = purchaseOrders.find(
-                  (po) => po.id.toString() === formData.purchase_order_id
-                );
-                return selectedPO ? (
-                  <div className="text-sm">
-                    <div className="font-medium text-blue-900 mb-1">
-                      📋 {selectedPO.po_number}
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-blue-700">
-                      <div>
-                        <span className="text-blue-600">Total Quantity:</span>
-                        <span className="font-medium ml-1">
-                          {selectedPO.total_quantity.toLocaleString("id-ID")}{" "}
-                          {getUnitDisplay(selectedPO.unit)}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-blue-600">Remaining:</span>
-                        <span className="font-medium ml-1 text-green-700">
-                          {selectedPO.remaining_quantity.toLocaleString(
-                            "id-ID"
-                          )}{" "}
-                          {getUnitDisplay(selectedPO.unit)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ) : null;
-              })()}
-            </div>
+      ) : (
+        <>
+          {!isStandalone && (
+            <button
+              onClick={() => setSelectedPO(null)}
+              className="mb-4 text-blue-500 hover:underline"
+            >
+              ← Change PO
+            </button>
           )}
 
-          {/* Show standalone DO info */}
-          {!formData.purchase_order_id && (
-            <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-md">
-              <div className="text-sm">
-                <div className="font-medium text-green-900 mb-1">
-                  🆕 Standalone Delivery Order
+          {!isStandalone && selectedPO && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
+              <h2 className="text-xl font-semibold mb-4">
+                Selected Purchase Order: {selectedPO.po_number}
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                <div>
+                  <label className="text-sm text-gray-600">Customer</label>
+                  <p className="font-medium">{selectedPO.customer_name}</p>
                 </div>
-                <div className="text-green-700">
-                  <p>This DO will be independent of any Purchase Order.</p>
-                  <p className="text-xs mt-1">
-                    ℹ️ A unique reference number will be automatically generated for system tracking.
+                <div>
+                  <label className="text-sm text-gray-600">Items</label>
+                  <p className="font-medium">{poItems.join(", ")}</p>
+                </div>
+                <div>
+                  <label className="text-sm text-gray-600">Remaining Qty</label>
+                  <p className="font-medium text-green-600">
+                    {selectedPO.remaining_quantity?.toLocaleString("id-ID")}{" "}
+                    {getUnitDisplay(selectedPO.unit)}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm text-gray-600">Unit</label>
+                  <p className="font-medium">
+                    <span className="bg-blue-100 px-2 py-1 rounded text-sm">
+                      {getUnitDisplay(selectedPO.unit)}
+                    </span>
                   </p>
                 </div>
               </div>
             </div>
           )}
 
-          <p className="text-xs text-gray-500 mt-1">
-            {formData.purchase_order_id
-              ? "Linked to PO - customer and item details will be auto-filled"
-              : "Standalone DO - you can enter custom details"}
-          </p>
-        </div>
-
-        {/* Basic Information */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Customer Name *
-            </label>
-            <input
-              type="text"
-              value={formData.customer_name}
-              onChange={(e) =>
-                setFormData({ ...formData, customer_name: e.target.value })
-              }
-              className="w-full border border-gray-300 rounded-md px-3 py-2"
-              placeholder="Enter customer name"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Item Name *
-            </label>
-            <input
-              type="text"
-              value={formData.item_name}
-              onChange={(e) =>
-                setFormData({ ...formData, item_name: e.target.value })
-              }
-              className="w-full border border-gray-300 rounded-md px-3 py-2"
-              placeholder="Enter item name"
-              required
-            />
-          </div>
-        </div>
-
-        {/* Quantity & Pricing */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Quantity *
-              {formData.purchase_order_id &&
-                (() => {
-                  const selectedPO = purchaseOrders.find(
-                    (po) => po.id.toString() === formData.purchase_order_id
-                  );
-                  return selectedPO ? (
-                    <span className="text-blue-600 text-xs ml-1">
-                      (Max:{" "}
-                      {selectedPO.remaining_quantity.toLocaleString("id-ID")}{" "}
-                      {getUnitDisplay(selectedPO.unit)})
-                    </span>
-                  ) : null;
-                })()}
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              max={(() => {
-                if (formData.purchase_order_id) {
-                  const selectedPO = purchaseOrders.find(
-                    (po) => po.id.toString() === formData.purchase_order_id
-                  );
-                  return selectedPO ? selectedPO.remaining_quantity : undefined;
-                }
-                return undefined;
-              })()}
-              value={formData.minimal_load_quantity}
-              onChange={(e) => {
-                const value = parseFloat(e.target.value) || 0;
-                if (formData.purchase_order_id) {
-                  const selectedPO = purchaseOrders.find(
-                    (po) => po.id.toString() === formData.purchase_order_id
-                  );
-                  if (selectedPO && value > selectedPO.remaining_quantity) {
-                    toast.error(
-                      `Quantity cannot exceed remaining PO quantity: ${
-                        selectedPO.remaining_quantity
-                      } ${getUnitDisplay(selectedPO.unit)}`
-                    );
-                    return;
-                  }
-                }
-                setFormData({
-                  ...formData,
-                  minimal_load_quantity: value,
-                });
-              }}
-              className="w-full border border-gray-300 rounded-md px-3 py-2"
-              placeholder="0"
-              required
-            />
-            {formData.purchase_order_id &&
-              formData.minimal_load_quantity > 0 &&
-              (() => {
-                const selectedPO = purchaseOrders.find(
-                  (po) => po.id.toString() === formData.purchase_order_id
-                );
-                if (
-                  selectedPO &&
-                  formData.minimal_load_quantity > selectedPO.remaining_quantity
-                ) {
-                  return (
-                    <p className="text-xs text-red-600 mt-1">
-                      ⚠️ Exceeds remaining quantity by{" "}
-                      {(
-                        formData.minimal_load_quantity -
-                        selectedPO.remaining_quantity
-                      ).toLocaleString("id-ID")}{" "}
-                      {getUnitDisplay(selectedPO.unit)}
-                    </p>
-                  );
-                }
-                return null;
-              })()}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Unit *
-            </label>
-            <select
-              value={formData.unit}
-              onChange={(e) =>
-                setFormData({ ...formData, unit: e.target.value })
-              }
-              className="w-full border border-gray-300 rounded-md px-3 py-2"
-              disabled={!!formData.purchase_order_id}
-            >
-              <option value="kilogram">Kilogram (kg)</option>
-              <option value="ton">Ton</option>
-              <option value="kubik">Kubik (m³)</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Unit Price *
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={formData.unit_price}
-              onChange={(e) =>
-                setFormData({
-                  ...formData,
-                  unit_price: parseFloat(e.target.value) || 0,
-                })
-              }
-              className="w-full border border-gray-300 rounded-md px-3 py-2"
-              placeholder="0"
-              required
-              disabled={!!formData.purchase_order_id}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Total Amount
-            </label>
-            <div className="w-full border border-gray-300 rounded-md px-3 py-2 bg-gray-50 text-gray-700 font-medium">
-              {formatCurrency(
-                calculateTotalAmount(
-                  formData.minimal_load_quantity,
-                  formData.unit_price,
-                  formData.unit
-                )
-              )}
+          {!canCreate && !isStandalone && (
+            <div className="bg-red-500 text-white p-4 rounded mb-6 font-bold text-center">
+              ⚠️ WARNING: This PO has no remaining quantity or cannot create new
+              DOs. Forms are disabled. Select another PO to proceed.
             </div>
-          </div>
-        </div>
+          )}
 
-        {/* Driver & Vehicle */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Vehicle *
-              <span className="text-xs text-gray-500 ml-1">
-                (Driver will be auto-filled)
-              </span>
-            </label>
-            
-            {/* Debug info for development */}
-            {process.env.NODE_ENV === 'development' && (
-              <div className="text-xs text-gray-500 mb-2">
-                Debug: {vehicles.length} vehicles loaded
-                {loading && <span> (Loading...)</span>}
-              </div>
-            )}
-
-            <select
-              value={formData.vehicle_id}
-              onChange={(e) => {
-                console.log('🚛 Vehicle selected:', e.target.value);
-                setFormData({ ...formData, vehicle_id: e.target.value });
-              }}
-              className="w-full border border-gray-300 rounded-md px-3 py-2"
-              required
-              disabled={vehicles.length === 0}
-            >
-              <option value="">
-                {vehicles.length === 0
-                  ? "No vehicles available"
-                  : `Select a vehicle (${vehicles.length} available)`}
-              </option>
-              {vehicles.map((vehicle) => {
-                console.log('🚛 Rendering vehicle option:', vehicle.license_plate);
-                return (
-                  <option key={vehicle.id} value={vehicle.id}>
-                    🚛 {vehicle.license_plate} ({vehicle.type})
-                    {vehicle.driver_name
-                      ? ` - 👨‍💼 ${vehicle.driver_name}`
-                      : " - No Driver Assigned"}
-                  </option>
-                );
-              })}
-            </select>
-
-            {/* Show selected vehicle info */}
-            {formData.vehicle_id &&
-              (() => {
-                const selectedVehicle = vehicles.find(
-                  (v) => v.id.toString() === formData.vehicle_id
-                );
-                return selectedVehicle ? (
-                  <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded-md">
-                    <div className="text-sm">
-                      <div className="font-medium text-gray-900 mb-1">
-                        🚛 {selectedVehicle.license_plate} -{" "}
-                        {selectedVehicle.type}
-                      </div>
-                      <div className="text-gray-600">
-                        <span>Capacity: {selectedVehicle.capacity} kg</span>
-                        {selectedVehicle.driver_name && (
-                          <span className="ml-3">
-                            👨‍💼 Driver: {selectedVehicle.driver_name}
-                          </span>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="space-y-6">
+              <form onSubmit={handleSubmit} className="space-y-6">
+                {formDataList.map((formData, index) => (
+                  <div key={index} className="bg-white border rounded-lg p-6">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-semibold">
+                        Delivery Order {index + 1}
+                      </h3>
+                      <div className="flex space-x-2">
+                        {index > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => removeForm(index)}
+                            className={`text-red-500 hover:text-red-700 text-sm ${
+                              !canCreate ? "opacity-50 cursor-not-allowed" : ""
+                            }`}
+                          >
+                            Remove
+                          </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => duplicateForm(index)}
+                          className={`text-blue-500 hover:text-blue-700 text-sm ${
+                            !canCreate ? "opacity-50 cursor-not-allowed" : ""
+                          }`}
+                        >
+                          Duplicate
+                        </button>
                       </div>
-                      {!selectedVehicle.driver_id && (
-                        <div className="text-amber-600 text-xs mt-1">
-                          ⚠️ This vehicle has no assigned driver. Please select
-                          a driver manually.
-                        </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Delivery Order Name *
+                      </label>
+                      <input
+                        disabled={!canCreate}
+                        type="text"
+                        name="do_name"
+                        value={formData.do_name}
+                        onChange={(e) => handleInputChange(index, e)}
+                        className={`w-full px-3 py-2 border border-gray-300 rounded-md ${
+                          !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
+                        }`}
+                        placeholder="e.g., Pengiriman Pasir ke Proyek XYZ"
+                        required
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Give a descriptive name for this delivery order
+                      </p>
+                    </div>
+
+                    {/* NEW: Customer Name - Free in standalone */}
+                    {isStandalone && (
+                      <div className="mt-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Customer Name *
+                        </label>
+                        <input
+                          type="text"
+                          name="customer_name"
+                          value={formData.customer_name || ""}
+                          onChange={(e) => handleInputChange(index, e)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                          placeholder="Enter customer name"
+                          required
+                        />
+                      </div>
+                    )}
+
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Item Name *
+                      </label>
+                      {isStandalone ? (
+                        <input
+                          type="text"
+                          name="item_name"
+                          value={formData.item_name}
+                          onChange={(e) => handleInputChange(index, e)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                          placeholder="Enter item name"
+                          required
+                        />
+                      ) : (
+                        <select
+                          disabled={!canCreate}
+                          name="item_name"
+                          value={formData.item_name}
+                          onChange={(e) => handleInputChange(index, e)}
+                          className={`w-full px-3 py-2 border border-gray-300 rounded-md ${
+                            !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
+                          }`}
+                          required
+                        >
+                          <option value="">Select Item</option>
+                          {poItems.map((item, i) => (
+                            <option key={i} value={item}>
+                              {item}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {poItems.length === 0 && !isStandalone && (
+                        <p className="text-sm text-red-600 mt-1">
+                          No items available in this PO.
+                        </p>
                       )}
                     </div>
-                  </div>
-                ) : null;
-              })()}
-          </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Driver *
-              {formData.vehicle_id &&
-                (() => {
-                  const selectedVehicle = vehicles.find(
-                    (v) => v.id.toString() === formData.vehicle_id
-                  );
-                  return selectedVehicle?.driver_id ? (
-                    <span className="text-xs text-green-600 ml-1">
-                      (Auto-filled from vehicle)
-                    </span>
-                  ) : (
-                    <span className="text-xs text-amber-600 ml-1">
-                      (Select manually)
-                    </span>
-                  );
-                })()}
-            </label>
-            <select
-              value={formData.driver_id}
-              onChange={(e) =>
-                setFormData({ ...formData, driver_id: e.target.value })
-              }
-              className={`w-full border border-gray-300 rounded-md px-3 py-2 ${
-                formData.vehicle_id &&
-                vehicles.find((v) => v.id.toString() === formData.vehicle_id)
-                  ?.driver_id
-                  ? "bg-green-50 border-green-300"
-                  : ""
-              }`}
-              disabled={(() => {
-                if (formData.vehicle_id) {
-                  const selectedVehicle = vehicles.find(
-                    (v) => v.id.toString() === formData.vehicle_id
-                  );
-                  return selectedVehicle?.driver_id ? true : false;
-                }
-                return true;
-              })()}
-              required
-            >
-              <option value="">
-                {formData.vehicle_id &&
-                vehicles.find((v) => v.id.toString() === formData.vehicle_id)
-                  ?.driver_id
-                  ? "Driver auto-selected from vehicle"
-                  : "Pilih Mobil Dahulu"}
-              </option>
-              {drivers.map((driver) => (
-                <option key={driver.id} value={driver.id}>
-                  👨‍💼 {driver.driverProfile?.full_name || driver.username}
-                </option>
-              ))}
-            </select>
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Minimal Load Quantity (
+                        {getUnitDisplay(
+                          isStandalone
+                            ? formData.unit
+                            : selectedPO?.unit ?? "ton"
+                        )}
+                        ) *
+                      </label>
+                      <input
+                        disabled={!canCreate}
+                        type="number"
+                        name="minimal_load_quantity"
+                        step="0.01"
+                        max={
+                          !isStandalone
+                            ? selectedPO?.remaining_quantity
+                            : undefined
+                        } // No max in standalone
+                        value={formData.minimal_load_quantity}
+                        onChange={(e) => handleInputChange(index, e)}
+                        className={`w-full px-3 py-2 border border-gray-300 rounded-md ${
+                          !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
+                        }`}
+                        placeholder={
+                          !isStandalone
+                            ? `Maximum: ${
+                                selectedPO?.remaining_quantity ?? ""
+                              } ${getUnitDisplay(selectedPO?.unit ?? "ton")}`
+                            : "Enter quantity"
+                        }
+                        required
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        {isStandalone
+                          ? "No limits - enter freely"
+                          : selectedPO?.unit === "ton" &&
+                            "💡 Enter in tons (price per ton)"}
+                        {selectedPO?.unit === "kubik" &&
+                          "💡 Enter in cubic meters (volume-based)"}
+                        {selectedPO?.unit === "kilogram" &&
+                          "💡 Enter in kilograms (weight-based)"}
+                      </p>
+                    </div>
 
-            {/* Show selected driver info */}
-            {formData.driver_id &&
-              (() => {
-                const selectedDriver = drivers.find(
-                  (d) => d.id.toString() === formData.driver_id
-                );
-                const selectedVehicle = vehicles.find(
-                  (v) => v.id.toString() === formData.vehicle_id
-                );
-
-                const driverInfo =
-                  selectedVehicle?.driver_id === parseInt(formData.driver_id) &&
-                  selectedVehicle.driver_name
-                    ? {
-                        name: selectedVehicle.driver_name,
-                        phone: selectedVehicle.driver_phone,
-                        status: selectedVehicle.driver_status,
-                      }
-                    : selectedDriver && {
-                        name:
-                          selectedDriver.driverProfile?.full_name ||
-                          selectedDriver.username,
-                        phone: selectedDriver.driverProfile?.phone,
-                        status: selectedDriver.driverProfile?.status,
-                      };
-
-                return driverInfo ? (
-                  <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-md">
-                    <div className="text-sm">
-                      <div className="font-medium text-green-900 mb-1">
-                        👨‍💼 {driverInfo.name}
+                    {/* NEW: Unit selector in standalone */}
+                    {isStandalone && (
+                      <div className="mt-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Unit *
+                        </label>
+                        <select
+                          name="unit"
+                          value={formData.unit}
+                          onChange={(e) => handleInputChange(index, e)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                          required
+                        >
+                          <option value="kilogram">Kg</option>
+                          <option value="ton">Ton</option>
+                          <option value="kubik">m³</option>
+                        </select>
                       </div>
-                      <div className="text-green-700 text-xs">
-                        {driverInfo.phone && <div>📞 {driverInfo.phone}</div>}
-                        {driverInfo.status && (
-                          <div className="mt-1">
-                            <span
-                              className={`px-2 py-1 rounded-full text-xs ${
-                                driverInfo.status === "available"
-                                  ? "bg-green-100 text-green-800"
-                                  : "bg-red-100 text-red-800"
-                              }`}
-                            >
-                              {driverInfo.status === "available"
-                                ? "✅ Available"
-                                : "❌ Unavailable"}
-                            </span>
+                    )}
+
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Unit Price (Rp/
+                        {getUnitDisplay(
+                          isStandalone
+                            ? formData.unit
+                            : selectedPO?.unit ?? "ton"
+                        )}
+                        ) *
+                      </label>
+                      <input
+                        disabled={!canCreate}
+                        type="number"
+                        name="unit_price"
+                        step="0.01"
+                        value={formData.unit_price}
+                        onChange={(e) => handleInputChange(index, e)}
+                        className={`w-full px-3 py-2 border border-gray-300 rounded-md ${
+                          !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
+                        }`}
+                        placeholder={`Enter price per ${getUnitDisplay(
+                          isStandalone
+                            ? formData.unit
+                            : selectedPO?.unit ?? "ton"
+                        )}`}
+                        required
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        💡 Set the negotiated price per{" "}
+                        {getUnitDisplay(
+                          isStandalone
+                            ? formData.unit
+                            : selectedPO?.unit ?? "ton"
+                        )}{" "}
+                        for this delivery
+                      </p>
+                    </div>
+
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Vehicle with Assigned Driver *
+                      </label>
+                      <select
+                        disabled={!canCreate}
+                        name="vehicle_id"
+                        value={formData.vehicle_id}
+                        onChange={(e) => handleInputChange(index, e)}
+                        className={`w-full px-3 py-2 border border-gray-300 rounded-md ${
+                          !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
+                        }`}
+                        required
+                      >
+                        <option value="">Select Vehicle</option>
+                        {vehicles.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {v.license_plate} - {v.type}{" "}
+                            {v.driver_name && `- Driver: ${v.driver_name}`}
+                          </option>
+                        ))}
+                      </select>
+                      {vehicles.length === 0 && (
+                        <p className="text-sm text-red-600 mt-1">
+                          No available vehicles.
+                        </p>
+                      )}
+                      {formData.vehicle_id &&
+                        getSelectedVehicle(formData.vehicle_id) && (
+                          <div className="bg-gray-50 p-4 rounded-md mt-2">
+                            <h4 className="font-medium text-gray-900 mb-2">
+                              Selected:
+                            </h4>
+                            <div className="grid grid-cols-2 gap-4 text-sm">
+                              <div>
+                                <span className="text-gray-600">Vehicle:</span>
+                                <p className="font-medium">
+                                  {
+                                    getSelectedVehicle(formData.vehicle_id)
+                                      ?.license_plate
+                                  }
+                                </p>
+                              </div>
+                              <div>
+                                <span className="text-gray-600">Driver:</span>
+                                <p className="font-medium">
+                                  {
+                                    getSelectedVehicle(formData.vehicle_id)
+                                      ?.driver_name
+                                  }
+                                </p>
+                              </div>
+                            </div>
                           </div>
                         )}
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Trip Allowance (Rp) *
+                        </label>
+                        <input
+                          disabled={!canCreate}
+                          type="number"
+                          name="trip_allowance"
+                          value={formData.trip_allowance}
+                          onChange={(e) => handleInputChange(index, e)}
+                          className={`w-full px-3 py-2 border border-gray-300 rounded-md ${
+                            !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
+                          }`}
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Driver Salary (Rp) *
+                        </label>
+                        <input
+                          disabled={!canCreate}
+                          type="number"
+                          name="gaji"
+                          value={formData.gaji}
+                          onChange={(e) => handleInputChange(index, e)}
+                          className={`w-full px-3 py-2 border border-gray-300 rounded-md ${
+                            !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
+                          }`}
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Profit (Rp)
+                        </label>
+                        <input
+                          type="number"
+                          name="ongkosan"
+                          value={formData.ongkosan}
+                          className={`w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 ${
+                            !canCreate ? "cursor-not-allowed" : ""
+                          }`}
+                          readOnly
+                          disabled
+                        />
                       </div>
                     </div>
-                  </div>
-                ) : null;
-              })()}
-          </div>
-        </div>
 
-        {/* Financial Details */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Uang Jalan
-            </label>
-            <input
-              type="number"
-              step="1"
-              min="0"
-              value={formData.trip_allowance}
-              onChange={(e) => {
-                const value = e.target.value;
-                setFormData({
-                  ...formData,
-                  trip_allowance: value,
-                });
-              }}
-              onBlur={(e) => {
-                const numValue = parseFloat(e.target.value) || 0;
-                setFormData({
-                  ...formData,
-                  trip_allowance: numValue.toString(),
-                });
-              }}
-              className="w-full border border-gray-300 rounded-md px-3 py-2"
-              placeholder="0"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Gaji Driver
-            </label>
-            <input
-              type="number"
-              step="1"
-              min="0"
-              value={formData.gaji}
-              onChange={(e) => {
-                const value = e.target.value;
-                setFormData({
-                  ...formData,
-                  gaji: value,
-                });
-              }}
-              onBlur={(e) => {
-                const numValue = parseFloat(e.target.value) || 0;
-                setFormData({
-                  ...formData,
-                  gaji: numValue.toString(),
-                });
-              }}
-              className="w-full border border-gray-300 rounded-md px-3 py-2"
-              placeholder="0"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Ongkosan (Auto-calculated)
-            </label>
-            <div className="w-full border border-gray-300 rounded-md px-3 py-2 bg-green-50 text-green-700 font-medium">
-              {formatCurrency(formData.ongkosan)}
+                    {formData.minimal_load_quantity && formData.unit_price && (
+                      <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                        <h4 className="text-sm font-semibold text-gray-700 mb-2">
+                          Revenue Calculation
+                        </h4>
+                        <div className="text-xs text-gray-600 space-y-1">
+                          <div className="flex justify-between">
+                            <span>Quantity:</span>
+                            <span>
+                              {formData.minimal_load_quantity}{" "}
+                              {getUnitDisplay(
+                                isStandalone
+                                  ? formData.unit
+                                  : selectedPO?.unit ?? "ton"
+                              )}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Unit Price:</span>
+                            <span>
+                              Rp{" "}
+                              {parseFloat(formData.unit_price).toLocaleString(
+                                "id-ID"
+                              )}
+                              /
+                              {getUnitDisplay(
+                                isStandalone
+                                  ? formData.unit
+                                  : selectedPO?.unit ?? "ton"
+                              )}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-blue-600">
+                            <span>Calculation:</span>
+                            <span>
+                              {formData.minimal_load_quantity}{" "}
+                              {getUnitDisplay(
+                                isStandalone
+                                  ? formData.unit
+                                  : selectedPO?.unit ?? "ton"
+                              )}{" "}
+                              × Rp{" "}
+                              {parseFloat(formData.unit_price).toLocaleString(
+                                "id-ID"
+                              )}
+                              /
+                              {getUnitDisplay(
+                                isStandalone
+                                  ? formData.unit
+                                  : selectedPO?.unit ?? "ton"
+                              )}
+                            </span>
+                          </div>
+                          <div className="flex justify-between font-semibold border-t pt-1">
+                            <span>Total Revenue:</span>
+                            <span>
+                              Rp{" "}
+                              {calculateTotalAmount(
+                                parseFloat(formData.minimal_load_quantity) || 0,
+                                parseFloat(formData.unit_price) || 0,
+                                isStandalone
+                                  ? formData.unit
+                                  : selectedPO?.unit ?? "ton"
+                              ).toLocaleString("id-ID")}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Load Location *
+                      </label>
+                      <textarea
+                        disabled={!canCreate}
+                        name="load_location"
+                        value={formData.load_location}
+                        onChange={(e) => handleInputChange(index, e)}
+                        className={`w-full px-3 py-2 border border-gray-300 rounded-md ${
+                          !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
+                        }`}
+                        rows={3}
+                        required
+                        placeholder="Enter or select on map"
+                      />
+                      <div className="mt-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleProcessLocationLink(
+                              "load",
+                              formData.load_location
+                            )
+                          }
+                          disabled={!canCreate || linkProcessing.load}
+                          className={`text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 px-2 py-1 rounded w-full ${
+                            !canCreate ? "opacity-50 cursor-not-allowed" : ""
+                          }`}
+                        >
+                          {linkProcessing.load
+                            ? "Processing..."
+                            : "📌 Extract from Google Maps Link"}
+                        </button>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Paste Google Maps link or address.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (canCreate) {
+                            setCurrentFormIndex(index);
+                            setSelectedLocationType("load");
+                          }
+                        }}
+                        className={`mt-2 px-3 py-1 rounded text-sm w-full ${
+                          selectedLocationType === "load" &&
+                          currentFormIndex === index
+                            ? "bg-blue-500 text-white animate-pulse"
+                            : "bg-gray-200 hover:bg-gray-300"
+                        } ${!canCreate ? "opacity-50 cursor-not-allowed" : ""}`}
+                      >
+                        {showMap &&
+                          (selectedLocationType === "load" &&
+                          currentFormIndex === index
+                            ? "Click on map..."
+                            : "Set Load Location")}
+                      </button>
+                    </div>
+
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Unload Location *
+                      </label>
+                      <textarea
+                        disabled={!canCreate}
+                        name="unload_location"
+                        value={formData.unload_location}
+                        onChange={(e) => handleInputChange(index, e)}
+                        className={`w-full px-3 py-2 border border-gray-300 rounded-md ${
+                          !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
+                        }`}
+                        rows={3}
+                        required
+                        placeholder="Enter or select on map"
+                      />
+                      <div className="mt-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleProcessLocationLink(
+                              "unload",
+                              formData.unload_location
+                            )
+                          }
+                          disabled={!canCreate || linkProcessing.unload}
+                          className={`text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 px-2 py-1 rounded w-full ${
+                            !canCreate ? "opacity-50 cursor-not-allowed" : ""
+                          }`}
+                        >
+                          {linkProcessing.unload
+                            ? "Processing..."
+                            : "📌 Extract from Google Maps Link"}
+                        </button>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Paste Google Maps link or address.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (canCreate) {
+                            setCurrentFormIndex(index);
+                            setSelectedLocationType("unload");
+                          }
+                        }}
+                        className={`mt-2 px-3 py-1 rounded text-sm w-full ${
+                          selectedLocationType === "unload" &&
+                          currentFormIndex === index
+                            ? "bg-red-500 text-white animate-pulse"
+                            : "bg-gray-200 hover:bg-gray-300"
+                        } ${!canCreate ? "opacity-50 cursor-not-allowed" : ""}`}
+                      >
+                        {showMap &&
+                          (selectedLocationType === "unload" &&
+                          currentFormIndex === index
+                            ? "Click on map..."
+                            : "Set Unload Location")}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={addForm}
+                  className={`w-full bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 ${
+                    !canCreate ? "opacity-50 cursor-not-allowed" : ""
+                  }`}
+                >
+                  + Add Another Delivery Order
+                </button>
+
+                <div className="flex justify-end space-x-4">
+                  <button
+                    type="button"
+                    onClick={() => navigate("/delivery-orders")}
+                    className="px-6 py-2 border rounded-md"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={
+                      loading ||
+                      !canCreate ||
+                      formDataList.some(
+                        (f) => !f.vehicle_id || !f.item_name || !f.unit_price
+                      )
+                    }
+                    className={`px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300`}
+                  >
+                    {loading ? "Creating..." : "Create Order(s)"}
+                  </button>
+                </div>
+              </form>
             </div>
-            {(formData.trip_allowance || formData.gaji) && (
-              <div className="text-xs text-gray-500 mt-1">
-                Revenue:{" "}
-                {formatCurrency(
-                  calculateTotalAmount(
-                    formData.minimal_load_quantity,
-                    formData.unit_price,
-                    formData.unit
-                  )
-                )}{" "}
-                - Costs:{" "}
-                {formatCurrency(
-                  (parseFloat(formData.trip_allowance) || 0) +
-                    (parseFloat(formData.gaji) || 0)
-                )}
+
+            {showMap && (
+              <div className="bg-white border rounded-lg p-6">
+                <h3 className="text-lg font-semibold mb-4">Location Map</h3>
+                <div className="h-96 w-full">
+                  <MapContainer
+                    center={
+                      markers.length > 0
+                        ? [
+                            markers[markers.length - 1].lat,
+                            markers[markers.length - 1].lng,
+                          ]
+                        : [defaultCenter.lat, defaultCenter.lng]
+                    }
+                    zoom={13}
+                    style={{ height: "100%", width: "100%" }}
+                  >
+                    <TileLayer
+                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      attribution="© OpenStreetMap contributors"
+                    />
+                    <SearchControlComponent
+                      onLocationFound={handleSearchSelect}
+                    />
+                    <MapClickHandler
+                      selectedLocationType={selectedLocationType}
+                      onLocationSelect={(lat, lng, address) => {
+                        if (selectedLocationType && canCreate)
+                          setLocationWithType(
+                            lat,
+                            lng,
+                            address,
+                            selectedLocationType
+                          );
+                      }}
+                      onClearSelection={() => setSelectedLocationType(null)}
+                    />
+                    {markers.map((m, i) => (
+                      <Marker
+                        key={i}
+                        position={[m.lat, m.lng]}
+                        icon={m.type === "load" ? loadIcon : unloadIcon}
+                      >
+                        <Popup>{m.title}</Popup>
+                      </Marker>
+                    ))}
+                  </MapContainer>
+                </div>
+                <div className="mt-4 text-sm text-gray-600">
+                  <p className="font-semibold">
+                    💡 Click a "Set Location" button, then use the search bar or
+                    click the map.
+                  </p>
+                  {selectedLocationType && (
+                    <p className="text-blue-600 mt-2">
+                      🎯 Ready to set {selectedLocationType} location for form{" "}
+                      {currentFormIndex + 1}
+                    </p>
+                  )}
+                </div>
               </div>
             )}
           </div>
-        </div>
-
-        {/* Locations */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Load Location *
-            </label>
-            <textarea
-              value={formData.load_location}
-              onChange={(e) =>
-                setFormData({ ...formData, load_location: e.target.value })
-              }
-              className="w-full border border-gray-300 rounded-md px-3 py-2"
-              rows={2}
-              placeholder="Enter pickup address"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Unload Location *
-            </label>
-            <textarea
-              value={formData.unload_location}
-              onChange={(e) =>
-                setFormData({ ...formData, unload_location: e.target.value })
-              }
-              className="w-full border border-gray-300 rounded-md px-3 py-2"
-              rows={2}
-              placeholder="Enter delivery address"
-              required
-            />
-          </div>
-        </div>
-
-        {/* Revenue Summary */}
-        {formData.minimal_load_quantity > 0 && formData.unit_price > 0 && (
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h3 className="font-medium text-gray-900 mb-2">
-              📊 Financial Summary
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-              <div>
-                <span className="text-gray-600">Revenue:</span>
-                <div className="font-medium text-green-600">
-                  {formatCurrency(
-                    calculateTotalAmount(
-                      formData.minimal_load_quantity,
-                      formData.unit_price,
-                      formData.unit
-                    )
-                  )}
-                </div>
-              </div>
-              <div>
-                <span className="text-gray-600">Driver Costs:</span>
-                <div className="font-medium text-orange-600">
-                  {formatCurrency(
-                    (parseFloat(formData.trip_allowance) || 0) +
-                      (parseFloat(formData.gaji) || 0)
-                  )}
-                </div>
-              </div>
-              <div>
-                <span className="text-gray-600">Net Profit:</span>
-                <div className="font-medium text-blue-600">
-                  {formatCurrency(formData.ongkosan)}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Submit Buttons */}
-        <div className="flex justify-end space-x-3">
-          <button
-            type="button"
-            onClick={() => navigate(returnUrl)}
-            className="px-6 py-2 text-gray-600 hover:text-gray-800 border border-gray-300 rounded-lg"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={loading}
-            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            {loading ? "Creating..." : "🚀 Create Delivery Order"}
-          </button>
-        </div>
-      </form>
+        </>
+      )}
     </div>
   );
 };
