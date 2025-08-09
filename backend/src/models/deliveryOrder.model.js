@@ -173,6 +173,12 @@ module.exports = (sequelize) => {
         defaultValue: "assigned",
       },
 
+      has_generated_selisih: {
+            type: DataTypes.BOOLEAN,
+            defaultValue: false,
+            allowNull: false
+        },
+
       // === TIMESTAMPS ===
       created_at: {
         type: DataTypes.DATE,
