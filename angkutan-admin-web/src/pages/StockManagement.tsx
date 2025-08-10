@@ -141,15 +141,27 @@ const StockManagementPage = () => {
 
   // ✅ ADD FILTER OPTIONS EXTRACTION
   const extractFilterOptions = (items: StockItem[]) => {
-    const categories = Array.from(new Set(
-      items.map(item => item.category?.category_name).filter((name): name is string => Boolean(name))
-    ));
-    const suppliers = Array.from(new Set(
-      items.map(item => item.supplier).filter((supplier): supplier is string => Boolean(supplier))
-    ));
-    const statuses = Array.from(new Set(
-      items.map(item => item.stock_status).filter((status): status is string => Boolean(status))
-    ));
+    const categories = Array.from(
+      new Set(
+        items
+          .map((item) => item.category?.category_name)
+          .filter((name): name is string => Boolean(name))
+      )
+    );
+    const suppliers = Array.from(
+      new Set(
+        items
+          .map((item) => item.supplier)
+          .filter((supplier): supplier is string => Boolean(supplier))
+      )
+    );
+    const statuses = Array.from(
+      new Set(
+        items
+          .map((item) => item.stock_status)
+          .filter((status): status is string => Boolean(status))
+      )
+    );
 
     setFilterOptions({
       categories: categories.sort(),
@@ -165,29 +177,34 @@ const StockManagementPage = () => {
     // Search term filter
     if (filters.searchTerm) {
       const searchLower = filters.searchTerm.toLowerCase();
-      filtered = filtered.filter(item =>
-        item.item_name.toLowerCase().includes(searchLower) ||
-        item.item_code?.toLowerCase().includes(searchLower) ||
-        item.supplier?.toLowerCase().includes(searchLower) ||
-        item.category?.category_name?.toLowerCase().includes(searchLower)
+      filtered = filtered.filter(
+        (item) =>
+          item.item_name.toLowerCase().includes(searchLower) ||
+          item.item_code?.toLowerCase().includes(searchLower) ||
+          item.supplier?.toLowerCase().includes(searchLower) ||
+          item.category?.category_name?.toLowerCase().includes(searchLower)
       );
     }
 
     // Category filter
     if (filters.categoryFilter) {
-      filtered = filtered.filter(item => 
-        item.category?.category_name === filters.categoryFilter
+      filtered = filtered.filter(
+        (item) => item.category?.category_name === filters.categoryFilter
       );
     }
 
     // Supplier filter
     if (filters.supplierFilter) {
-      filtered = filtered.filter(item => item.supplier === filters.supplierFilter);
+      filtered = filtered.filter(
+        (item) => item.supplier === filters.supplierFilter
+      );
     }
 
     // Status filter
     if (filters.statusFilter) {
-      filtered = filtered.filter(item => item.stock_status === filters.statusFilter);
+      filtered = filtered.filter(
+        (item) => item.stock_status === filters.statusFilter
+      );
     }
 
     setFilteredItems(filtered);
@@ -199,10 +216,13 @@ const StockManagementPage = () => {
   }, [stockItems, filters, applyFilters]);
 
   // ✅ ADD FILTER HANDLERS
-  const handleFilterChange = (filterType: keyof SearchFilters, value: string) => {
-    setFilters(prev => ({
+  const handleFilterChange = (
+    filterType: keyof SearchFilters,
+    value: string
+  ) => {
+    setFilters((prev) => ({
       ...prev,
-      [filterType]: value
+      [filterType]: value,
     }));
   };
 
@@ -228,14 +248,20 @@ const StockManagementPage = () => {
   };
 
   const handleDelete = async (itemId: number) => {
-    if (window.confirm("Anda yakin ingin menghapus item ini? Semua batch terkait akan ikut terhapus.")) {
+    if (
+      window.confirm(
+        "Anda yakin ingin menghapus item ini? Semua batch terkait akan ikut terhapus."
+      )
+    ) {
       try {
         await apiClient.delete(`/stock/${itemId}`);
         alert("Item berhasil dihapus");
         fetchStockItems(currentPage);
       } catch (err: any) {
         console.error("Delete error:", err);
-        alert(`Gagal menghapus item: ${err.response?.data?.message || err.message}`);
+        alert(
+          `Gagal menghapus item: ${err.response?.data?.message || err.message}`
+        );
       }
     }
   };
@@ -252,7 +278,11 @@ const StockManagementPage = () => {
       out_of_stock: "Habis",
     };
     return (
-      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${classes[status as keyof typeof classes]}`}>
+      <span
+        className={`px-2 py-1 text-xs font-semibold rounded-full ${
+          classes[status as keyof typeof classes]
+        }`}
+      >
         {labels[status as keyof typeof labels]}
       </span>
     );
@@ -262,8 +292,12 @@ const StockManagementPage = () => {
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-800">Manajemen Stok FIFO</h1>
-          <p className="text-gray-600 mt-1">Sistem First In, First Out untuk pelacakan batch</p>
+          <h1 className="text-3xl font-bold text-gray-800">
+            Manajemen Stok FIFO
+          </h1>
+          <p className="text-gray-600 mt-1">
+            Sistem First In, First Out untuk pelacakan batch
+          </p>
         </div>
         <Link to="/stock/create">
           <button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded shadow">
@@ -275,7 +309,9 @@ const StockManagementPage = () => {
       {/* ✅ ENHANCED SEARCH AND FILTER SECTION */}
       <div className="bg-white p-6 rounded-lg shadow-sm mb-6">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold text-gray-800">Filter & Pencarian</h2>
+          <h2 className="text-lg font-semibold text-gray-800">
+            Filter & Pencarian
+          </h2>
           <button
             onClick={clearFilters}
             className="text-blue-600 hover:text-blue-800 text-sm font-medium"
@@ -283,7 +319,7 @@ const StockManagementPage = () => {
             Hapus Semua Filter
           </button>
         </div>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           {/* Search Term */}
           <div>
@@ -293,7 +329,7 @@ const StockManagementPage = () => {
             <input
               type="text"
               value={filters.searchTerm}
-              onChange={(e) => handleFilterChange('searchTerm', e.target.value)}
+              onChange={(e) => handleFilterChange("searchTerm", e.target.value)}
               placeholder="Nama, kode, supplier..."
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
             />
@@ -306,11 +342,13 @@ const StockManagementPage = () => {
             </label>
             <select
               value={filters.categoryFilter}
-              onChange={(e) => handleFilterChange('categoryFilter', e.target.value)}
+              onChange={(e) =>
+                handleFilterChange("categoryFilter", e.target.value)
+              }
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
             >
               <option value="">Semua Kategori</option>
-              {filterOptions.categories.map(category => (
+              {filterOptions.categories.map((category) => (
                 <option key={category} value={category}>
                   {category}
                 </option>
@@ -325,11 +363,13 @@ const StockManagementPage = () => {
             </label>
             <select
               value={filters.supplierFilter}
-              onChange={(e) => handleFilterChange('supplierFilter', e.target.value)}
+              onChange={(e) =>
+                handleFilterChange("supplierFilter", e.target.value)
+              }
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
             >
               <option value="">Semua Supplier</option>
-              {filterOptions.suppliers.map(supplier => (
+              {filterOptions.suppliers.map((supplier) => (
                 <option key={supplier} value={supplier}>
                   {supplier}
                 </option>
@@ -344,13 +384,19 @@ const StockManagementPage = () => {
             </label>
             <select
               value={filters.statusFilter}
-              onChange={(e) => handleFilterChange('statusFilter', e.target.value)}
+              onChange={(e) =>
+                handleFilterChange("statusFilter", e.target.value)
+              }
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
             >
               <option value="">Semua Status</option>
-              {filterOptions.statuses.map(status => (
+              {filterOptions.statuses.map((status) => (
                 <option key={status} value={status}>
-                  {status === 'adequate' ? 'Cukup' : status === 'low_stock' ? 'Stok Rendah' : 'Habis'}
+                  {status === "adequate"
+                    ? "Cukup"
+                    : status === "low_stock"
+                    ? "Stok Rendah"
+                    : "Habis"}
                 </option>
               ))}
             </select>
@@ -364,7 +410,7 @@ const StockManagementPage = () => {
             <input
               type="date"
               value={filters.startDate}
-              onChange={(e) => handleFilterChange('startDate', e.target.value)}
+              onChange={(e) => handleFilterChange("startDate", e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
             />
           </div>
@@ -376,7 +422,7 @@ const StockManagementPage = () => {
             <input
               type="date"
               value={filters.endDate}
-              onChange={(e) => handleFilterChange('endDate', e.target.value)}
+              onChange={(e) => handleFilterChange("endDate", e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
             />
           </div>
@@ -384,7 +430,7 @@ const StockManagementPage = () => {
 
         {/* ✅ ADD RESULT COUNT */}
         <div className="mt-4 text-sm text-gray-600">
-          Menampilkan {filteredItems.length} dari {stockItems.length} item
+          Menampilkan {filteredItems.length} dari {totalItems} item
         </div>
       </div>
 
@@ -399,10 +445,16 @@ const StockManagementPage = () => {
               <th scope="col" className="px-6 py-3 border border-gray-300">
                 Supplier
               </th>
-              <th scope="col" className="px-6 py-3 border border-gray-300 text-center">
+              <th
+                scope="col"
+                className="px-6 py-3 border border-gray-300 text-center"
+              >
                 Stok Saat Ini
               </th>
-              <th scope="col" className="px-6 py-3 border border-gray-300 text-center">
+              <th
+                scope="col"
+                className="px-6 py-3 border border-gray-300 text-center"
+              >
                 Stok Min.
               </th>
               <th scope="col" className="px-6 py-3 border border-gray-300">
@@ -411,10 +463,16 @@ const StockManagementPage = () => {
               <th scope="col" className="px-6 py-3 border border-gray-300">
                 Total Nilai
               </th>
-              <th scope="col" className="px-6 py-3 border border-gray-300 text-center">
+              <th
+                scope="col"
+                className="px-6 py-3 border border-gray-300 text-center"
+              >
                 Status
               </th>
-              <th scope="col" className="px-6 py-3 border border-gray-300 text-center">
+              <th
+                scope="col"
+                className="px-6 py-3 border border-gray-300 text-center"
+              >
                 Aksi
               </th>
             </tr>
@@ -435,12 +493,17 @@ const StockManagementPage = () => {
             ) : filteredItems.length === 0 ? (
               <tr>
                 <td colSpan={8} className="text-center p-8 text-gray-500">
-                  {stockItems.length === 0 ? 'Tidak ada data stok' : 'Tidak ada item yang sesuai dengan filter'}
+                  {stockItems.length === 0
+                    ? "Tidak ada data stok"
+                    : "Tidak ada item yang sesuai dengan filter"}
                 </td>
               </tr>
             ) : (
               filteredItems.map((item, index) => (
-                <tr key={item.id} className={index % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                <tr
+                  key={item.id}
+                  className={index % 2 === 0 ? "bg-white" : "bg-gray-50"}
+                >
                   <td className="px-6 py-4 border border-gray-300 font-medium text-gray-900">
                     <div>
                       <div className="font-semibold">{item.item_name}</div>
@@ -458,13 +521,15 @@ const StockManagementPage = () => {
                     {item.supplier || "-"}
                   </td>
                   <td className="px-6 py-4 border border-gray-300 text-center">
-                    <span className={`font-semibold ${
-                      item.current_stock <= 0
-                        ? "text-red-600"
-                        : item.is_low_stock
-                        ? "text-yellow-600"
-                        : "text-green-600"
-                    }`}>
+                    <span
+                      className={`font-semibold ${
+                        item.current_stock <= 0
+                          ? "text-red-600"
+                          : item.is_low_stock
+                          ? "text-yellow-600"
+                          : "text-green-600"
+                      }`}
+                    >
                       {item.current_stock} {item.unit}
                     </span>
                   </td>
@@ -472,12 +537,16 @@ const StockManagementPage = () => {
                     {item.min_stock} {item.unit}
                   </td>
                   <td className="px-6 py-4 border border-gray-300">
-                    Rp {Number(item.average_unit_price || 0).toLocaleString("id-ID")}
+                    Rp{" "}
+                    {Number(item.average_unit_price || 0).toLocaleString(
+                      "id-ID"
+                    )}
                   </td>
                   <td className="px-6 py-4 border border-gray-300">
                     <div>
                       <div className="font-semibold">
-                        Rp {Number(item.total_value || 0).toLocaleString("id-ID")}
+                        Rp{" "}
+                        {Number(item.total_value || 0).toLocaleString("id-ID")}
                       </div>
                       {item.batch_count && (
                         <div className="text-xs text-gray-500">
@@ -528,7 +597,8 @@ const StockManagementPage = () => {
           Total <span className="font-semibold">{totalItems}</span> item
           {filteredItems.filter((item) => item.is_low_stock).length > 0 && (
             <span className="ml-4 text-yellow-600">
-              • {filteredItems.filter((item) => item.is_low_stock).length} stok rendah
+              • {filteredItems.filter((item) => item.is_low_stock).length} stok
+              rendah
             </span>
           )}
         </span>

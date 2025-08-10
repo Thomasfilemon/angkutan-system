@@ -54,7 +54,7 @@ const calculateCurrentStock = async (itemId) => {
   return { totalQuantity, totalValue, averagePrice };
 };
 
-// Get all stock items with calculated current stock
+// Get all stock items with calculated current stock (fixed version)
 const getAllStockItems = async (req, res, next) => {
   try {
     const {
@@ -82,65 +82,146 @@ const getAllStockItems = async (req, res, next) => {
       };
     }
 
-    const result = await StockItem.findAndCountAll({
+    // Step 1: Get accurate total count without includes to avoid join fuckery
+    const totalItemsBase = await StockItem.count({
       where: whereClause,
-      include: [
-        { model: StockCategory, as: "category", required: false },
-        {
-          model: StockBatch,
-          as: "batches",
-          attributes: [
-            "id",
-            "batch_number",
-            "quantity",
-            "unit_price",
-            "purchase_date",
-          ],
-          required: false,
-        },
-      ],
-      order: [["created_at", "DESC"]],
-      limit: parseInt(limit),
-      offset: offset,
+      distinct: true,
+      col: "id",
     });
 
-    const enhancedItems = await Promise.all(
-      result.rows.map(async (item) => {
-        const itemData = item.toJSON();
-        itemData.batches = (itemData.batches || []).filter(
-          (batch) => batch.quantity > 0
-        );
-        const { totalQuantity, totalValue, averagePrice } =
-          await calculateCurrentStock(item.id);
+    let totalItems = totalItemsBase;
+    let filteredItems;
 
-        return {
-          ...itemData,
-          current_stock: totalQuantity,
-          total_value: totalValue,
-          average_unit_price: averagePrice,
-          is_low_stock: totalQuantity <= parseFloat(item.min_stock),
-          stock_status:
-            totalQuantity <= 0
-              ? "out_of_stock"
-              : totalQuantity <= parseFloat(item.min_stock)
-              ? "low_stock"
-              : "adequate",
-        };
-      })
-    );
+    if (low_stock === "true") {
+      // For low_stock, compute global total: fetch all candidate items (no limit/offset)
+      const allCandidates = await StockItem.findAll({
+        where: whereClause,
+        order: [["created_at", "DESC"]],
+        // No includes here yet to keep it fast; we'll enrich below
+      });
 
-    const filteredItems =
-      low_stock === "true"
-        ? enhancedItems.filter((item) => item.is_low_stock)
-        : enhancedItems;
+      // Enrich all candidates to compute is_low_stock
+      const enhancedAll = await Promise.all(
+        allCandidates.map(async (item) => {
+          const { totalQuantity } = await calculateCurrentStock(item.id);
+          return {
+            id: item.id,
+            is_low_stock: totalQuantity <= parseFloat(item.min_stock),
+          };
+        })
+      );
+
+      // Global low_stock IDs
+      const lowStockIds = enhancedAll
+        .filter((item) => item.is_low_stock)
+        .map((item) => item.id);
+
+      totalItems = lowStockIds.length;
+
+      // Now fetch only the paginated low_stock items with full details
+      const paginatedItems = await StockItem.findAll({
+        where: { id: { [Op.in]: lowStockIds } },
+        include: [
+          { model: StockCategory, as: "category", required: false },
+          {
+            model: StockBatch,
+            as: "batches",
+            attributes: [
+              "id",
+              "batch_number",
+              "quantity",
+              "unit_price",
+              "purchase_date",
+            ],
+            required: false,
+          },
+        ],
+        order: [["created_at", "DESC"]],
+        limit: parseInt(limit),
+        offset: offset,
+      });
+
+      // Enrich the paginated ones fully
+      filteredItems = await Promise.all(
+        paginatedItems.map(async (item) => {
+          const itemData = item.toJSON();
+          itemData.batches = (itemData.batches || []).filter(
+            (batch) => batch.quantity > 0
+          );
+          const { totalQuantity, totalValue, averagePrice } =
+            await calculateCurrentStock(item.id);
+
+          return {
+            ...itemData,
+            current_stock: totalQuantity,
+            total_value: totalValue,
+            average_unit_price: averagePrice,
+            is_low_stock: totalQuantity <= parseFloat(item.min_stock),
+            stock_status:
+              totalQuantity <= 0
+                ? "out_of_stock"
+                : totalQuantity <= parseFloat(item.min_stock)
+                ? "low_stock"
+                : "adequate",
+          };
+        })
+      );
+    } else {
+      // Normal case: fetch paginated with includes
+      const paginatedItems = await StockItem.findAll({
+        where: whereClause,
+        include: [
+          { model: StockCategory, as: "category", required: false },
+          {
+            model: StockBatch,
+            as: "batches",
+            attributes: [
+              "id",
+              "batch_number",
+              "quantity",
+              "unit_price",
+              "purchase_date",
+            ],
+            required: false,
+          },
+        ],
+        order: [["created_at", "DESC"]],
+        limit: parseInt(limit),
+        offset: offset,
+      });
+
+      // Enrich
+      filteredItems = await Promise.all(
+        paginatedItems.map(async (item) => {
+          const itemData = item.toJSON();
+          itemData.batches = (itemData.batches || []).filter(
+            (batch) => batch.quantity > 0
+          );
+          const { totalQuantity, totalValue, averagePrice } =
+            await calculateCurrentStock(item.id);
+
+          return {
+            ...itemData,
+            current_stock: totalQuantity,
+            total_value: totalValue,
+            average_unit_price: averagePrice,
+            is_low_stock: totalQuantity <= parseFloat(item.min_stock),
+            stock_status:
+              totalQuantity <= 0
+                ? "out_of_stock"
+                : totalQuantity <= parseFloat(item.min_stock)
+                ? "low_stock"
+                : "adequate",
+          };
+        })
+      );
+    }
 
     res.json({
       data: filteredItems,
       pagination: {
-        totalItems: low_stock === "true" ? filteredItems.length : result.count,
-        totalPages: Math.ceil(
-          (low_stock === "true" ? filteredItems.length : result.count) / limit
-        ),
+        totalItems,
+        totalPages: Math.ceil(totalItems / limit),
         currentPage: parseInt(page),
       },
     });
@@ -151,10 +232,9 @@ const getAllStockItems = async (req, res, next) => {
 };
 
 // Create new stock item with initial batch
-// Create new stock item with initial batch - FIXED
 const createStockItem = async (req, res, next) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const {
       category_id,
@@ -168,15 +248,18 @@ const createStockItem = async (req, res, next) => {
       notes,
     } = req.body;
 
-    const stockItem = await StockItem.create({
-      category_id: category_id || null,
-      item_code,
-      item_name,
-      supplier,
-      unit: unit || "Pcs",
-      min_stock: parseFloat(min_stock) || 0,
-      notes,
-    }, { transaction });
+    const stockItem = await StockItem.create(
+      {
+        category_id: category_id || null,
+        item_code,
+        item_name,
+        supplier,
+        unit: unit || "Pcs",
+        min_stock: parseFloat(min_stock) || 0,
+        notes,
+      },
+      { transaction }
+    );
 
     if (initial_stock && parseFloat(initial_stock) > 0) {
       const batchNumber = await generateBatchNumber(stockItem.id, item_code);
@@ -184,32 +267,41 @@ const createStockItem = async (req, res, next) => {
       const price = parseFloat(unit_price) || 0;
 
       // ✅ FIXED: Create batch and capture reference
-      const initialBatch = await StockBatch.create({
-        item_id: stockItem.id,
-        batch_number: batchNumber,
-        quantity: quantity,
-        original_quantity: quantity,
-        unit_price: price,
-        supplier,
-        notes: "Initial stock batch",
-      }, { transaction });
+      const initialBatch = await StockBatch.create(
+        {
+          item_id: stockItem.id,
+          batch_number: batchNumber,
+          quantity: quantity,
+          original_quantity: quantity,
+          unit_price: price,
+          supplier,
+          notes: "Initial stock batch",
+        },
+        { transaction }
+      );
 
       // ✅ FIXED: Record transaction with proper batch_id
-      await StockTransaction.create({
-        item_id: stockItem.id,
-        batch_id: initialBatch.id, // ← This was missing!
-        transaction_type: "in",
-        quantity: quantity,
-        unit_price: price,
-        total_amount: quantity * price,
-        reference_type: "initial_stock",
-        notes: `Initial stock creation (Batch: ${batchNumber})`,
-      }, { transaction });
+      await StockTransaction.create(
+        {
+          item_id: stockItem.id,
+          batch_id: initialBatch.id, // ← This was missing!
+          transaction_type: "in",
+          quantity: quantity,
+          unit_price: price,
+          total_amount: quantity * price,
+          reference_type: "initial_stock",
+          notes: `Initial stock creation (Batch: ${batchNumber})`,
+        },
+        { transaction }
+      );
 
-      await stockItem.update({
-        average_unit_price: price,
-        total_value: quantity * price,
-      }, { transaction });
+      await stockItem.update(
+        {
+          average_unit_price: price,
+          total_value: quantity * price,
+        },
+        { transaction }
+      );
     }
 
     await transaction.commit();
@@ -219,14 +311,12 @@ const createStockItem = async (req, res, next) => {
       message: "Stock item created successfully",
       data: stockItem,
     });
-
   } catch (err) {
     await transaction.rollback();
     console.error("Error in createStockItem:", err);
     next(err);
   }
 };
-
 
 // Get stock item by ID
 const getStockItemById = async (req, res, next) => {
@@ -307,7 +397,7 @@ const updateStockItem = async (req, res, next) => {
 // FIFO Stock Adjustment (FIXED with proper batch_id recording)
 const adjustStock = async (req, res, next) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const {
       itemId,
@@ -364,50 +454,65 @@ const adjustStock = async (req, res, next) => {
         );
 
         // ✅ FIXED: Create new batch and capture the batch reference
-        const newBatch = await StockBatch.create({
-          item_id: itemId,
-          batch_number: batchNumber,
-          quantity: adjustmentQuantity,
-          original_quantity: adjustmentQuantity,
-          unit_price: price,
-          supplier,
-          notes,
-        }, { transaction });
+        const newBatch = await StockBatch.create(
+          {
+            item_id: itemId,
+            batch_number: batchNumber,
+            quantity: adjustmentQuantity,
+            original_quantity: adjustmentQuantity,
+            unit_price: price,
+            supplier,
+            notes,
+          },
+          { transaction }
+        );
 
         // ✅ FIXED: Record transaction with proper batch_id
-        await StockTransaction.create({
-          item_id: itemId,
-          batch_id: newBatch.id, // ← This was missing!
-          transaction_type: "in",
-          quantity: adjustmentQuantity,
-          unit_price: price,
-          total_amount: adjustmentQuantity * price,
-          reference_type: "adjustment",
-          notes: notes || `Stock adjustment - increase (New batch: ${batchNumber})`,
-        }, { transaction });
-
-      } else {
-        // ✅ FIXED: Adding to existing batch
-        if (targetBatch) {
-          await targetBatch.update({
-            quantity: parseFloat(targetBatch.quantity) + adjustmentQuantity,
-            original_quantity: parseFloat(targetBatch.original_quantity) + adjustmentQuantity,
-          }, { transaction });
-
-          // ✅ FIXED: Record transaction with proper batch_id
-          await StockTransaction.create({
+        await StockTransaction.create(
+          {
             item_id: itemId,
-            batch_id: targetBatch.id, // ← This was missing!
+            batch_id: newBatch.id, // ← This was missing!
             transaction_type: "in",
             quantity: adjustmentQuantity,
             unit_price: price,
             total_amount: adjustmentQuantity * price,
             reference_type: "adjustment",
-            notes: notes || `Stock adjustment - increase (Added to batch: ${targetBatch.batch_number})`,
-          }, { transaction });
+            notes:
+              notes ||
+              `Stock adjustment - increase (New batch: ${batchNumber})`,
+          },
+          { transaction }
+        );
+      } else {
+        // ✅ FIXED: Adding to existing batch
+        if (targetBatch) {
+          await targetBatch.update(
+            {
+              quantity: parseFloat(targetBatch.quantity) + adjustmentQuantity,
+              original_quantity:
+                parseFloat(targetBatch.original_quantity) + adjustmentQuantity,
+            },
+            { transaction }
+          );
+
+          // ✅ FIXED: Record transaction with proper batch_id
+          await StockTransaction.create(
+            {
+              item_id: itemId,
+              batch_id: targetBatch.id, // ← This was missing!
+              transaction_type: "in",
+              quantity: adjustmentQuantity,
+              unit_price: price,
+              total_amount: adjustmentQuantity * price,
+              reference_type: "adjustment",
+              notes:
+                notes ||
+                `Stock adjustment - increase (Added to batch: ${targetBatch.batch_number})`,
+            },
+            { transaction }
+          );
         }
       }
-
     } else if (adjustmentType === "deduct") {
       let remainingToDeduct = adjustmentQuantity;
 
@@ -442,32 +547,44 @@ const adjustStock = async (req, res, next) => {
         const batchQuantity = parseFloat(batch.quantity);
         const deductFromBatch = Math.min(remainingToDeduct, batchQuantity);
 
-        await batch.update({
-          quantity: batchQuantity - deductFromBatch,
-        }, { transaction });
+        await batch.update(
+          {
+            quantity: batchQuantity - deductFromBatch,
+          },
+          { transaction }
+        );
 
-        await StockTransaction.create({
-          item_id: itemId,
-          batch_id: batch.id, // This was already correctly set
-          transaction_type: "out",
-          quantity: deductFromBatch,
-          unit_price: batch.unit_price,
-          total_amount: deductFromBatch * batch.unit_price,
-          reference_type: "adjustment",
-          notes: notes || `Stock adjustment - decrease from batch ${batch.batch_number}`,
-        }, { transaction });
+        await StockTransaction.create(
+          {
+            item_id: itemId,
+            batch_id: batch.id, // This was already correctly set
+            transaction_type: "out",
+            quantity: deductFromBatch,
+            unit_price: batch.unit_price,
+            total_amount: deductFromBatch * batch.unit_price,
+            reference_type: "adjustment",
+            notes:
+              notes ||
+              `Stock adjustment - decrease from batch ${batch.batch_number}`,
+          },
+          { transaction }
+        );
 
         remainingToDeduct -= deductFromBatch;
       }
     }
 
     // Update stock item averages
-    const { totalQuantity, totalValue, averagePrice } = await calculateCurrentStock(itemId);
-    await stockItem.update({
-      average_unit_price: averagePrice,
-      total_value: totalValue,
-      updated_at: new Date(),
-    }, { transaction });
+    const { totalQuantity, totalValue, averagePrice } =
+      await calculateCurrentStock(itemId);
+    await stockItem.update(
+      {
+        average_unit_price: averagePrice,
+        total_value: totalValue,
+        updated_at: new Date(),
+      },
+      { transaction }
+    );
 
     await transaction.commit();
 
@@ -481,14 +598,12 @@ const adjustStock = async (req, res, next) => {
         new_total_stock: totalQuantity,
       },
     });
-
   } catch (err) {
     await transaction.rollback();
     console.error("Error in adjustStock:", err);
     next(err);
   }
 };
-
 
 // Get stock item batches
 const getStockBatches = async (req, res, next) => {
@@ -499,14 +614,14 @@ const getStockBatches = async (req, res, next) => {
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({
         success: false,
-        message: "Invalid stock item ID"
+        message: "Invalid stock item ID",
       });
     }
 
     let whereClause = { item_id: parseInt(id) };
-    
+
     // By default, only show batches with remaining stock
-    if (includeEmpty !== 'true') {
+    if (includeEmpty !== "true") {
       whereClause.quantity = { [Op.gt]: 0 };
     }
 
@@ -514,35 +629,39 @@ const getStockBatches = async (req, res, next) => {
       where: whereClause,
       order: [
         ["purchase_date", "ASC"],
-        ["created_at", "ASC"]
-      ]
+        ["created_at", "ASC"],
+      ],
     });
 
     // Enhance batch data with calculated fields
-    const enhancedBatches = batches.map(batch => {
+    const enhancedBatches = batches.map((batch) => {
       const usedQuantity = batch.original_quantity - batch.quantity;
       const usagePercentage = (usedQuantity / batch.original_quantity) * 100;
-      
+
       return {
         ...batch.toJSON(),
         used_quantity: usedQuantity,
         remaining_percentage: (100 - usagePercentage).toFixed(2),
         current_value: batch.quantity * batch.unit_price,
-        status: batch.quantity === 0 ? 'exhausted' : 
-                batch.quantity === batch.original_quantity ? 'unused' : 'partial'
+        status:
+          batch.quantity === 0
+            ? "exhausted"
+            : batch.quantity === batch.original_quantity
+            ? "unused"
+            : "partial",
       };
     });
 
     res.json({
       success: true,
-      data: enhancedBatches
+      data: enhancedBatches,
     });
   } catch (err) {
     console.error("Error in getStockBatches:", err);
     res.status(500).json({
       success: false,
       message: "Internal server error",
-      error: err.message
+      error: err.message,
     });
   }
 };
@@ -622,7 +741,14 @@ const getStockCategories = async (req, res, next) => {
 const getStockItemHistory = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { search, page = 1, limit = 10, startDate, endDate, batchId } = req.query;
+    const {
+      search,
+      page = 1,
+      limit = 10,
+      startDate,
+      endDate,
+      batchId,
+    } = req.query;
     const offset = (page - 1) * limit;
 
     let whereClause = { item_id: id };
@@ -637,7 +763,7 @@ const getStockItemHistory = async (req, res, next) => {
 
     if (startDate && endDate) {
       whereClause.transaction_date = {
-        [Op.between]: [new Date(startDate), new Date(endDate)]
+        [Op.between]: [new Date(startDate), new Date(endDate)],
       };
     }
 
@@ -647,16 +773,21 @@ const getStockItemHistory = async (req, res, next) => {
         {
           model: StockBatch,
           as: "batch",
-          attributes: ["batch_number", "unit_price", "supplier", "purchase_date"],
-          required: false
-        }
+          attributes: [
+            "batch_number",
+            "unit_price",
+            "supplier",
+            "purchase_date",
+          ],
+          required: false,
+        },
       ],
       order: [
         ["transaction_date", "DESC"],
-        ["created_at", "DESC"]
+        ["created_at", "DESC"],
       ],
       limit: parseInt(limit),
-      offset: offset
+      offset: offset,
     });
 
     // ✅ FIXED: Use correct association alias
@@ -666,10 +797,10 @@ const getStockItemHistory = async (req, res, next) => {
         include: [
           {
             model: StockItem,
-            as: 'stockItem', // ✅ Use the correct alias defined in your association
-            attributes: ['item_name', 'item_code', 'unit']
-          }
-        ]
+            as: "stockItem", // ✅ Use the correct alias defined in your association
+            attributes: ["item_name", "item_code", "unit"],
+          },
+        ],
       });
     }
 
@@ -680,15 +811,14 @@ const getStockItemHistory = async (req, res, next) => {
       pagination: {
         totalItems: result.count,
         totalPages: Math.ceil(result.count / limit),
-        currentPage: parseInt(page)
-      }
+        currentPage: parseInt(page),
+      },
     });
   } catch (err) {
     console.error("Error in getStockItemHistory:", err);
     next(err);
   }
 };
-
 
 const getStockBatchHistory = async (req, res, next) => {
   try {
@@ -701,25 +831,28 @@ const getStockBatchHistory = async (req, res, next) => {
       include: [
         {
           model: StockItem,
-          as: 'item',
-          attributes: ['item_name', 'item_code', 'unit']
-        }
-      ]
+          as: "item",
+          attributes: ["item_name", "item_code", "unit"],
+        },
+      ],
     });
 
     if (!batchInfo) {
       return res.status(404).json({
         success: false,
-        message: 'Batch not found'
+        message: "Batch not found",
       });
     }
 
     // Get all transactions related to this batch
     const transactions = await StockTransaction.findAndCountAll({
       where: { batch_id: batchId },
-      order: [['transaction_date', 'DESC'], ['created_at', 'DESC']],
+      order: [
+        ["transaction_date", "DESC"],
+        ["created_at", "DESC"],
+      ],
       limit: parseInt(limit),
-      offset: offset
+      offset: offset,
     });
 
     // Calculate batch lifecycle metrics
@@ -733,7 +866,7 @@ const getStockBatchHistory = async (req, res, next) => {
           ...batchInfo.toJSON(),
           used_quantity: usedQuantity,
           usage_percentage: usagePercentage.toFixed(2),
-          remaining_percentage: (100 - usagePercentage).toFixed(2)
+          remaining_percentage: (100 - usagePercentage).toFixed(2),
         },
         transactions: transactions.rows,
         lifecycle: {
@@ -742,17 +875,17 @@ const getStockBatchHistory = async (req, res, next) => {
           used_quantity: usedQuantity,
           total_transactions: transactions.count,
           current_value: batchInfo.quantity * batchInfo.unit_price,
-          total_value_used: usedQuantity * batchInfo.unit_price
-        }
+          total_value_used: usedQuantity * batchInfo.unit_price,
+        },
       },
       pagination: {
         totalItems: transactions.count,
         totalPages: Math.ceil(transactions.count / limit),
         currentPage: parseInt(page),
-      }
+      },
     });
   } catch (err) {
-    console.error('Error in getStockBatchHistory:', err);
+    console.error("Error in getStockBatchHistory:", err);
     next(err);
   }
 };

@@ -459,6 +459,7 @@ INSERT INTO delivery_orders (
   185000, -- Rp 185,000 per m³
   10406250, -- 56.25 m³ × Rp 185,000/m³ = Rp 10,406,250
   'lunas',
+  
   '2025-07-10',
   'Quarry Sukabumi, Jawa Barat',
   -6.9175, 
