@@ -29,6 +29,10 @@ ios/Pods/
 *.p8
 *.jks
 *.pem
+*.zip
+"System Angkutan Ewaldo"/
+/"System Angkutan Ewaldo"
+System Angkutan Ewaldo/
 
 # Build output
 dist/
