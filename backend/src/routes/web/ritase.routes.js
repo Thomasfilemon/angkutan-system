@@ -125,5 +125,9 @@ router.get(
   checkRole(["admin", "owner"]),
   ritaseAnalyticsController.getPOComprehensiveData
 );
+// Add this new route for the profitability report
+router.get('/analytics/profitability', 
+  checkRole(["admin", "owner"]), 
+  ritaseAnalyticsController.getProfitabilityReport);
 
 module.exports = router;

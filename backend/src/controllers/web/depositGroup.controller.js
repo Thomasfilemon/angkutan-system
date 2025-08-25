@@ -1,4 +1,4 @@
-const { DepositGroup, DepositGroupMember, DeliveryOrder, DeliveryOrderPayments, DeliveryOrderAdjustments, PurchaseOrder, sequelize } = require("../../models");
+const { DepositGroup, DepositGroupMember, DeliveryOrder, DeliveryOrderPayments, DeliveryOrderAdjustments, PurchaseOrder, sequelize, CashTransaction } = require("../../models");
 const { Op, fn, col } = require("sequelize");
 
 // Helper function to get paid amount for a DO
@@ -293,42 +293,57 @@ module.exports = {
 
   // Get group details with DO information
 async getGroupDetails(req, res) {
-    const { id } = req.params;
-    try {
-      const group = await DepositGroup.findByPk(id, {
-        include: [
-          {
-            model: DepositGroupMember,
-            as: "members",
-            include: [{
-              model: DeliveryOrder,
-              as: "deliveryOrder",
-              attributes: [
-                "id", "do_number", "customer_name", "payment_status",
-                "unit_price", "minimal_load_quantity", "actual_load_quantity"
-              ],
-            }],
-            attributes: ["id", "delivery_order_id", "quantity"]
-          },
-          {
-            model: PurchaseOrder,
-            as: "purchaseOrders",
-            attributes: ["id", "po_number", "customer_name", "status"],
-          }
-        ]
-      });
+  const { id } = req.params;
+  try {
+    const group = await DepositGroup.findByPk(id, {
+      include: [
+        {
+          model: DepositGroupMember,
+          as: "members",
+          include: [{
+            model: DeliveryOrder,
+            as: "deliveryOrder",
+            attributes: [
+              "id", "do_number", "customer_name", "payment_status",
+              "unit_price", "minimal_load_quantity", "actual_load_quantity",
+              "total_amount", "final_amount" // Ensure final_amount is included
+            ],
+          }],
+          attributes: ["id", "delivery_order_id", "quantity"]
+        },
+        {
+          model: PurchaseOrder,
+          as: "purchaseOrders",
+          attributes: ["id", "po_number", "customer_name", "status"],
+        }
+      ]
+    });
 
-      if (!group) {
-        return res.status(404).json({ error: "Group not found" });
-      }
-      
-      res.json(group);
-
-    } catch (error) {
-      console.error("Error fetching group details:", error);
-      res.status(500).json({ error: "Failed to fetch group details" });
+    if (!group) {
+      return res.status(404).json({ error: "Group not found" });
     }
-  },
+    
+    const plainGroup = group.toJSON();
+
+    if (plainGroup.members && plainGroup.members.length > 0) {
+      plainGroup.members = await Promise.all(
+        plainGroup.members.map(async (member) => {
+          if (member.deliveryOrder) {
+            const paidAmount = await getTotalPaidAmount(member.deliveryOrder.id);
+            member.deliveryOrder.paid_amount = paidAmount;
+          }
+          return member;
+        })
+      );
+    }
+    
+    res.json(plainGroup); // Send the modified object
+
+  } catch (error) {
+    console.error("Error fetching group details:", error);
+    res.status(500).json({ error: "Failed to fetch group details" });
+  }
+},
 
   // Update group details
   async updateGroup(req, res) {
@@ -555,7 +570,7 @@ async updateMemberQuantity(req, res) {
     }
   },
 
-async generateSelisihInvoice(req, res) {
+ async generateSelisihInvoice(req, res) {
     const transaction = await sequelize.transaction();
     try {
       const { id } = req.params;
@@ -568,7 +583,8 @@ async generateSelisihInvoice(req, res) {
             as: "deliveryOrder",
             where: { 
               status: 'completed',
-              actual_load_quantity: { [Op.ne]: null } // Ensure actual quantity is recorded
+              actual_load_quantity: { [Op.ne]: null },
+              has_generated_selisih: false // Only get DOs that haven't been processed for selisih
             },
             required: true
           }]
@@ -578,16 +594,12 @@ async generateSelisihInvoice(req, res) {
 
       if (!group || !group.members || group.members.length === 0) {
         await transaction.rollback();
-        return res.status(404).json({ error: "Group not found or has no completed DOs with actual quantity." });
+        return res.status(404).json({ error: "Group not found or no new completed DOs with selisih to process." });
       }
 
-      if (group.selisih_status !== 'none') {
-        await transaction.rollback();
-        return res.status(400).json({ message: "Tagihan selisih sudah pernah dibuat untuk group ini." });
-      }
-
-      let totalExtraAmount = 0;
-      let selisihReason = "Total selisih kuantitas dari DO berikut:\n";
+      let newSelisihAmount = 0;
+      let newSelisihDetails = "";
+      const processedDoIds = [];
 
       for (const member of group.members) {
         const doItem = member.deliveryOrder;
@@ -597,29 +609,36 @@ async generateSelisihInvoice(req, res) {
 
         if (actualQty > minimalQty) {
           const extraQty = actualQty - minimalQty;
-          totalExtraAmount += extraQty * unitPrice;
-          selisihReason += `- ${doItem.do_number}: Kelebihan ${extraQty.toFixed(2)} ${doItem.unit || 'ton'}\n`;
+          newSelisihAmount += extraQty * unitPrice;
+          newSelisihDetails += `- ${doItem.do_number}: Kelebihan ${extraQty.toFixed(2)} ${doItem.unit || 'ton'}\n`;
+          processedDoIds.push(doItem.id);
         }
       }
 
-      if (totalExtraAmount <= 0) {
+      if (newSelisihAmount <= 0) {
         await transaction.rollback();
-        return res.status(400).json({ message: "Tidak ada selisih kuantitas untuk ditagihkan." });
+        return res.status(400).json({ message: "Tidak ada selisih kuantitas baru untuk ditagihkan." });
       }
 
-      // *** REFACTORED LOGIC: Update the group directly ***
-      group.total_selisih_amount = totalExtraAmount;
-      group.selisih_details = selisihReason;
+      // Update the group with the new selisih
+      group.total_selisih_amount = (parseFloat(group.total_selisih_amount) || 0) + newSelisihAmount;
+      group.selisih_details = (group.selisih_details || "") + newSelisihDetails;
       group.selisih_status = 'pending';
-      group.status = 'pending_selisih'; // Also update the main status
+      group.status = 'pending_selisih';
       await group.save({ transaction });
-      // *** END OF REFACTORED LOGIC ***
+      
+      // Mark the processed DOs so they aren't included next time
+      await DeliveryOrder.update(
+        { has_generated_selisih: true },
+        { where: { id: { [Op.in]: processedDoIds } }, transaction }
+      );
 
       await transaction.commit();
 
       res.json({
         success: true,
-        message: `Tagihan selisih sebesar ${totalExtraAmount.toLocaleString('id-ID', { style: 'currency', currency: 'IDR' })} berhasil dibuat.`,
+        message: `Tagihan selisih sebesar ${newSelisihAmount.toLocaleString('id-ID', { style: 'currency', currency: 'IDR' })} berhasil ditambahkan.`,
+        data: group
       });
 
     } catch (error) {
@@ -629,7 +648,8 @@ async generateSelisihInvoice(req, res) {
     }
   },
 
-async paySelisih(req, res) {
+
+async paySelisih(req, res, next) { // Add next parameter for error handling
     const transaction = await sequelize.transaction();
     try {
       const { id } = req.params;
@@ -654,38 +674,82 @@ async paySelisih(req, res) {
 
       const currentSelisih = parseFloat(group.total_selisih_amount);
       
-      // You can't pay more than what is owed
-      if (amountToPay > currentSelisih) {
+      if (Math.abs(amountToPay - currentSelisih) > 0.01) {
         await transaction.rollback();
-        return res.status(400).json({ message: `Payment amount cannot exceed the outstanding selisih of ${currentSelisih}.`});
+        return res.status(400).json({ message: `Payment must match the exact selisih amount of Rp ${currentSelisih.toLocaleString('id-ID')}.` });
       }
 
-      const newSelisihAmount = currentSelisih - amountToPay;
+      const membersWithSelisih = await DepositGroupMember.findAll({
+          where: { group_id: id },
+          include: [{
+              model: DeliveryOrder,
+              as: 'deliveryOrder',
+              where: {
+                  has_generated_selisih: true,
+                  payment_status: { [Op.ne]: 'lunas' }
+              },
+              required: true
+          }],
+          transaction
+      });
 
-      group.total_selisih_amount = newSelisihAmount;
-      // Add the payment to the group's main balance
-      group.balance = parseFloat(group.balance) + amountToPay;
+      if (membersWithSelisih.length === 0) {
+          await transaction.rollback();
+          return res.status(400).json({ message: "No delivery orders with unpaid selisih found to apply payment to." });
+      }
+      
+      for (const member of membersWithSelisih) {
+          const doItem = member.deliveryOrder;
+          const selisihQty = parseFloat(doItem.actual_load_quantity) - parseFloat(doItem.minimal_load_quantity);
+          const selisihAmount = selisihQty * parseFloat(doItem.unit_price);
 
-      // If the selisih is fully paid, update the status
-      if (newSelisihAmount <= 0) {
-        group.selisih_status = 'paid';
-        // Return the group to 'active' or 'fulfilled' status
-        group.status = group.remaining_quantity <= 0 ? 'fulfilled' : 'active';
+          if (selisihAmount > 0) {
+              await DeliveryOrderPayments.create({
+                  delivery_order_id: doItem.id,
+                  payment_amount: selisihAmount,
+                  payment_type: 'transfer',
+                  payment_date: new Date(),
+                  notes: `Pembayaran Selisih from Deposit Group: ${group.group_name}`,
+                  received_by: req.user?.id,
+                  created_by: req.user?.id,
+              }, { transaction });
+
+              await doItem.update({ payment_status: 'lunas' }, { transaction });
+          }
       }
 
+      group.balance = parseFloat(group.balance) - amountToPay;
+      group.total_selisih_amount = 0;
+      group.selisih_status = 'paid';
+      group.status = group.remaining_quantity <= 0 ? 'fulfilled' : 'active';
       await group.save({ transaction });
+
+      await CashTransaction.create({
+        transaction_type: 'debit',
+        category_id: 2,
+        amount: amountToPay,
+        description: `Pembayaran selisih untuk Deposit Group: ${group.group_name}`,
+        reference_number: `SELISIH-${group.id}-${Date.now()}`,
+        account: 'General',
+        transaction_date: new Date()
+      }, { transaction });
+
+      //. This is the crucial change: Commit is the last step in the try block.
       await transaction.commit();
 
+      //. The response is now sent outside the try block, after a successful commit.
       res.json({
         success: true,
-        message: `Payment of ${amountToPay.toLocaleString('id-ID', { style: 'currency', currency: 'IDR' })} for selisih has been recorded.`,
+        message: `Payment for selisih has been recorded successfully.`,
         data: group
       });
 
     } catch (error) {
+      //. Now, this will only be called if any of the 'await' calls above it fail.
       await transaction.rollback();
       console.error("Error paying selisih:", error);
-      res.status(500).json({ error: "Failed to process selisih payment" });
+      //. Pass the error to the global error handler
+      next(error); 
     }
   },
 

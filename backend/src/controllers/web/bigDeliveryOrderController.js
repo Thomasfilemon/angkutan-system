@@ -12,6 +12,52 @@ const {
 const { Op } = require("sequelize");
 const { Expo } = require("expo-server-sdk");
 
+// Helper: Calculate tambahan total amount with unit awareness
+const calculateTambahanAmount = (quantity, unit, unitPrice) => {
+  const qty = parseFloat(quantity) || 0;
+  const price = parseFloat(unitPrice) || 0;
+
+  switch (unit) {
+    case "kilogram":
+    case "ton":
+    case "kubik":
+      return qty * price;
+    default:
+      return 0;
+  }
+};
+
+// Helper: Calculate proper Big DO financial summary
+const calculateBigDOFinancials = (
+  mainDO,
+  tambahan,
+  totalTripAllowance,
+  totalGaji
+) => {
+  // Revenue: Main DO + all tambahan amounts
+  const mainRevenue = parseFloat(mainDO.total_amount) || 0;
+  const tambahanRevenue = tambahan.reduce((sum, item) => {
+    return (
+      sum + calculateTambahanAmount(item.quantity, item.unit, item.unit_price)
+    );
+  }, 0);
+  const totalRevenue = mainRevenue + tambahanRevenue;
+
+  // Costs: Shared allowance + gaji
+  const totalCosts =
+    (parseFloat(totalTripAllowance) || 0) + (parseFloat(totalGaji) || 0);
+
+  // Profit (ongkosan): Revenue - Costs
+  const totalOngkosan = totalRevenue - totalCosts;
+
+  return {
+    totalRevenue,
+    totalCosts,
+    totalOngkosan,
+    tambahanRevenue,
+  };
+};
+
 /**
  * 🎯 GET ALL BIG DELIVERY ORDERS
  * GET /api/web/big-delivery-orders
@@ -193,216 +239,284 @@ exports.getAvailableDeliveryOrders = async (req, res, next) => {
 };
 
 /**
- * 🎯 CREATE BIG DELIVERY ORDER
+ * 🎯 CREATE BIG DELIVERY ORDER (Fixed Financial Logic)
  * POST /api/web/big-delivery-orders
  */
-exports.createBigDeliveryOrder = async (req, res, next) => {
-  const transaction = await sequelize.transaction();
 
-  try {
-    const {
+// Helper: Extracted single Big DO creation logic (refactored from your single create)
+async function createSingleBigDO(bigDOData, user, transaction) {
+  const {
+    main_delivery_order_id,
+    total_trip_allowance,
+    total_gaji,
+    tambahan = [],
+    notes,
+  } = bigDOData;
+
+  // Validate tambahan array
+  if (!Array.isArray(tambahan) || tambahan.length === 0) {
+    throw new Error("At least one tambahan delivery is required for Big DO");
+  }
+
+  // Validate tambahan items
+  for (const [index, item] of tambahan.entries()) {
+    const requiredFields = [
+      "customer_name",
+      "item_name",
+      "quantity",
+      "unit",
+      "unit_price",
+      "pickup_location",
+      "delivery_location",
+    ];
+    for (const field of requiredFields) {
+      if (!item[field]) {
+        throw new Error(`Tambahan ${index + 1}: ${field} is required`);
+      }
+    }
+
+    // Validate quantity and price
+    const qty = parseFloat(item.quantity);
+    const price = parseFloat(item.unit_price);
+    if (isNaN(qty) || qty <= 0) {
+      throw new Error(`Tambahan ${index + 1}: Invalid quantity`);
+    }
+    if (isNaN(price) || price < 0) {
+      throw new Error(`Tambahan ${index + 1}: Invalid unit price`);
+    }
+  }
+
+  // Validate main DO
+  const mainDO = await DeliveryOrder.findByPk(main_delivery_order_id, {
+    transaction,
+  });
+  if (!mainDO) {
+    throw new Error("Main Delivery Order not found");
+  }
+
+  if (mainDO.status !== "assigned") {
+    throw new Error("Main Delivery Order must be in assigned status");
+  }
+
+  // Check if main DO is already used in another Big DO
+  const existingBigDO = await BigDeliveryOrder.findOne({
+    where: {
       main_delivery_order_id,
-      total_trip_allowance,
-      total_gaji,
-      tambahan = [],
+      status: { [Op.ne]: "cancelled" },
+    },
+    transaction,
+  });
+
+  if (existingBigDO) {
+    throw new Error("This Delivery Order is already used in another Big DO");
+  }
+
+  // Generate Big DO number
+  const bigDoNumber = await BigDeliveryOrder.generateBigDONumber();
+
+  // Calculate proper financials
+  const financials = calculateBigDOFinancials(
+    mainDO,
+    tambahan,
+    total_trip_allowance,
+    total_gaji
+  );
+
+  // Create Big DO with corrected calculations
+  const bigDO = await BigDeliveryOrder.create(
+    {
+      big_do_number: bigDoNumber,
+      main_delivery_order_id,
+      driver_id: mainDO.driver_id,
+      vehicle_id: mainDO.vehicle_id,
+      total_trip_allowance: parseFloat(total_trip_allowance) || 0,
+      total_gaji: parseFloat(total_gaji) || 0, // Just the additional gaji for Big DO
+      total_ongkosan: financials.totalOngkosan, // FIXED: Proper profit calculation
+      status: "assigned",
       notes,
-    } = req.body;
+      created_by: user.id, // Passed from req.user
+    },
+    { transaction }
+  );
 
-    // Validate main DO
-    const mainDO = await DeliveryOrder.findByPk(main_delivery_order_id, {
-      transaction,
-    });
-    if (!mainDO) {
-      await transaction.rollback();
-      return res.status(404).json({
-        success: false,
-        message: "Main Delivery Order not found",
-      });
-    }
+  // Create tambahan deliveries
+  const createdTambahan = [];
+  for (const item of tambahan) {
+    const tambahanNumber = await BigDoTambahan.generateTambahanNumber(bigDO.id);
 
-    if (mainDO.status !== "assigned") {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "Main Delivery Order must be in assigned status",
-      });
-    }
-
-    // Check if main DO is already used in another Big DO
-    const existingBigDO = await BigDeliveryOrder.findOne({
-      where: {
-        main_delivery_order_id,
-        status: { [Op.ne]: "cancelled" },
-      },
-      transaction,
-    });
-
-    if (existingBigDO) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "This Delivery Order is already used in another Big DO",
-      });
-    }
-
-    // Generate Big DO number
-    const bigDoNumber = await BigDeliveryOrder.generateBigDONumber();
-
-    // Calculate tambahan totals
-    let tambahanTotalAmount = 0;
-    for (const item of tambahan) {
-      const itemTotalAmount = calculateTambahanAmount(
-        item.quantity,
-        item.unit,
-        item.unit_price
-      );
-      tambahanTotalAmount += itemTotalAmount;
-    }
-
-    // Create Big DO
-    const bigDO = await BigDeliveryOrder.create(
+    const tambahanItem = await BigDoTambahan.create(
       {
-        big_do_number: bigDoNumber,
-        main_delivery_order_id,
-        driver_id: mainDO.driver_id,
-        vehicle_id: mainDO.vehicle_id,
-        total_trip_allowance: parseFloat(total_trip_allowance) || 0,
-        total_gaji:
-          (parseFloat(mainDO.gaji) || 0) + (parseFloat(total_gaji) || 0),
-        total_ongkosan:
-          (parseFloat(mainDO.ongkosan) || 0) + tambahanTotalAmount,
-        status: "assigned",
-        notes,
-        created_by: req.user.id,
+        big_delivery_order_id: bigDO.id,
+        tambahan_number: tambahanNumber,
+        customer_name: item.customer_name,
+        customer_phone: item.customer_phone,
+        customer_address: item.customer_address,
+        item_name: item.item_name,
+        quantity: parseFloat(item.quantity),
+        unit: item.unit,
+        unit_price: parseFloat(item.unit_price),
+        total_amount: calculateTambahanAmount(
+          item.quantity,
+          item.unit,
+          item.unit_price
+        ),
+        pickup_location: item.pickup_location,
+        pickup_latitude: item.pickup_latitude
+          ? parseFloat(item.pickup_latitude)
+          : null,
+        pickup_longitude: item.pickup_longitude
+          ? parseFloat(item.pickup_longitude)
+          : null,
+        delivery_location: item.delivery_location,
+        delivery_latitude: item.delivery_latitude
+          ? parseFloat(item.delivery_latitude)
+          : null,
+        delivery_longitude: item.delivery_longitude
+          ? parseFloat(item.delivery_longitude)
+          : null,
+        notes: item.notes,
       },
       { transaction }
     );
 
-    // Create tambahan deliveries
-    const createdTambahan = [];
-    for (const item of tambahan) {
-      const tambahanNumber = await BigDoTambahan.generateTambahanNumber(
-        bigDO.id
-      );
+    createdTambahan.push(tambahanItem);
+  }
 
-      const tambahanItem = await BigDoTambahan.create(
+  // Send push notification to driver
+  const driverUser = await User.findOne({
+    where: { id: mainDO.driver_id },
+    attributes: ["username", "expo_push_token"],
+    include: [
+      {
+        model: DriverProfile,
+        as: "driverProfile",
+        attributes: ["full_name"],
+      },
+    ],
+    transaction,
+  });
+
+  if (driverUser && driverUser.expo_push_token) {
+    const expo = new Expo();
+    if (Expo.isExpoPushToken(driverUser.expo_push_token)) {
+      const driverName =
+        driverUser.driverProfile?.full_name || driverUser.username;
+      const messages = [
         {
-          big_delivery_order_id: bigDO.id,
-          tambahan_number: tambahanNumber,
-          customer_name: item.customer_name,
-          customer_phone: item.customer_phone,
-          customer_address: item.customer_address,
-          item_name: item.item_name,
-          quantity: item.quantity,
-          unit: item.unit,
-          unit_price: item.unit_price,
-          total_amount: calculateTambahanAmount(
-            item.quantity,
-            item.unit,
-            item.unit_price
-          ),
-          pickup_location: item.pickup_location,
-          pickup_latitude: item.pickup_latitude,
-          pickup_longitude: item.pickup_longitude,
-          delivery_location: item.delivery_location,
-          delivery_latitude: item.delivery_latitude,
-          delivery_longitude: item.delivery_longitude,
-          notes: item.notes,
-        },
-        { transaction }
-      );
-
-      createdTambahan.push(tambahanItem);
-    }
-
-    // Send push notification to driver
-    const driverUser = await User.findOne({
-      where: { id: mainDO.driver_id },
-      attributes: ["username", "expo_push_token"],
-      include: [
-        {
-          model: DriverProfile,
-          as: "driverProfile",
-          attributes: ["full_name"],
-        },
-      ],
-      transaction,
-    });
-
-    if (driverUser && driverUser.expo_push_token) {
-      const expo = new Expo();
-      if (Expo.isExpoPushToken(driverUser.expo_push_token)) {
-        const driverName =
-          driverUser.driverProfile?.full_name || driverUser.username;
-        const messages = [
-          {
-            to: driverUser.expo_push_token,
-            sound: "default",
-            title: "Big DO Assignment Baru",
-            body: `Halo ${driverName}, Anda telah ditugaskan Big DO ${bigDO.big_do_number} dengan ${createdTambahan.length} tambahan pengiriman. Silakan cek detail di aplikasi.`,
-            data: {
-              big_do_number: bigDO.big_do_number,
-              type: "big_do_assignment",
-            },
+          to: driverUser.expo_push_token,
+          sound: "default",
+          title: "Big DO Assignment Baru",
+          body: `Halo ${driverName}, Anda telah ditugaskan Big DO ${bigDO.big_do_number} dengan ${createdTambahan.length} tambahan pengiriman. Silakan cek detail di aplikasi.`,
+          data: {
+            big_do_number: bigDO.big_do_number,
+            type: "big_do_assignment",
           },
-        ];
+        },
+      ];
 
-        try {
-          await expo.sendPushNotificationsAsync(messages);
-        } catch (pushError) {
-          console.error("Push notification error:", pushError);
-        }
+      try {
+        await expo.sendPushNotificationsAsync(messages);
+      } catch (pushError) {
+        console.error("Push notification error:", pushError);
       }
     }
+  }
 
+  // Fetch complete Big DO data for response (optional, but your code has it)
+  const completeBigDO = await BigDeliveryOrder.findByPk(bigDO.id, {
+    include: [
+      {
+        model: DeliveryOrder,
+        as: "mainDeliveryOrder",
+        include: [
+          {
+            model: PurchaseOrder,
+            as: "purchaseOrder",
+          },
+        ],
+      },
+      {
+        model: User,
+        as: "driver",
+        attributes: ["username"],
+        include: [
+          {
+            model: DriverProfile,
+            as: "driverProfile",
+            attributes: ["full_name"],
+          },
+        ],
+      },
+      {
+        model: Vehicle,
+        as: "vehicle",
+      },
+      {
+        model: BigDoTambahan,
+        as: "tambahan",
+      },
+    ],
+    transaction,
+  });
+
+  return {
+    ...completeBigDO.toJSON(),
+    financial_summary: {
+      main_do_revenue: parseFloat(mainDO.total_amount),
+      tambahan_total_revenue: financials.tambahanRevenue,
+      total_revenue: financials.totalRevenue,
+      total_trip_allowance: parseFloat(total_trip_allowance) || 0,
+      total_gaji: parseFloat(total_gaji) || 0,
+      total_costs: financials.totalCosts,
+      total_ongkosan: financials.totalOngkosan,
+      net_profit: financials.totalOngkosan,
+    },
+    quantity_summary: completeBigDO.getTotalQuantity?.() || null,
+    driver_name: driverUser?.driverProfile?.full_name || driverUser?.username,
+  };
+}
+
+// Your existing single create endpoint, now using the helper
+exports.createBigDeliveryOrder = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const created = await createSingleBigDO(req.body, req.user, transaction);
     await transaction.commit();
-
-    // Fetch complete Big DO data for response
-    const completeBigDO = await BigDeliveryOrder.findByPk(bigDO.id, {
-      include: [
-        {
-          model: DeliveryOrder,
-          as: "mainDeliveryOrder",
-          include: [
-            {
-              model: PurchaseOrder,
-              as: "purchaseOrder",
-            },
-          ],
-        },
-        {
-          model: User,
-          as: "driver",
-          attributes: ["username"],
-          include: [
-            {
-              model: DriverProfile,
-              as: "driverProfile",
-              attributes: ["full_name"],
-            },
-          ],
-        },
-        {
-          model: Vehicle,
-          as: "vehicle",
-        },
-        {
-          model: BigDoTambahan,
-          as: "tambahan",
-        },
-      ],
-    });
-
     res.status(201).json({
       success: true,
-      data: {
-        ...completeBigDO.toJSON(),
-        financial_summary: completeBigDO.getFinancialSummary(),
-        quantity_summary: completeBigDO.getTotalQuantity(),
-        driver_name:
-          driverUser?.driverProfile?.full_name || driverUser?.username,
-      },
-      message: "Big Delivery Order created successfully",
+      data: created,
+      message:
+        "Big Delivery Order created successfully with proper financial calculations",
+    });
+  } catch (err) {
+    await transaction.rollback();
+    next(err);
+  }
+};
+
+// NEW: Batch create endpoint
+// endpoint route: /api/web/big-delivery-orders/batch
+exports.createBigDeliveryOrderBatch = async (req, res, next) => {
+  const { big_delivery_orders = [] } = req.body;
+  if (!Array.isArray(big_delivery_orders) || big_delivery_orders.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: "No Big DOs provided for batch creation",
+    });
+  }
+
+  const transaction = await sequelize.transaction();
+  try {
+    const results = [];
+    for (const bigDOData of big_delivery_orders) {
+      const created = await createSingleBigDO(bigDOData, req.user, transaction);
+      results.push(created);
+    }
+    await transaction.commit();
+    res.status(201).json({
+      success: true,
+      data: results,
+      message: `Batch created: ${results.length} Big DO(s) successfully`,
     });
   } catch (err) {
     await transaction.rollback();
@@ -984,22 +1098,5 @@ exports.getTambahanById = async (req, res, next) => {
     });
   } catch (err) {
     next(err);
-  }
-};
-
-// Helper function for unit-aware tambahan calculation
-const calculateTambahanAmount = (quantity, unit, unitPrice) => {
-  const qty = parseFloat(quantity) || 0;
-  const price = parseFloat(unitPrice) || 0;
-
-  switch (unit) {
-    case "kilogram":
-      return qty * price;
-    case "ton":
-      return qty * price; // Convert ton to kg
-    case "kubik":
-      return qty * price; // Direct kubik pricing
-    default:
-      return qty * price;
   }
 };

@@ -580,52 +580,62 @@ exports.completeDeliveryOrder = async (req, res, next) => {
         include: [{ model: DepositGroup, as: 'depositGroup' }], 
         transaction,
     });
-
+    
+//  // Start of changes
     let paymentStatusUpdate = {};
-    let priceUsed = 0;
     let grp = null;
 
     if (dgMember && dgMember.depositGroup) {
-        paymentStatusUpdate = {
-            payment_status: 'lunas',
-            payment_confirmation_status: 'confirmed',
-            payment_confirmation_at: new Date()
-        };
-
         grp = dgMember.depositGroup;
-        const qtyUsed = parseFloat(order.actual_load_quantity); 
+        const actualQty = parseFloat(order.actual_load_quantity);
+        const minimalQty = parseFloat(order.minimal_load_quantity);
         const unitPrice = parseFloat(order.unit_price);
-        priceUsed = qtyUsed * unitPrice;
+        const priceForMinimalQty = minimalQty * unitPrice;
+        const selisihQty = actualQty - minimalQty;
 
-        // Update group's balance and quantity
-        grp.remaining_quantity = parseFloat(grp.remaining_quantity) - qtyUsed;
-        grp.balance = parseFloat(grp.balance) - priceUsed;
+        // Only deduct for the minimal quantity from the balance
+        grp.balance = parseFloat(grp.balance) - priceForMinimalQty;
+        grp.remaining_quantity = parseFloat(grp.remaining_quantity) - actualQty;
+
+        if (selisihQty > 0) {
+            // There is a selisih, mark for future invoicing
+            paymentStatusUpdate = {
+                payment_status: 'proses_tagihan', // Not lunas yet
+                payment_confirmation_status: 'confirmed',
+                payment_confirmation_at: new Date()
+            };
+            // The selisih amount will be handled by the generateSelisih function
+        } else {
+            // No selisih, DO is considered paid from deposit
+            paymentStatusUpdate = {
+                payment_status: 'lunas',
+                payment_confirmation_status: 'confirmed',
+                payment_confirmation_at: new Date()
+            };
+        }
+
         if (grp.remaining_quantity <= 0) grp.status = 'fulfilled';
         await grp.save({ transaction });
-        await dgMember.update({ quantity: qtyUsed }, { transaction });
+        await dgMember.update({ quantity: actualQty }, { transaction });
+
+        // Create a payment record only for the minimal quantity amount
+        await DeliveryOrderPayments.create({
+            delivery_order_id: id,
+            payment_amount: priceForMinimalQty,
+            payment_type: 'transfer', // Assuming 'transfer' as a valid type
+            payment_date: new Date(),
+            notes: `Auto-payment from Deposit Group: ${grp.group_name} (minimal qty)`,
+            received_by: req.user?.id,
+            created_by: req.user?.id,
+        }, { transaction });
     }
 
-    // *** FIX STARTS HERE: Update the Delivery Order FIRST ***
     await order.update({
         status: "completed",
         completed_at: new Date(),
         notes: notes || order.notes,
         ...paymentStatusUpdate
     }, { transaction: transaction });
-    // *** FIX ENDS HERE ***
-
-    // *** THEN, create the payment record ***
-    if (dgMember && dgMember.depositGroup) {
-        await DeliveryOrderPayments.create({
-            delivery_order_id: id,
-            payment_amount: priceUsed,
-            payment_type: 'transfer', // Use an allowed payment type
-            payment_date: new Date(),
-            notes: `Auto-payment from Deposit Group: ${grp.group_name}`,
-            received_by: req.user?.id,
-            created_by: req.user?.id,
-        }, { transaction });
-    }
 
     // Free up driver and vehicle
     await DriverProfile.update(

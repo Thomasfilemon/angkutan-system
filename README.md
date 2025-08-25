@@ -3,45 +3,18 @@ Monorepo for Angkutan App (React Native) &amp; future Web Dashboard (React.js/No
 
 ---
 
-## 1. Gambaran Arsitektur Tinggi
-
-Purwarupa arsitektur kita kira-kira begini:
-
-```
-┌─────────────────┐           ┌─────────────────┐
-│   Client Web    │◀──────────│     API Layer   │─────────┐
-│ (React.js + TS) │   HTTPS   │ (Node.js/Express)│         │
-└─────────────────┘           └─────────────────┘         │
-      │                                                         │
-      ▼                                                         ▼
-┌─────────────────┐                ┌─────────────────────────┐
-│ Firebase Auth & │                │   Relational Database  │
-│   FCM (Auth)    │◀──┐            │   PostgreSQL/MySQL     │
-└─────────────────┘   │            └─────────────────────────┘
-       ▲               │                    ▲
-       │               │                    │
-┌─────────────────┐   │                    │
-│ React Native    │───┘                    │
-│   Mobile App    │                        │
-└─────────────────┘                        │
-                                          │
-                                 ┌────────────────────┐
-                                 │  Cron Jobs/Backups │
-                                 └────────────────────┘
-```
 
 * **Client Web** (React.js + Tailwind) untuk Owner/Admin yang buka halaman dashboard.
 * **React Native App** (Expo/CLI) untuk Admin *dan* Driver di Android (APK terpisah).
 * **API Layer** (Node.js + Express/Koa), jadi satu pintu masuk semua request CRUD/SPA/WebSocket kalau perlu.
 * **DB** satu-satunya (PostgreSQL), tempat nyimpen users, profiles, trips, expenses, accounting, dsb.
-* **Firebase Auth & FCM**: Auth simpel dan push-notif gratis (selama volume masih wajar).
-* **Cron Jobs** (node-cron atau cron Linux) buat tugas periodik: backup DB, kirim reminder pembayaran, kirim notifikasi service kendaraan, dll.
+* **JWT Auth & FCM Notification**: Auth simpel dan push-notif gratis (selama volume masih wajar).
 
 ---
 
 ## 2. Domain Model & Entities
 
-Lo perlu bikin ERD (Entity-Relationship Diagram) mental dulu. Berikut ringkasannya:
+ERD (Entity-Relationship Diagram) mental. Berikut ringkasannya:
 
 1. **User & Profiles**
 

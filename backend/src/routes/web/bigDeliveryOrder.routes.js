@@ -25,6 +25,12 @@ router.post(
   bigDOController.createBigDeliveryOrder
 );
 
+router.post(
+  "/batch",
+  checkRole(["admin", "owner"]),
+  bigDOController.createBigDeliveryOrderBatch
+);
+
 router.get(
   "/:id",
   checkRole(["admin", "owner"]),

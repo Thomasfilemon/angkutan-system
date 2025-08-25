@@ -318,6 +318,7 @@ CREATE TABLE delivery_orders (
   payment_notes TEXT,
   
   status delivery_status NOT NULL DEFAULT 'assigned',
+  has_generated_selisih BOOLEAN NOT NULL DEFAULT FALSE,
   payment_confirmation_status VARCHAR(30) DEFAULT 'pending' CHECK(payment_confirmation_status IN ('pending', 'awaiting_confirmation', 'confirmed')),
   
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -704,9 +705,9 @@ CREATE TRIGGER trigger_auto_payment_confirmation
 CREATE OR REPLACE FUNCTION prevent_confirmation_change_after_payment()
 RETURNS TRIGGER AS $$
 BEGIN
-  IF OLD.payment_confirmation_status != NEW.payment_confirmation_status AND
+  IF OLD.payment_confirmation_status = 'confirmed' AND OLD.payment_confirmation_status != NEW.payment_confirmation_status AND
      (SELECT COUNT(*) FROM delivery_order_payments WHERE delivery_order_id = NEW.id) > 0 THEN
-    RAISE EXCEPTION 'Cannot change payment_confirmation_status after payments are recorded';
+    RAISE EXCEPTION 'Cannot change payment_confirmation_status after payments are recorded and status is confirmed';
   END IF;
   RETURN NEW;
 END;
