@@ -123,7 +123,8 @@ exports.getAllCashTransactions = async (req, res, next) => {
       return {
         ...transactionData,
         running_balance: balanceLookup[transaction.id] || 0,
-        no_nota: transactionData.no_nota || []
+        no_nota: transactionData.no_nota || [],
+        date_nota: transactionData.date_nota || []
       };
     });
 
@@ -316,6 +317,18 @@ exports.createCashTransaction = async (req, res, next) => {
       no_nota = req.body.no_nota;
     }
 
+    let date_nota = [];
+    if (typeof req.body.date_nota === 'string') {
+      try {
+        date_nota = JSON.parse(req.body.date_nota);
+      } catch (error) {
+        // Handle invalid JSON (e.g., set to empty array)
+        date_nota = [];
+      }
+    } else if (Array.isArray(req.body.date_nota)) {
+      date_nota = req.body.date_nota;
+    }
+
     // Validation
     if (!transaction_type || !['debit', 'kredit', 'debit_tempo', 'kredit_tempo'].includes(transaction_type)) {
       await transaction.rollback();
@@ -340,6 +353,7 @@ exports.createCashTransaction = async (req, res, next) => {
       account,
       attachment_urls: attachment_urls.length > 0 ? attachment_urls : null,
       no_nota: no_nota || null, // Parse if stringified
+      date_nota: date_nota || null,
     }, { transaction });
 
     const createdTransaction = await CashTransaction.findByPk(cashTransaction.id, {
@@ -413,17 +427,32 @@ exports.updateCashTransaction = async (req, res) => {
     reference_number,
     transaction_date,
     account,
+    no_nota,
+    date_nota
   } = req.body;
 
+  // Parse no_nota
   let updatedNoNota = [];
-  if (typeof req.body.no_nota === 'string') {
+  if (typeof no_nota === 'string') {
     try {
-      updatedNoNota = JSON.parse(req.body.no_nota);
+      updatedNoNota = JSON.parse(no_nota);
     } catch (error) {
-      updatedNoNota = [];
+      updatedNoNota = ['']; // Fallback to empty array with single empty string
     }
-  } else if (Array.isArray(req.body.no_nota)) {
-    updatedNoNota = req.body.no_nota;
+  } else if (Array.isArray(no_nota)) {
+    updatedNoNota = no_nota;
+  }
+
+  // Parse date_nota
+  let updatedDateNota = [];
+  if (typeof date_nota === 'string') {
+    try {
+      updatedDateNota = JSON.parse(date_nota);
+    } catch (error) {
+      updatedDateNota = ['']; // Fallback to empty array with single empty string
+    }
+  } else if (Array.isArray(date_nota)) {
+    updatedDateNota = date_nota;
   }
 
   // Define parseCategoryId locally
@@ -446,13 +475,10 @@ exports.updateCashTransaction = async (req, res) => {
 
     const categoryId = category_id !== undefined ? parseCategoryId(category_id) : cashTransaction.category_id;
 
+    // Handle file uploads
     const existingUrls = cashTransaction.attachment_urls || [];
     const newUrls = req.files?.map(file => `uploads/receipts/${file.filename}`) || [];
-    cashTransaction.attachment_urls = [...existingUrls, ...newUrls];
-
-    const existingNoNota = cashTransaction.no_nota || [];
-    const newNoNota = JSON.parse(req.body.no_nota || '[]');
-    cashTransaction.no_nota = [...existingNoNota, ...newNoNota];
+    const updatedAttachmentUrls = [...existingUrls, ...newUrls];
 
     await cashTransaction.update({
       transaction_type: transaction_type || cashTransaction.transaction_type,
@@ -462,8 +488,9 @@ exports.updateCashTransaction = async (req, res) => {
       reference_number: reference_number !== undefined ? reference_number : cashTransaction.reference_number,
       transaction_date: transaction_date || cashTransaction.transaction_date,
       account: account || cashTransaction.account,
-      no_nota: updatedNoNota !== undefined ? updatedNoNota : cashTransaction.no_nota,// Same logic
-      attachment_urls: cashTransaction.attachment_urls
+      no_nota: no_nota !== undefined ? updatedNoNota : cashTransaction.no_nota,
+      date_nota: date_nota !== undefined ? updatedDateNota : cashTransaction.date_nota,
+      attachment_urls: updatedAttachmentUrls
     });
 
     return res.status(200).json({ message: 'Transaction updated successfully', data: cashTransaction });

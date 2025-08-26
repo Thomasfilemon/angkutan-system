@@ -1,4 +1,3 @@
-// src/controllers/web/deliveryOrderController.js
 const {
   DeliveryOrder,
   DepositGroupMember,
@@ -32,12 +31,15 @@ const calculateTotalAmount = (quantity, unitPrice, unit) => {
   }
 };
 
-const calculateOngkosan = (totalAmount, tripAllowance, gaji) => {
+const calculateOngkosan = (totalAmount, tripAllowance, gaji, additionalAllowances = []) => {
   const total = parseFloat(totalAmount) || 0;
   const allowance = parseFloat(tripAllowance) || 0;
   const salary = parseFloat(gaji) || 0;
+  const additional = Array.isArray(additionalAllowances) 
+    ? additionalAllowances.reduce((sum, val) => sum + (parseFloat(val) || 0), 0)
+    : 0;
 
-  return total - allowance - salary;
+  return total - allowance - salary - additional;
 };
 
 // New helper: Validate driver availability
@@ -374,15 +376,14 @@ exports.createBatchDeliveryOrder = async (req, res, next) => {
 };
 
 /**
- * 🎯 CREATE DELIVERY ORDER (Enhanced with validation and deposit group integration)
- * POST /api/web/delivery-orders
+ * 🎯 CREATE DELIVERY ORDER
  */
 exports.createDeliveryOrder = async (req, res, next) => {
   const transaction = await sequelize.transaction();
   try {
     const {
       purchase_order_id,
-      standalone_po_number, // For standalone DOs
+      standalone_po_number,
       vehicle_id,
       driver_id,
       customer_name,
@@ -393,6 +394,7 @@ exports.createDeliveryOrder = async (req, res, next) => {
       total_amount,
       trip_allowance = 0,
       gaji = 0,
+      additional_allowance = [],
       ongkosan,
       load_location,
       unload_location,
@@ -420,6 +422,15 @@ exports.createDeliveryOrder = async (req, res, next) => {
       });
     }
 
+    // Validate additional allowances
+    if (Array.isArray(additional_allowance)) {
+      additional_allowance.forEach((val, index) => {
+        if (isNaN(parseFloat(val)) || parseFloat(val) < 0) {
+          throw new Error(`Invalid additional_allowance at index ${index}: must be a non-negative number`);
+        }
+      });
+    }
+
     // Enhanced unit validation
     if (unit && !["kilogram", "ton", "kubik"].includes(unit)) {
       await transaction.rollback();
@@ -429,7 +440,7 @@ exports.createDeliveryOrder = async (req, res, next) => {
       });
     }
 
-    // Early item validation against PO (from incoming)
+    // Early item validation against PO
     let po;
     if (purchase_order_id && item_name) {
       po = await PurchaseOrder.findByPk(purchase_order_id, { transaction });
@@ -534,7 +545,7 @@ exports.createDeliveryOrder = async (req, res, next) => {
       });
     }
 
-    // Enhanced DO number generation (100 attempts)
+    // Enhanced DO number generation
     const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
     let attempts = 0;
     let do_number;
@@ -565,9 +576,9 @@ exports.createDeliveryOrder = async (req, res, next) => {
       calculateTotalAmount(minimal_load_quantity, finalUnitPrice, finalUnit);
     let calculatedOngkosan =
       ongkosan ||
-      calculateOngkosan(calculatedTotalAmount, trip_allowance, gaji);
+      calculateOngkosan(calculatedTotalAmount, trip_allowance, gaji, additional_allowance);
 
-    // Create temporary DO instance for validation (from incoming)
+    // Create temporary DO instance for validation
     const tempDO = DeliveryOrder.build({
       purchase_order_id,
       driver_id,
@@ -582,6 +593,7 @@ exports.createDeliveryOrder = async (req, res, next) => {
       total_amount: calculatedTotalAmount,
       trip_allowance,
       gaji,
+      additional_allowance,
       ongkosan: calculatedOngkosan,
       load_location,
       load_latitude,
@@ -593,18 +605,18 @@ exports.createDeliveryOrder = async (req, res, next) => {
       status,
     });
 
-    // Validate remaining quantity (from incoming)
+    // Validate remaining quantity
     if (tempDO.validateQuantityAgainstPO) {
-      await tempDO.validateQuantityAgainstPO(false); // false for create
+      await tempDO.validateQuantityAgainstPO(false);
     }
 
-    // Create delivery order (if validation passes)
+    // Create delivery order
     const deliveryOrder = await DeliveryOrder.create(tempDO.dataValues, {
       transaction,
       scope: "web",
     });
 
-    // Deposit group integration (from current)
+    // Deposit group integration
     if (purchase_order_id) {
       const purchaseOrder = await PurchaseOrder.findByPk(purchase_order_id, {
         attributes: ["id", "deposit_group_id"],
@@ -634,7 +646,7 @@ exports.createDeliveryOrder = async (req, res, next) => {
       { where: { id: vehicle_id }, transaction }
     );
 
-    // Enhanced push notification handling (from incoming)
+    // Push notification handling
     const driverUser = await User.findOne({
       where: { id: driver_id },
       attributes: ["username", "expo_push_token"],
@@ -672,7 +684,6 @@ exports.createDeliveryOrder = async (req, res, next) => {
         await expo.sendPushNotificationsAsync(messages);
       } catch (pushError) {
         console.error("Push notification error:", pushError);
-        // Don't fail the whole operation, but log it
       }
     }
 
@@ -697,8 +708,7 @@ exports.createDeliveryOrder = async (req, res, next) => {
 };
 
 /**
- * 🎯 GET ALL DELIVERY ORDERS (Enhanced for new architecture)
- * GET /api/web/delivery-orders
+ * 🎯 GET ALL DELIVERY ORDERS
  */
 exports.getAllDeliveryOrders = async (req, res, next) => {
   try {
@@ -744,14 +754,12 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
       };
     }
 
-    // Enhanced statistics calculation (from incoming)
-    const fullWhere = { ...whereClause };
     const statsPromises = [
-      DeliveryOrder.count({ where: fullWhere }),
-      DeliveryOrder.count({ where: { ...fullWhere, status: "assigned" } }),
+      DeliveryOrder.count({ where: whereClause }),
+      DeliveryOrder.count({ where: { ...whereClause, status: "assigned" } }),
       DeliveryOrder.count({
         where: {
-          ...fullWhere,
+          ...whereClause,
           status: {
             [Op.in]: [
               "otw_to_load_location",
@@ -763,13 +771,13 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
           },
         },
       }),
-      DeliveryOrder.count({ where: { ...fullWhere, status: "completed" } }),
-      DeliveryOrder.count({ where: { ...fullWhere, status: "cancelled" } }),
-      DeliveryOrder.sum("total_amount", { where: fullWhere }) || 0,
-      DeliveryOrder.sum("ongkosan", { where: fullWhere }) || 0,
+      DeliveryOrder.count({ where: { ...whereClause, status: "completed" } }),
+      DeliveryOrder.count({ where: { ...whereClause, status: "cancelled" } }),
+      DeliveryOrder.sum("total_amount", { where: whereClause }) || 0,
+      DeliveryOrder.sum("ongkosan", { where: whereClause }) || 0,
       DeliveryOrder.count({
         where: {
-          ...fullWhere,
+          ...whereClause,
           id: {
             [Op.notIn]: sequelize.literal(
               "(SELECT main_delivery_order_id FROM big_delivery_orders)"
@@ -779,7 +787,7 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
       }),
       DeliveryOrder.count({
         where: {
-          ...fullWhere,
+          ...whereClause,
           id: {
             [Op.in]: sequelize.literal(
               "(SELECT main_delivery_order_id FROM big_delivery_orders)"
@@ -787,9 +795,9 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
           },
         },
       }),
-      DeliveryOrder.count({ where: { ...fullWhere, unit: "kilogram" } }),
-      DeliveryOrder.count({ where: { ...fullWhere, unit: "ton" } }),
-      DeliveryOrder.count({ where: { ...fullWhere, unit: "kubik" } }),
+      DeliveryOrder.count({ where: { ...whereClause, unit: "kilogram" } }),
+      DeliveryOrder.count({ where: { ...whereClause, unit: "ton" } }),
+      DeliveryOrder.count({ where: { ...whereClause, unit: "kubik" } }),
     ];
 
     const [
@@ -807,51 +815,48 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
       kubik,
     ] = await Promise.all(statsPromises);
 
-    const { count, rows: deliveryOrders } = await DeliveryOrder.findAndCountAll(
-      {
-        where: whereClause,
-        include: [
-          {
-            model: PurchaseOrder,
-            as: "purchaseOrder",
-            attributes: [
-              "po_number",
-              "customer_name",
-              "total_quantity",
-              "unit",
-            ],
-          },
-          {
-            model: User,
-            as: "driver",
-            attributes: ["id", "username"],
-            include: [
-              {
-                model: DriverProfile,
-                as: "driverProfile",
-                attributes: ["full_name", "phone"],
-              },
-            ],
-          },
-          {
-            model: Vehicle,
-            as: "vehicle",
-            attributes: ["license_plate", "type", "capacity"],
-          },
-          {
-            model: BigDeliveryOrder,
-            as: "bigDeliveryOrderAsMain",
-            attributes: ["big_do_number", "status", "total_trip_allowance"],
-            required: false,
-          },
-        ],
-        order: [["created_at", "DESC"]],
-        limit: parseInt(limit),
-        offset: parseInt(offset),
-      }
-    );
+    const { count, rows: deliveryOrders } = await DeliveryOrder.findAndCountAll({
+      where: whereClause,
+      include: [
+        {
+          model: PurchaseOrder,
+          as: "purchaseOrder",
+          attributes: [
+            "po_number",
+            "customer_name",
+            "total_quantity",
+            "unit",
+          ],
+        },
+        {
+          model: User,
+          as: "driver",
+          attributes: ["id", "username"],
+          include: [
+            {
+              model: DriverProfile,
+              as: "driverProfile",
+              attributes: ["full_name", "phone"],
+            },
+          ],
+        },
+        {
+          model: Vehicle,
+          as: "vehicle",
+          attributes: ["license_plate", "type", "capacity"],
+        },
+        {
+          model: BigDeliveryOrder,
+          as: "bigDeliveryOrderAsMain",
+          attributes: ["big_do_number", "status", "total_trip_allowance"],
+          required: false,
+        },
+      ],
+      order: [["created_at", "DESC"]],
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+    });
 
-    // Enhanced data with computed fields and null checks (from incoming)
     const enhancedDOs = deliveryOrders.map((dOrder) => {
       const doData = dOrder.toJSON();
       const orderUnit = doData.unit || doData.purchaseOrder?.unit || "ton";
@@ -893,7 +898,6 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
       };
     });
 
-    // Enhanced summary stats (from incoming)
     const stats = {
       total,
       assigned,
@@ -925,8 +929,7 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
 };
 
 /**
- * 🎯 GET DO BY ID (Enhanced for new architecture)
- * GET /api/web/delivery-orders/:id
+ * 🎯 GET DO BY ID
  */
 exports.getDeliveryOrderById = async (req, res, next) => {
   try {
@@ -969,7 +972,7 @@ exports.getDeliveryOrderById = async (req, res, next) => {
     const doData = deliveryOrder.toJSON();
     const orderUnit = doData.unit || doData.purchaseOrder?.unit || "ton";
 
-    // Enhanced calculation with null handling (from incoming)
+    // Calculate totals with additional allowances
     let minimalTotalAmount =
       doData.minimal_load_quantity && doData.unit_price
         ? calculateTotalAmount(
@@ -986,6 +989,12 @@ exports.getDeliveryOrderById = async (req, res, next) => {
             orderUnit
           )
         : null;
+    let calculatedOngkosan = calculateOngkosan(
+      actualTotalAmount || minimalTotalAmount || doData.total_amount,
+      doData.trip_allowance,
+      doData.gaji,
+      doData.additional_allowance
+    );
 
     res.json({
       success: true,
@@ -993,10 +1002,15 @@ exports.getDeliveryOrderById = async (req, res, next) => {
         ...doData,
         unit: orderUnit,
         status_text: deliveryOrder.getStatusText() || doData.status,
+        payment_notes: doData.payment_notes || '', // Changed from notes to payment_notes
         financial_summary: {
           ...(deliveryOrder.getFinancialSummary() || {}),
           minimal_total_amount: minimalTotalAmount,
           actual_total_amount: actualTotalAmount,
+          ongkosan: calculatedOngkosan,
+          additional_allowance: Array.isArray(doData.additional_allowance)
+            ? doData.additional_allowance.map(a => parseFloat(a) || 0)
+            : [],
           unit: orderUnit,
           unit_display: deliveryOrder.getUnitDisplay() || orderUnit,
         },
@@ -1010,6 +1024,12 @@ exports.getDeliveryOrderById = async (req, res, next) => {
             doData.departed_from_unload_location_at,
           completed_at: doData.completed_at,
         },
+        driver_name:
+          doData.driver?.driverProfile?.full_name ||
+          doData.driver?.username ||
+          "N/A",
+        vehicle_info:
+          `${doData.vehicle?.license_plate} (${doData.vehicle?.type})` || "N/A",
         big_do_context: deliveryOrder.getBigDOContext() || null,
         big_do_info: doData.bigDeliveryOrderAsMain
           ? {
@@ -1030,8 +1050,7 @@ exports.getDeliveryOrderById = async (req, res, next) => {
 };
 
 /**
- * 🎯 UPDATE DELIVERY ORDER (Enhanced)
- * PUT /api/web/delivery-orders/:id
+ * 🎯 UPDATE DELIVERY ORDER
  */
 exports.updateDeliveryOrder = async (req, res, next) => {
   const transaction = await sequelize.transaction();
@@ -1044,11 +1063,13 @@ exports.updateDeliveryOrder = async (req, res, next) => {
       customer_name,
       item_name,
       minimal_load_quantity,
+      actual_load_quantity,
       unit,
       unit_price,
       total_amount,
       trip_allowance,
       gaji,
+      additional_allowance,
       ongkosan,
       load_location,
       unload_location,
@@ -1059,6 +1080,8 @@ exports.updateDeliveryOrder = async (req, res, next) => {
       payment_status,
       status,
       do_name,
+      payment_notes, // Changed from notes to payment_notes
+      additional_allowance_notes, // Optional: New field to handle allowance-specific notes
     } = req.body;
 
     const deliveryOrder = await DeliveryOrder.findByPk(id, { transaction });
@@ -1070,7 +1093,7 @@ exports.updateDeliveryOrder = async (req, res, next) => {
         .json({ success: false, message: "Delivery Order not found" });
     }
 
-    // Enhanced unit validation (from incoming)
+    // Enhanced unit validation
     if (unit && !["kilogram", "ton", "kubik"].includes(unit)) {
       await transaction.rollback();
       return res.status(400).json({
@@ -1079,7 +1102,16 @@ exports.updateDeliveryOrder = async (req, res, next) => {
       });
     }
 
-    // Enhanced proposed data preparation (from incoming)
+    // Validate additional allowances
+    if (Array.isArray(additional_allowance)) {
+      additional_allowance.forEach((val, index) => {
+        if (isNaN(parseFloat(val)) || parseFloat(val) < 0) {
+          throw new Error(`Invalid additional_allow.currency at index ${index}: must be a non-negative number`);
+        }
+      });
+    }
+
+    // Enhanced proposed data preparation
     const proposedData = {
       purchase_order_id: purchase_order_id ?? deliveryOrder.purchase_order_id,
       vehicle_id: vehicle_id ?? deliveryOrder.vehicle_id,
@@ -1088,12 +1120,13 @@ exports.updateDeliveryOrder = async (req, res, next) => {
       item_name: item_name ?? deliveryOrder.item_name,
       minimal_load_quantity:
         minimal_load_quantity ?? deliveryOrder.minimal_load_quantity,
+      actual_load_quantity:
+        actual_load_quantity ?? deliveryOrder.actual_load_quantity,
       unit: unit ?? deliveryOrder.unit,
       unit_price: unit_price ?? deliveryOrder.unit_price,
-      total_amount: total_amount ?? deliveryOrder.total_amount,
       trip_allowance: trip_allowance ?? deliveryOrder.trip_allowance,
       gaji: gaji ?? deliveryOrder.gaji,
-      ongkosan: ongkosan ?? deliveryOrder.ongkosan,
+      additional_allowance: additional_allowance ?? deliveryOrder.additional_allowance,
       load_location: load_location ?? deliveryOrder.load_location,
       unload_location: unload_location ?? deliveryOrder.unload_location,
       load_latitude: load_latitude ?? deliveryOrder.load_latitude,
@@ -1103,44 +1136,48 @@ exports.updateDeliveryOrder = async (req, res, next) => {
       payment_status: payment_status ?? deliveryOrder.payment_status,
       status: status ?? deliveryOrder.status,
       do_name: do_name ?? deliveryOrder.do_name,
+      payment_notes: payment_notes ?? deliveryOrder.payment_notes,
     };
 
-    // Enhanced recalculation (from incoming)
-    let calculatedTotalAmount = proposedData.total_amount;
-    if (
-      proposedData.minimal_load_quantity &&
-      proposedData.unit_price &&
-      proposedData.unit
-    ) {
+    // Append additional allowance notes to payment_notes if provided
+    if (additional_allowance_notes) {
+      const currentNotes = proposedData.payment_notes || '';
+      proposedData.payment_notes = currentNotes
+        ? `${currentNotes}\n${additional_allowance_notes}`
+        : additional_allowance_notes;
+    }
+
+    // Enhanced recalculation
+    let calculatedTotalAmount = total_amount;
+    const calcQuantity = proposedData.actual_load_quantity || proposedData.minimal_load_quantity;
+    if (calcQuantity && proposedData.unit_price && proposedData.unit) {
       calculatedTotalAmount = calculateTotalAmount(
-        proposedData.minimal_load_quantity,
+        calcQuantity,
         proposedData.unit_price,
         proposedData.unit
       );
     }
 
-    let calculatedOngkosan = proposedData.ongkosan;
-    if (
-      calculatedTotalAmount &&
-      (proposedData.trip_allowance || proposedData.gaji)
-    ) {
+    let calculatedOngkosan = ongkosan;
+    if (calculatedTotalAmount) {
       calculatedOngkosan = calculateOngkosan(
         calculatedTotalAmount,
         proposedData.trip_allowance,
-        proposedData.gaji
+        proposedData.gaji,
+        proposedData.additional_allowance
       );
     }
 
     proposedData.total_amount = calculatedTotalAmount;
     proposedData.ongkosan = calculatedOngkosan;
 
-    // Enhanced validation with temp DO (from incoming)
+    // Enhanced validation with temp DO
     const tempDO = DeliveryOrder.build({
       ...deliveryOrder.dataValues,
       ...proposedData,
     });
     if (tempDO.validateQuantityAgainstPO) {
-      await tempDO.validateQuantityAgainstPO(true); // true for update
+      await tempDO.validateQuantityAgainstPO(true);
     }
 
     // Update delivery order
@@ -1148,7 +1185,7 @@ exports.updateDeliveryOrder = async (req, res, next) => {
 
     await transaction.commit();
 
-    // Enhanced response with PO stats (from incoming)
+    // Enhanced response with PO stats
     const po = await PurchaseOrder.findByPk(updatedDO.purchase_order_id);
     const stats =
       po && po.getRemainingAndForecast
@@ -1173,8 +1210,7 @@ exports.updateDeliveryOrder = async (req, res, next) => {
 };
 
 /**
- * 🎯 CANCEL DELIVERY ORDER (Enhanced)
- * PATCH /api/web/delivery-orders/:id/cancel
+ * 🎯 CANCEL DELIVERY ORDER
  */
 exports.cancelDeliveryOrder = async (req, res, next) => {
   const transaction = await sequelize.transaction();
@@ -1209,7 +1245,6 @@ exports.cancelDeliveryOrder = async (req, res, next) => {
       });
     }
 
-    // Update delivery order status
     await deliveryOrder.update(
       {
         status: "cancelled",
@@ -1218,7 +1253,6 @@ exports.cancelDeliveryOrder = async (req, res, next) => {
       { transaction }
     );
 
-    // Free up vehicle
     if (deliveryOrder.vehicle_id) {
       await Vehicle.update(
         { status: "available" },
@@ -1249,17 +1283,14 @@ exports.cancelDeliveryOrder = async (req, res, next) => {
 };
 
 /**
- * 🎯 COMPLETE DELIVERY ORDER (From current - deposit group integration)
- * PATCH /api/web/delivery-orders/:id/complete
+ * 🎯 COMPLETE DELIVERY ORDER
  */
 exports.completeDeliveryOrder = async (req, res, next) => {
   const transaction = await sequelize.transaction();
-
   try {
     const { id } = req.params;
     const { actual_load_quantity, notes } = req.body;
 
-    // Find DO with PO and DepositGroup relationship
     const deliveryOrder = await DeliveryOrder.findByPk(id, {
       include: [
         {
@@ -1300,11 +1331,9 @@ exports.completeDeliveryOrder = async (req, res, next) => {
       });
     }
 
-    // Check if DO is linked to a deposit group via its PO
     const po = deliveryOrder.purchaseOrder;
     const isDepositLinked = !!(po && po.deposit_group_id);
 
-    // Check if DO is a direct member of any deposit group
     const dgMember = await DepositGroupMember.findOne({
       where: { delivery_order_id: id },
       include: [{ model: DepositGroup, as: "group" }],
@@ -1313,13 +1342,11 @@ exports.completeDeliveryOrder = async (req, res, next) => {
 
     const isInDepositGroup = !!dgMember;
 
-    // Auto-payment logic: Set payment status based on ANY deposit linkage
     let paymentStatus;
     let paymentConfirmationStatus;
     let paymentConfirmedAt = null;
 
     if (isDepositLinked || isInDepositGroup) {
-      // Any deposit-linked DO should be automatically marked as paid upon completion
       paymentStatus = "lunas";
       paymentConfirmationStatus = "confirmed";
       paymentConfirmedAt = new Date();
@@ -1328,12 +1355,10 @@ exports.completeDeliveryOrder = async (req, res, next) => {
         `✅ DO ${id} auto-paid via deposit group - Deposit linked: ${isDepositLinked}, In group: ${isInDepositGroup}`
       );
     } else {
-      // Regular DOs follow the normal payment process
       paymentStatus = "awaiting_confirmation";
       paymentConfirmationStatus = "awaiting_confirmation";
     }
 
-    // Prepare data for updating the Delivery Order
     const updateData = {
       status: "completed",
       completed_at: new Date(),
@@ -1347,11 +1372,9 @@ exports.completeDeliveryOrder = async (req, res, next) => {
 
     await deliveryOrder.update(updateData, { transaction });
 
-    // If the DO is part of a deposit group, update the group's balance and quantity
     if (dgMember && dgMember.group) {
       const grp = dgMember.group;
       const qtyUsed = parseFloat(updateData.actual_load_quantity);
-      // Ensure unit_price is a valid number before calculation
       const unitPrice = parseFloat(deliveryOrder.unit_price);
       if (isNaN(unitPrice)) {
         throw new Error(`Invalid unit_price for DO ${deliveryOrder.id}`);
@@ -1372,7 +1395,6 @@ exports.completeDeliveryOrder = async (req, res, next) => {
       grp.remaining_quantity = Math.max(0, currentRemaining - qtyUsed);
       grp.balance = Math.max(0, currentBalance - priceUsed);
 
-      // Update group status based on remaining quantities
       if (grp.remaining_quantity <= 0 && grp.balance <= 0) {
         grp.status = "fulfilled";
       } else if (grp.remaining_quantity < 0 || grp.balance < 0) {
@@ -1421,7 +1443,6 @@ exports.completeDeliveryOrder = async (req, res, next) => {
       }
     }
 
-    // Free up vehicle for another trip
     if (deliveryOrder.vehicle_id) {
       await Vehicle.update(
         { status: "available" },
@@ -1431,7 +1452,6 @@ exports.completeDeliveryOrder = async (req, res, next) => {
 
     await transaction.commit();
 
-    // Return updated DO with enriched data for the frontend
     const updatedDO = await DeliveryOrder.findByPk(id, {
       include: [
         {
@@ -1497,8 +1517,7 @@ exports.completeDeliveryOrder = async (req, res, next) => {
 };
 
 /**
- * 🎯 GET DELIVERY STATISTICS (Enhanced)
- * GET /api/web/delivery-orders/statistics
+ * 🎯 GET DELIVERY STATISTICS
  */
 exports.getDeliveryStatistics = async (req, res, next) => {
   try {
@@ -1526,6 +1545,7 @@ exports.getDeliveryStatistics = async (req, res, next) => {
       totalOngkosan,
       totalTripAllowance,
       totalGaji,
+      totalAdditionalAllowance,
     ] = await Promise.all([
       DeliveryOrder.count({ where: dateFilter }),
       DeliveryOrder.count({ where: { ...dateFilter, status: "completed" } }),
@@ -1542,14 +1562,26 @@ exports.getDeliveryStatistics = async (req, res, next) => {
       DeliveryOrder.sum("gaji", {
         where: { ...dateFilter, status: "completed" },
       }) || 0,
+      DeliveryOrder.sum(
+        sequelize.fn(
+          'SUM',
+          sequelize.fn(
+            'COALESCE',
+            sequelize.literal(
+              "(SELECT SUM(allowance) FROM unnest(additional_allowance) AS allowance)"
+            ),
+            0
+          )
+        ),
+        { where: { ...dateFilter, status: "completed" } }
+      ) || 0,
     ]);
 
-    const totalDriverCosts = totalTripAllowance + totalGaji;
+    const totalDriverCosts = totalTripAllowance + totalGaji + totalAdditionalAllowance;
     const completionRate =
       totalDeliveries > 0 ? (completedDeliveries / totalDeliveries) * 100 : 0;
-    const netProfit = totalOngkosan; // Ongkosan already deducts costs
+    const netProfit = totalOngkosan;
 
-    // Enhanced unit distribution (from incoming)
     const unitStats = await DeliveryOrder.findAll({
       where: dateFilter,
       attributes: [

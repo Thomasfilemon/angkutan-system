@@ -47,6 +47,10 @@ module.exports = (sequelize) => {
       type: DataTypes.ARRAY(DataTypes.STRING),
       allowNull: true
     },
+    date_nota: {
+      type: DataTypes.ARRAY(DataTypes.STRING),
+      allowNull: true
+    },
   }, {
     tableName: 'cash_transactions',
     timestamps: true,

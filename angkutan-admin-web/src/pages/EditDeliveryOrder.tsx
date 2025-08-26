@@ -15,11 +15,17 @@ interface DeliveryOrderData {
   load_location: string;
   unload_location: string;
   status: string;
-  notes?: string;
+  payment_notes?: string;
   driver_name?: string;
   vehicle_info?: string;
   trip_allowance?: number;
   gaji?: number;
+  additional_allowance?: number[];
+}
+
+interface AdditionalAllowance {
+  amount: number;
+  description: string;
 }
 
 const STATUS_OPTIONS = [
@@ -37,17 +43,17 @@ const EditDeliveryOrder: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
-  const [deliveryOrder, setDeliveryOrder] = useState<DeliveryOrderData | null>(
-    null
-  );
+  const [deliveryOrder, setDeliveryOrder] = useState<DeliveryOrderData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancellationReason, setCancellationReason] = useState("");
+  const [additionalAllowances, setAdditionalAllowances] = useState<AdditionalAllowance[]>([]);
+  const [showAddAllowance, setShowAddAllowance] = useState(false);
+  const [newAllowance, setNewAllowance] = useState({ amount: 0, description: "" });
 
-  // Form state
   const [formData, setFormData] = useState({
     customer_name: "",
     item_name: "",
@@ -57,17 +63,17 @@ const EditDeliveryOrder: React.FC = () => {
     unit_price: 0,
     load_location: "",
     unload_location: "",
-    notes: "",
+    payment_notes: "",
     trip_allowance: 0,
     gaji: 0,
     status: "assigned",
+    additional_allowance: [] as number[],
   });
 
   useEffect(() => {
     if (id) {
       fetchDeliveryOrder();
     }
-    // eslint-disable-next-line
   }, [id]);
 
   const fetchDeliveryOrder = async () => {
@@ -86,11 +92,21 @@ const EditDeliveryOrder: React.FC = () => {
         unit_price: data.unit_price || 0,
         load_location: data.load_location || "",
         unload_location: data.unload_location || "",
-        notes: data.notes || "",
+        payment_notes: data.payment_notes || "",
         trip_allowance: data.trip_allowance || 0,
         gaji: data.gaji || 0,
         status: data.status || "assigned",
+        additional_allowance: data.additional_allowance || [],
       });
+
+      if (data.additional_allowance && Array.isArray(data.additional_allowance)) {
+        setAdditionalAllowances(
+          data.additional_allowance.map((amount: number) => ({ 
+            amount, 
+            description: ""
+          }))
+        );
+      }
     } catch (err: any) {
       setError(err.response?.data?.message || "Failed to fetch delivery order");
     } finally {
@@ -99,9 +115,7 @@ const EditDeliveryOrder: React.FC = () => {
   };
 
   const handleInputChange = (
-    e: React.ChangeEvent<
-      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
-    >
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => {
     const { name, value } = e.target;
     setFormData((prev) => ({
@@ -116,22 +130,50 @@ const EditDeliveryOrder: React.FC = () => {
     }));
   };
 
+  const handleAddAllowance = () => {
+    if (newAllowance.amount <= 0) {
+      setError("Allowance amount must be greater than 0");
+      return;
+    }
+
+    const updatedAllowances = [...additionalAllowances, newAllowance];
+    setAdditionalAllowances(updatedAllowances);
+    
+    setFormData(prev => ({
+      ...prev,
+      additional_allowance: updatedAllowances.map(a => a.amount),
+      payment_notes: newAllowance.description
+        ? prev.payment_notes
+          ? `${prev.payment_notes}\nAdditional Allowance: Rp ${newAllowance.amount.toLocaleString('id-ID')} - ${newAllowance.description}`
+          : `Additional Allowance: Rp ${newAllowance.amount.toLocaleString('id-ID')} - ${newAllowance.description}`
+        : prev.payment_notes,
+    }));
+
+    setNewAllowance({ amount: 0, description: "" });
+    setShowAddAllowance(false);
+  };
+
+  const handleRemoveAllowance = (index: number) => {
+    const updatedAllowances = additionalAllowances.filter((_, i) => i !== index);
+    setAdditionalAllowances(updatedAllowances);
+    
+    setFormData(prev => ({
+      ...prev,
+      additional_allowance: updatedAllowances.map(a => a.amount),
+    }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     try {
       setSaving(true);
       setError(null);
-
       await apiClient.put(`/delivery-orders/${id}`, formData);
-
       navigate("/delivery-orders", {
         state: { message: "Delivery Order updated successfully!" },
       });
     } catch (err: any) {
-      setError(
-        err.response?.data?.message || "Failed to update delivery order"
-      );
+      setError(err.response?.data?.message || "Failed to update delivery order");
     } finally {
       setSaving(false);
     }
@@ -146,19 +188,15 @@ const EditDeliveryOrder: React.FC = () => {
     try {
       setCancelling(true);
       setError(null);
-
       await apiClient.patch(`/delivery-orders/${id}/cancel`, {
         cancellation_reason: cancellationReason,
       });
-
       setShowCancelModal(false);
       navigate("/delivery-orders", {
         state: { message: "Delivery Order cancelled successfully!" },
       });
     } catch (err: any) {
-      setError(
-        err.response?.data?.message || "Failed to cancel delivery order"
-      );
+      setError(err.response?.data?.message || "Failed to cancel delivery order");
     } finally {
       setCancelling(false);
     }
@@ -190,7 +228,6 @@ const EditDeliveryOrder: React.FC = () => {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      {/* Header */}
       <div className="mb-8">
         <div className="flex items-center justify-between">
           <div>
@@ -253,11 +290,7 @@ const EditDeliveryOrder: React.FC = () => {
         </div>
       )}
 
-      {/* Form */}
-      <form
-        onSubmit={handleSubmit}
-        className="bg-white shadow-lg rounded-lg p-8 border border-gray-100"
-      >
+      <form onSubmit={handleSubmit} className="bg-white shadow-lg rounded-lg p-8 border border-gray-100">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Customer Name */}
           <div>
@@ -388,6 +421,37 @@ const EditDeliveryOrder: React.FC = () => {
             />
           </div>
 
+          {/* Additional Allowances */}
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Additional Allowances
+            </label>
+            <div className="space-y-2 mb-2">
+              {additionalAllowances.map((allowance, index) => (
+                <div key={index} className="flex items-center justify-between bg-gray-50 p-3 rounded-md">
+                  <div>
+                    <span className="font-medium">Rp {allowance.amount.toLocaleString('id-ID')}</span>
+                    {allowance.description && <span className="text-gray-600 ml-2">- {allowance.description}</span>}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveAllowance(index)}
+                    className="text-red-600 hover:text-red-800 text-lg"
+                  >
+                    &times;
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAddAllowance(true)}
+              className="flex items-center text-blue-600 hover:text-blue-800"
+            >
+              <span className="text-lg mr-1">+</span> Add Additional Allowance
+            </button>
+          </div>
+
           {/* Status */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -439,18 +503,18 @@ const EditDeliveryOrder: React.FC = () => {
           />
         </div>
 
-        {/* Notes */}
+        {/* Payment Notes */}
         <div className="mt-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Notes
+            Payment Notes
           </label>
           <textarea
-            name="notes"
-            value={formData.notes}
+            name="payment_notes"
+            value={formData.payment_notes}
             onChange={handleInputChange}
             rows={4}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="Additional notes..."
+            placeholder="Additional payment notes..."
           />
         </div>
 
@@ -465,6 +529,57 @@ const EditDeliveryOrder: React.FC = () => {
           </button>
         </div>
       </form>
+
+      {/* Add Allowance Modal */}
+      {showAddAllowance && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Add Additional Allowance</h3>
+            
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Amount (Rp)
+              </label>
+              <input
+                type="number"
+                value={newAllowance.amount}
+                onChange={(e) => setNewAllowance({...newAllowance, amount: parseFloat(e.target.value) || 0})}
+                step="0.01"
+                min="0"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Description (Optional)
+              </label>
+              <input
+                type="text"
+                value={newAllowance.description}
+                onChange={(e) => setNewAllowance({...newAllowance, description: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Reason for additional allowance"
+              />
+            </div>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setShowAddAllowance(false)}
+                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddAllowance}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                Add Allowance
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Cancel Modal */}
       {showCancelModal && (
