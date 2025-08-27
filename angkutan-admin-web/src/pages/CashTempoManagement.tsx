@@ -15,7 +15,7 @@ interface CashTransaction {
   id: number;
   transaction_type: 'debit_tempo' | 'kredit_tempo';
   category_id?: number;
-  amount: number;
+  amount: number | string;
   description: string;
   reference_number?: string;
   transaction_date: string;
@@ -65,6 +65,8 @@ const TempoManagementPage = () => {
 
   const [showModal, setShowModal] = useState(false);
   const [showTransactionTypeModal, setShowTransactionTypeModal] = useState(false);
+  const [showNotaModal, setShowNotaModal] = useState(false);
+  const [selectedNotaDetails, setSelectedNotaDetails] = useState<CashTransaction | null>(null);
   const [selectedTransactionType, setSelectedTransactionType] = useState('');
   const [editingTransaction, setEditingTransaction] = useState<CashTransaction | null>(null);
   const [formData, setFormData] = useState({
@@ -81,6 +83,19 @@ const TempoManagementPage = () => {
 
   const [accounts, setAccounts] = useState<string[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<string>(formData.account);
+  const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
+  const [showLunasiModal, setShowLunasiModal] = useState(false);
+  const [selectedTransactions, setSelectedTransactions] = useState<CashTransaction[]>([]);
+  const [selectedLunasiAccount, setSelectedLunasiAccount] = useState<string>('');
+  const [net, setNet] = useState<number>(0);
+  const [newType, setNewType] = useState<string>('');
+
+  const parseAmount = (amount: number | string): number => {
+    if (typeof amount === 'string') {
+      return parseFloat(amount.replace('.', '').replace(',', '.'));
+    }
+    return amount;
+  };
 
   useEffect(() => {
     const fetchAccounts = async () => {
@@ -94,40 +109,129 @@ const TempoManagementPage = () => {
     fetchAccounts();
   }, []);
 
-  const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
+  useEffect(() => {
+    if (selectedTransactions.length > 0) {
+      const sumDebit = selectedTransactions
+        .filter(t => t.transaction_type === 'debit_tempo')
+        .reduce((s, t) => s + parseAmount(t.amount), 0);
+      const sumKredit = selectedTransactions
+        .filter(t => t.transaction_type === 'kredit_tempo')
+        .reduce((s, t) => s + parseAmount(t.amount), 0);
+      const calculatedNet = sumDebit - sumKredit;
+      const calculatedNewType = calculatedNet >= 0 ? 'debit' : 'kredit';
+      setNet(calculatedNet);
+      setNewType(calculatedNewType);
 
-  // States for lunasi modal
-  const [showLunasiModal, setShowLunasiModal] = useState(false);
-  const [selectedTransaction, setSelectedTransaction] = useState<CashTransaction | null>(null);
-  const [selectedLunasiAccount, setSelectedLunasiAccount] = useState<string>('');
+      const initialAccount = selectedTransactions.every(
+        t => t.account === selectedTransactions[0].account
+      )
+        ? selectedTransactions[0].account
+        : 'General';
+      setSelectedLunasiAccount(initialAccount);
+    }
+  }, [selectedTransactions]);
+
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  const toggleSelect = (id: number) => {
+    const newSet = new Set(selectedIds);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedIds(newSet);
+  };
 
   const handleLunasi = (transaction: CashTransaction) => {
-    setSelectedTransaction(transaction);
-    setSelectedLunasiAccount(transaction.account);
+    setSelectedTransactions([transaction]);
+    setShowLunasiModal(true);
+  };
+
+  const handleLunasiSelected = () => {
+    const sel = transactions.filter(t => selectedIds.has(t.id));
+    if (sel.length === 0) return;
+    setSelectedTransactions(sel);
     setShowLunasiModal(true);
   };
 
   const confirmLunasi = async () => {
-    if (!selectedTransaction || !selectedLunasiAccount) {
+    if (!selectedLunasiAccount) {
       toast.error('Silakan pilih akun');
       return;
     }
-    const currentType = selectedTransaction.transaction_type;
-    const newType = currentType === 'debit_tempo' ? 'debit' : 'kredit';
+
+    const sumDebit = selectedTransactions
+      .filter(t => t.transaction_type === 'debit_tempo')
+      .reduce((s, t) => s + parseAmount(t.amount), 0);
+    const sumKredit = selectedTransactions
+      .filter(t => t.transaction_type === 'kredit_tempo')
+      .reduce((s, t) => s + parseAmount(t.amount), 0);
+    const calculatedNet = sumDebit - sumKredit;
+
     try {
-      await apiClient.put(`/cash/transactions/${selectedTransaction.id}`, {
-        transaction_type: newType,
-        account: selectedLunasiAccount,
-        no_nota: selectedTransaction.no_nota || [''],
-        date_nota: selectedTransaction.date_nota || ['']
-      });
+      if (selectedTransactions.length === 1) {
+        const transaction = selectedTransactions[0];
+        const currentType = transaction.transaction_type;
+        const newType = currentType === 'debit_tempo' ? 'debit' : 'kredit';
+        await apiClient.put(`/cash/transactions/${transaction.id}`, {
+          transaction_type: newType,
+          account: selectedLunasiAccount,
+          no_nota: transaction.no_nota || [''],
+          date_nota: transaction.date_nota || [''],
+          amount: parseAmount(transaction.amount),
+        });
+        toast.success('Transaksi berhasil dilunasi');
+      } else {
+        if (calculatedNet === 0) {
+          for (const t of selectedTransactions) {
+            await apiClient.delete(`/cash/transactions/${t.id}`);
+          }
+          toast.success('Transaksi tempo dilunasi (net zero, no new transaction created)');
+        } else {
+          const combinedType = calculatedNet >= 0 ? 'debit' : 'kredit';
+          const combinedAmount = Math.abs(calculatedNet);
+          const combinedDescription = `Pelunasan transaksi tempo:\n${selectedTransactions
+            .map(
+              t =>
+                `- ${formatDate(t.transaction_date)}: ${t.description} (${
+                  t.transaction_type === 'debit_tempo' ? 'Debit' : 'Kredit'
+                } ${formatCurrency(parseAmount(t.amount))})`
+            )
+            .join('\n')}`;
+          const combinedAttachmentUrls = selectedTransactions.flatMap(t => t.attachment_urls || []);
+          const combinedNoNota = selectedTransactions.flatMap(t => t.no_nota || []);
+          const combinedDateNota = selectedTransactions.flatMap(t => t.date_nota || []);
+
+          const submissionData = new FormData();
+          submissionData.append('transaction_type', combinedType);
+          submissionData.append('amount', combinedAmount.toString());
+          submissionData.append('description', combinedDescription);
+          submissionData.append('transaction_date', new Date().toISOString().split('T')[0]);
+          submissionData.append('account', selectedLunasiAccount);
+          submissionData.append('attachment_urls', JSON.stringify(combinedAttachmentUrls));
+          submissionData.append('no_nota', JSON.stringify(combinedNoNota));
+          submissionData.append('date_nota', JSON.stringify(combinedDateNota));
+
+          await apiClient.post('/cash/transactions', submissionData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+
+          for (const t of selectedTransactions) {
+            await apiClient.delete(`/cash/transactions/${t.id}`);
+          }
+
+          toast.success('Transaksi tempo berhasil dilunasi dan digabung');
+        }
+      }
+
       setShowLunasiModal(false);
-      setSelectedTransaction(null);
+      setSelectedTransactions([]);
       setSelectedLunasiAccount('');
+      setSelectedIds(new Set());
       fetchTransactions();
-      toast.success('Transaksi berhasil dilunasi');
     } catch (err) {
-      console.error('Failed to lunasi transaction:', err);
+      console.error('Failed to lunasi transaction(s):', err);
       toast.error('Gagal melunasi transaksi');
     }
   };
@@ -138,17 +242,19 @@ const TempoManagementPage = () => {
       const params = new URLSearchParams({
         page: pagination.page.toString(),
         limit: pagination.limit.toString(),
-        ...Object.fromEntries(Object.entries(filters).filter(([_, v]) => v !== ''))
+        ...Object.fromEntries(Object.entries(filters).filter(([_, v]) => v !== '')),
       });
 
       const response = await apiClient.get(`/cash/tempo-transactions?${params}`);
-      
+
       setTransactions(response.data.data || []);
-      setSummary(response.data.summary || { total_debit_tempo: 0, total_kredit_tempo: 0, saldo: 0 });
+      setSummary(
+        response.data.summary || { total_debit_tempo: 0, total_kredit_tempo: 0, saldo: 0 }
+      );
       setPagination(prev => ({
         ...prev,
         total: response.data.pagination?.total || 0,
-        totalPages: response.data.pagination?.totalPages || 0
+        totalPages: response.data.pagination?.totalPages || 0,
       }));
     } catch (err) {
       setError('Failed to fetch tempo transactions.');
@@ -183,7 +289,7 @@ const TempoManagementPage = () => {
     setFormData((prev) => ({
       ...prev,
       no_nota: [...prev.no_nota, ''],
-      date_nota: [...prev.date_nota, '']
+      date_nota: [...prev.date_nota, ''],
     }));
   };
 
@@ -213,8 +319,14 @@ const TempoManagementPage = () => {
     }
 
     const submissionData = new FormData();
+    const parsedAmount = parseAmount(formData.amount);
 
-    Object.entries(formData).forEach(([key, value]) => {
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      toast.error('Jumlah harus berupa angka yang valid dan lebih besar dari 0');
+      return;
+    }
+
+    Object.entries({ ...formData, amount: parsedAmount }).forEach(([key, value]) => {
       if (key === 'no_nota' || key === 'date_nota') return;
       if (typeof value === 'string' || typeof value === 'number') {
         submissionData.append(key, value.toString());
@@ -232,7 +344,7 @@ const TempoManagementPage = () => {
 
     try {
       const config = {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': 'multipart/form-data' },
       };
 
       if (editingTransaction) {
@@ -266,7 +378,7 @@ const TempoManagementPage = () => {
       transaction_date: transaction.transaction_date,
       account: transaction.account || 'General',
       no_nota: Array.isArray(transaction.no_nota) && transaction.no_nota.length > 0 ? transaction.no_nota : [''],
-      date_nota: Array.isArray(transaction.date_nota) && transaction.date_nota.length > 0 ? transaction.date_nota : ['']
+      date_nota: Array.isArray(transaction.date_nota) && transaction.date_nota.length > 0 ? transaction.date_nota : [''],
     });
     setAttachmentFiles([]);
     setShowModal(true);
@@ -285,6 +397,11 @@ const TempoManagementPage = () => {
     }
   };
 
+  const handleShowNotaDetails = (transaction: CashTransaction) => {
+    setSelectedNotaDetails(transaction);
+    setShowNotaModal(true);
+  };
+
   const resetForm = () => {
     setFormData({
       transaction_type: 'debit_tempo',
@@ -295,7 +412,7 @@ const TempoManagementPage = () => {
       account: 'General',
       transaction_date: new Date().toISOString().split('T')[0],
       no_nota: [''],
-      date_nota: ['']
+      date_nota: [''],
     });
     setAttachmentFiles([]);
     setIsSpecialCategory(false);
@@ -339,15 +456,25 @@ const TempoManagementPage = () => {
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-gray-800">Buku Tempo</h1>
-        <button
-          onClick={() => {
-            setSelectedTransactionType('');
-            setShowTransactionTypeModal(true);
-          }}
-          className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-        >
-          + Tambah Transaksi
-        </button>
+        <div className="space-x-2">
+          <button
+            onClick={() => {
+              setSelectedTransactionType('');
+              setShowTransactionTypeModal(true);
+            }}
+            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+          >
+            + Tambah Transaksi
+          </button>
+          {selectedIds.size > 0 && (
+            <button
+              onClick={handleLunasiSelected}
+              className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"
+            >
+              Lunasi Selected
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -478,6 +605,19 @@ const TempoManagementPage = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-10">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.size === transactions.length && transactions.length > 0}
+                    onChange={(e) => {
+                      const newSet = new Set<number>();
+                      if (e.target.checked) {
+                        transactions.forEach(t => newSet.add(t.id));
+                      }
+                      setSelectedIds(newSet);
+                    }}
+                  />
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Tanggal
                 </th>
@@ -513,6 +653,13 @@ const TempoManagementPage = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {transactions.map((transaction) => (
                 <tr key={transaction.id} className="hover:bg-gray-50">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 w-10">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(transaction.id)}
+                      onChange={() => toggleSelect(transaction.id)}
+                    />
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     {formatDate(transaction.transaction_date)}
                   </td>
@@ -536,32 +683,16 @@ const TempoManagementPage = () => {
                       {transaction.reference_number && (
                         <div className="text-xs text-gray-500">Ref: {transaction.reference_number}</div>
                       )}
-                      {transaction.attachment_urls && transaction.attachment_urls.length > 0 ? (
-                        <div className="space-y-1">
-                          {transaction.attachment_urls.map((url, index) => (
-                            <div key={index}>
-                              <a
-                                href={`${process.env.REACT_APP_BACKEND_URL}/${url}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-blue-500 hover:underline"
-                              >
-                                Nota {index + 1}
-                              </a>
-                            </div>
-                          ))}
-                        </div>
-                      ) : 'Tidak ada file'}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
                     {transaction.transaction_type === 'debit_tempo' ? (
-                      <span className="text-green-600 font-medium">{formatCurrency(transaction.amount)}</span>
+                      <span className="text-green-600 font-medium">{formatCurrency(parseAmount(transaction.amount))}</span>
                     ) : '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
                     {transaction.transaction_type === 'kredit_tempo' ? (
-                      <span className="text-red-600 font-medium">{formatCurrency(transaction.amount)}</span>
+                      <span className="text-red-600 font-medium">{formatCurrency(parseAmount(transaction.amount))}</span>
                     ) : '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium">
@@ -571,15 +702,16 @@ const TempoManagementPage = () => {
                       </span>
                     ) : '-'}
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">
-                    {(transaction.no_nota && transaction.no_nota.length > 0) || (transaction.date_nota && transaction.date_nota.length > 0) ? (
-                      <ul className="list-disc list-inside space-y-1">
-                        {transaction.no_nota && Array.isArray(transaction.no_nota) && transaction.no_nota.map((nota, index) => (
-                          <li key={`nota-${index}`}>
-                            {nota} {transaction.date_nota && transaction.date_nota[index] ? `(${formatDate(transaction.date_nota[index])})` : ''}
-                          </li>
-                        ))}
-                      </ul>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {(transaction.no_nota && transaction.no_nota.length > 0) || 
+                     (transaction.date_nota && transaction.date_nota.length > 0) || 
+                     (transaction.attachment_urls && transaction.attachment_urls.length > 0) ? (
+                      <button
+                        onClick={() => handleShowNotaDetails(transaction)}
+                        className="text-blue-600 hover:text-blue-900 font-medium"
+                      >
+                        Details
+                      </button>
                     ) : '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{transaction.account}</td>
@@ -820,12 +952,14 @@ const TempoManagementPage = () => {
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Jumlah *</label>
                       <input
-                        type="number"
-                        step="0.01"
+                        type="text"
                         value={formData.amount}
-                        onChange={(e) => setFormData((prev) => ({ ...prev, amount: e.target.value }))}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/[^0-9.,]/g, '');
+                          setFormData((prev) => ({ ...prev, amount: value }));
+                        }}
                         className="w-full border border-gray-300 rounded-md px-3 py-2"
-                        placeholder="0"
+                        placeholder="0,00"
                         required={!isSpecialCategory}
                       />
                     </div>
@@ -999,16 +1133,42 @@ const TempoManagementPage = () => {
         </div>
       )}
 
-      {showLunasiModal && selectedTransaction && (
+      {showLunasiModal && selectedTransactions.length > 0 && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
             <div className="mt-3">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Lunasi Transaksi Tempo</h3>
+              <h3 className="text-lg font-medium text-gray-900 mb-4">
+                Lunasi {selectedTransactions.length > 1 ? 'Multiple ' : ''}Transaksi Tempo
+              </h3>
               <div className="space-y-4">
-                <p>Deskripsi: {selectedTransaction.description}</p>
-                <p>Jumlah: {formatCurrency(selectedTransaction.amount)}</p>
-                <p>Tipe saat ini: {selectedTransaction.transaction_type}</p>
-                <p>Tipe baru: {selectedTransaction.transaction_type === 'debit_tempo' ? 'debit' : 'kredit'}</p>
+                {selectedTransactions.length > 1 ? (
+                  <>
+                    <h4 className="font-semibold">Transaksi Terpilih:</h4>
+                    <ul className="list-disc pl-5 space-y-1">
+                      {selectedTransactions.map(t => (
+                        <li key={t.id}>
+                          {formatDate(t.transaction_date)} - {t.description} - {t.transaction_type} {formatCurrency(parseAmount(t.amount))}
+                        </li>
+                      ))}
+                    </ul>
+                    <p>Total Debit Tempo: {formatCurrency(selectedTransactions
+                      .filter(t => t.transaction_type === 'debit_tempo')
+                      .reduce((s, t) => s + parseAmount(t.amount), 0))}</p>
+                    <p>Total Kredit Tempo: {formatCurrency(selectedTransactions
+                      .filter(t => t.transaction_type === 'kredit_tempo')
+                      .reduce((s, t) => s + parseAmount(t.amount), 0))}</p>
+                    <p>Net: {formatCurrency(net)}</p>
+                    <p>Tipe Baru: {newType}</p>
+                    <p>Jumlah Baru: {formatCurrency(Math.abs(net))}</p>
+                  </>
+                ) : (
+                  <>
+                    <p>Deskripsi: {selectedTransactions[0].description}</p>
+                    <p>Jumlah: {formatCurrency(parseAmount(selectedTransactions[0].amount))}</p>
+                    <p>Tipe saat ini: {selectedTransactions[0].transaction_type}</p>
+                    <p>Tipe baru: {newType}</p>
+                  </>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Pilih Akun</label>
                   <CreatableSelect
@@ -1036,10 +1196,88 @@ const TempoManagementPage = () => {
                 <button
                   type="button"
                   onClick={confirmLunasi}
-                  disabled={!selectedLunasiAccount}
+                  disabled={!selectedLunasiAccount || (selectedTransactions.length > 1 && isNaN(net))}
                   className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
                 >
                   Lunasi
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showNotaModal && selectedNotaDetails && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-6 border w-full max-w-lg shadow-lg rounded-md bg-white">
+            <div className="mt-3">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Detail Nota</h3>
+              <div className="space-y-4">
+                {(selectedNotaDetails.no_nota && selectedNotaDetails.no_nota.length > 0) || 
+                 (selectedNotaDetails.date_nota && selectedNotaDetails.date_nota.length > 0) ? (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-700 mb-2">Nota Details</h4>
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            No. Nota
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Tanggal Nota
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {selectedNotaDetails.no_nota && selectedNotaDetails.no_nota.map((nota, index) => (
+                          <tr key={index}>
+                            <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
+                              {nota || '-'}
+                            </td>
+                            <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
+                              {selectedNotaDetails.date_nota && selectedNotaDetails.date_nota[index] 
+                                ? formatDate(selectedNotaDetails.date_nota[index]) 
+                                : '-'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">Tidak ada nomor nota atau tanggal nota.</p>
+                )}
+                {selectedNotaDetails.attachment_urls && selectedNotaDetails.attachment_urls.length > 0 ? (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-700 mb-2">Attached Files</h4>
+                    <ul className="space-y-2">
+                      {selectedNotaDetails.attachment_urls.map((url, index) => (
+                        <li key={index}>
+                          <a
+                            href={`${process.env.REACT_APP_BACKEND_URL}/${url}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-500 hover:underline flex items-center"
+                          >
+                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12h2m0 0h-2m2 0v-2m0 2v2m-6-6h2m0 0h-2m2 0v-2m0 2v2m-6 6h2m0 0h-2m2 0v-2m0 2v2M12 3C8.134 3 5 6.134 5 10c0 2.506 1.42 4.668 3.5 5.799v4.701h7V15.8c2.08-1.132 3.5-3.294 3.5-5.8 0-3.866-3.134-7-7-7z" />
+                            </svg>
+                            Nota {index + 1}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">Tidak ada file terlampir.</p>
+                )}
+              </div>
+              <div className="flex justify-end mt-6">
+                <button
+                  onClick={() => setShowNotaModal(false)}
+                  className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                >
+                  Tutup
                 </button>
               </div>
             </div>

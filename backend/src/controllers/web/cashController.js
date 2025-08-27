@@ -1,15 +1,14 @@
-// backend/src/controllers/web/cashController.js
 const db = require('../../models');
 const { CashTransaction, CashCategory } = db;
 const { Op } = require('sequelize');
 
 const parseCategoryId = (id) => {
   if (id === '' || id === null || id === undefined) {
-    return null; // Convert empty string, null, or undefined to null
+    return null;
   }
-  const parsed = parseInt(id, 10); // Convert string to integer
+  const parsed = parseInt(id, 10);
   if (isNaN(parsed)) {
-    throw new Error('Invalid category_id'); // Handle invalid numbers
+    throw new Error('Invalid category_id');
   }
   return parsed;
 };
@@ -30,46 +29,32 @@ exports.getAllCashTransactions = async (req, res, next) => {
     
     const offset = (page - 1) * limit;
     let whereClause = {
-      // Exclude tempo transactions
       transaction_type: {
         [Op.in]: ['debit', 'kredit']
       }
     };
 
-    // Filter by transaction type
     if (transaction_type && ['debit', 'kredit'].includes(transaction_type)) {
       whereClause.transaction_type = transaction_type;
     }
-
-    // Filter by category
     if (category_id) {
-      whereClause.category_id = category_id;
+      whereClause.category_id = parseCategoryId(category_id);
     }
-
-    // Filter by date range
     if (date_from || date_to) {
       whereClause.transaction_date = {};
-      if (date_from) {
-        whereClause.transaction_date[Op.gte] = date_from;
-      }
-      if (date_to) {
-        whereClause.transaction_date[Op.lte] = date_to;
-      }
+      if (date_from) whereClause.transaction_date[Op.gte] = date_from;
+      if (date_to) whereClause.transaction_date[Op.lte] = date_to;
     }
-
-    // Search in description or reference number
     if (search) {
       whereClause[Op.or] = [
         { description: { [Op.iLike]: `%${search}%` } },
         { reference_number: { [Op.iLike]: `%${search}%` } }
       ];
     }
-
     if (account && account !== 'All') {
       whereClause.account = account;
     }
 
-    // Get transactions with pagination
     const result = await CashTransaction.findAndCountAll({
       where: whereClause,
       include: [{
@@ -82,9 +67,9 @@ exports.getAllCashTransactions = async (req, res, next) => {
       offset: offset
     });
 
-    // Calculate summary (total debit, kredit, and saldo) - Use all transactions for accurate totals
+    // Calculate summary
     const summaryResults = await CashTransaction.findAll({
-      where: whereClause, // Use the same whereClause as the main query
+      where: whereClause,
       attributes: [
         'transaction_type',
         [db.sequelize.fn('SUM', db.sequelize.col('amount')), 'total']
@@ -95,29 +80,31 @@ exports.getAllCashTransactions = async (req, res, next) => {
 
     const totalDebit = summaryResults.find(s => s.transaction_type === 'debit')?.total || 0;
     const totalKredit = summaryResults.find(s => s.transaction_type === 'kredit')?.total || 0;
-    const saldo = parseFloat(totalDebit) - parseFloat(totalKredit);
+    const saldo = parseFloat(totalDebit || 0) - parseFloat(totalKredit || 0);
 
-    // Calculate running balance correctly for ALL transactions first
+    // Debug logging
+    console.log('Cash Summary Results:', summaryResults);
+    console.log('Total Debit:', totalDebit, 'Total Kredit:', totalKredit, 'Saldo:', saldo);
+
     const allFilteredTransactions = await CashTransaction.findAll({
-      where: whereClause, // Use the same filters
+      where: whereClause,
       order: [['created_at', 'ASC']],
       attributes: ['id', 'transaction_type', 'amount', 'created_at']
     });
 
-    // Create balance lookup
     const balanceLookup = {};
     let runningBalance = 0;
 
     allFilteredTransactions.forEach(transaction => {
+      const amount = parseFloat(transaction.amount) || 0;
       if (transaction.transaction_type === 'debit') {
-        runningBalance += parseFloat(transaction.amount);
+        runningBalance += amount;
       } else {
-        runningBalance -= parseFloat(transaction.amount);
+        runningBalance -= amount;
       }
       balanceLookup[transaction.id] = runningBalance;
     });
 
-    // Add running balance to paginated results
     const enhancedTransactions = result.rows.map(transaction => {
       const transactionData = transaction.toJSON();
       return {
@@ -132,9 +119,9 @@ exports.getAllCashTransactions = async (req, res, next) => {
       success: true,
       data: enhancedTransactions,
       summary: {
-        total_debit: parseFloat(totalDebit),
-        total_kredit: parseFloat(totalKredit),
-        saldo: saldo
+        total_debit: parseFloat(totalDebit || 0),
+        total_kredit: parseFloat(totalKredit || 0),
+        saldo: isNaN(saldo) ? 0 : saldo
       },
       pagination: {
         total: result.count,
@@ -149,8 +136,7 @@ exports.getAllCashTransactions = async (req, res, next) => {
   }
 };
 
-// backend/src/controllers/web/cashController.js
-// Add this new function for tempo transactions
+// Get all tempo transactions with summary
 exports.getAllTempoTransactions = async (req, res, next) => {
   try {
     const { 
@@ -170,8 +156,7 @@ exports.getAllTempoTransactions = async (req, res, next) => {
       }
     };
 
-    // Apply additional filters
-    if (category_id) whereClause.category_id = category_id;
+    if (category_id) whereClause.category_id = parseCategoryId(category_id);
     if (date_from || date_to) {
       whereClause.transaction_date = {};
       if (date_from) whereClause.transaction_date[Op.gte] = date_from;
@@ -187,7 +172,6 @@ exports.getAllTempoTransactions = async (req, res, next) => {
       whereClause.account = account;
     }
 
-    // Fetch transactions with pagination
     const result = await CashTransaction.findAndCountAll({
       where: whereClause,
       include: [{
@@ -205,7 +189,7 @@ exports.getAllTempoTransactions = async (req, res, next) => {
       where: whereClause,
       attributes: [
         'transaction_type',
-        [db.sequelize.fn('SUM', db.sequelize.col('amount')), 'total']
+        [db.sequelize.fn('SUM', db.sequelize.cast(db.sequelize.col('amount'), 'DECIMAL(15,2)')), 'total']
       ],
       group: ['transaction_type'],
       raw: true
@@ -213,9 +197,12 @@ exports.getAllTempoTransactions = async (req, res, next) => {
 
     const totalDebitTempo = summaryResults.find(s => s.transaction_type === 'debit_tempo')?.total || 0;
     const totalKreditTempo = summaryResults.find(s => s.transaction_type === 'kredit_tempo')?.total || 0;
-    const saldo = parseFloat(totalDebitTempo) - parseFloat(totalKreditTempo);
+    const saldo = parseFloat(totalDebitTempo || 0) - parseFloat(totalKreditTempo || 0);
 
-    // Calculate running balance
+    // Debug logging
+    console.log('Tempo Summary Results:', summaryResults);
+    console.log('Total Debit Tempo:', totalDebitTempo, 'Total Kredit Tempo:', totalKreditTempo, 'Saldo:', saldo);
+
     const allFilteredTransactions = await CashTransaction.findAll({
       where: whereClause,
       order: [['created_at', 'ASC']],
@@ -225,10 +212,11 @@ exports.getAllTempoTransactions = async (req, res, next) => {
     const balanceLookup = {};
     let runningBalance = 0;
     allFilteredTransactions.forEach(transaction => {
+      const amount = parseFloat(transaction.amount) || 0;
       if (transaction.transaction_type === 'debit_tempo') {
-        runningBalance += parseFloat(transaction.amount);
+        runningBalance += amount;
       } else {
-        runningBalance -= parseFloat(transaction.amount);
+        runningBalance -= amount;
       }
       balanceLookup[transaction.id] = runningBalance;
     });
@@ -237,7 +225,10 @@ exports.getAllTempoTransactions = async (req, res, next) => {
       const transactionData = transaction.toJSON();
       return {
         ...transactionData,
-        running_balance: balanceLookup[transaction.id] || 0
+        running_balance: balanceLookup[transaction.id] || 0,
+        amount: parseFloat(transactionData.amount) || 0, // Ensure amount is numeric
+        no_nota: transactionData.no_nota || [],
+        date_nota: transactionData.date_nota || []
       };
     });
 
@@ -245,9 +236,9 @@ exports.getAllTempoTransactions = async (req, res, next) => {
       success: true,
       data: enhancedTransactions,
       summary: {
-        total_debit_tempo: parseFloat(totalDebitTempo),
-        total_kredit_tempo: parseFloat(totalKreditTempo),
-        saldo
+        total_debit_tempo: parseFloat(totalDebitTempo || 0),
+        total_kredit_tempo: parseFloat(totalKreditTempo || 0),
+        saldo: isNaN(saldo) ? 0 : saldo
       },
       pagination: {
         total: result.count,
@@ -262,17 +253,18 @@ exports.getAllTempoTransactions = async (req, res, next) => {
   }
 };
 
+// Get unique accounts
 exports.getUniqueAccounts = async (req, res, next) => {
   try {
     const accounts = await CashTransaction.findAll({
       attributes: [
-        [db.Sequelize.fn('DISTINCT', db.Sequelize.col('account')), 'account']
+        [db.sequelize.fn('DISTINCT', db.sequelize.col('account')), 'account']
       ],
       raw: true
     });
     res.json({
       success: true,
-      data: accounts.map(a => a.account)
+      data: accounts.map(a => a.account).filter(account => account) // Filter out null/undefined
     });
   } catch (err) {
     console.error('Error in getUniqueAccounts:', err);
@@ -298,31 +290,38 @@ exports.createCashTransaction = async (req, res, next) => {
       account,
     } = req.body;
 
-    // Handle multiple file uploads
+    // Handle attachment_urls
     let attachment_urls = [];
+    if (req.body.attachment_urls) {
+      try {
+        attachment_urls = JSON.parse(req.body.attachment_urls);
+      } catch (error) {
+        attachment_urls = [];
+      }
+    }
     if (req.files && req.files.length > 0) {
-      attachment_urls = req.files.map(file => `uploads/receipts/${file.filename}`);
+      const fileUrls = req.files.map(file => `uploads/receipts/${file.filename}`);
+      attachment_urls = [...attachment_urls, ...fileUrls];
     }
 
-    // Parse no_nota from JSON string to array
+    // Parse no_nota
     let no_nota = [];
     if (typeof req.body.no_nota === 'string') {
       try {
         no_nota = JSON.parse(req.body.no_nota);
       } catch (error) {
-        // Handle invalid JSON (e.g., set to empty array)
         no_nota = [];
       }
     } else if (Array.isArray(req.body.no_nota)) {
       no_nota = req.body.no_nota;
     }
 
+    // Parse date_nota
     let date_nota = [];
     if (typeof req.body.date_nota === 'string') {
       try {
         date_nota = JSON.parse(req.body.date_nota);
       } catch (error) {
-        // Handle invalid JSON (e.g., set to empty array)
         date_nota = [];
       }
     } else if (Array.isArray(req.body.date_nota)) {
@@ -334,26 +333,31 @@ exports.createCashTransaction = async (req, res, next) => {
       await transaction.rollback();
       return res.status(400).json({ success: false, message: 'Invalid transaction type' });
     }
-    if (!amount || parseFloat(amount) <= 0) {
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
       await transaction.rollback();
-      return res.status(400).json({ success: false, message: 'Amount must be greater than 0' });
+      return res.status(400).json({ success: false, message: 'Amount must be a valid number greater than 0' });
     }
     if (!description || description.trim() === '') {
       await transaction.rollback();
       return res.status(400).json({ success: false, message: 'Description is required' });
     }
+    if (!account || account.trim() === '') {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: 'Account is required' });
+    }
 
     const cashTransaction = await CashTransaction.create({
       transaction_type,
-      category_id: category_id || null,
-      amount: parseFloat(amount),
+      category_id: parseCategoryId(category_id),
+      amount: parsedAmount,
       description: description.trim(),
       reference_number: reference_number || null,
-      transaction_date: transaction_date || new Date(),
-      account,
+      transaction_date: transaction_date || new Date().toISOString().split('T')[0],
+      account: account.trim(),
       attachment_urls: attachment_urls.length > 0 ? attachment_urls : null,
-      no_nota: no_nota || null, // Parse if stringified
-      date_nota: date_nota || null,
+      no_nota: no_nota.length > 0 ? no_nota : null,
+      date_nota: date_nota.length > 0 ? date_nota : null,
     }, { transaction });
 
     const createdTransaction = await CashTransaction.findByPk(cashTransaction.id, {
@@ -368,7 +372,10 @@ exports.createCashTransaction = async (req, res, next) => {
       message: 'Cash transaction created successfully',
       data: {
         ...createdTransaction.toJSON(),
-        attachment_urls: createdTransaction.attachment_urls || []
+        amount: parseFloat(createdTransaction.amount), // Ensure numeric
+        attachment_urls: createdTransaction.attachment_urls || [],
+        no_nota: createdTransaction.no_nota || [],
+        date_nota: createdTransaction.date_nota || []
       }
     });
   } catch (err) {
@@ -407,7 +414,13 @@ exports.getCashTransactionById = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: cashTransaction
+      data: {
+        ...cashTransaction.toJSON(),
+        amount: parseFloat(cashTransaction.amount), // Ensure numeric
+        attachment_urls: cashTransaction.attachment_urls || [],
+        no_nota: cashTransaction.no_nota || [],
+        date_nota: cashTransaction.date_nota || []
+      }
     });
   } catch (err) {
     console.error('Error in getCashTransactionById:', err);
@@ -416,87 +429,119 @@ exports.getCashTransactionById = async (req, res, next) => {
 };
 
 // Update cash transaction
-// Update cash transaction
-exports.updateCashTransaction = async (req, res) => {
-  const { id } = req.params;
-  const {
-    transaction_type,
-    category_id,
-    amount,
-    description,
-    reference_number,
-    transaction_date,
-    account,
-    no_nota,
-    date_nota
-  } = req.body;
-
-  // Parse no_nota
-  let updatedNoNota = [];
-  if (typeof no_nota === 'string') {
-    try {
-      updatedNoNota = JSON.parse(no_nota);
-    } catch (error) {
-      updatedNoNota = ['']; // Fallback to empty array with single empty string
-    }
-  } else if (Array.isArray(no_nota)) {
-    updatedNoNota = no_nota;
-  }
-
-  // Parse date_nota
-  let updatedDateNota = [];
-  if (typeof date_nota === 'string') {
-    try {
-      updatedDateNota = JSON.parse(date_nota);
-    } catch (error) {
-      updatedDateNota = ['']; // Fallback to empty array with single empty string
-    }
-  } else if (Array.isArray(date_nota)) {
-    updatedDateNota = date_nota;
-  }
-
-  // Define parseCategoryId locally
-  const parseCategoryId = (id) => {
-    if (id === '' || id === null || id === undefined) {
-      return null; // Convert empty string, null, or undefined to null
-    }
-    const parsed = parseInt(id, 10); // Convert string to integer
-    if (isNaN(parsed)) {
-      throw new Error('Invalid category_id'); // Handle invalid numbers
-    }
-    return parsed;
-  };
-
+exports.updateCashTransaction = async (req, res, next) => {
+  const transaction = await db.sequelize.transaction();
   try {
-    const cashTransaction = await CashTransaction.findByPk(id);
-    if (!cashTransaction) {
-      return res.status(404).json({ message: 'Transaction not found' });
+    const { id } = req.params;
+    const {
+      transaction_type,
+      category_id,
+      amount,
+      description,
+      reference_number,
+      transaction_date,
+      account,
+      no_nota,
+      date_nota
+    } = req.body;
+
+    if (isNaN(parseInt(id))) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid transaction ID. Must be a number.'
+      });
     }
 
-    const categoryId = category_id !== undefined ? parseCategoryId(category_id) : cashTransaction.category_id;
+    const cashTransaction = await CashTransaction.findByPk(id, { transaction });
+    if (!cashTransaction) {
+      await transaction.rollback();
+      return res.status(404).json({ success: false, message: 'Transaction not found' });
+    }
+
+    // Parse no_nota
+    let updatedNoNota = cashTransaction.no_nota || [];
+    if (typeof no_nota === 'string') {
+      try {
+        updatedNoNota = JSON.parse(no_nota);
+      } catch (error) {
+        updatedNoNota = [];
+      }
+    } else if (Array.isArray(no_nota)) {
+      updatedNoNota = no_nota;
+    }
+
+    // Parse date_nota
+    let updatedDateNota = cashTransaction.date_nota || [];
+    if (typeof date_nota === 'string') {
+      try {
+        updatedDateNota = JSON.parse(date_nota);
+      } catch (error) {
+        updatedDateNota = [];
+      }
+    } else if (Array.isArray(date_nota)) {
+      updatedDateNota = date_nota;
+    }
 
     // Handle file uploads
     const existingUrls = cashTransaction.attachment_urls || [];
     const newUrls = req.files?.map(file => `uploads/receipts/${file.filename}`) || [];
     const updatedAttachmentUrls = [...existingUrls, ...newUrls];
 
+    // Validation
+    if (transaction_type && !['debit', 'kredit', 'debit_tempo', 'kredit_tempo'].includes(transaction_type)) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: 'Invalid transaction type' });
+    }
+    const parsedAmount = amount ? parseFloat(amount) : cashTransaction.amount;
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: 'Amount must be a valid number greater than 0' });
+    }
+    if (description && description.trim() === '') {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: 'Description cannot be empty' });
+    }
+    if (account && account.trim() === '') {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: 'Account cannot be empty' });
+    }
+
     await cashTransaction.update({
       transaction_type: transaction_type || cashTransaction.transaction_type,
-      category_id: categoryId,
-      amount: amount ? parseFloat(amount) : cashTransaction.amount,
+      category_id: category_id !== undefined ? parseCategoryId(category_id) : cashTransaction.category_id,
+      amount: parsedAmount,
       description: description ? description.trim() : cashTransaction.description,
       reference_number: reference_number !== undefined ? reference_number : cashTransaction.reference_number,
       transaction_date: transaction_date || cashTransaction.transaction_date,
-      account: account || cashTransaction.account,
-      no_nota: no_nota !== undefined ? updatedNoNota : cashTransaction.no_nota,
-      date_nota: date_nota !== undefined ? updatedDateNota : cashTransaction.date_nota,
-      attachment_urls: updatedAttachmentUrls
+      account: account ? account.trim() : cashTransaction.account,
+      no_nota: updatedNoNota.length > 0 ? updatedNoNota : cashTransaction.no_nota,
+      date_nota: updatedDateNota.length > 0 ? updatedDateNota : cashTransaction.date_nota,
+      attachment_urls: updatedAttachmentUrls.length > 0 ? updatedAttachmentUrls : cashTransaction.attachment_urls
+    }, { transaction });
+
+    const updatedTransaction = await CashTransaction.findByPk(id, {
+      include: [{ model: CashCategory, as: 'category', required: false }],
+      transaction
     });
 
-    return res.status(200).json({ message: 'Transaction updated successfully', data: cashTransaction });
+    await transaction.commit();
+
+    res.status(200).json({
+      success: true,
+      message: 'Transaction updated successfully',
+      data: {
+        ...updatedTransaction.toJSON(),
+        amount: parseFloat(updatedTransaction.amount), // Ensure numeric
+        attachment_urls: updatedTransaction.attachment_urls || [],
+        no_nota: updatedTransaction.no_nota || [],
+        date_nota: updatedTransaction.date_nota || []
+      }
+    });
   } catch (error) {
+    await transaction.rollback();
     console.error('Error in updateCashTransaction:', error);
-    return res.status(500).json({ message: 'Failed to update transaction', error: error.message });
+    return res.status(500).json({ success: false, message: 'Failed to update transaction', error: error.message });
   }
 };
 
@@ -515,9 +560,7 @@ exports.deleteCashTransaction = async (req, res, next) => {
       });
     }
     
-    const cashTransaction = await CashTransaction.findByPk(parseInt(id), {
-      transaction
-    });
+    const cashTransaction = await CashTransaction.findByPk(parseInt(id), { transaction });
     
     if (!cashTransaction) {
       await transaction.rollback();

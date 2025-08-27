@@ -1,4 +1,3 @@
-// src/pages/DeliveryOrderDetail.tsx
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import apiClient from "../api/axiosConfig";
@@ -10,14 +9,14 @@ interface DeliveryOrderDetail {
   item_name: string;
   minimal_load_quantity: number;
   actual_load_quantity?: number;
-  unit: string; // 🎯 NEW: Add unit field
-  unit_price: number; // 🎯 NEW: Add unit price
+  unit: string;
+  unit_price: number;
   status: string;
   status_text: string;
   load_location: string;
   unload_location: string;
   surat_jalan_photo_url?: string;
-    standalone_po_number?: string; // ✅ ADD: For standalone DOs
+  standalone_po_number?: string;
   driver: {
     username: string;
     driverProfile: {
@@ -30,7 +29,7 @@ interface DeliveryOrderDetail {
     type: string;
     capacity?: string;
   };
-  purchaseOrder?: {  // ✅ CHANGE: Make optional with ?
+  purchaseOrder?: {
     po_number: string;
     customer_name: string;
     unit: string;
@@ -40,13 +39,15 @@ interface DeliveryOrderDetail {
     gaji: number;
     total_for_driver: number;
     total_amount: number;
-    minimal_total_amount: number; // 🎯 NEW: Add calculated amounts
+    minimal_total_amount: number;
     actual_total_amount: number;
     ongkosan: number;
     net_profit: number;
-    unit: string; // 🎯 NEW: Unit info
+    unit: string;
     unit_display: string;
   };
+  additional_allowance: number[]; // 🎯 NEW: Add additional_allowance as array of numbers
+  payment_notes: string; // 🎯 NEW: Add payment_notes for allowance descriptions
   timeline: {
     created_at: string;
     departed_to_load_location_at?: string;
@@ -66,7 +67,7 @@ const DeliveryOrderDetailPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // 🎯 NEW: Unit display helper
+  // Helper to get unit display
   const getUnitDisplay = (unit: string) => {
     const unitMap = {
       kilogram: "kg",
@@ -76,6 +77,7 @@ const DeliveryOrderDetailPage = () => {
     return unitMap[unit as keyof typeof unitMap] || unit;
   };
 
+  // Helper to get PO number
   const getPONumber = (deliveryOrder: DeliveryOrderDetail) => {
     if (deliveryOrder.purchaseOrder?.po_number) {
       return deliveryOrder.purchaseOrder.po_number;
@@ -86,7 +88,7 @@ const DeliveryOrderDetailPage = () => {
     }
   };
 
-  // 🎯 NEW: Unit-aware calculation display
+  // Helper to format calculation breakdown
   const getCalculationBreakdown = (
     quantity: number,
     unitPrice: number,
@@ -106,6 +108,20 @@ const DeliveryOrderDetailPage = () => {
     }
   };
 
+  // 🎯 NEW: Helper to parse payment_notes for allowance descriptions
+  const parseAllowanceDescriptions = (paymentNotes: string): string[] => {
+    if (!paymentNotes) return [];
+    // Split by newlines and filter for lines starting with "Additional Allowance"
+    const lines = paymentNotes.split("\n").filter((line) =>
+      line.startsWith("Additional Allowance")
+    );
+    // Extract description after the amount (format: "Additional Allowance X: Rp Y - Description")
+    return lines.map((line) => {
+      const parts = line.split(" - ");
+      return parts.length > 1 ? parts[1] : "";
+    });
+  };
+
   useEffect(() => {
     const fetchDeliveryOrder = async () => {
       try {
@@ -113,10 +129,20 @@ const DeliveryOrderDetailPage = () => {
         const response = await apiClient.get(`/delivery-orders/${id}`);
         const data = response.data.data || response.data;
 
-        // 🎯 NEW: Ensure unit field exists with fallback
+        // Ensure unit field exists with fallback
         if (!data.unit) {
           console.warn('DO data missing unit field, defaulting to "ton"');
           data.unit = "ton";
+        }
+
+        // Ensure additional_allowance and payment_notes exist with fallbacks
+        if (!data.additional_allowance) {
+          console.warn('DO data missing additional_allowance, defaulting to []');
+          data.additional_allowance = [];
+        }
+        if (!data.payment_notes) {
+          console.warn('DO data missing payment_notes, defaulting to ""');
+          data.payment_notes = "";
         }
 
         setDeliveryOrder(data);
@@ -190,6 +216,7 @@ const DeliveryOrderDetailPage = () => {
     return <div className="text-center p-8">Delivery order not found.</div>;
 
   const unitDisplay = getUnitDisplay(deliveryOrder.unit);
+  const allowanceDescriptions = parseAllowanceDescriptions(deliveryOrder.payment_notes);
 
   return (
     <div className="max-w-7xl mx-auto p-6">
@@ -227,11 +254,7 @@ const DeliveryOrderDetailPage = () => {
             </div>
             <div>
               <label className="text-sm text-gray-600">PO Number</label>
-              <p className="font-medium">
-                {deliveryOrder.purchaseOrder?.po_number || 
-                deliveryOrder.standalone_po_number || 
-                `STANDALONE-${deliveryOrder.id}`}
-              </p>
+              <p className="font-medium">{getPONumber(deliveryOrder)}</p>
               {!deliveryOrder.purchaseOrder && (
                 <p className="text-xs text-gray-500 italic">Standalone Delivery Order</p>
               )}
@@ -254,7 +277,6 @@ const DeliveryOrderDetailPage = () => {
                 {deliveryOrder.status_text}
               </span>
             </div>
-            {/* Unit Information */}
             <div>
               <label className="text-sm text-gray-600">Unit</label>
               <p className="font-medium">
@@ -271,7 +293,6 @@ const DeliveryOrderDetailPage = () => {
                   )
                 </span>
               </p>
-              {/* Unit mismatch warning - FIXED */}
               {deliveryOrder.purchaseOrder?.unit &&
                 deliveryOrder.unit !== deliveryOrder.purchaseOrder.unit && (
                   <p className="text-xs text-orange-600 mt-1">
@@ -283,7 +304,7 @@ const DeliveryOrderDetailPage = () => {
           </div>
         </div>
 
-        {/* 🎯 ENHANCED: Financial Information with Unit-aware Calculations */}
+        {/* Financial Summary */}
         <div className="bg-white shadow-md rounded-lg p-6">
           <h2 className="text-xl font-semibold mb-4">Financial Summary</h2>
 
@@ -335,7 +356,6 @@ const DeliveryOrderDetailPage = () => {
                       )}
                   </span>
                 </div>
-
                 {deliveryOrder.financial_summary.actual_total_amount &&
                   deliveryOrder.financial_summary.actual_total_amount !==
                     deliveryOrder.financial_summary.minimal_total_amount && (
@@ -353,73 +373,99 @@ const DeliveryOrderDetailPage = () => {
             </div>
           )}
 
-          <div className="space-y-3">
-            <div className="flex justify-between">
-              <span className="text-gray-600">Trip Allowance</span>
-              <span className="font-medium">
-                Rp{" "}
-                {deliveryOrder.financial_summary.trip_allowance.toLocaleString(
-                  "id-ID"
-                )}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Driver Salary</span>
-              <span className="font-medium">
-                Rp{" "}
-                {deliveryOrder.financial_summary.gaji.toLocaleString("id-ID")}
-              </span>
-            </div>
-            <div className="flex justify-between border-t pt-2">
-              <span className="text-gray-600 font-medium">
-                Total for Driver
-              </span>
-              <span className="font-bold">
-                Rp{" "}
-                {deliveryOrder.financial_summary.total_for_driver.toLocaleString(
-                  "id-ID"
-                )}
-              </span>
-            </div>
-
-            {/* 🎯 ENHANCED: Revenue breakdown */}
-            <div className="border-t pt-2 space-y-2">
-              {deliveryOrder.financial_summary.ongkosan && (
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Ongkosan (Profit)</span>
-                  <span className="font-medium text-purple-600">
-                    Rp{" "}
-                    {deliveryOrder.financial_summary.ongkosan.toLocaleString(
-                      "id-ID"
-                    )}
+          {/* Operational Costs */}
+          <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+            <h3 className="text-sm font-semibold text-gray-800 mb-2">
+              Operational Costs
+            </h3>
+            <div className="space-y-2 text-xs text-gray-700">
+              <div className="flex justify-between">
+                <span>Trip Allowance:</span>
+                <span>
+                  Rp{" "}
+                  {deliveryOrder.financial_summary.trip_allowance.toLocaleString(
+                    "id-ID"
+                  )}
+                </span>
+              </div>
+              {deliveryOrder.additional_allowance.map((amount, index) => (
+                <div key={index} className="flex justify-between">
+                  <span>
+                    Additional Allowance {index + 1}
+                    {allowanceDescriptions[index]
+                      ? ` (${allowanceDescriptions[index]})`
+                      : ""}
                   </span>
+                  <span>Rp {amount.toLocaleString("id-ID")}</span>
                 </div>
-              )}
-
-              {deliveryOrder.financial_summary.net_profit && (
-                <div className="flex justify-between border-t pt-2">
-                  <span className="text-gray-600 font-medium">Net Profit</span>
-                  <span
-                    className={`font-bold ${
-                      deliveryOrder.financial_summary.net_profit >= 0
-                        ? "text-green-600"
-                        : "text-red-600"
-                    }`}
-                  >
-                    Rp{" "}
-                    {deliveryOrder.financial_summary.net_profit.toLocaleString(
-                      "id-ID"
-                    )}
-                  </span>
-                </div>
-              )}
+              ))}
+              <div className="flex justify-between">
+                <span>Driver Salary:</span>
+                <span>
+                  Rp{" "}
+                  {deliveryOrder.financial_summary.gaji.toLocaleString("id-ID")}
+                </span>
+              </div>
+              <div className="flex justify-between font-semibold border-t pt-2">
+                <span>Total for Driver:</span>
+                <span className="font-bold">
+                  Rp{" "}
+                  {deliveryOrder.financial_summary.total_for_driver.toLocaleString(
+                    "id-ID"
+                  )}
+                </span>
+              </div>
             </div>
           </div>
 
-          {/* 🎯 NEW: Unit summary */}
+          {/* Profit Summary */}
+          <div className="space-y-2">
+            {deliveryOrder.financial_summary.ongkosan && (
+              <div className="flex justify-between">
+                <span className="text-gray-600">Ongkosan (Profit)</span>
+                <span className="font-medium text-purple-600">
+                  Rp{" "}
+                  {deliveryOrder.financial_summary.ongkosan.toLocaleString(
+                    "id-ID"
+                  )}
+                </span>
+              </div>
+            )}
+            {deliveryOrder.financial_summary.net_profit && (
+              <div className="flex justify-between border-t pt-2">
+                <span className="text-gray-600 font-medium">Net Profit</span>
+                <span
+                  className={`font-bold ${
+                    deliveryOrder.financial_summary.net_profit >= 0
+                      ? "text-green-600"
+                      : "text-red-600"
+                  }`}
+                >
+                  Rp{" "}
+                  {deliveryOrder.financial_summary.net_profit.toLocaleString(
+                    "id-ID"
+                  )}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Payment Notes */}
+          {deliveryOrder.payment_notes && (
+            <div className="mt-4 pt-4 border-t border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-800 mb-2">
+                Payment Notes
+              </h3>
+              <p className="text-xs text-gray-600 whitespace-pre-wrap">
+                {deliveryOrder.payment_notes}
+              </p>
+            </div>
+          )}
+
+          {/* Unit Summary */}
           <div className="mt-4 pt-4 border-t border-gray-200">
             <div className="text-xs text-gray-600">
-              <span className="font-medium">Pricing Unit:</span> {unitDisplay}(
+              <span className="font-medium">Pricing Unit:</span> {unitDisplay} (
               {deliveryOrder.unit === "kubik"
                 ? "Volume-based pricing"
                 : "Weight-based pricing"}
@@ -428,7 +474,7 @@ const DeliveryOrderDetailPage = () => {
           </div>
         </div>
 
-        {/* 🎯 ENHANCED: Quantity Information with Unit Support */}
+        {/* Quantity Information */}
         <div className="bg-white shadow-md rounded-lg p-6">
           <h2 className="text-xl font-semibold mb-4">Quantity Information</h2>
           <div className="space-y-4">
@@ -469,8 +515,6 @@ const DeliveryOrderDetailPage = () => {
                     % of target
                   </p>
                 </div>
-
-                {/* 🎯 NEW: Quantity comparison */}
                 <div className="mt-3 text-xs">
                   {deliveryOrder.actual_load_quantity >
                   deliveryOrder.minimal_load_quantity ? (
@@ -498,8 +542,6 @@ const DeliveryOrderDetailPage = () => {
                 </div>
               </div>
             )}
-
-            {/* 🎯 NEW: Unit-specific capacity info */}
             <div className="mt-4 pt-4 border-t border-gray-200">
               <div className="bg-gray-50 p-3 rounded-lg">
                 <h4 className="text-sm font-semibold text-gray-700 mb-2">

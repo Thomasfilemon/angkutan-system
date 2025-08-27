@@ -17,32 +17,128 @@ const {
 const { Op } = require("sequelize");
 
 // === TAMBAHKAN UTILITY FUNCTION ===
+// Updated filter function (from previous response, kept for consistency)
 const filterSensitiveDataForDriver = (data, userRole) => {
   if (userRole !== "driver") {
-    return data; // Admin/Owner tetap bisa lihat semua data
+    return data; // Admin/Owner get full data
   }
 
-  // Function untuk remove gaji dari object
-  const removeGaji = (obj) => {
+  const removeSensitiveFields = (obj) => {
     if (obj && typeof obj === "object") {
-      delete obj.gaji;
-
-      // Remove gaji dari financial_summary juga
+      // Remove truly sensitive fields (adjust as needed)
+      delete obj.internal_notes;
       if (obj.financial_summary) {
-        delete obj.financial_summary.gaji;
-        // Recalculate total_for_driver without gaji
         obj.financial_summary.total_for_driver =
-          obj.financial_summary.trip_allowance || 0;
+          (obj.financial_summary.trip_allowance || 0) +
+          (obj.financial_summary.gaji || 0) +
+          (Array.isArray(obj.financial_summary.additional_allowance)
+            ? obj.financial_summary.additional_allowance.reduce((sum, a) => sum + a, 0)
+            : 0);
       }
     }
     return obj;
   };
 
-  // Handle array atau single object
   if (Array.isArray(data)) {
-    return data.map((item) => removeGaji({ ...item }));
+    return data.map((item) => removeSensitiveFields({ ...item }));
   } else {
-    return removeGaji({ ...data });
+    return removeSensitiveFields({ ...data });
+  }
+};
+
+// GET /api/delivery-orders/:id
+exports.getDeliveryOrderById = async (req, res, next) => {
+  try {
+    console.log("getDeliveryOrderById - req.user:", req.user);
+    console.log("getDeliveryOrderById - req.params:", req.params);
+
+    if (!req.user) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    if (!req.user.role) {
+      console.error("User role is undefined in getDeliveryOrderById:", req.user);
+      return res.status(500).json({ message: "User role is not defined" });
+    }
+
+    const userRole = req.user.role;
+    const userId = req.user.id;
+
+    const order = await DeliveryOrder.findByPk(req.params.id, {
+      include: [
+        { model: PurchaseOrder, as: "purchaseOrder", attributes: ["unit"] },
+        { model: Vehicle, as: "vehicle" },
+        {
+          model: User,
+          as: "driver",
+          include: { model: DriverProfile, as: "driverProfile" },
+        },
+        {
+          model: DriverExpense,
+          as: "expenses",
+          order: [["created_at", "DESC"]],
+        },
+      ],
+    });
+
+    if (!order) {
+      return res.status(404).json({ message: "Delivery Order not found" });
+    }
+
+    if (userRole === "driver" && order.driver_id !== userId) {
+      return res.status(403).json({
+        message: "Access denied. You can only view your own delivery orders.",
+      });
+    }
+
+    const plainOrder = order.get({ plain: true });
+    console.log("Raw plainOrder:", plainOrder); // Debug raw data
+
+    // Calculate financial details
+    const expensesTotal = plainOrder.expenses.reduce(
+      (sum, expense) => sum + parseFloat(expense.amount),
+      0
+    );
+    const tripAllowance = parseFloat(plainOrder.trip_allowance) || 0;
+    const gaji = parseFloat(plainOrder.gaji) || 0;
+    const additionalAllowance = Array.isArray(plainOrder.additional_allowance)
+      ? plainOrder.additional_allowance.map(a => parseFloat(a) || 0)
+      : [];
+    const additionalAllowanceTotal = additionalAllowance.reduce(
+      (sum, amount) => sum + amount,
+      0
+    );
+    const paymentNotes = plainOrder.payment_notes || '';
+    const unit = plainOrder.unit || plainOrder.purchaseOrder?.unit || "ton";
+
+    console.log("Processed additional_allowance:", additionalAllowance);
+    console.log("Processed payment_notes:", paymentNotes);
+
+    const responseData = {
+      ...plainOrder,
+      additional_allowance: additionalAllowance,
+      payment_notes: paymentNotes,
+      unit,
+      expenses_total: expensesTotal,
+      remaining_allowance: tripAllowance + additionalAllowanceTotal - expensesTotal,
+      financial_summary: {
+        trip_allowance: tripAllowance,
+        gaji: gaji,
+        additional_allowance: additionalAllowance,
+        total_for_driver: tripAllowance + gaji + additionalAllowanceTotal,
+        expenses_total: expensesTotal,
+        remaining_allowance: tripAllowance + additionalAllowanceTotal - expensesTotal,
+        unit,
+      },
+    };
+
+    const filteredData = filterSensitiveDataForDriver(responseData, userRole);
+    console.log("Final response data:", filteredData); // Debug final response
+
+    res.json(filteredData);
+  } catch (err) {
+    console.error("Error in getDeliveryOrderById:", err);
+    next(err);
   }
 };
 
@@ -407,7 +503,7 @@ exports.getDeliveryOrderById = async (req, res, next) => {
     console.log("getDeliveryOrderById - req.user:", req.user);
     console.log("getDeliveryOrderById - req.params:", req.params);
 
-    // Validasi req.user
+    // Validate req.user
     if (!req.user) {
       return res.status(401).json({
         message: "Authentication required",
@@ -429,7 +525,7 @@ exports.getDeliveryOrderById = async (req, res, next) => {
 
     const order = await DeliveryOrder.findByPk(req.params.id, {
       include: [
-        { model: PurchaseOrder, as: "purchaseOrder" },
+        { model: PurchaseOrder, as: "purchaseOrder", attributes: ["unit"] },
         { model: Vehicle, as: "vehicle" },
         {
           model: User,
@@ -448,7 +544,7 @@ exports.getDeliveryOrderById = async (req, res, next) => {
       return res.status(404).json({ message: "Delivery Order not found" });
     }
 
-    // === AUTHORIZATION CHECK ===
+    // Authorization check
     if (userRole === "driver" && order.driver_id !== userId) {
       return res.status(403).json({
         message: "Access denied. You can only view your own delivery orders.",
@@ -456,27 +552,42 @@ exports.getDeliveryOrderById = async (req, res, next) => {
     }
 
     const plainOrder = order.get({ plain: true });
+
+    // Calculate financial details
     const expensesTotal = plainOrder.expenses.reduce(
       (sum, expense) => sum + parseFloat(expense.amount),
       0
     );
     const tripAllowance = parseFloat(plainOrder.trip_allowance) || 0;
     const gaji = parseFloat(plainOrder.gaji) || 0;
+    const additionalAllowance = Array.isArray(plainOrder.additional_allowance)
+      ? plainOrder.additional_allowance.map(a => parseFloat(a) || 0)
+      : [];
+    const additionalAllowanceTotal = additionalAllowance.reduce(
+      (sum, amount) => sum + amount,
+      0
+    );
+    const unit = plainOrder.unit || plainOrder.purchaseOrder?.unit || "ton";
 
     const responseData = {
       ...plainOrder,
+      additional_allowance: additionalAllowance,
+      payment_notes: plainOrder.payment_notes || '',
+      unit,
       expenses_total: expensesTotal,
-      remaining_allowance: tripAllowance - expensesTotal,
+      remaining_allowance: tripAllowance + additionalAllowanceTotal - expensesTotal,
       financial_summary: {
         trip_allowance: tripAllowance,
         gaji: gaji,
-        total_for_driver: tripAllowance + gaji,
+        additional_allowance: additionalAllowance,
+        total_for_driver: tripAllowance + gaji + additionalAllowanceTotal,
         expenses_total: expensesTotal,
-        remaining_allowance: tripAllowance - expensesTotal,
+        remaining_allowance: tripAllowance + additionalAllowanceTotal - expensesTotal,
+        unit,
       },
     };
 
-    // === FILTER SENSITIVE DATA FOR DRIVERS ===
+    // Filter sensitive data for drivers
     const filteredData = filterSensitiveDataForDriver(responseData, userRole);
 
     res.json(filteredData);

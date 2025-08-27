@@ -64,6 +64,8 @@ const CashManagementPage = () => {
 
   const [showModal, setShowModal] = useState(false);
   const [showTransactionTypeModal, setShowTransactionTypeModal] = useState(false);
+  const [showNotaModal, setShowNotaModal] = useState(false);
+  const [selectedNotaDetails, setSelectedNotaDetails] = useState<CashTransaction | null>(null);
   const [selectedTransactionType, setSelectedTransactionType] = useState('');
   const [editingTransaction, setEditingTransaction] = useState<CashTransaction | null>(null);
   const [formData, setFormData] = useState({
@@ -94,6 +96,9 @@ const CashManagementPage = () => {
   }, []);
 
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
+
+  const [showDescModal, setShowDescModal] = useState(false);
+  const [currentDesc, setCurrentDesc] = useState('');
 
   const fetchTransactions = useCallback(async () => {
     try {
@@ -247,6 +252,11 @@ const CashManagementPage = () => {
       console.error('Error deleting transaction:', err);
       setError('Failed to delete transaction.');
     }
+  };
+
+  const handleShowNotaDetails = (transaction: CashTransaction) => {
+    setSelectedNotaDetails(transaction);
+    setShowNotaModal(true);
   };
 
   const resetForm = () => {
@@ -475,96 +485,93 @@ const CashManagementPage = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {transactions.map((transaction) => (
-                <tr key={transaction.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {formatDate(transaction.transaction_date)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                      transaction.transaction_type === 'debit' 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {transaction.transaction_type === 'debit' ? 'Debit' : 'Kredit'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {transaction.category?.category_name || '-'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">
-                    <div>
-                      <div className="font-medium">{transaction.description}</div>
-                      {transaction.reference_number && (
-                        <div className="text-xs text-gray-500">Ref: {transaction.reference_number}</div>
-                      )}
-                      {transaction.attachment_urls && transaction.attachment_urls.length > 0 ? (
-                        <div className="space-y-1">
-                          {transaction.attachment_urls.map((url, index) => (
-                            <div key={index}>
-                              <a
-                                href={`${process.env.REACT_APP_BACKEND_URL}/${url}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-blue-500 hover:underline"
-                              >
-                                Nota {index + 1}
-                              </a>
-                            </div>
-                          ))}
-                        </div>
-                      ) : 'Tidak ada file'}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
-                    {transaction.transaction_type === 'debit' ? (
-                      <span className="text-green-600 font-medium">{formatCurrency(transaction.amount)}</span>
-                    ) : '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
-                    {transaction.transaction_type === 'kredit' ? (
-                      <span className="text-red-600 font-medium">{formatCurrency(transaction.amount)}</span>
-                    ) : '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium">
-                    {transaction.running_balance !== undefined ? (
-                      <span className={transaction.running_balance >= 0 ? 'text-blue-600' : 'text-red-600'}>
-                        {formatCurrency(transaction.running_balance)}
+              {transactions.map((transaction) => {
+                const fullDesc = transaction.description;
+                const isLong = fullDesc.length > 100;
+                const truncated = isLong ? fullDesc.substring(0, 100) + '...' : fullDesc;
+                return (
+                  <tr key={transaction.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {formatDate(transaction.transaction_date)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                        transaction.transaction_type === 'debit' 
+                          ? 'bg-green-100 text-green-800' 
+                          : 'bg-red-100 text-red-800'
+                      }`}>
+                        {transaction.transaction_type === 'debit' ? 'Debit' : 'Kredit'}
                       </span>
-                    ) : '-'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">
-                    {(transaction.no_nota && transaction.no_nota.length > 0) || (transaction.date_nota && transaction.date_nota.length > 0) ? (
-                      <ul className="list-disc list-inside space-y-1">
-                        {transaction.no_nota && Array.isArray(transaction.no_nota) && transaction.no_nota.map((nota, index) => (
-                          <li key={`nota-${index}`}>
-                            {nota} {transaction.date_nota && transaction.date_nota[index] ? `(${formatDate(transaction.date_nota[index])})` : ''}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {transaction.account}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
-                    <div className="flex justify-center space-x-2">
-                      <button
-                        onClick={() => handleEdit(transaction)}
-                        className="text-blue-600 hover:text-blue-900"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDelete(transaction.id)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        Hapus
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {transaction.category?.category_name || '-'}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900">
+                      <div>
+                        <div className="font-medium">
+                          <span
+                            onClick={() => isLong && (setCurrentDesc(fullDesc), setShowDescModal(true))}
+                            className={isLong ? 'cursor-pointer text-blue-600 hover:underline' : ''}
+                          >
+                            {truncated}
+                          </span>
+                        </div>
+                        {transaction.reference_number && (
+                          <div className="text-xs text-gray-500">Ref: {transaction.reference_number}</div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                      {transaction.transaction_type === 'debit' ? (
+                        <span className="text-green-600 font-medium">{formatCurrency(transaction.amount)}</span>
+                      ) : '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                      {transaction.transaction_type === 'kredit' ? (
+                        <span className="text-red-600 font-medium">{formatCurrency(transaction.amount)}</span>
+                      ) : '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium">
+                      {transaction.running_balance !== undefined ? (
+                        <span className={transaction.running_balance >= 0 ? 'text-blue-600' : 'text-red-600'}>
+                          {formatCurrency(transaction.running_balance)}
+                        </span>
+                      ) : '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {(transaction.no_nota && transaction.no_nota.length > 0) || 
+                       (transaction.date_nota && transaction.date_nota.length > 0) || 
+                       (transaction.attachment_urls && transaction.attachment_urls.length > 0) ? (
+                        <button
+                          onClick={() => handleShowNotaDetails(transaction)}
+                          className="text-blue-600 hover:text-blue-900 font-medium"
+                        >
+                          Details
+                        </button>
+                      ) : '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {transaction.account}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                      <div className="flex justify-center space-x-2">
+                        <button
+                          onClick={() => handleEdit(transaction)}
+                          className="text-blue-600 hover:text-blue-900"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDelete(transaction.id)}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          Hapus
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -937,6 +944,105 @@ const CashManagementPage = () => {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDescModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div className="mt-3">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Deskripsi Lengkap</h3>
+              <div className="whitespace-pre-wrap text-sm text-gray-700 mb-4">
+                {currentDesc}
+              </div>
+              <div className="flex justify-end">
+                <button
+                  onClick={() => setShowDescModal(false)}
+                  className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showNotaModal && selectedNotaDetails && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-6 border w-full max-w-lg shadow-lg rounded-md bg-white">
+            <div className="mt-3">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Detail Nota</h3>
+              <div className="space-y-4">
+                {(selectedNotaDetails.no_nota && selectedNotaDetails.no_nota.length > 0) || 
+                 (selectedNotaDetails.date_nota && selectedNotaDetails.date_nota.length > 0) ? (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-700 mb-2">Nota Details</h4>
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            No. Nota
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Tanggal Nota
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {selectedNotaDetails.no_nota && selectedNotaDetails.no_nota.map((nota, index) => (
+                          <tr key={index}>
+                            <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
+                              {nota || '-'}
+                            </td>
+                            <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
+                              {selectedNotaDetails.date_nota && selectedNotaDetails.date_nota[index] 
+                                ? formatDate(selectedNotaDetails.date_nota[index]) 
+                                : '-'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">Tidak ada nomor nota atau tanggal nota.</p>
+                )}
+                {selectedNotaDetails.attachment_urls && selectedNotaDetails.attachment_urls.length > 0 ? (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-700 mb-2">Attached Files</h4>
+                    <ul className="space-y-2">
+                      {selectedNotaDetails.attachment_urls.map((url, index) => (
+                        <li key={index}>
+                          <a
+                            href={`${process.env.REACT_APP_BACKEND_URL}/${url}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-500 hover:underline flex items-center"
+                          >
+                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12h2m0 0h-2m2 0v-2m0 2v2m-6-6h2m0 0h-2m2 0v-2m0 2v2m-6 6h2m0 0h-2m2 0v-2m0 2v2M12 3C8.134 3 5 6.134 5 10c0 2.506 1.42 4.668 3.5 5.799v4.701h7V15.8c2.08-1.132 3.5-3.294 3.5-5.8 0-3.866-3.134-7-7-7z" />
+                            </svg>
+                            Nota {index + 1}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">Tidak ada file terlampir.</p>
+                )}
+              </div>
+              <div className="flex justify-end mt-6">
+                <button
+                  onClick={() => setShowNotaModal(false)}
+                  className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                >
+                  Tutup
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -1,5 +1,3 @@
-// mobile/app/trip-detail/[id].tsx
-
 import React, { useState, useCallback, useRef } from "react";
 import {
   View,
@@ -49,11 +47,12 @@ interface DeliveryOrderDetails {
   customer_name: string;
   item_name: string;
   trip_allowance: number;
+  gaji: number | null; // 🎯 FIX: Allow null to handle edge cases
   minimal_load_quantity: number;
   actual_load_quantity?: number;
   load_location: string;
   unload_location: string;
-  load_latitude: string; // Add these fields
+  load_latitude: string;
   load_longitude: string;
   unload_latitude: string;
   unload_longitude: string;
@@ -63,12 +62,18 @@ interface DeliveryOrderDetails {
   expenses: Expense[];
   status: string;
   created_at: string;
-  financial_summary?: {
+  additional_allowance: number[]; // Array of additional allowances
+  payment_notes: string; // Payment notes
+  financial_summary: {
     trip_allowance: number;
+    gaji: number | null; // 🎯 FIX: Allow null to handle edge cases
     total_for_driver: number;
     expenses_total: number;
     remaining_allowance: number;
+    additional_allowance: number[]; // Included in financial_summary
+    unit: 'kilogram' | 'ton' | 'kubik';
   };
+  unit: 'kilogram' | 'ton' | 'kubik';
 }
 
 interface ExpenseForm {
@@ -83,13 +88,8 @@ const TripDetailScreen = () => {
   const [trip, setTrip] = useState<DeliveryOrderDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
-  // REF untuk prevent multiple calls
   const isLoadingRef = useRef(false);
   const mountedRef = useRef(true);
-
-  // State untuk form expense
-  // Add component state here
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [submittingExpense, setSubmittingExpense] = useState(false);
   const [showLoadConfirmation, setShowLoadConfirmation] = useState(false);
@@ -109,6 +109,32 @@ const TripDetailScreen = () => {
     { label: "Lain-lain", value: "lainnya" },
   ];
 
+  // Helper to get unit display
+  const getUnitDisplay = (unit: DeliveryOrderDetails['unit']) => {
+    const unitMap = {
+      kilogram: "kg",
+      ton: "ton",
+      kubik: "m³",
+    };
+    return unitMap[unit] || unit;
+  };
+
+  // 🎯 FIX: Simplified parsing of payment_notes for allowance descriptions
+  const parseAllowanceDescriptions = (paymentNotes: string): string[] => {
+    if (!paymentNotes) return [];
+    try {
+      // Split by newlines and filter for lines starting with "Additional Allowance"
+      const lines = paymentNotes.split("\n").filter(line => line.trim().startsWith("Additional Allowance"));
+      return lines.map(line => {
+        const parts = line.split(" - ");
+        return parts.length > 1 ? parts[1].trim() : `Tambahan ${parts[0].replace("Additional Allowance ", "")}`;
+      });
+    } catch (error) {
+      console.error("Error parsing payment_notes:", error);
+      return [];
+    }
+  };
+
   const fetchTripDetails = useCallback(async () => {
     if (!id || isLoadingRef.current) {
       console.log("Skipping fetch - already loading or no ID");
@@ -121,25 +147,37 @@ const TripDetailScreen = () => {
       console.log(`Fetching trip details for ID: ${id}`);
       const response = await getDeliveryOrderDetails(id);
 
-      // Check if component is still mounted
+      // Ensure additional_allowance, payment_notes, and gaji are valid
+      const data = response.data;
+      console.log("Raw trip data:", data); // 🎯 FIX: Log raw data for debugging
+      if (!data.additional_allowance || !Array.isArray(data.additional_allowance)) {
+        console.warn('Trip data missing additional_allowance, defaulting to []');
+        data.additional_allowance = [];
+      }
+      if (!data.payment_notes) {
+        console.warn('Trip data missing payment_notes, defaulting to ""');
+        data.payment_notes = "";
+      }
+      if (!data.unit) {
+        console.warn('Trip data missing unit, defaulting to "ton"');
+        data.unit = "ton";
+      }
+      if (data.financial_summary.gaji === null || data.financial_summary.gaji === undefined) {
+        console.warn('Trip data missing gaji, defaulting to 0');
+        data.financial_summary.gaji = 0;
+        data.gaji = 0;
+      }
+
       if (mountedRef.current) {
-        setTrip(response.data);
-        console.log(`Trip loaded - Status: ${response.data.status}`);
+        setTrip(data);
+        console.log(`Trip loaded - Status: ${data.status}, Gaji: ${data.financial_summary.gaji}, Additional Allowance: ${JSON.stringify(data.additional_allowance)}`);
       }
     } catch (error: any) {
       if (mountedRef.current) {
         console.error("Error fetching trip:", error);
-
-        // Handle specific error types
         if (error.response?.status === 401) {
           Alert.alert("Session Expired", "Please login again.", [
-            {
-              text: "OK",
-              onPress: () => {
-                // This should be handled by interceptor, but just in case
-                router.replace("/(auth)/login");
-              },
-            },
+            { text: "OK", onPress: () => router.replace("/(auth)/login") },
           ]);
         } else if (error.response?.status === 403) {
           Alert.alert(
@@ -162,17 +200,13 @@ const TripDetailScreen = () => {
       }
       isLoadingRef.current = false;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  // useFocusEffect dengan proper dependency dan cleanup
   useFocusEffect(
     useCallback(() => {
       console.log("Screen focused, starting fetch...");
       setLoading(true);
       fetchTripDetails();
-
-      // Cleanup function
       return () => {
         console.log("Screen unfocused, cleaning up...");
         isLoadingRef.current = false;
@@ -180,7 +214,6 @@ const TripDetailScreen = () => {
     }, [fetchTripDetails])
   );
 
-  // Effect untuk cleanup saat unmount
   React.useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -189,31 +222,22 @@ const TripDetailScreen = () => {
     };
   }, []);
 
-  // FUNGSI REFRESH yang di-throttle
   const onRefresh = useCallback(() => {
     if (isLoadingRef.current) {
       console.log("Refresh skipped - already loading");
       return;
     }
-
     setRefreshing(true);
     fetchTripDetails();
   }, [fetchTripDetails]);
 
-  // Handle image picker
   const pickImage = async () => {
     try {
-      console.log("Starting image picker..."); // Debug log
-
-      // Request permission untuk akses media library
-      // Request permission for mobile only
+      console.log("Starting image picker...");
       if (Platform.OS !== "web") {
-        const permissionResult =
-          await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-        console.log("Permission result:", permissionResult); // Debug log
-
-        if (permissionResult.granted === false) {
+        const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        console.log("Permission result:", permissionResult);
+        if (!permissionResult.granted) {
           Alert.alert(
             "Permission Diperlukan",
             "Aplikasi memerlukan izin untuk mengakses galeri foto. Silakan berikan izin di pengaturan aplikasi.",
@@ -223,19 +247,17 @@ const TripDetailScreen = () => {
         }
       }
 
-      // Launch image library dengan konfigurasi yang lebih robust
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: "images",
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: false,
         quality: 0.8,
         base64: false,
       });
 
-      console.log("Image picker result:", result); // Debug log
-
+      console.log("Image picker result:", result);
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const selectedImage = result.assets[0];
-        console.log("Selected image:", selectedImage); // Debug log
+        console.log("Selected image:", selectedImage);
         setReceiptImage(selectedImage);
         if (Platform.OS === "web") {
           window.alert("Foto struk berhasil dipilih!");
@@ -255,15 +277,10 @@ const TripDetailScreen = () => {
 
   const takePicture = async () => {
     try {
-      console.log("Starting camera..."); // Debug log
-
-      // Request permission untuk akses kamera
-      const permissionResult =
-        await ImagePicker.requestCameraPermissionsAsync();
-
-      console.log("Camera permission result:", permissionResult); // Debug log
-
-      if (permissionResult.granted === false) {
+      console.log("Starting camera...");
+      const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+      console.log("Camera permission result:", permissionResult);
+      if (!permissionResult.granted) {
         Alert.alert(
           "Permission Diperlukan",
           "Aplikasi memerlukan izin untuk mengakses kamera. Silakan berikan izin di pengaturan aplikasi.",
@@ -273,20 +290,17 @@ const TripDetailScreen = () => {
       }
 
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ["images"],
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: false,
         quality: 0.8,
         base64: false,
       });
 
-      console.log("Camera result:", result); // Debug log
-
+      console.log("Camera result:", result);
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const takenImage = result.assets[0];
-        console.log("Taken image:", takenImage); // Debug log
+        console.log("Taken image:", takenImage);
         setReceiptImage(takenImage);
-
-        // Berikan feedback visual bahwa foto sudah diambil
         Alert.alert("Berhasil", "Foto struk berhasil diambil!");
       }
     } catch (error) {
@@ -300,7 +314,6 @@ const TripDetailScreen = () => {
 
   const showImagePicker = () => {
     if (Platform.OS === "web") {
-      // Untuk web, gunakan input file HTML
       const input = document.createElement("input");
       input.type = "file";
       input.accept = "image/*";
@@ -339,7 +352,6 @@ const TripDetailScreen = () => {
     const unloadLat = parseFloat(trip.unload_latitude);
     const unloadLng = parseFloat(trip.unload_longitude);
 
-    // Smart routing based on DO status
     switch (trip.status) {
       case "assigned":
       case "otw_to_load_location":
@@ -350,7 +362,6 @@ const TripDetailScreen = () => {
           type: "load",
         };
       case "at_load_location":
-        // Show both locations but prioritize unload for navigation
         return {
           latitude: unloadLat,
           longitude: unloadLng,
@@ -372,16 +383,13 @@ const TripDetailScreen = () => {
 
   const handleBack = () => {
     try {
-      // Check if we can go back
       if (router.canGoBack()) {
         router.back();
       } else {
-        // Fallback: navigate to driver dashboard
         router.replace("/(tabs)");
       }
     } catch (error) {
       console.log("Back navigation failed, using fallback Error: ", error);
-      // Ultimate fallback
       router.replace("/(tabs)");
     }
   };
@@ -413,16 +421,11 @@ const TripDetailScreen = () => {
     }
 
     let url = "";
-
     if (app === "google") {
       if (Platform.OS === "ios") {
         url = `http://maps.apple.com/?q=${target.latitude},${target.longitude}`;
       } else {
-        url = `geo:${target.latitude},${target.longitude}?q=${
-          target.latitude
-        },${target.longitude}(${
-          target.type === "load" ? "Loading" : "Unloading"
-        } Location)`;
+        url = `geo:${target.latitude},${target.longitude}?q=${target.latitude},${target.longitude}(${target.type === "load" ? "Loading" : "Unloading"} Location)`;
       }
     } else if (app === "waze") {
       url = `https://waze.com/ul?ll=${target.latitude},${target.longitude}&navigate=yes`;
@@ -446,9 +449,7 @@ const TripDetailScreen = () => {
 
   const getNavigationIcon = () => {
     const target = getNavigationTarget();
-    if (!target) return "map-marker-alt";
-
-    return target.type === "load" ? "arrow-up" : "arrow-down";
+    return target?.type === "load" ? "arrow-up" : "arrow-down";
   };
 
   const resetExpenseForm = () => {
@@ -472,11 +473,9 @@ const TripDetailScreen = () => {
     return true;
   };
 
-  // CHECK apakah DO sudah completed
   const isTripCompleted = trip?.status === "completed";
 
   const handleSubmitExpense = async () => {
-    // TAMBAH CHECK: Prevent expense creation untuk completed trips
     if (isTripCompleted) {
       Alert.alert(
         "Tidak Dapat Menambah Pengeluaran",
@@ -488,7 +487,6 @@ const TripDetailScreen = () => {
 
     if (!validateExpenseForm() || !trip) return;
 
-    // WEB COMPATIBILITY: Gunakan confirm() untuk web
     if (Platform.OS === "web") {
       const confirmed = window.confirm(
         "Apakah Anda yakin ingin menyimpan pengeluaran ini?"
@@ -497,46 +495,30 @@ const TripDetailScreen = () => {
         await submitExpenseToServer();
       }
     } else {
-      // Mobile specific alert
-      // 1. KONFIRMASI DAHULU SEBELUM MENYIMPAN
       Alert.alert(
         "Konfirmasi Penyimpanan",
         "Apakah Anda yakin ingin menyimpan pengeluaran ini?",
         [
-          {
-            text: "Batal",
-            style: "cancel",
-            // Jika batal, biarkan user edit form lagi - tidak ada action
-          },
-          {
-            text: "Oke",
-            style: "default",
-            onPress: async () => {
-              // 2. JIKA USER KONFIRMASI, BARU LAKUKAN SUBMIT
-              await submitExpenseToServer();
-            },
-          },
+          { text: "Batal", style: "cancel" },
+          { text: "Oke", style: "default", onPress: submitExpenseToServer },
         ]
       );
     }
   };
 
-  // FUNCTION BARU - Pisahkan logic submit ke server
   const submitExpenseToServer = async () => {
     if (!trip) return;
 
     setSubmittingExpense(true);
-    console.log("Starting expense submission process..."); // Add debug log
+    console.log("Starting expense submission process...");
 
     try {
       let imageData = null;
       if (receiptImage) {
-        console.log("Receipt image:", receiptImage); // Log receipt data
-
-        // Ensure we have the proper structure based on platform
+        console.log("Receipt image:", receiptImage);
         imageData =
           Platform.OS === "web"
-            ? receiptImage // On web, we should already have the right format
+            ? receiptImage
             : {
                 uri: receiptImage.uri,
                 type: receiptImage.type || "image/jpeg",
@@ -551,20 +533,15 @@ const TripDetailScreen = () => {
         notes: expenseForm.notes,
         receipt: imageData,
       };
-      console.log("Submitting expense data:", expenseData); // Log the data being sent
+      console.log("Submitting expense data:", expenseData);
 
       const response = await createDriverExpense(expenseData);
+      console.log("Expense submission response:", response.data);
 
-      console.log("Expense submission response:", response.data); // Log response
-
-      // Success handling
-      // 3. TUTUP MODAL DAHULU, BARU SHOW SUCCESS MESSAGE
       setShowExpenseModal(false);
       resetExpenseForm();
-      // 4. REFRESH DATA DI BACKGROUND
       await fetchTripDetails();
 
-      // 5. SHOW SUCCESS NOTIFICATION SETELAH MODAL TERTUTUP
       if (Platform.OS === "web") {
         window.alert(
           "✅ Pengeluaran berhasil disimpan dan saldo telah diperbarui."
@@ -576,18 +553,15 @@ const TripDetailScreen = () => {
             "Pengeluaran berhasil disimpan dan saldo telah diperbarui.",
             [{ text: "OK" }]
           );
-        }, 300); // Delay sedikit untuk smooth transition
+        }, 300);
       }
     } catch (error: any) {
-      console.error("Error submitting expense:", error); // Error logging
-
-      // Full error details
+      console.error("Error submitting expense:", error);
       if (error.response) {
         console.error("Response error data:", error.response.data);
         console.error("Response error status:", error.response.status);
       }
 
-      // Error notification
       if (Platform.OS === "web") {
         window.alert(
           "❌ Gagal Menyimpan: " +
@@ -596,7 +570,6 @@ const TripDetailScreen = () => {
               "Terjadi kesalahan")
         );
       } else {
-        // 6. JIKA ERROR, MODAL TETAP TERBUKA DAN SHOW ERROR
         Alert.alert(
           "❌ Gagal Menyimpan",
           error.response?.data?.message ||
@@ -646,12 +619,7 @@ const TripDetailScreen = () => {
 
     setSubmittingLoad(true);
     try {
-      // Add debug logs
-      console.log("Calling confirmLoad with:", {
-        doId: trip.id,
-        loadData
-      });
-
+      console.log("Calling confirmLoad with:", { doId: trip.id, loadData });
       await confirmLoad(trip.id, loadData);
       setShowLoadConfirmation(false);
       await fetchTripDetails();
@@ -662,14 +630,12 @@ const TripDetailScreen = () => {
       );
     } catch (error: any) {
       console.error("Confirm load error:", error);
-      
       let errorMessage = "Gagal mengkonfirmasi muatan";
       if (error.response?.data?.message) {
         errorMessage = error.response.data.message;
       } else if (error.message) {
         errorMessage = error.message;
       }
-      
       Alert.alert("Error", errorMessage);
     } finally {
       setSubmittingLoad(false);
@@ -714,6 +680,9 @@ const TripDetailScreen = () => {
     );
   }
 
+  const allowanceDescriptions = parseAllowanceDescriptions(trip.payment_notes);
+  const unitDisplay = getUnitDisplay(trip.unit);
+
   return (
     <>
       <ScrollView
@@ -727,7 +696,7 @@ const TripDetailScreen = () => {
           />
         }
       >
-        {/* ✅ Header Card - Clean & Consistent */}
+        {/* Header Card */}
         <View style={styles.headerCard}>
           <View style={styles.headerTop}>
             <TouchableOpacity style={styles.backButton} onPress={handleBack}>
@@ -754,12 +723,16 @@ const TripDetailScreen = () => {
 
             <View style={styles.headerInfo}>
               <Text style={styles.customerName}>{trip.customer_name}</Text>
-              <Text style={styles.itemName}>{trip.item_name}</Text>
+              <Text style={styles.itemName}>
+                {trip.item_name} - {trip.minimal_load_quantity} {unitDisplay}
+                {trip.actual_load_quantity &&
+                  ` → ${trip.actual_load_quantity} ${unitDisplay}`}
+              </Text>
             </View>
           </View>
         </View>
 
-        {/* ✅ Saldo Card - Tetap Konsisten dengan Pattern */}
+        {/* Saldo Card */}
         <View
           style={[styles.saldoCard, isTripCompleted && styles.completedCard]}
         >
@@ -769,23 +742,80 @@ const TripDetailScreen = () => {
               <Text style={styles.completedText}>PERJALANAN SELESAI</Text>
             </View>
           )}
-          <Text style={styles.saldoTitle}>Sisa Uang Jalan</Text>
+          <Text style={styles.saldoTitle}>Keuangan</Text>
           <Text style={styles.saldoAmount}>
             Rp {Number(trip.remaining_allowance).toLocaleString("id-ID")}
           </Text>
-          <View style={styles.saldoBreakdown}>
-            <Text style={styles.breakdownText}>
-              Uang Jalan: Rp{" "}
-              {Number(trip.trip_allowance).toLocaleString("id-ID")}
-            </Text>
-            <Text style={styles.breakdownText}>
-              Total Pengeluaran: Rp{" "}
-              {Number(trip.expenses_total).toLocaleString("id-ID")}
-            </Text>
+          <Text style={styles.saldoSubtitle}>Sisa Uang Jalan</Text>
+
+          {/* Revenue Subsection */}
+          <View style={styles.saldoSection}>
+            <Text style={styles.sectionTitle}>Pendapatan</Text>
+            <View style={styles.breakdownRow}>
+              <Text style={styles.breakdownLabel}>Uang Jalan</Text>
+              <Text style={styles.breakdownValue}>
+                Rp {Number(trip.financial_summary.trip_allowance).toLocaleString("id-ID")}
+              </Text>
+            </View>
+            {trip.additional_allowance.length > 0 ? (
+              trip.additional_allowance.map((amount, index) => (
+                <View key={index} style={styles.breakdownRow}>
+                  <Text style={styles.breakdownLabel}>
+                    Tambahan {index + 1}
+                    {allowanceDescriptions[index] ? ` (${allowanceDescriptions[index]})` : ""}
+                  </Text>
+                  <Text style={styles.breakdownValue}>
+                    Rp {Number(amount).toLocaleString("id-ID")}
+                  </Text>
+                </View>
+              ))
+            ) : (
+              <View style={styles.breakdownRow}>
+                <Text style={styles.breakdownLabel}>Tambahan</Text>
+                <Text style={styles.breakdownValue}>Tidak ada</Text>
+              </View>
+            )}
+            <View style={styles.breakdownRow}>
+              <Text style={styles.breakdownLabel}>Gaji</Text>
+              <Text style={styles.breakdownValue}>
+                Rp {Number(trip.financial_summary.gaji || 0).toLocaleString("id-ID")}
+              </Text>
+            </View>
+            <View style={[styles.breakdownRow, styles.totalRow]}>
+              <Text style={[styles.breakdownLabel, styles.totalLabel]}>Total untuk Driver</Text>
+              <Text style={[styles.breakdownValue, styles.totalValue]}>
+                Rp {Number(trip.financial_summary.total_for_driver).toLocaleString("id-ID")}
+              </Text>
+            </View>
+          </View>
+
+          {/* Expenses Subsection */}
+          <View style={styles.saldoSection}>
+            <Text style={styles.sectionTitle}>Pengeluaran</Text>
+            <View style={styles.breakdownRow}>
+              <Text style={styles.breakdownLabel}>Total Pengeluaran</Text>
+              <Text style={[styles.breakdownValue, styles.expenseValue]}>
+                Rp {Number(trip.expenses_total).toLocaleString("id-ID")}
+              </Text>
+            </View>
+          </View>
+
+          {/* Payment Notes */}
+          {trip.payment_notes && (
+            <View style={styles.saldoSection}>
+              <Text style={styles.sectionTitle}>Catatan Pembayaran</Text>
+              <Text style={styles.paymentNotes}>{trip.payment_notes}</Text>
+            </View>
+          )}
+
+          {/* Unit Information */}
+          <View style={styles.saldoSection}>
+            <Text style={styles.sectionTitle}>Satuan</Text>
+            <Text style={styles.breakdownValue}>{unitDisplay}</Text>
           </View>
         </View>
 
-        {/* KARTU DETAIL TRIP */}
+        {/* Detail Trip Card */}
         <View style={styles.detailCard}>
           <Text style={styles.cardTitle}>Detail Perjalanan</Text>
           <Text style={styles.detailText}>DO: {trip.do_number}</Text>
@@ -803,11 +833,9 @@ const TripDetailScreen = () => {
           </View>
         </View>
 
-        {/* 📍 Location, Navigation & Details Card */}
+        {/* Location, Navigation & Details Card */}
         <View style={styles.detailCard}>
           <Text style={styles.cardTitle}>📍 Lokasi & Navigasi</Text>
-
-          {/* Load Location */}
           <TouchableOpacity
             style={styles.locationItem}
             onPress={() =>
@@ -833,8 +861,6 @@ const TripDetailScreen = () => {
             </View>
             <FontAwesome5 name="map-marker-alt" size={16} color="#3498db" />
           </TouchableOpacity>
-
-          {/* Unload Location */}
           <TouchableOpacity
             style={styles.locationItem}
             onPress={() =>
@@ -860,17 +886,8 @@ const TripDetailScreen = () => {
             </View>
             <FontAwesome5 name="map-marker-alt" size={16} color="#e74c3c" />
           </TouchableOpacity>
-
-          {/* Divider */}
-          <View
-            style={{ height: 1, backgroundColor: "#eee", marginVertical: 16 }}
-          />
-
-          {/* Map Preview Button */}
-          <TouchableOpacity
-            style={styles.mapPreviewButton}
-            onPress={handleOpenMap}
-          >
+          <View style={{ height: 1, backgroundColor: "#eee", marginVertical: 16 }} />
+          <TouchableOpacity style={styles.mapPreviewButton} onPress={handleOpenMap}>
             <View style={styles.mapPreviewContent}>
               <FontAwesome5 name="map" size={32} color="#3b82f6" />
               <View style={styles.mapPreviewText}>
@@ -882,8 +899,6 @@ const TripDetailScreen = () => {
               <FontAwesome5 name="chevron-right" size={16} color="#6b7280" />
             </View>
           </TouchableOpacity>
-
-          {/* Current Navigation Target */}
           {getNavigationTarget() && (
             <View style={styles.navigationTarget}>
               <View style={styles.navigationHeader}>
@@ -891,22 +906,17 @@ const TripDetailScreen = () => {
                   name={getNavigationIcon()}
                   size={20}
                   color={
-                    getNavigationTarget()?.type === "load"
-                      ? "#3498db"
-                      : "#e74c3c"
+                    getNavigationTarget()?.type === "load" ? "#3498db" : "#e74c3c"
                   }
                 />
                 <Text style={styles.navigationTitle}>
                   Tujuan Berikutnya:{" "}
-                  {getNavigationTarget()?.type === "load"
-                    ? "Loading"
-                    : "Unloading"}
+                  {getNavigationTarget()?.type === "load" ? "Loading" : "Unloading"}
                 </Text>
               </View>
               <Text style={styles.navigationAddress}>
                 {getNavigationTarget()?.address}
               </Text>
-              {/* Navigation Buttons */}
               <View style={styles.navigationButtons}>
                 <TouchableOpacity
                   style={[styles.navButton, styles.googleButton]}
@@ -929,7 +939,7 @@ const TripDetailScreen = () => {
           )}
         </View>
 
-        {/* RIWAYAT PENGELUARAN */}
+        {/* Riwayat Pengeluaran */}
         <View style={styles.historyCard}>
           <Text style={styles.cardTitle}>
             Riwayat Pengeluaran
@@ -950,7 +960,6 @@ const TripDetailScreen = () => {
               </Text>
             }
           />
-          {/* PESAN INFO untuk completed trip */}
           {isTripCompleted && (
             <View style={styles.infoContainer}>
               <FontAwesome5 name="info-circle" size={16} color="#3498db" />
@@ -985,7 +994,6 @@ const TripDetailScreen = () => {
         </View>
       </ScrollView>
 
-      {/* FLOATING ACTION BUTTON - Sembunyikan untuk completed trips */}
       {!isTripCompleted && (
         <TouchableOpacity
           style={styles.fab}
@@ -996,7 +1004,6 @@ const TripDetailScreen = () => {
         </TouchableOpacity>
       )}
 
-      {/* MODAL FORM EXPENSE */}
       <Modal
         visible={showExpenseModal}
         animationType="slide"
@@ -1113,7 +1120,6 @@ const TripDetailScreen = () => {
               <TouchableOpacity
                 style={styles.cancelButton}
                 onPress={() => {
-                  // Tambah konfirmasi jika user sudah isi form
                   if (
                     expenseForm.jenis ||
                     expenseForm.amount ||
@@ -1142,12 +1148,10 @@ const TripDetailScreen = () => {
               >
                 <Text style={styles.cancelButtonText}>Batal</Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 style={[
                   styles.submitButton,
                   submittingExpense && styles.disabledButton,
-                  // Tambah style visual jika form belum lengkap
                   (!expenseForm.jenis || !expenseForm.amount) &&
                     styles.incompleteButton,
                 ]}
@@ -1193,8 +1197,6 @@ const getStatusColor = (status: string) => {
     at_load_location: "#3498db",
     otw_to_unload_location: "#e67e22",
     at_unload_location: "#e74c3c",
-    otw_to_destination: "#ffc107",
-    at_destination: "#17a2b8",
     otw_to_base: "#fd7e14",
     completed: "#28a745",
     cancelled: "#dc3545",
@@ -1205,8 +1207,10 @@ const getStatusColor = (status: string) => {
 const getStatusText = (status: string) => {
   const statusMap = {
     assigned: "Ditugaskan",
-    otw_to_destination: "Menuju Tujuan",
-    at_destination: "Di Tujuan",
+    otw_to_load_location: "Menuju Muat",
+    at_load_location: "Di Lokasi Muat",
+    otw_to_unload_location: "Menuju Bongkar",
+    at_unload_location: "Di Lokasi Bongkar",
     otw_to_base: "Perjalanan Pulang",
     completed: "Selesai",
     cancelled: "Dibatalkan",
@@ -1217,75 +1221,24 @@ const getStatusText = (status: string) => {
 const getStatusStyle = (status: string) => {
   const styleMap = {
     assigned: { backgroundColor: "#6c757d" },
-    otw_to_destination: { backgroundColor: "#ffc107" },
-    at_destination: { backgroundColor: "#17a2b8" },
+    otw_to_load_location: { backgroundColor: "#f59e42" },
+    at_load_location: { backgroundColor: "#3498db" },
+    otw_to_unload_location: { backgroundColor: "#e67e22" },
+    at_unload_location: { backgroundColor: "#e74c3c" },
     otw_to_base: { backgroundColor: "#fd7e14" },
     completed: { backgroundColor: "#28a745" },
     cancelled: { backgroundColor: "#dc3545" },
   };
-  return (
-    styleMap[status as keyof typeof styleMap] || { backgroundColor: "#6c757d" }
-  );
+  return styleMap[status as keyof typeof styleMap] || { backgroundColor: "#6c757d" };
 };
 
 const styles = StyleSheet.create({
-  headerBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingTop: 20, // Untuk status bar (atau sesuaikan)
-    paddingBottom: 10,
-    paddingHorizontal: 16,
-    backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-    zIndex: 10,
-  },
-  headerContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-  },
-  customerName: {
-    fontSize: 16,
-    color: "#cbd5e1",
-    fontWeight: "600",
-  },
-  itemName: {
-    fontSize: 15,
-    color: "#fff",
-    fontWeight: "500",
-    marginBottom: 2,
-  },
-  doNumber: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#fff",
-    flex: 1,
-    letterSpacing: 1,
-    marginBottom: 2,
-    marginRight: 8,
-  },
-  headerRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  locationValue: {
-    fontSize: 15,
-    color: "#222",
-    fontWeight: "500",
-    marginBottom: 2,
-  },
   locationItem: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: 12,
-    paddingHorizontal: 8,
     borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-    borderRadius: 8,
-    marginBottom: 8,
-    backgroundColor: "#f9fafb",
+    borderBottomColor: '#eee',
   },
   locationText: {
     flex: 1,
@@ -1293,14 +1246,27 @@ const styles = StyleSheet.create({
   },
   locationLabel: {
     fontSize: 14,
-    color: "#333",
-    fontWeight: "bold",
-    marginBottom: 2,
+    color: '#6b7280',
+    marginBottom: 4,
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#fff",
+  locationValue: {
+    fontSize: 16,
+    color: '#1f2937',
+    fontWeight: '500',
+  },
+  container: { flex: 1, backgroundColor: "#f4f6f8" },
+  centered: { flex: 1, justifyContent: "center", alignItems: "center" },
+  headerCard: {
+    backgroundColor: "#2563eb",
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 8,
+    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 8,
   },
   headerTop: {
     flexDirection: "row",
@@ -1318,47 +1284,53 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  placeholder: {
-    width: 36,
-  },
-
-  // Update existing headerCard style
-  container: { flex: 1, backgroundColor: "#f4f6f8" },
-  centered: { flex: 1, justifyContent: "center", alignItems: "center" },
-  headerCard: {
-    backgroundColor: "#2563eb",
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 8,
-    borderRadius: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 8,
-  },
-  headerInfo: {
-    gap: 4,
-  },
-  statusActionButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 15,
-    marginHorizontal: 16,
-    marginBottom: 20,
-    borderRadius: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  statusActionText: {
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "600",
     color: "#fff",
-    fontSize: 16,
+  },
+  placeholder: { width: 36 },
+  headerContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  doNumber: {
+    fontSize: 24,
     fontWeight: "bold",
-    marginLeft: 10,
+    color: "#fff",
+    flex: 1,
+    letterSpacing: 1,
+    marginRight: 8,
+  },
+  statusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    marginLeft: 12,
+  },
+  statusBadgeText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "bold",
+    textTransform: "uppercase",
+  },
+  headerInfo: { gap: 4 },
+  customerName: {
+    fontSize: 16,
+    color: "#cbd5e1",
+    fontWeight: "600",
+  },
+  itemName: {
+    fontSize: 15,
+    color: "#fff",
+    fontWeight: "500",
+    marginBottom: 2,
   },
   saldoCard: {
     backgroundColor: "#3b82f6",
@@ -1383,13 +1355,60 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#fff",
     textAlign: "center",
-    marginBottom: 16,
+    marginVertical: 8,
   },
-  saldoBreakdown: { gap: 4 },
-  breakdownText: {
+  saldoSubtitle: {
     fontSize: 14,
     color: "#e2e8f0",
     textAlign: "center",
+    marginBottom: 16,
+  },
+  saldoSection: {
+    backgroundColor: "#eff6ff",
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 12,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#1f2937",
+    marginBottom: 8,
+  },
+  breakdownRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  breakdownLabel: {
+    fontSize: 14,
+    color: "#4b5563",
+  },
+  breakdownValue: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#1f2937",
+  },
+  expenseValue: {
+    color: "#e74c3c",
+  },
+  totalRow: {
+    borderTopWidth: 1,
+    borderTopColor: "#e5e7eb",
+    paddingTop: 8,
+    marginTop: 8,
+  },
+  totalLabel: {
+    fontWeight: "bold",
+  },
+  totalValue: {
+    fontWeight: "bold",
+    color: "#2563eb",
+  },
+  paymentNotes: {
+    fontSize: 14,
+    color: "#4b5563",
+    lineHeight: 20,
   },
   detailCard: {
     backgroundColor: "white",
@@ -1403,13 +1422,6 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  historyCard: {
-    backgroundColor: "white",
-    padding: 16,
-    marginHorizontal: 16,
-    marginBottom: 20, // Extra space for FAB
-    borderRadius: 8,
-  },
   cardTitle: {
     fontSize: 18,
     fontWeight: "bold",
@@ -1417,6 +1429,38 @@ const styles = StyleSheet.create({
     color: "#1f2937",
   },
   detailText: { fontSize: 14, color: "#555", marginBottom: 4 },
+  statusContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 8,
+  },
+  statusActionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 15,
+    marginHorizontal: 16,
+    marginBottom: 20,
+    borderRadius: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  statusActionText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+    marginLeft: 10,
+  },
+  historyCard: {
+    backgroundColor: "white",
+    padding: 16,
+    marginHorizontal: 16,
+    marginBottom: 20,
+    borderRadius: 8,
+  },
   expenseItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -1435,12 +1479,7 @@ const styles = StyleSheet.create({
   },
   expenseAmount: { fontSize: 16, fontWeight: "bold", color: "#e74c3c" },
   emptyText: { textAlign: "center", color: "#888", paddingVertical: 20 },
-
-  // STYLES BARU untuk completed trip
-  completedCard: {
-    backgroundColor: "#10b981",
-  },
-
+  completedCard: { backgroundColor: "#10b981" },
   completedBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -1448,7 +1487,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     gap: 8,
   },
-
   completedText: {
     fontSize: 14,
     color: "#bfdbfe",
@@ -1457,33 +1495,11 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
-
-  statusContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 8,
-  },
-
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    marginLeft: 12,
-  },
-
-  statusBadgeText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "bold",
-    textTransform: "uppercase",
-  },
-
   readOnlyIndicator: {
     fontSize: 14,
     color: "#666",
     fontStyle: "italic",
   },
-
   infoContainer: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -1494,7 +1510,6 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: "#3498db",
   },
-
   infoText: {
     flex: 1,
     marginLeft: 8,
@@ -1502,13 +1517,11 @@ const styles = StyleSheet.create({
     color: "#1976d2",
     lineHeight: 20,
   },
-
   loadingText: {
     marginTop: 12,
     fontSize: 16,
     color: "#666",
   },
-
   mapPreviewButton: {
     backgroundColor: "#f8fafc",
     borderRadius: 12,
@@ -1577,12 +1590,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
   },
-  googleButton: {
-    backgroundColor: "#4285f4",
-  },
-  wazeButton: {
-    backgroundColor: "#33ccff",
-  },
+  googleButton: { backgroundColor: "#4285f4" },
+  wazeButton: { backgroundColor: "#33ccff" },
   navButtonText: {
     color: "#fff",
     fontSize: 14,
@@ -1595,8 +1604,6 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
     marginTop: 2,
   },
-
-  // FAB styles
   fab: {
     position: "absolute",
     bottom: 30,
@@ -1613,8 +1620,6 @@ const styles = StyleSheet.create({
     shadowRadius: 5,
     elevation: 8,
   },
-
-  // Modal styles
   modalContainer: { flex: 1, backgroundColor: "#fff" },
   modalHeader: {
     flexDirection: "row",
@@ -1626,8 +1631,6 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: 20, fontWeight: "bold", color: "#333" },
   modalContent: { flex: 1, padding: 20 },
-
-  // Form styles
   formLabel: {
     fontSize: 16,
     fontWeight: "600",
@@ -1645,8 +1648,6 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   textArea: { minHeight: 80, textAlignVertical: "top" },
-
-  // Picker styles
   pickerContainer: { marginBottom: 20 },
   webSelect: {
     borderWidth: 1,
@@ -1668,8 +1669,6 @@ const styles = StyleSheet.create({
   pickerButtonActive: { backgroundColor: "#3b82f6", borderColor: "#3b82f6" },
   pickerButtonText: { fontSize: 14, color: "#666" },
   pickerButtonTextActive: { color: "#fff", fontWeight: "600" },
-
-  // Image picker styles
   imagePickerText: {
     fontSize: 16,
     color: "#3b82f6",
@@ -1677,13 +1676,8 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   imageContainer: { alignItems: "center", marginBottom: 30 },
-
   changeImageText: { color: "#fff", fontSize: 14, fontWeight: "600" },
-
-  incompleteButton: {
-    backgroundColor: "#bdc3c7", // Abu-abu jika form belum lengkap
-  },
-
+  incompleteButton: { backgroundColor: "#bdc3c7" },
   imagePreviewContainer: {
     alignItems: "center",
     marginBottom: 10,
@@ -1691,20 +1685,17 @@ const styles = StyleSheet.create({
     backgroundColor: "#e8f5e8",
     borderRadius: 8,
   },
-
   imageSelected: {
     fontSize: 16,
     color: "#27ae60",
     fontWeight: "600",
     marginBottom: 4,
   },
-
   imageDetails: {
     fontSize: 12,
     color: "#666",
     fontStyle: "italic",
   },
-
   imagePickerButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1716,34 +1707,28 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     marginBottom: 30,
     backgroundColor: "#f8f9fa",
-    // Tambahkan shadow untuk better visual feedback
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
   },
-
   changeImageButton: {
     backgroundColor: "#6c757d",
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 8,
-    // Tambahkan shadow
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
   },
-
   loadingContainer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
   },
-
-  // Modal actions
   modalActions: {
     flexDirection: "row",
     justifyContent: "space-between",

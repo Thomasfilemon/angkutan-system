@@ -132,36 +132,32 @@ const validateItemAgainstPO = async (
 exports.createBatchDeliveryOrder = async (req, res, next) => {
   const transaction = await sequelize.transaction();
   try {
-    let deliveryOrdersData = req.body.delivery_orders || [req.body]; // Array-ify for uniform handling
+    let deliveryOrdersData = req.body.delivery_orders || [req.body];
     if (!Array.isArray(deliveryOrdersData) || deliveryOrdersData.length === 0) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message:
-          "Provide an array of delivery orders or a single object, lazy bones.",
+        message: "Provide an array of delivery orders or a single object.",
       });
     }
 
-    // Batch limit – prevent abuse (adjust as needed)
     if (deliveryOrdersData.length > 20) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: "Whoa, max 20 DOs per request – don't DDoS your own server.",
+        message: "Maximum 20 DOs per request.",
       });
     }
 
     const createdDOs = [];
-    const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-
-    // Track used drivers/vehicles in this batch to avoid internal conflicts
+    const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const usedDrivers = new Set();
     const usedVehicles = new Set();
 
     for (const doData of deliveryOrdersData) {
       const {
         purchase_order_id = null,
-        standalone_po_number, // For standalone DOs
+        standalone_po_number,
         vehicle_id,
         driver_id,
         customer_name,
@@ -171,6 +167,7 @@ exports.createBatchDeliveryOrder = async (req, res, next) => {
         unit_price,
         total_amount,
         trip_allowance = 0,
+        additional_allowance = [],
         gaji = 0,
         ongkosan,
         load_location,
@@ -182,9 +179,9 @@ exports.createBatchDeliveryOrder = async (req, res, next) => {
         payment_status = "proses_tagihan",
         status = "assigned",
         do_name,
+        payment_notes = '',
       } = doData;
 
-      // Basic validation
       if (
         !vehicle_id ||
         !driver_id ||
@@ -196,62 +193,63 @@ exports.createBatchDeliveryOrder = async (req, res, next) => {
         );
       }
 
-      // Unit validation
       if (unit && !["kilogram", "ton", "kubik"].includes(unit)) {
         throw new Error("Invalid unit. Must be one of: kilogram, ton, kubik");
       }
 
-      // Check batch-internal conflicts
+      if (Array.isArray(additional_allowance)) {
+        additional_allowance.forEach((val, index) => {
+          if (isNaN(parseFloat(val)) || parseFloat(val) <= 0) {
+            throw new Error(
+              `Invalid additional_allowance at index ${index}: must be a positive number`
+            );
+          }
+        });
+      }
+
       if (usedDrivers.has(driver_id)) {
         throw new Error(
-          `Driver ${driver_id} is assigned multiple times in this batch – no cloning allowed.`
+          `Driver ${driver_id} is assigned multiple times in this batch.`
         );
       }
       if (usedVehicles.has(vehicle_id)) {
         throw new Error(
-          `Vehicle ${vehicle_id} is assigned multiple times in this batch – physics says no.`
+          `Vehicle ${vehicle_id} is assigned multiple times in this batch.`
         );
       }
       usedDrivers.add(driver_id);
       usedVehicles.add(vehicle_id);
 
-      // Validate driver and vehicle availability (DB checks)
       await validateDriverAvailability(driver_id, transaction);
       await validateVehicleAvailability(vehicle_id, transaction);
-      // NEW: Declare finalUnit and finalUnitPrice before if - nukes undef
-      let finalUnit = unit || "ton"; // Default for standalone or missing
-      let finalUnitPrice = unit_price || 0; // Default 0 for standalone
 
-      // NEW: Skip PO validation if standalone (null purchase_order_id)
       let po = null;
-      if (purchase_order_id) {
-        po = await validateItemAgainstPO(
-          purchase_order_id,
-          item_name,
-          transaction
-        );
+      let finalUnit = unit || "ton";
+      let finalUnitPrice = unit_price || 0;
 
-        // Fallback unit and unit_price from PO
+      if (purchase_order_id) {
+        po = await validateItemAgainstPO(purchase_order_id, item_name, transaction);
         finalUnit = unit || (po ? po.unit : "ton");
         finalUnitPrice = unit_price || (po ? po.unit_price : 0);
       } else if (!customer_name || !item_name) {
-        // NEW: Extra validation for standalone - require customer/item
         throw new Error("Standalone DO requires customer_name and item_name");
       }
 
-      // Generate unique DO number with UUID
       const uniqueSuffix = uuidv4().slice(0, 8).toUpperCase();
       const do_number = `DO-${timestamp}-${uniqueSuffix}`;
 
-      // Calculations
       let calculatedTotalAmount =
         total_amount ||
         calculateTotalAmount(minimal_load_quantity, finalUnitPrice, finalUnit);
       let calculatedOngkosan =
         ongkosan ||
-        calculateOngkosan(calculatedTotalAmount, trip_allowance, gaji);
+        calculateOngkosan(
+          calculatedTotalAmount,
+          trip_allowance,
+          gaji,
+          additional_allowance
+        );
 
-      // Build temp DO for validation
       const tempDO = DeliveryOrder.build({
         purchase_order_id,
         standalone_po_number,
@@ -266,6 +264,7 @@ exports.createBatchDeliveryOrder = async (req, res, next) => {
         unit_price: finalUnitPrice,
         total_amount: calculatedTotalAmount,
         trip_allowance,
+        additional_allowance,
         gaji,
         ongkosan: calculatedOngkosan,
         load_location,
@@ -276,20 +275,18 @@ exports.createBatchDeliveryOrder = async (req, res, next) => {
         unload_longitude,
         payment_status,
         status,
+        payment_notes,
       });
 
-      // Validate remaining quantity ONLY if PO exists
       if (purchase_order_id && tempDO.validateQuantityAgainstPO) {
-        await tempDO.validateQuantityAgainstPO(false); // false for create
+        await tempDO.validateQuantityAgainstPO(false);
       }
 
-      // Create the DO
       const deliveryOrder = await DeliveryOrder.create(tempDO.dataValues, {
         transaction,
         scope: "web",
       });
 
-      // Deposit group integration
       if (purchase_order_id && po && po.deposit_group_id) {
         await DepositGroupMember.create(
           {
@@ -304,13 +301,11 @@ exports.createBatchDeliveryOrder = async (req, res, next) => {
         );
       }
 
-      // Update vehicle status
       await Vehicle.update(
         { status: "in_use" },
         { where: { id: vehicle_id }, transaction }
       );
 
-      // Push notification
       const driverUser = await User.findOne({
         where: { id: driver_id },
         attributes: ["username", "expo_push_token"],
@@ -348,7 +343,6 @@ exports.createBatchDeliveryOrder = async (req, res, next) => {
           await expo.sendPushNotificationsAsync(messages);
         } catch (pushError) {
           console.error("Push notification error:", pushError);
-          // Don't fail, just log
         }
       }
 
@@ -359,11 +353,14 @@ exports.createBatchDeliveryOrder = async (req, res, next) => {
 
     res.status(201).json({
       success: true,
-      message: `Created ${createdDOs.length} delivery order(s) – you're welcome.`,
+      message: `Created ${createdDOs.length} delivery order(s).`,
       data: createdDOs.map((doItem) => ({
         ...doItem.toJSON(),
         unit_display: doItem.getUnitDisplay() || "N/A",
-        financial_summary: doItem.getFinancialSummary() || {},
+        financial_summary: {
+          ...(doItem.getFinancialSummary() || {}),
+          additional_allowance: doItem.additional_allowance || [],
+        },
         big_do_context: doItem.getBigDOContext() || null,
       })),
     });
@@ -393,8 +390,8 @@ exports.createDeliveryOrder = async (req, res, next) => {
       unit_price,
       total_amount,
       trip_allowance = 0,
-      gaji = 0,
       additional_allowance = [],
+      gaji = 0,
       ongkosan,
       load_location,
       unload_location,
@@ -405,33 +402,17 @@ exports.createDeliveryOrder = async (req, res, next) => {
       payment_status = "proses_tagihan",
       status = "assigned",
       do_name,
+      payment_notes,
     } = req.body;
 
-    // Enhanced validation with numeric checks
-    if (
-      !vehicle_id ||
-      !driver_id ||
-      !minimal_load_quantity ||
-      isNaN(parseFloat(minimal_load_quantity))
-    ) {
+    if (!vehicle_id || !driver_id || !minimal_load_quantity || isNaN(parseFloat(minimal_load_quantity))) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message:
-          "Missing or invalid required fields: vehicle_id, driver_id, minimal_load_quantity (must be number)",
+        message: "Missing or invalid required fields: vehicle_id, driver_id, minimal_load_quantity (must be number)",
       });
     }
 
-    // Validate additional allowances
-    if (Array.isArray(additional_allowance)) {
-      additional_allowance.forEach((val, index) => {
-        if (isNaN(parseFloat(val)) || parseFloat(val) < 0) {
-          throw new Error(`Invalid additional_allowance at index ${index}: must be a non-negative number`);
-        }
-      });
-    }
-
-    // Enhanced unit validation
     if (unit && !["kilogram", "ton", "kubik"].includes(unit)) {
       await transaction.rollback();
       return res.status(400).json({
@@ -440,147 +421,38 @@ exports.createDeliveryOrder = async (req, res, next) => {
       });
     }
 
-    // Early item validation against PO
+    // Validate additional allowances
+    if (Array.isArray(additional_allowance)) {
+      additional_allowance.forEach((val, index) => {
+        if (isNaN(parseFloat(val)) || parseFloat(val) <= 0) {
+          throw new Error(`Invalid additional_allowance at index ${index}: must be a positive number`);
+        }
+      });
+    }
+
     let po;
     if (purchase_order_id && item_name) {
-      po = await PurchaseOrder.findByPk(purchase_order_id, { transaction });
-      if (!po) {
-        await transaction.rollback();
-        return res
-          .status(400)
-          .json({ success: false, message: "Purchase Order not found" });
-      }
-      const poItems = po.item_name
-        ? po.item_name.split(",").map((i) => i.trim().toLowerCase())
-        : [];
-      if (!poItems.includes(item_name.trim().toLowerCase())) {
-        await transaction.rollback();
-        return res
-          .status(400)
-          .json({ success: false, message: `Invalid item_name for PO` });
-      }
+      po = await validateItemAgainstPO(purchase_order_id, item_name, transaction);
+    } else if (!customer_name || !item_name) {
+      throw new Error("Standalone DO requires customer_name and item_name");
     }
 
     let finalUnit = unit || (po ? po.unit : "ton");
-    let finalUnitPrice = unit_price;
+    let finalUnitPrice = unit_price || (po ? po.unit_price : 0);
 
-    // Get unit and unit_price from PO if not provided
-    if (purchase_order_id && (!finalUnit || !finalUnitPrice)) {
-      if (po) {
-        if (!finalUnit) {
-          finalUnit = po.unit || "ton";
-        }
-        if (!finalUnitPrice) {
-          finalUnitPrice = po.unit_price;
-        }
-      }
-    }
+    await validateDriverAvailability(driver_id, transaction);
+    await validateVehicleAvailability(vehicle_id, transaction);
 
-    // Enhanced driver availability check
-    const activeDriverDelivery = await DeliveryOrder.findOne({
-      where: {
-        driver_id,
-        status: {
-          [Op.in]: [
-            "assigned",
-            "otw_to_load_location",
-            "at_load_location",
-            "otw_to_unload_location",
-            "at_unload_location",
-            "otw_to_base",
-          ],
-        },
-      },
-      transaction,
-    });
-
-    if (activeDriverDelivery) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: `Driver is already assigned to active delivery order: ${activeDriverDelivery.do_number}`,
-      });
-    }
-
-    // Enhanced vehicle availability check
-    const activeVehicleDelivery = await DeliveryOrder.findOne({
-      where: {
-        vehicle_id,
-        status: {
-          [Op.in]: [
-            "assigned",
-            "otw_to_load_location",
-            "at_load_location",
-            "otw_to_unload_location",
-            "at_unload_location",
-            "otw_to_base",
-          ],
-        },
-      },
-      transaction,
-    });
-
-    if (activeVehicleDelivery) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: `Vehicle is already assigned to active delivery order: ${activeVehicleDelivery.do_number}`,
-      });
-    }
-
-    // Check Big DO conflicts
-    const existingBigDO = await BigDeliveryOrder.findOne({
-      where: {
-        driver_id,
-        status: { [Op.in]: ["assigned", "in_progress"] },
-      },
-      transaction,
-    });
-
-    if (existingBigDO) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: `Driver is already assigned to Big DO: ${existingBigDO.big_do_number}`,
-      });
-    }
-
-    // Enhanced DO number generation
     const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-    let attempts = 0;
-    let do_number;
-    do {
-      const randomSuffix = Math.floor(Math.random() * 1000)
-        .toString()
-        .padStart(3, "0");
-      do_number = `DO-${timestamp}-${randomSuffix}`;
-      const existingDO = await DeliveryOrder.findOne({
-        where: { do_number },
-        transaction,
-      });
-      if (!existingDO) break;
-      attempts++;
-    } while (attempts < 100);
+    const uniqueSuffix = uuidv4().slice(0, 8).toUpperCase();
+    const do_number = `DO-${timestamp}-${uniqueSuffix}`;
 
-    if (attempts >= 100) {
-      await transaction.rollback();
-      return res.status(500).json({
-        success: false,
-        message: "Failed to generate unique DO number after 100 attempts",
-      });
-    }
+    let calculatedTotalAmount = total_amount || calculateTotalAmount(minimal_load_quantity, finalUnitPrice, finalUnit);
+    let calculatedOngkosan = ongkosan || calculateOngkosan(calculatedTotalAmount, trip_allowance, gaji, additional_allowance);
 
-    // Enhanced calculations
-    let calculatedTotalAmount =
-      total_amount ||
-      calculateTotalAmount(minimal_load_quantity, finalUnitPrice, finalUnit);
-    let calculatedOngkosan =
-      ongkosan ||
-      calculateOngkosan(calculatedTotalAmount, trip_allowance, gaji, additional_allowance);
-
-    // Create temporary DO instance for validation
     const tempDO = DeliveryOrder.build({
       purchase_order_id,
+      standalone_po_number,
       driver_id,
       vehicle_id,
       do_number,
@@ -592,8 +464,8 @@ exports.createDeliveryOrder = async (req, res, next) => {
       unit_price: finalUnitPrice,
       total_amount: calculatedTotalAmount,
       trip_allowance,
-      gaji,
       additional_allowance,
+      gaji,
       ongkosan: calculatedOngkosan,
       load_location,
       load_latitude,
@@ -603,83 +475,44 @@ exports.createDeliveryOrder = async (req, res, next) => {
       unload_longitude,
       payment_status,
       status,
+      payment_notes,
     });
 
-    // Validate remaining quantity
-    if (tempDO.validateQuantityAgainstPO) {
+    if (purchase_order_id && tempDO.validateQuantityAgainstPO) {
       await tempDO.validateQuantityAgainstPO(false);
     }
 
-    // Create delivery order
-    const deliveryOrder = await DeliveryOrder.create(tempDO.dataValues, {
-      transaction,
-      scope: "web",
-    });
+    const deliveryOrder = await DeliveryOrder.create(tempDO.dataValues, { transaction, scope: "web" });
 
-    // Deposit group integration
-    if (purchase_order_id) {
-      const purchaseOrder = await PurchaseOrder.findByPk(purchase_order_id, {
-        attributes: ["id", "deposit_group_id"],
-        transaction,
-      });
-
-      if (purchaseOrder && purchaseOrder.deposit_group_id) {
-        // Automatically create deposit group membership
-        await DepositGroupMember.create(
-          {
-            group_id: purchaseOrder.deposit_group_id,
-            delivery_order_id: deliveryOrder.id,
-            quantity: minimal_load_quantity,
-          },
-          { transaction }
-        );
-
-        console.log(
-          `✅ Auto-added DO ${deliveryOrder.do_number} to deposit group ${purchaseOrder.deposit_group_id}`
-        );
-      }
+    if (purchase_order_id && po && po.deposit_group_id) {
+      await DepositGroupMember.create(
+        { group_id: po.deposit_group_id, delivery_order_id: deliveryOrder.id, quantity: minimal_load_quantity },
+        { transaction }
+      );
+      console.log(`✅ Auto-added DO ${deliveryOrder.do_number} to deposit group ${po.deposit_group_id}`);
     }
 
-    // Update vehicle status
-    await Vehicle.update(
-      { status: "in_use" },
-      { where: { id: vehicle_id }, transaction }
-    );
+    await Vehicle.update({ status: "in_use" }, { where: { id: vehicle_id }, transaction });
 
-    // Push notification handling
     const driverUser = await User.findOne({
       where: { id: driver_id },
       attributes: ["username", "expo_push_token"],
-      include: [
-        {
-          model: DriverProfile,
-          as: "driverProfile",
-          attributes: ["full_name"],
-        },
-      ],
+      include: [{ model: DriverProfile, as: "driverProfile", attributes: ["full_name"] }],
       transaction,
     });
 
-    if (
-      driverUser &&
-      driverUser.expo_push_token &&
-      Expo.isExpoPushToken(driverUser.expo_push_token)
-    ) {
+    if (driverUser && driverUser.expo_push_token && Expo.isExpoPushToken(driverUser.expo_push_token)) {
       const expo = new Expo();
-      const driverName =
-        driverUser.driverProfile?.full_name || driverUser.username;
+      const driverName = driverUser.driverProfile?.full_name || driverUser.username;
       const messages = [
         {
           to: driverUser.expo_push_token,
           sound: "default",
           title: "Tugas Pengantaran Baru",
-          body: `Halo ${driverName}, Anda telah ditugaskan untuk DO ${
-            deliveryOrder.do_name || deliveryOrder.do_number
-          }. Silakan cek detail pengantaran di aplikasi.`,
+          body: `Halo ${driverName}, Anda telah ditugaskan untuk DO ${deliveryOrder.do_name || deliveryOrder.do_number}. Silakan cek detail pengantaran di aplikasi.`,
           data: { do_number: deliveryOrder.do_number },
         },
       ];
-
       try {
         await expo.sendPushNotificationsAsync(messages);
       } catch (pushError) {
@@ -695,7 +528,10 @@ exports.createDeliveryOrder = async (req, res, next) => {
       data: {
         ...deliveryOrder.toJSON(),
         unit_display: deliveryOrder.getUnitDisplay() || "N/A",
-        financial_summary: deliveryOrder.getFinancialSummary() || {},
+        financial_summary: {
+          ...(deliveryOrder.getFinancialSummary() || {}),
+          additional_allowance: deliveryOrder.additional_allowance || [],
+        },
         big_do_context: deliveryOrder.getBigDOContext() || null,
       },
     });
