@@ -483,6 +483,32 @@ const DeliveryOrderCreatePage: React.FC = () => {
       ...newFormDataList[formIndex].additional_allowance[allowanceIndex],
       [field]: value,
     };
+
+    // Update payment_notes with all allowances
+    let paymentNotes = newFormDataList[formIndex].payment_notes || "";
+    // Remove existing allowance lines
+    paymentNotes = paymentNotes
+      .split("\n")
+      .filter((line) => !line.startsWith("Additional Allowance"))
+      .join("\n");
+
+    // Append all allowances
+    const allowances = newFormDataList[formIndex].additional_allowance;
+    allowances.forEach((allowance, i) => {
+      if (allowance.description || allowance.amount) {
+        const amount = parseFloat(allowance.amount) || 0;
+        const allowanceText = `Additional Allowance ${
+          i + 1
+        }: Rp ${amount.toLocaleString("id-ID")} - ${
+          allowance.description || "No description"
+        }`;
+        paymentNotes = paymentNotes
+          ? `${paymentNotes}\n${allowanceText}`
+          : allowanceText;
+      }
+    });
+
+    newFormDataList[formIndex].payment_notes = paymentNotes;
     newFormDataList[formIndex].ongkosan = calculateOngkosan(
       newFormDataList[formIndex],
       isStandalone ? newFormDataList[formIndex].unit : selectedPO?.unit ?? "ton"
@@ -493,10 +519,22 @@ const DeliveryOrderCreatePage: React.FC = () => {
   const addAllowance = (formIndex: number) => {
     if (!canCreate) return;
     const newFormDataList = [...formDataList];
-    newFormDataList[formIndex].additional_allowance.push({
-      description: "",
-      amount: "",
-    });
+    const newAllowance = { description: "", amount: "" };
+    newFormDataList[formIndex].additional_allowance.push(newAllowance);
+
+    // Update payment_notes with the new allowance (placeholder)
+    const currentNotes = newFormDataList[formIndex].payment_notes || "";
+    const allowanceText = `Additional Allowance ${
+      newFormDataList[formIndex].additional_allowance.length
+    }: Rp 0 - No description`;
+    newFormDataList[formIndex].payment_notes = currentNotes
+      ? `${currentNotes}\n${allowanceText}`
+      : allowanceText;
+
+    newFormDataList[formIndex].ongkosan = calculateOngkosan(
+      newFormDataList[formIndex],
+      isStandalone ? newFormDataList[formIndex].unit : selectedPO?.unit ?? "ton"
+    ).toString();
     setFormDataList(newFormDataList);
   };
 
@@ -506,6 +544,30 @@ const DeliveryOrderCreatePage: React.FC = () => {
     newFormDataList[formIndex].additional_allowance = newFormDataList[
       formIndex
     ].additional_allowance.filter((_, i) => i !== allowanceIndex);
+
+    // Update payment_notes with remaining allowances
+    let paymentNotes = newFormDataList[formIndex].payment_notes || "";
+    paymentNotes = paymentNotes
+      .split("\n")
+      .filter((line) => !line.startsWith("Additional Allowance"))
+      .join("\n");
+
+    const allowances = newFormDataList[formIndex].additional_allowance;
+    allowances.forEach((allowance, i) => {
+      if (allowance.description || allowance.amount) {
+        const amount = parseFloat(allowance.amount) || 0;
+        const allowanceText = `Additional Allowance ${
+          i + 1
+        }: Rp ${amount.toLocaleString("id-ID")} - ${
+          allowance.description || "No description"
+        }`;
+        paymentNotes = paymentNotes
+          ? `${paymentNotes}\n${allowanceText}`
+          : allowanceText;
+      }
+    });
+
+    newFormDataList[formIndex].payment_notes = paymentNotes;
     newFormDataList[formIndex].ongkosan = calculateOngkosan(
       newFormDataList[formIndex],
       isStandalone ? newFormDataList[formIndex].unit : selectedPO?.unit ?? "ton"
@@ -645,17 +707,17 @@ const DeliveryOrderCreatePage: React.FC = () => {
         unit ?? "ton"
       );
 
-      let paymentNotes = formData.payment_notes || "";
-      formData.additional_allowance.forEach((allowance, i) => {
-        if (allowance.description && allowance.amount) {
-          const allowanceText = `Additional Allowance ${i + 1}: Rp ${parseFloat(
-            allowance.amount
-          ).toLocaleString("id-ID")} - ${allowance.description}`;
-          paymentNotes = paymentNotes
-            ? `${paymentNotes}\n${allowanceText}`
-            : allowanceText;
-        }
-      });
+      // let paymentNotes = formData.payment_notes || "";
+      // formData.additional_allowance.forEach((allowance, i) => {
+      //   if (allowance.description && allowance.amount) {
+      //     const allowanceText = `Additional Allowance ${i + 1}: Rp ${parseFloat(
+      //       allowance.amount
+      //     ).toLocaleString("id-ID")} - ${allowance.description}`;
+      //     paymentNotes = paymentNotes
+      //       ? `${paymentNotes}\n${allowanceText}`
+      //       : allowanceText;
+      //   }
+      // });
 
       return {
         purchase_order_id: isStandalone ? null : selectedPO?.id,
@@ -692,7 +754,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
           : null,
         payment_status: "proses_tagihan",
         status: "assigned",
-        payment_notes: paymentNotes,
+        payment_notes: formData.payment_notes,
       };
     });
 

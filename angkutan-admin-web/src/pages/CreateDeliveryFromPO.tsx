@@ -327,7 +327,7 @@ const CreateDeliveryFromPO: React.FC = () => {
         load_longitude: details.load_longitude?.toString() || "",
         unload_latitude: details.unload_latitude?.toString() || "",
         unload_longitude: details.unload_longitude?.toString() || "",
-        payment_notes: "",
+        payment_notes: "", // Initialize as empty
       };
       setFormDataList([initialFormData]);
 
@@ -337,7 +337,7 @@ const CreateDeliveryFromPO: React.FC = () => {
           lat: details.load_latitude,
           lng: details.load_longitude,
           title: "Load Location",
-          type: "load"
+          type: "load",
         });
       }
       if (details.unload_latitude && details.unload_longitude) {
@@ -345,7 +345,7 @@ const CreateDeliveryFromPO: React.FC = () => {
           lat: details.unload_latitude,
           lng: details.unload_longitude,
           title: "Unload Location",
-          type: "unload"
+          type: "unload",
         });
       }
       setMarkers(initialMarkers);
@@ -402,6 +402,29 @@ const CreateDeliveryFromPO: React.FC = () => {
       ...newFormDataList[formIndex].additional_allowance[allowanceIndex],
       [field]: value,
     };
+
+    // Update payment_notes with all allowances
+    const allowances = newFormDataList[formIndex].additional_allowance;
+    let paymentNotes = newFormDataList[formIndex].payment_notes || "";
+    
+    // Remove existing allowance lines from payment_notes
+    paymentNotes = paymentNotes
+      .split("\n")
+      .filter(line => !line.startsWith("Additional Allowance"))
+      .join("\n");
+
+    // Append all allowances to payment_notes
+    allowances.forEach((allowance, i) => {
+      if (allowance.description || allowance.amount) {
+        const amount = parseFloat(allowance.amount) || 0;
+        const allowanceText = `Additional Allowance ${i + 1}: Rp ${amount.toLocaleString("id-ID")} - ${allowance.description || "No description"}`;
+        paymentNotes = paymentNotes
+          ? `${paymentNotes}\n${allowanceText}`
+          : allowanceText;
+      }
+    });
+
+    newFormDataList[formIndex].payment_notes = paymentNotes;
     newFormDataList[formIndex].ongkosan = calculateOngkosan(
       newFormDataList[formIndex],
       poDetails?.unit
@@ -411,15 +434,48 @@ const CreateDeliveryFromPO: React.FC = () => {
 
   const addAllowance = (formIndex: number) => {
     const newFormDataList = [...formDataList];
-    newFormDataList[formIndex].additional_allowance.push({ description: "", amount: "" });
+    const newAllowance = { description: "", amount: "" };
+    newFormDataList[formIndex].additional_allowance.push(newAllowance);
+
+    // Update payment_notes with the new allowance (placeholder if empty)
+    const currentNotes = newFormDataList[formIndex].payment_notes || "";
+    const allowanceText = `Additional Allowance ${newFormDataList[formIndex].additional_allowance.length}: Rp 0 - No description`;
+    newFormDataList[formIndex].payment_notes = currentNotes
+      ? `${currentNotes}\n${allowanceText}`
+      : allowanceText;
+
+    newFormDataList[formIndex].ongkosan = calculateOngkosan(
+      newFormDataList[formIndex],
+      poDetails?.unit
+    ).toString();
     setFormDataList(newFormDataList);
   };
 
   const removeAllowance = (formIndex: number, allowanceIndex: number) => {
     const newFormDataList = [...formDataList];
-    newFormDataList[formIndex].additional_allowance = newFormDataList[formIndex].additional_allowance.filter(
-      (_, i) => i !== allowanceIndex
-    );
+    newFormDataList[formIndex].additional_allowance = newFormDataList[
+      formIndex
+    ].additional_allowance.filter((_, i) => i !== allowanceIndex);
+
+    // Update payment_notes with remaining allowances
+    let paymentNotes = newFormDataList[formIndex].payment_notes || "";
+    paymentNotes = paymentNotes
+      .split("\n")
+      .filter(line => !line.startsWith("Additional Allowance"))
+      .join("\n");
+
+    const allowances = newFormDataList[formIndex].additional_allowance;
+    allowances.forEach((allowance, i) => {
+      if (allowance.description || allowance.amount) {
+        const amount = parseFloat(allowance.amount) || 0;
+        const allowanceText = `Additional Allowance ${i + 1}: Rp ${amount.toLocaleString("id-ID")} - ${allowance.description || "No description"}`;
+        paymentNotes = paymentNotes
+          ? `${paymentNotes}\n${allowanceText}`
+          : allowanceText;
+      }
+    });
+
+    newFormDataList[formIndex].payment_notes = paymentNotes;
     newFormDataList[formIndex].ongkosan = calculateOngkosan(
       newFormDataList[formIndex],
       poDetails?.unit
@@ -589,15 +645,15 @@ const CreateDeliveryFromPO: React.FC = () => {
         );
 
         // Append additional allowance descriptions to payment_notes
-        let paymentNotes = formData.payment_notes || "";
-        formData.additional_allowance.forEach((allowance, i) => {
-          if (allowance.description && allowance.amount) {
-            const allowanceText = `Additional Allowance ${i + 1}: Rp ${parseFloat(allowance.amount).toLocaleString("id-ID")} - ${allowance.description}`;
-            paymentNotes = paymentNotes
-              ? `${paymentNotes}\n${allowanceText}`
-              : allowanceText;
-          }
-        });
+        // let paymentNotes = formData.payment_notes || "";
+        // formData.additional_allowance.forEach((allowance, i) => {
+        //   if (allowance.description && allowance.amount) {
+        //     const allowanceText = `Additional Allowance ${i + 1}: Rp ${parseFloat(allowance.amount).toLocaleString("id-ID")} - ${allowance.description}`;
+        //     paymentNotes = paymentNotes
+        //       ? `${paymentNotes}\n${allowanceText}`
+        //       : allowanceText;
+        //   }
+        // });
 
         const payload = {
           purchase_order_id: poDetails.id,
@@ -630,7 +686,7 @@ const CreateDeliveryFromPO: React.FC = () => {
             : null,
           payment_status: "proses_tagihan",
           status: "assigned",
-          payment_notes: paymentNotes,
+          payment_notes: formData.payment_notes,
         };
 
         console.log(`Creating DO with payload:`, payload);
