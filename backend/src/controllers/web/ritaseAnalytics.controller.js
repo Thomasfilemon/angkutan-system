@@ -254,7 +254,7 @@ exports.getComprehensiveRitaseTable = async (req, res, next) => {
         case "kilogram":
           return quantity * price;
         case "ton":
-          return quantity * price; // ✅ Convert ton to kg pricing
+          return quantity * price;
         case "kubik":
           return quantity * price; // Direct volume pricing
         default:
@@ -1311,40 +1311,44 @@ exports.getProfitabilityReport = async (req, res) => {
       include: [
         {
           model: PurchaseOrder,
-          as: 'purchaseOrder',
-          attributes: ['id', 'total_amount', 'po_number'], 
+          as: "purchaseOrder",
+          attributes: ["id", "total_amount", "po_number"],
         },
         {
           model: User,
-          as: 'driver',
-          attributes: ['id', 'username'],
-          include: [{
-            model: DriverProfile,
-            as: 'driverProfile',
-            attributes: ['full_name'] 
-          }]
+          as: "driver",
+          attributes: ["id", "username"],
+          include: [
+            {
+              model: DriverProfile,
+              as: "driverProfile",
+              attributes: ["full_name"],
+            },
+          ],
         },
         {
-            model: Vehicle,
-            as: 'vehicle',
-            attributes: ['license_plate']
-        }
+          model: Vehicle,
+          as: "vehicle",
+          attributes: ["license_plate"],
+        },
       ],
-      order: [['created_at', 'DESC']],
+      order: [["created_at", "DESC"]],
     });
 
     // Fetch all purchase orders for the filter dropdown
     const purchaseOrders = await PurchaseOrder.findAll({
-        attributes: ['id', 'po_number', 'customer_name'],
-        order: [['created_at', 'DESC']]
+      attributes: ["id", "po_number", "customer_name"],
+      order: [["created_at", "DESC"]],
     });
 
-    const reportData = deliveryOrders.map(doInstance => {
+    const reportData = deliveryOrders.map((doInstance) => {
       const revenue = parseFloat(doInstance.total_amount) || 0;
-      const costOfGoods = doInstance.purchaseOrder ? parseFloat(doInstance.purchaseOrder.total_amount) : 0;
+      const costOfGoods = doInstance.purchaseOrder
+        ? parseFloat(doInstance.purchaseOrder.total_amount)
+        : 0;
       const uangJalan = parseFloat(doInstance.trip_allowance) || 0;
       const driverSalary = parseFloat(doInstance.gaji) || 0;
-      
+
       const grossProfit = revenue - costOfGoods;
       const netProfit = grossProfit - uangJalan - driverSalary;
 
@@ -1362,8 +1366,10 @@ exports.getProfitabilityReport = async (req, res) => {
         unload_longitude: doInstance.unload_longitude,
         suratJalan: doInstance.do_number,
         deliveryDate: doInstance.completed_at || doInstance.created_at,
-        vehicle: doInstance.vehicle ? doInstance.vehicle.license_plate : 'N/A',
-        driverName: doInstance.driver?.driverProfile ? doInstance.driver.driverProfile.full_name : 'N/A',
+        vehicle: doInstance.vehicle ? doInstance.vehicle.license_plate : "N/A",
+        driverName: doInstance.driver?.driverProfile
+          ? doInstance.driver.driverProfile.full_name
+          : "N/A",
         uangJalan: uangJalan,
         gaji: driverSalary,
         grossProfit: grossProfit,
@@ -1374,7 +1380,12 @@ exports.getProfitabilityReport = async (req, res) => {
     // Return both the report data and the list of POs
     res.status(200).json({ reportData, purchaseOrders });
   } catch (error) {
-    console.error('Error fetching profitability report:', error);
-    res.status(500).send({ message: 'Error generating profitability report', error: error.message });
+    console.error("Error fetching profitability report:", error);
+    res
+      .status(500)
+      .send({
+        message: "Error generating profitability report",
+        error: error.message,
+      });
   }
 };

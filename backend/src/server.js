@@ -34,6 +34,7 @@ const webCashRoutes = require("./routes/web/cash.routes");
 const webRitaseRoutes = require("./routes/web/ritase.routes");
 const webBukuKasRoutes = require("./routes/web/bukuKas.routes");
 const webPaymentsRoutes = require("./routes/web/payments.routes");
+const webAnalyticsRoutes = require("./routes/web/analytics.routes");
 const legacyRitasePaymentsRoutes = require("./routes/web/ritase.payments.legacy.route");
 const utilsRoutes = require("./routes/utils.routes");
 const webDepositGroupRoutes = require("./routes/web/depositGroup.routes");
@@ -80,6 +81,7 @@ app.get("/", (req, res) => {
         ritase: "/api/web/ritase",
         buku_kas: "/api/web/buku-kas",
         payments: "/api/web/payments",
+        analytics: "/api/web/analytics",
       },
     },
   });
@@ -114,6 +116,7 @@ app.use("/api/web/big-delivery-orders", webBigDeliveryOrderRoutes);
 app.use("/api/web/payments", webPaymentsRoutes);
 app.use("/api/web/utils", utilsRoutes);
 app.use("/api/web/deposit-groups", webDepositGroupRoutes);
+app.use("/api/web/analytics", webAnalyticsRoutes);
 
 // Error handling middleware
 app.use(errorHandler);
