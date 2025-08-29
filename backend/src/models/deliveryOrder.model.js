@@ -58,6 +58,26 @@ module.exports = (sequelize) => {
         comment: "Uang operasional (bensin, tol, dll)",
         validate: { min: 0 },
       },
+      additional_allowance: {
+        type: DataTypes.ARRAY(DataTypes.DECIMAL(15, 2)),
+        allowNull: true,
+        defaultValue: [],
+        comment: "Additional allowances for the trip",
+        validate: {
+          isValidArray(value) {
+            if (value && !Array.isArray(value)) {
+              throw new Error('Additional allowance must be an array');
+            }
+            if (value) {
+              value.forEach(val => {
+                if (val < 0) {
+                  throw new Error('Each additional allowance must be a non-negative number');
+                }
+              });
+            }
+          }
+        }
+      },
       gaji: {
         type: DataTypes.DECIMAL(15, 2),
         allowNull: false,
@@ -238,6 +258,9 @@ module.exports = (sequelize) => {
 
     return {
       trip_allowance: parseFloat(this.trip_allowance) || 0,
+      additional_allowance: Array.isArray(this.additional_allowance) 
+      ? this.additional_allowance.map(a => parseFloat(a) || 0)
+      : [],
       gaji: parseFloat(this.gaji) || 0,
       total_for_driver: this.getTotalDriverPayment(),
       minimal_total_amount: parseFloat(this.total_amount) || 0,
@@ -311,7 +334,11 @@ module.exports = (sequelize) => {
   DeliveryOrder.prototype.getTotalDriverPayment = function () {
     const allowance = parseFloat(this.trip_allowance) || 0;
     const salary = parseFloat(this.gaji) || 0;
-    return allowance + salary;
+    const additional = Array.isArray(this.additional_allowance) 
+      ? this.additional_allowance.reduce((sum, val) => sum + (parseFloat(val) || 0), 0)
+      : 0;
+    
+    return allowance + salary + additional;
   };
 
   DeliveryOrder.prototype.calculateActualTotalAmount = function () {

@@ -295,6 +295,7 @@ CREATE TABLE delivery_orders (
   unit_price NUMERIC,
   total_amount NUMERIC NOT NULL,
   trip_allowance NUMERIC(15, 2) NOT NULL DEFAULT 0,
+  additional_allowance NUMERIC(15, 2)[] DEFAULT NULL,
   gaji NUMERIC(15, 2) NOT NULL DEFAULT 0,
   ongkosan NUMERIC(15, 2) DEFAULT 0,
   final_amount NUMERIC(15,2),
@@ -509,6 +510,7 @@ CREATE TABLE cash_transactions (
   transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
   attachment_urls TEXT[], -- Photo attachments
   no_nota TEXT[], -- Enhanced nota tracking (from current)
+  date_nota TEXT[],
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

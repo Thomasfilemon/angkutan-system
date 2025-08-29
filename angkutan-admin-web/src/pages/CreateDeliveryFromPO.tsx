@@ -48,7 +48,7 @@ interface PODetails {
   customer_name: string;
   item_name: string;
   unit: string;
-  unit_price?: number; // Made optional since incoming removes this from PO
+  unit_price?: number;
   total_quantity: number;
   delivered_quantity: number;
   remaining_quantity: number;
@@ -72,13 +72,19 @@ interface Vehicle {
   driver_status: string | null;
 }
 
+interface Allowance {
+  description: string;
+  amount: string;
+}
+
 interface DOFormData {
   do_name: string;
-  item_name: string; // Added from incoming - for item selection
+  item_name: string;
   vehicle_id: string;
   minimal_load_quantity: string;
-  unit_price: string; // Added from incoming - user can set price per DO
+  unit_price: string;
   trip_allowance: string;
+  additional_allowance: Allowance[];
   gaji: string;
   ongkosan: string;
   load_location: string;
@@ -87,6 +93,7 @@ interface DOFormData {
   load_longitude: string;
   unload_latitude: string;
   unload_longitude: string;
+  payment_notes: string;
 }
 
 interface MarkerType {
@@ -169,18 +176,19 @@ const CreateDeliveryFromPO: React.FC = () => {
   const { poId } = useParams<{ poId: string }>();
   const navigate = useNavigate();
   const [poDetails, setPODetails] = useState<PODetails | null>(null);
-  const [poItems, setPoItems] = useState<string[]>([]); // Added from incoming - for multi-item support
+  const [poItems, setPoItems] = useState<string[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState<string[]>([]); // Changed to array for multiple errors
+  const [errors, setErrors] = useState<string[]>([]);
   const [formDataList, setFormDataList] = useState<DOFormData[]>([
     {
       do_name: "",
-      item_name: "", // Added from incoming
+      item_name: "",
       vehicle_id: "",
       minimal_load_quantity: "",
-      unit_price: "", // Added from incoming
+      unit_price: "",
       trip_allowance: "",
+      additional_allowance: [],
       gaji: "",
       ongkosan: "",
       load_location: "",
@@ -189,10 +197,10 @@ const CreateDeliveryFromPO: React.FC = () => {
       load_longitude: "",
       unload_latitude: "",
       unload_longitude: "",
+      payment_notes: "",
     },
   ]);
   
-  // Map-related states
   const [selectedLocationType, setSelectedLocationType] = useState<"load" | "unload" | null>(null);
   const [showMap, setShowMap] = useState<boolean>(true);
   const [markers, setMarkers] = useState<MarkerType[]>([]);
@@ -202,7 +210,6 @@ const CreateDeliveryFromPO: React.FC = () => {
     unload: boolean;
   }>({ load: false, unload: false });
 
-  // Default map center
   const defaultCenter = { lat: -6.2088, lng: 106.8456 };
 
   const getUnitDisplay = (unit: string) => {
@@ -214,30 +221,34 @@ const CreateDeliveryFromPO: React.FC = () => {
     return unitMap[unit as keyof typeof unitMap] || unit;
   };
 
-  // Updated to use user-entered unit price instead of PO unit price
   const calculateTotalAmount = (
     quantity: number,
     unitPrice: number,
     unit: string
   ) => {
-    // Direct calculation: quantity * unitPrice per unit
     return quantity * unitPrice;
   };
 
-  // Updated to use user-entered unit price
+  const calculateAdditionalAllowanceTotal = (formData: DOFormData): number => {
+    return formData.additional_allowance.reduce(
+      (sum, allowance) => sum + (parseFloat(allowance.amount) || 0),
+      0
+    );
+  };
+
   const calculateOngkosan = (formData: DOFormData, poUnit?: string): number => {
     if (!formData.unit_price || !poUnit || !formData.minimal_load_quantity)
       return 0;
     const quantity = parseFloat(formData.minimal_load_quantity);
     const unitPrice = parseFloat(formData.unit_price);
     const totalRevenue = calculateTotalAmount(quantity, unitPrice, poUnit);
-    const operationalCosts =
-      (parseFloat(formData.trip_allowance) || 0) +
-      (parseFloat(formData.gaji) || 0);
+    const tripAllowance = parseFloat(formData.trip_allowance) || 0;
+    const additionalAllowance = calculateAdditionalAllowanceTotal(formData);
+    const gaji = parseFloat(formData.gaji) || 0;
+    const operationalCosts = tripAllowance + additionalAllowance + gaji;
     return totalRevenue - operationalCosts;
   };
 
-  // Location setting function
   const setLocationWithType = (lat: number, lng: number, address: string, type: "load" | "unload") => {
     const newFormDataList = [...formDataList];
     if (type === "load") {
@@ -257,7 +268,6 @@ const CreateDeliveryFromPO: React.FC = () => {
     }
     setFormDataList(newFormDataList);
 
-    // Update markers
     setMarkers(prev => {
       const filtered = prev.filter(m => m.type !== type);
       return [...filtered, {
@@ -271,7 +281,6 @@ const CreateDeliveryFromPO: React.FC = () => {
     setSelectedLocationType(null);
   };
 
-  // Search select handler
   const handleSearchSelect = (lat: number, lng: number, label: string) => {
     if (selectedLocationType) {
       setLocationWithType(lat, lng, label, selectedLocationType);
@@ -297,7 +306,6 @@ const CreateDeliveryFromPO: React.FC = () => {
 
       setPODetails(details);
 
-      // Multi-item support from incoming
       const items = details.item_name
         ? details.item_name.split(",").map((i: string) => i.trim())
         : [];
@@ -305,11 +313,12 @@ const CreateDeliveryFromPO: React.FC = () => {
 
       const initialFormData = {
         do_name: "",
-        item_name: items.length === 1 ? items[0] : "", // Preselect if only one item
+        item_name: items.length === 1 ? items[0] : "",
         vehicle_id: "",
         minimal_load_quantity: "",
-        unit_price: "", // User will enter this
+        unit_price: "",
         trip_allowance: "",
+        additional_allowance: [],
         gaji: "",
         ongkosan: "",
         load_location: details.load_location || "",
@@ -318,17 +327,17 @@ const CreateDeliveryFromPO: React.FC = () => {
         load_longitude: details.load_longitude?.toString() || "",
         unload_latitude: details.unload_latitude?.toString() || "",
         unload_longitude: details.unload_longitude?.toString() || "",
+        payment_notes: "", // Initialize as empty
       };
       setFormDataList([initialFormData]);
 
-      // Initialize markers if coordinates exist
       const initialMarkers: MarkerType[] = [];
       if (details.load_latitude && details.load_longitude) {
         initialMarkers.push({
           lat: details.load_latitude,
           lng: details.load_longitude,
           title: "Load Location",
-          type: "load"
+          type: "load",
         });
       }
       if (details.unload_latitude && details.unload_longitude) {
@@ -336,7 +345,7 @@ const CreateDeliveryFromPO: React.FC = () => {
           lat: details.unload_latitude,
           lng: details.unload_longitude,
           title: "Unload Location",
-          type: "unload"
+          type: "unload",
         });
       }
       setMarkers(initialMarkers);
@@ -375,21 +384,103 @@ const CreateDeliveryFromPO: React.FC = () => {
       ...newFormDataList[index],
       [e.target.name]: e.target.value,
     };
+    newFormDataList[index].ongkosan = calculateOngkosan(
+      newFormDataList[index],
+      poDetails?.unit
+    ).toString();
     setFormDataList(newFormDataList);
+  };
 
-    // Recalculate ongkosan if relevant fields change
-    if (
-      e.target.name === "minimal_load_quantity" ||
-      e.target.name === "unit_price" || // Added from incoming
-      e.target.name === "trip_allowance" ||
-      e.target.name === "gaji"
-    ) {
-      newFormDataList[index].ongkosan = calculateOngkosan(
-        newFormDataList[index],
-        poDetails?.unit
-      ).toString();
-      setFormDataList([...newFormDataList]);
-    }
+  const handleAllowanceChange = (
+    formIndex: number,
+    allowanceIndex: number,
+    field: keyof Allowance,
+    value: string
+  ) => {
+    const newFormDataList = [...formDataList];
+    newFormDataList[formIndex].additional_allowance[allowanceIndex] = {
+      ...newFormDataList[formIndex].additional_allowance[allowanceIndex],
+      [field]: value,
+    };
+
+    // Update payment_notes with all allowances
+    const allowances = newFormDataList[formIndex].additional_allowance;
+    let paymentNotes = newFormDataList[formIndex].payment_notes || "";
+    
+    // Remove existing allowance lines from payment_notes
+    paymentNotes = paymentNotes
+      .split("\n")
+      .filter(line => !line.startsWith("Additional Allowance"))
+      .join("\n");
+
+    // Append all allowances to payment_notes
+    allowances.forEach((allowance, i) => {
+      if (allowance.description || allowance.amount) {
+        const amount = parseFloat(allowance.amount) || 0;
+        const allowanceText = `Additional Allowance ${i + 1}: Rp ${amount.toLocaleString("id-ID")} - ${allowance.description || "No description"}`;
+        paymentNotes = paymentNotes
+          ? `${paymentNotes}\n${allowanceText}`
+          : allowanceText;
+      }
+    });
+
+    newFormDataList[formIndex].payment_notes = paymentNotes;
+    newFormDataList[formIndex].ongkosan = calculateOngkosan(
+      newFormDataList[formIndex],
+      poDetails?.unit
+    ).toString();
+    setFormDataList(newFormDataList);
+  };
+
+  const addAllowance = (formIndex: number) => {
+    const newFormDataList = [...formDataList];
+    const newAllowance = { description: "", amount: "" };
+    newFormDataList[formIndex].additional_allowance.push(newAllowance);
+
+    // Update payment_notes with the new allowance (placeholder if empty)
+    const currentNotes = newFormDataList[formIndex].payment_notes || "";
+    const allowanceText = `Additional Allowance ${newFormDataList[formIndex].additional_allowance.length}: Rp 0 - No description`;
+    newFormDataList[formIndex].payment_notes = currentNotes
+      ? `${currentNotes}\n${allowanceText}`
+      : allowanceText;
+
+    newFormDataList[formIndex].ongkosan = calculateOngkosan(
+      newFormDataList[formIndex],
+      poDetails?.unit
+    ).toString();
+    setFormDataList(newFormDataList);
+  };
+
+  const removeAllowance = (formIndex: number, allowanceIndex: number) => {
+    const newFormDataList = [...formDataList];
+    newFormDataList[formIndex].additional_allowance = newFormDataList[
+      formIndex
+    ].additional_allowance.filter((_, i) => i !== allowanceIndex);
+
+    // Update payment_notes with remaining allowances
+    let paymentNotes = newFormDataList[formIndex].payment_notes || "";
+    paymentNotes = paymentNotes
+      .split("\n")
+      .filter(line => !line.startsWith("Additional Allowance"))
+      .join("\n");
+
+    const allowances = newFormDataList[formIndex].additional_allowance;
+    allowances.forEach((allowance, i) => {
+      if (allowance.description || allowance.amount) {
+        const amount = parseFloat(allowance.amount) || 0;
+        const allowanceText = `Additional Allowance ${i + 1}: Rp ${amount.toLocaleString("id-ID")} - ${allowance.description || "No description"}`;
+        paymentNotes = paymentNotes
+          ? `${paymentNotes}\n${allowanceText}`
+          : allowanceText;
+      }
+    });
+
+    newFormDataList[formIndex].payment_notes = paymentNotes;
+    newFormDataList[formIndex].ongkosan = calculateOngkosan(
+      newFormDataList[formIndex],
+      poDetails?.unit
+    ).toString();
+    setFormDataList(newFormDataList);
   };
 
   const addForm = () => {
@@ -397,11 +488,12 @@ const CreateDeliveryFromPO: React.FC = () => {
       ...formDataList,
       {
         do_name: "",
-        item_name: poItems.length === 1 ? poItems[0] : "", // Preselect if only one item
+        item_name: poItems.length === 1 ? poItems[0] : "",
         vehicle_id: "",
         minimal_load_quantity: "",
         unit_price: "",
         trip_allowance: "",
+        additional_allowance: [],
         gaji: "",
         ongkosan: "",
         load_location: poDetails?.load_location || "",
@@ -410,6 +502,7 @@ const CreateDeliveryFromPO: React.FC = () => {
         load_longitude: poDetails?.load_longitude?.toString() || "",
         unload_latitude: poDetails?.unload_latitude?.toString() || "",
         unload_longitude: poDetails?.unload_longitude?.toString() || "",
+        payment_notes: "",
       },
     ]);
   };
@@ -418,7 +511,8 @@ const CreateDeliveryFromPO: React.FC = () => {
     const currentForm = formDataList[index];
     const newForm: DOFormData = {
       ...currentForm,
-      do_name: `${currentForm.do_name} - Copy`, // Auto-append " - Copy" to DO Name
+      do_name: `${currentForm.do_name} - Copy`,
+      additional_allowance: [...currentForm.additional_allowance],
     };
     setFormDataList([...formDataList, newForm]);
   };
@@ -436,7 +530,7 @@ const CreateDeliveryFromPO: React.FC = () => {
   ) => {
     if (!input) return;
     setLinkProcessing((prev) => ({ ...prev, [type]: true }));
-    setErrors([]); // Clear previous errors
+    setErrors([]);
 
     try {
       const backendUrl = process.env.REACT_APP_API_URL || "";
@@ -525,11 +619,41 @@ const CreateDeliveryFromPO: React.FC = () => {
           );
         }
 
+        for (let i = 0; i < formData.additional_allowance.length; i++) {
+          const allowance = formData.additional_allowance[i];
+          if (!allowance.description) {
+            throw new Error(
+              `Additional allowance ${i + 1} in DO ${
+                formData.do_name || index + 1
+              } is missing a description.`
+            );
+          }
+          const amount = parseFloat(allowance.amount);
+          if (isNaN(amount) || amount <= 0) {
+            throw new Error(
+              `Additional allowance ${i + 1} in DO ${
+                formData.do_name || index + 1
+              } has an invalid amount. Must be a positive number.`
+            );
+          }
+        }
+
         const totalAmount = calculateTotalAmount(
           quantity,
           unitPrice,
           poDetails.unit
         );
+
+        // Append additional allowance descriptions to payment_notes
+        // let paymentNotes = formData.payment_notes || "";
+        // formData.additional_allowance.forEach((allowance, i) => {
+        //   if (allowance.description && allowance.amount) {
+        //     const allowanceText = `Additional Allowance ${i + 1}: Rp ${parseFloat(allowance.amount).toLocaleString("id-ID")} - ${allowance.description}`;
+        //     paymentNotes = paymentNotes
+        //       ? `${paymentNotes}\n${allowanceText}`
+        //       : allowanceText;
+        //   }
+        // });
 
         const payload = {
           purchase_order_id: poDetails.id,
@@ -537,17 +661,17 @@ const CreateDeliveryFromPO: React.FC = () => {
           driver_id: selectedVehicle.driver_id,
           do_name: formData.do_name,
           customer_name: poDetails.customer_name,
-          item_name: formData.item_name, // Use selected item
+          item_name: formData.item_name,
           minimal_load_quantity: quantity,
           unit: poDetails.unit,
-          unit_price: unitPrice, // User-entered unit price
+          unit_price: unitPrice,
           total_amount: totalAmount,
-          trip_allowance: parseFloat(formData.trip_allowance),
-          gaji: parseFloat(formData.gaji),
-          ongkosan: parseFloat(formData.ongkosan),
+          trip_allowance: parseFloat(formData.trip_allowance) || 0,
+          additional_allowance: formData.additional_allowance.map(allowance => parseFloat(allowance.amount)),
+          gaji: parseFloat(formData.gaji) || 0,
+          ongkosan: parseFloat(formData.ongkosan) || 0,
           load_location: formData.load_location || poDetails.load_location,
-          unload_location:
-            formData.unload_location || poDetails.unload_location,
+          unload_location: formData.unload_location || poDetails.unload_location,
           load_latitude: formData.load_latitude
             ? parseFloat(formData.load_latitude)
             : null,
@@ -562,6 +686,7 @@ const CreateDeliveryFromPO: React.FC = () => {
             : null,
           payment_status: "proses_tagihan",
           status: "assigned",
+          payment_notes: formData.payment_notes,
         };
 
         console.log(`Creating DO with payload:`, payload);
@@ -845,45 +970,105 @@ const CreateDeliveryFromPO: React.FC = () => {
                   )}
                 </div>
 
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Trip Allowance (Rp) *
-                    </label>
-                    <input
-                      type="number"
-                      name="trip_allowance"
-                      value={formData.trip_allowance}
-                      onChange={(e) => handleInputChange(index, e)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Driver Salary (Rp) *
-                    </label>
-                    <input
-                      type="number"
-                      name="gaji"
-                      value={formData.gaji}
-                      onChange={(e) => handleInputChange(index, e)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Profit (Rp)
-                    </label>
-                    <input
-                      type="number"
-                      name="ongkosan"
-                      value={formData.ongkosan}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100"
-                      readOnly
-                    />
-                  </div>
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Trip Allowance (Rp) *
+                  </label>
+                  <input
+                    type="number"
+                    name="trip_allowance"
+                    value={formData.trip_allowance}
+                    onChange={(e) => handleInputChange(index, e)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    💡 Base allowance for the trip (e.g., fuel, tolls)
+                  </p>
+                </div>
+
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Additional Allowances
+                  </label>
+                  {formData.additional_allowance.map((allowance, allowanceIndex) => (
+                    <div
+                      key={allowanceIndex}
+                      className="flex items-center space-x-2 mb-2"
+                    >
+                      <input
+                        type="text"
+                        placeholder="Description (e.g., Parking Fee)"
+                        value={allowance.description}
+                        onChange={(e) =>
+                          handleAllowanceChange(
+                            index,
+                            allowanceIndex,
+                            "description",
+                            e.target.value
+                          )
+                        }
+                        className="w-2/3 px-3 py-2 border border-gray-300 rounded-md"
+                        required
+                      />
+                      <input
+                        type="number"
+                        placeholder="Amount (Rp)"
+                        value={allowance.amount}
+                        onChange={(e) =>
+                          handleAllowanceChange(
+                            index,
+                            allowanceIndex,
+                            "amount",
+                            e.target.value
+                          )
+                        }
+                        className="w-1/3 px-3 py-2 border border-gray-300 rounded-md"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeAllowance(index, allowanceIndex)}
+                        className="text-red-500 hover:text-red-700"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => addAllowance(index)}
+                    className="mt-2 text-blue-500 hover:text-blue-700 text-sm"
+                  >
+                    + Add Allowance
+                  </button>
+                </div>
+
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Driver Salary (Rp) *
+                  </label>
+                  <input
+                    type="number"
+                    name="gaji"
+                    value={formData.gaji}
+                    onChange={(e) => handleInputChange(index, e)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    required
+                  />
+                </div>
+
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Profit (Rp)
+                  </label>
+                  <input
+                    type="number"
+                    name="ongkosan"
+                    value={formData.ongkosan}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100"
+                    readOnly
+                  />
                 </div>
 
                 {formData.minimal_load_quantity && formData.unit_price && (
@@ -927,6 +1112,45 @@ const CreateDeliveryFromPO: React.FC = () => {
                             parseFloat(formData.unit_price) || 0,
                             poDetails?.unit || "ton"
                           ).toLocaleString("id-ID")}
+                        </span>
+                      </div>
+                      <div className="flex justify-between pt-2">
+                        <span>Trip Allowance:</span>
+                        <span>
+                          Rp{" "}
+                          {parseFloat(formData.trip_allowance || "0").toLocaleString("id-ID")}
+                        </span>
+                      </div>
+                      {formData.additional_allowance.map((allowance, i) => (
+                        <div key={i} className="flex justify-between">
+                          <span>{allowance.description}:</span>
+                          <span>
+                            Rp{" "}
+                            {parseFloat(allowance.amount || "0").toLocaleString("id-ID")}
+                          </span>
+                        </div>
+                      ))}
+                      <div className="flex justify-between">
+                        <span>Driver Salary:</span>
+                        <span>
+                          Rp{" "}
+                          {parseFloat(formData.gaji || "0").toLocaleString("id-ID")}
+                        </span>
+                      </div>
+                      <div className="flex justify-between font-semibold border-t pt-1">
+                        <span>Total Operational Costs:</span>
+                        <span>
+                          Rp{" "}
+                          {(parseFloat(formData.trip_allowance || "0") +
+                            calculateAdditionalAllowanceTotal(formData) +
+                            parseFloat(formData.gaji || "0")).toLocaleString("id-ID")}
+                        </span>
+                      </div>
+                      <div className="flex justify-between font-semibold border-t pt-1">
+                        <span>Profit (Ongkosan):</span>
+                        <span>
+                          Rp{" "}
+                          {parseFloat(formData.ongkosan || "0").toLocaleString("id-ID")}
                         </span>
                       </div>
                     </div>
@@ -1038,6 +1262,20 @@ const CreateDeliveryFromPO: React.FC = () => {
                         : "Set Unload Location")}
                   </button>
                 </div>
+
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Payment Notes
+                  </label>
+                  <textarea
+                    name="payment_notes"
+                    value={formData.payment_notes}
+                    onChange={(e) => handleInputChange(index, e)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    rows={4}
+                    placeholder="Additional payment notes, including allowance descriptions..."
+                  />
+                </div>
               </div>
             ))}
             
@@ -1062,7 +1300,15 @@ const CreateDeliveryFromPO: React.FC = () => {
                 disabled={
                   loading ||
                   formDataList.some(
-                    (f) => !f.vehicle_id || !f.item_name || !f.unit_price
+                    (f) =>
+                      !f.vehicle_id ||
+                      !f.item_name ||
+                      !f.unit_price ||
+                      !f.trip_allowance ||
+                      !f.gaji ||
+                      f.additional_allowance.some(
+                        (a) => !a.description || !a.amount || parseFloat(a.amount) <= 0
+                      )
                   )
                 }
                 className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300"

@@ -8,7 +8,7 @@ import { GeoSearchControl, OpenStreetMapProvider } from "leaflet-geosearch";
 import "leaflet-geosearch/dist/geosearch.css";
 import InfiniteScroll from "react-infinite-scroll-component";
 
-// Icons and interfaces (unchanged from your code)
+// Icons (unchanged)
 const DefaultIcon = L.Icon.Default as any;
 DefaultIcon.mergeOptions({
   iconRetinaUrl: require("leaflet/dist/images/marker-icon-2x.png"),
@@ -54,7 +54,7 @@ interface PODetails {
   load_longitude?: number;
   unload_latitude?: number;
   unload_longitude?: number;
-  can_create_do: boolean; // From your endpoint
+  can_create_do: boolean;
 }
 
 interface Vehicle {
@@ -69,13 +69,18 @@ interface Vehicle {
   driver_status: string | null;
 }
 
+interface Allowance {
+  description: string;
+  amount: string;
+}
+
 interface DOFormData {
   do_name: string;
-  customer_name?: string; // NEW: For standalone, free input
+  customer_name?: string;
   item_name: string;
   vehicle_id: string;
   minimal_load_quantity: string;
-  unit: string; // NEW: Free select in standalone
+  unit: string;
   unit_price: string;
   trip_allowance: string;
   gaji: string;
@@ -86,6 +91,8 @@ interface DOFormData {
   load_longitude: string;
   unload_latitude: string;
   unload_longitude: string;
+  additional_allowance: Allowance[];
+  payment_notes: string;
 }
 
 interface MarkerType {
@@ -173,10 +180,7 @@ const MapClickHandler: React.FC<{
 const DeliveryOrderCreatePage: React.FC = () => {
   const navigate = useNavigate();
 
-  // Standalone mode state - NEW!
   const [isStandalone, setIsStandalone] = useState<boolean>(false);
-
-  // PO Selection States
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [pos, setPos] = useState<PODetails[]>([]);
   const [page, setPage] = useState<number>(1);
@@ -184,15 +188,12 @@ const DeliveryOrderCreatePage: React.FC = () => {
   const [selectedPO, setSelectedPO] = useState<PODetails | null>(null);
   const limit = 10;
 
-  // Form States
   const [poItems, setPoItems] = useState<string[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [formDataList, setFormDataList] = useState<DOFormData[]>([]);
-  const [canCreate, setCanCreate] = useState<boolean>(true); // Based on selected PO's can_create_do or standalone
-
-  // Map states
+  const [canCreate, setCanCreate] = useState<boolean>(true);
   const [selectedLocationType, setSelectedLocationType] = useState<
     "load" | "unload" | null
   >(null);
@@ -206,7 +207,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
 
   const defaultCenter = { lat: -6.2088, lng: 106.8456 };
 
-  // Helpers (unchanged, mostly)
   const getUnitDisplay = (unit: string) => {
     const unitMap = { kilogram: "kg", ton: "ton", kubik: "m³" };
     return unitMap[unit as keyof typeof unitMap] || unit;
@@ -227,6 +227,13 @@ const DeliveryOrderCreatePage: React.FC = () => {
     }
   };
 
+  const calculateAdditionalAllowanceTotal = (formData: DOFormData): number => {
+    return formData.additional_allowance.reduce(
+      (sum, allowance) => sum + (parseFloat(allowance.amount) || 0),
+      0
+    );
+  };
+
   const calculateOngkosan = (formData: DOFormData, unit: string): number => {
     if (!formData.unit_price || !formData.minimal_load_quantity) return 0;
     const quantity = parseFloat(formData.minimal_load_quantity);
@@ -234,11 +241,11 @@ const DeliveryOrderCreatePage: React.FC = () => {
     const totalRevenue = calculateTotalAmount(quantity, unitPrice, unit);
     const operationalCosts =
       (parseFloat(formData.trip_allowance) || 0) +
+      calculateAdditionalAllowanceTotal(formData) +
       (parseFloat(formData.gaji) || 0);
     return totalRevenue - operationalCosts;
   };
 
-  // Location setters (unchanged)
   const setLocationWithType = (
     lat: number,
     lng: number,
@@ -285,7 +292,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
     }
   };
 
-  // Fetch POs (unchanged)
   const fetchPOs = async (reset = false) => {
     try {
       const currentPage = reset ? 1 : page;
@@ -309,7 +315,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
     fetchPOs(true);
   }, [searchTerm]);
 
-  // On PO select (unchanged, but wrapped in !isStandalone)
   const handleSelectPO = async (po: PODetails) => {
     setSelectedPO(po);
     setCanCreate(po.can_create_do && po.remaining_quantity > 0);
@@ -322,11 +327,11 @@ const DeliveryOrderCreatePage: React.FC = () => {
 
     const initialFormData = {
       do_name: "",
-      customer_name: po.customer_name, // Pre-fill from PO
+      customer_name: po.customer_name,
       item_name: items.length === 1 ? items[0] : "",
       vehicle_id: "",
       minimal_load_quantity: "",
-      unit: po.unit, // From PO
+      unit: po.unit,
       unit_price: "",
       trip_allowance: "",
       gaji: "",
@@ -337,6 +342,8 @@ const DeliveryOrderCreatePage: React.FC = () => {
       load_longitude: po.load_longitude?.toString() || "",
       unload_latitude: po.unload_latitude?.toString() || "",
       unload_longitude: po.unload_longitude?.toString() || "",
+      additional_allowance: [],
+      payment_notes: "",
     };
     setFormDataList([initialFormData]);
 
@@ -361,7 +368,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
 
     try {
       const response = await apiClient.get("/vehicles");
-      const vehiclesData = response.data || response.data.data || [];
+      const vehiclesData = response.data.data || response.data || [];
       setVehicles(
         vehiclesData.filter(
           (v: Vehicle) =>
@@ -375,13 +382,11 @@ const DeliveryOrderCreatePage: React.FC = () => {
     }
   };
 
-  // NEW: Standalone toggle effect with vehicle fetch
   useEffect(() => {
     if (isStandalone) {
-      // Reset PO selection and init blank form
       setSelectedPO(null);
       setPoItems([]);
-      setCanCreate(true); // Always true in standalone
+      setCanCreate(true);
       setFormDataList([
         {
           do_name: "",
@@ -389,7 +394,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
           item_name: "",
           vehicle_id: "",
           minimal_load_quantity: "",
-          unit: "ton", // Default unit, or add selector
+          unit: "ton",
           unit_price: "",
           trip_allowance: "",
           gaji: "",
@@ -400,11 +405,12 @@ const DeliveryOrderCreatePage: React.FC = () => {
           load_longitude: "",
           unload_latitude: "",
           unload_longitude: "",
+          additional_allowance: [],
+          payment_notes: "",
         },
       ]);
       setMarkers([]);
 
-      // NEW: Fetch vehicles in standalone mode
       const fetchVehiclesStandalone = async () => {
         try {
           const response = await apiClient.get("/vehicles");
@@ -426,20 +432,18 @@ const DeliveryOrderCreatePage: React.FC = () => {
       };
       fetchVehiclesStandalone();
     } else {
-      // Reset to PO mode
       setFormDataList([]);
-      setVehicles([]); // Clear vehicles when switching back
+      setVehicles([]);
     }
   }, [isStandalone]);
 
-  // Form handlers (modified for standalone)
   const handleInputChange = (
     index: number,
     e: React.ChangeEvent<
       HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
     >
   ) => {
-    if (!canCreate) return; // Block changes if disabled
+    if (!canCreate) return;
     const newFormDataList = [...formDataList];
     newFormDataList[index] = {
       ...newFormDataList[index],
@@ -453,18 +457,122 @@ const DeliveryOrderCreatePage: React.FC = () => {
         "unit_price",
         "trip_allowance",
         "gaji",
+        "additional_allowance",
       ].includes(e.target.name)
     ) {
       const unit =
         (isStandalone ? newFormDataList[index].unit : selectedPO?.unit) ??
-        "ton"; // FIXED: ?? 'ton' nukes undefined
-
+        "ton";
       newFormDataList[index].ongkosan = calculateOngkosan(
         newFormDataList[index],
-        unit // Now always string—TS happy, no teleports
+        unit
       ).toString();
       setFormDataList([...newFormDataList]);
     }
+  };
+
+  const handleAllowanceChange = (
+    formIndex: number,
+    allowanceIndex: number,
+    field: keyof Allowance,
+    value: string
+  ) => {
+    if (!canCreate) return;
+    const newFormDataList = [...formDataList];
+    newFormDataList[formIndex].additional_allowance[allowanceIndex] = {
+      ...newFormDataList[formIndex].additional_allowance[allowanceIndex],
+      [field]: value,
+    };
+
+    // Update payment_notes with all allowances
+    let paymentNotes = newFormDataList[formIndex].payment_notes || "";
+    // Remove existing allowance lines
+    paymentNotes = paymentNotes
+      .split("\n")
+      .filter((line) => !line.startsWith("Additional Allowance"))
+      .join("\n");
+
+    // Append all allowances
+    const allowances = newFormDataList[formIndex].additional_allowance;
+    allowances.forEach((allowance, i) => {
+      if (allowance.description || allowance.amount) {
+        const amount = parseFloat(allowance.amount) || 0;
+        const allowanceText = `Additional Allowance ${
+          i + 1
+        }: Rp ${amount.toLocaleString("id-ID")} - ${
+          allowance.description || "No description"
+        }`;
+        paymentNotes = paymentNotes
+          ? `${paymentNotes}\n${allowanceText}`
+          : allowanceText;
+      }
+    });
+
+    newFormDataList[formIndex].payment_notes = paymentNotes;
+    newFormDataList[formIndex].ongkosan = calculateOngkosan(
+      newFormDataList[formIndex],
+      isStandalone ? newFormDataList[formIndex].unit : selectedPO?.unit ?? "ton"
+    ).toString();
+    setFormDataList(newFormDataList);
+  };
+
+  const addAllowance = (formIndex: number) => {
+    if (!canCreate) return;
+    const newFormDataList = [...formDataList];
+    const newAllowance = { description: "", amount: "" };
+    newFormDataList[formIndex].additional_allowance.push(newAllowance);
+
+    // Update payment_notes with the new allowance (placeholder)
+    const currentNotes = newFormDataList[formIndex].payment_notes || "";
+    const allowanceText = `Additional Allowance ${
+      newFormDataList[formIndex].additional_allowance.length
+    }: Rp 0 - No description`;
+    newFormDataList[formIndex].payment_notes = currentNotes
+      ? `${currentNotes}\n${allowanceText}`
+      : allowanceText;
+
+    newFormDataList[formIndex].ongkosan = calculateOngkosan(
+      newFormDataList[formIndex],
+      isStandalone ? newFormDataList[formIndex].unit : selectedPO?.unit ?? "ton"
+    ).toString();
+    setFormDataList(newFormDataList);
+  };
+
+  const removeAllowance = (formIndex: number, allowanceIndex: number) => {
+    if (!canCreate) return;
+    const newFormDataList = [...formDataList];
+    newFormDataList[formIndex].additional_allowance = newFormDataList[
+      formIndex
+    ].additional_allowance.filter((_, i) => i !== allowanceIndex);
+
+    // Update payment_notes with remaining allowances
+    let paymentNotes = newFormDataList[formIndex].payment_notes || "";
+    paymentNotes = paymentNotes
+      .split("\n")
+      .filter((line) => !line.startsWith("Additional Allowance"))
+      .join("\n");
+
+    const allowances = newFormDataList[formIndex].additional_allowance;
+    allowances.forEach((allowance, i) => {
+      if (allowance.description || allowance.amount) {
+        const amount = parseFloat(allowance.amount) || 0;
+        const allowanceText = `Additional Allowance ${
+          i + 1
+        }: Rp ${amount.toLocaleString("id-ID")} - ${
+          allowance.description || "No description"
+        }`;
+        paymentNotes = paymentNotes
+          ? `${paymentNotes}\n${allowanceText}`
+          : allowanceText;
+      }
+    });
+
+    newFormDataList[formIndex].payment_notes = paymentNotes;
+    newFormDataList[formIndex].ongkosan = calculateOngkosan(
+      newFormDataList[formIndex],
+      isStandalone ? newFormDataList[formIndex].unit : selectedPO?.unit ?? "ton"
+    ).toString();
+    setFormDataList(newFormDataList);
   };
 
   const addForm = () => {
@@ -487,6 +595,8 @@ const DeliveryOrderCreatePage: React.FC = () => {
       load_longitude: lastForm.load_longitude || "",
       unload_latitude: lastForm.unload_latitude || "",
       unload_longitude: lastForm.unload_longitude || "",
+      additional_allowance: [],
+      payment_notes: "",
     };
     setFormDataList([...formDataList, newForm]);
   };
@@ -497,6 +607,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
     const newForm: DOFormData = {
       ...currentForm,
       do_name: `${currentForm.do_name} - Copy`,
+      additional_allowance: [...currentForm.additional_allowance],
     };
     setFormDataList([...formDataList, newForm]);
   };
@@ -527,12 +638,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
       const data = await resp.json();
 
       if (data.lat && data.lng) {
-        setLocationWithType(
-          data.lat,
-          data.lng,
-          `${data.lat},${data.lng}`,
-          type
-        );
+        setLocationWithType(data.lat, data.lng, `${data.lat},${data.lng}`, type);
       } else {
         setErrors((prev) => [
           ...prev,
@@ -546,7 +652,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
     }
   };
 
-  // Batch Submit (modified for standalone)
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!canCreate) return;
@@ -570,7 +675,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
         throw new Error(`Invalid quantity for DO ${formData.do_name}`);
       }
 
-      // In non-standalone, cap quantity
       if (
         !isStandalone &&
         selectedPO &&
@@ -581,12 +685,39 @@ const DeliveryOrderCreatePage: React.FC = () => {
         );
       }
 
+      for (let i = 0; i < formData.additional_allowance.length; i++) {
+        const allowance = formData.additional_allowance[i];
+        if (!allowance.description) {
+          throw new Error(
+            `Additional allowance ${i + 1} in DO ${formData.do_name} is missing a description.`
+          );
+        }
+        const amount = parseFloat(allowance.amount);
+        if (isNaN(amount) || amount <= 0) {
+          throw new Error(
+            `Additional allowance ${i + 1} in DO ${formData.do_name} has an invalid amount.`
+          );
+        }
+      }
+
       const unit = isStandalone ? formData.unit : selectedPO?.unit;
       const totalAmount = calculateTotalAmount(
         quantity,
         unitPrice,
         unit ?? "ton"
       );
+
+      // let paymentNotes = formData.payment_notes || "";
+      // formData.additional_allowance.forEach((allowance, i) => {
+      //   if (allowance.description && allowance.amount) {
+      //     const allowanceText = `Additional Allowance ${i + 1}: Rp ${parseFloat(
+      //       allowance.amount
+      //     ).toLocaleString("id-ID")} - ${allowance.description}`;
+      //     paymentNotes = paymentNotes
+      //       ? `${paymentNotes}\n${allowanceText}`
+      //       : allowanceText;
+      //   }
+      // });
 
       return {
         purchase_order_id: isStandalone ? null : selectedPO?.id,
@@ -601,9 +732,12 @@ const DeliveryOrderCreatePage: React.FC = () => {
         unit,
         unit_price: unitPrice,
         total_amount: totalAmount,
-        trip_allowance: parseFloat(formData.trip_allowance),
-        gaji: parseFloat(formData.gaji),
-        ongkosan: parseFloat(formData.ongkosan),
+        trip_allowance: parseFloat(formData.trip_allowance) || 0,
+        additional_allowance: formData.additional_allowance.map((allowance) =>
+          parseFloat(allowance.amount)
+        ),
+        gaji: parseFloat(formData.gaji) || 0,
+        ongkosan: parseFloat(formData.ongkosan) || 0,
         load_location: formData.load_location,
         unload_location: formData.unload_location,
         load_latitude: formData.load_latitude
@@ -620,6 +754,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
           : null,
         payment_status: "proses_tagihan",
         status: "assigned",
+        payment_notes: formData.payment_notes,
       };
     });
 
@@ -655,7 +790,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
         </div>
       )}
 
-      {/* Standalone Toggle - NEW! */}
       <div className="mb-6 bg-gray-100 p-4 rounded-lg">
         <label className="flex items-center space-x-2">
           <input
@@ -821,7 +955,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
                       </p>
                     </div>
 
-                    {/* NEW: Customer Name - Free in standalone */}
                     {isStandalone && (
                       <div className="mt-4">
                         <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -898,7 +1031,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
                           !isStandalone
                             ? selectedPO?.remaining_quantity
                             : undefined
-                        } // No max in standalone
+                        }
                         value={formData.minimal_load_quantity}
                         onChange={(e) => handleInputChange(index, e)}
                         className={`w-full px-3 py-2 border border-gray-300 rounded-md ${
@@ -925,7 +1058,6 @@ const DeliveryOrderCreatePage: React.FC = () => {
                       </p>
                     </div>
 
-                    {/* NEW: Unit selector in standalone */}
                     {isStandalone && (
                       <div className="mt-4">
                         <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1040,6 +1172,77 @@ const DeliveryOrderCreatePage: React.FC = () => {
                         )}
                     </div>
 
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Additional Allowances
+                      </label>
+                      {formData.additional_allowance.map(
+                        (allowance, allowanceIndex) => (
+                          <div
+                            key={allowanceIndex}
+                            className="flex items-center space-x-2 mb-2"
+                          >
+                            <input
+                              type="text"
+                              placeholder="Description (e.g., Parking Fee)"
+                              value={allowance.description}
+                              onChange={(e) =>
+                                handleAllowanceChange(
+                                  index,
+                                  allowanceIndex,
+                                  "description",
+                                  e.target.value
+                                )
+                              }
+                              className={`w-2/3 px-3 py-2 border border-gray-300 rounded-md ${
+                                !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
+                              }`}
+                              disabled={!canCreate}
+                              required
+                            />
+                            <input
+                              type="number"
+                              placeholder="Amount (Rp)"
+                              value={allowance.amount}
+                              onChange={(e) =>
+                                handleAllowanceChange(
+                                  index,
+                                  allowanceIndex,
+                                  "amount",
+                                  e.target.value
+                                )
+                              }
+                              className={`w-1/3 px-3 py-2 border border-gray-300 rounded-md ${
+                                !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
+                              }`}
+                              disabled={!canCreate}
+                              required
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeAllowance(index, allowanceIndex)}
+                              className={`text-red-500 hover:text-red-700 ${
+                                !canCreate ? "opacity-50 cursor-not-allowed" : ""
+                              }`}
+                              disabled={!canCreate}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        )
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => addAllowance(index)}
+                        className={`mt-2 text-blue-500 hover:text-blue-700 text-sm ${
+                          !canCreate ? "opacity-50 cursor-not-allowed" : ""
+                        }`}
+                        disabled={!canCreate}
+                      >
+                        + Add Allowance
+                      </button>
+                    </div>
+
                     <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-6">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1088,6 +1291,23 @@ const DeliveryOrderCreatePage: React.FC = () => {
                           disabled
                         />
                       </div>
+                    </div>
+
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Payment Notes
+                      </label>
+                      <textarea
+                        disabled={!canCreate}
+                        name="payment_notes"
+                        value={formData.payment_notes}
+                        onChange={(e) => handleInputChange(index, e)}
+                        className={`w-full px-3 py-2 border border-gray-300 rounded-md ${
+                          !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
+                        }`}
+                        rows={4}
+                        placeholder="Additional payment notes, including allowance descriptions..."
+                      />
                     </div>
 
                     {formData.minimal_load_quantity && formData.unit_price && (
@@ -1153,6 +1373,55 @@ const DeliveryOrderCreatePage: React.FC = () => {
                                 isStandalone
                                   ? formData.unit
                                   : selectedPO?.unit ?? "ton"
+                              ).toLocaleString("id-ID")}
+                            </span>
+                          </div>
+                          <div className="flex justify-between pt-2">
+                            <span>Trip Allowance:</span>
+                            <span>
+                              Rp{" "}
+                              {parseFloat(
+                                formData.trip_allowance || "0"
+                              ).toLocaleString("id-ID")}
+                            </span>
+                          </div>
+                          {formData.additional_allowance.map((allowance, i) => (
+                            <div key={i} className="flex justify-between">
+                              <span>{allowance.description}:</span>
+                              <span>
+                                Rp{" "}
+                                {parseFloat(
+                                  allowance.amount || "0"
+                                ).toLocaleString("id-ID")}
+                              </span>
+                            </div>
+                          ))}
+                          <div className="flex justify-between">
+                            <span>Driver Salary:</span>
+                            <span>
+                              Rp{" "}
+                              {parseFloat(formData.gaji || "0").toLocaleString(
+                                "id-ID"
+                              )}
+                            </span>
+                          </div>
+                          <div className="flex justify-between font-semibold border-t pt-1">
+                            <span>Total Operational Costs:</span>
+                            <span>
+                              Rp{" "}
+                              {(parseFloat(formData.trip_allowance || "0") +
+                                calculateAdditionalAllowanceTotal(formData) +
+                                parseFloat(formData.gaji || "0")).toLocaleString(
+                                "id-ID"
+                              )}
+                            </span>
+                          </div>
+                          <div className="flex justify-between font-semibold border-t pt-1">
+                            <span>Profit (Ongkosan):</span>
+                            <span>
+                              Rp{" "}
+                              {parseFloat(
+                                formData.ongkosan || "0"
                               ).toLocaleString("id-ID")}
                             </span>
                           </div>
@@ -1290,6 +1559,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
                   className={`w-full bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 ${
                     !canCreate ? "opacity-50 cursor-not-allowed" : ""
                   }`}
+                  disabled={!canCreate}
                 >
                   + Add Another Delivery Order
                 </button>
@@ -1308,7 +1578,13 @@ const DeliveryOrderCreatePage: React.FC = () => {
                       loading ||
                       !canCreate ||
                       formDataList.some(
-                        (f) => !f.vehicle_id || !f.item_name || !f.unit_price
+                        (f) =>
+                          !f.vehicle_id ||
+                          !f.item_name ||
+                          !f.unit_price ||
+                          f.additional_allowance.some(
+                            (a) => !a.description || !a.amount || parseFloat(a.amount) <= 0
+                          )
                       )
                     }
                     className={`px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300`}
