@@ -18,6 +18,11 @@ router.get(
   checkRole(["admin", "owner"]),
   webDOController.getDeliveryStatistics
 );
+router.get(
+  "/utils/recent-customers",
+  checkRole(["admin", "owner"]),
+  webDOController.getRecentCustomers
+);
 router.post(
   "/",
   checkRole(["admin", "owner"]),

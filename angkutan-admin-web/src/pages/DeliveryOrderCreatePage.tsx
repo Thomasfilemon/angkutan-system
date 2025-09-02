@@ -205,6 +205,11 @@ const DeliveryOrderCreatePage: React.FC = () => {
     unload: boolean;
   }>({ load: false, unload: false });
 
+  const [customerSuggestions, setCustomerSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [activeSuggestionIndex, setActiveSuggestionIndex] =
+    useState<number>(-1);
+
   const defaultCenter = { lat: -6.2088, lng: 106.8456 };
 
   const getUnitDisplay = (unit: string) => {
@@ -423,6 +428,14 @@ const DeliveryOrderCreatePage: React.FC = () => {
                 v.status === "available"
             )
           );
+
+          // Fetch recent customers for standalone mode
+          const customerResponse = await apiClient.get(
+            "/delivery-orders/utils/recent-customers"
+          );
+          if (customerResponse.data?.success) {
+            setCustomerSuggestions(customerResponse.data.data);
+          }
         } catch (err) {
           setErrors((prev) => [
             ...prev,
@@ -451,6 +464,14 @@ const DeliveryOrderCreatePage: React.FC = () => {
     };
     setFormDataList(newFormDataList);
 
+    if (isStandalone && e.target.name === "customer_name") {
+      if (e.target.value) {
+        setShowSuggestions(true);
+      } else {
+        setShowSuggestions(false);
+      }
+    }
+
     if (
       [
         "minimal_load_quantity",
@@ -469,6 +490,16 @@ const DeliveryOrderCreatePage: React.FC = () => {
       ).toString();
       setFormDataList([...newFormDataList]);
     }
+  };
+
+  const handleSelectSuggestion = (name: string, formIndex: number) => {
+    const newFormDataList = [...formDataList];
+    newFormDataList[formIndex] = {
+      ...newFormDataList[formIndex],
+      customer_name: name,
+    };
+    setFormDataList(newFormDataList);
+    setShowSuggestions(false);
   };
 
   const handleAllowanceChange = (
@@ -524,9 +555,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
 
     // Update payment_notes with the new allowance (placeholder)
     const currentNotes = newFormDataList[formIndex].payment_notes || "";
-    const allowanceText = `Additional Allowance ${
-      newFormDataList[formIndex].additional_allowance.length
-    }: Rp 0 - No description`;
+    const allowanceText = `Additional Allowance ${newFormDataList[formIndex].additional_allowance.length}: Rp 0 - No description`;
     newFormDataList[formIndex].payment_notes = currentNotes
       ? `${currentNotes}\n${allowanceText}`
       : allowanceText;
@@ -638,7 +667,12 @@ const DeliveryOrderCreatePage: React.FC = () => {
       const data = await resp.json();
 
       if (data.lat && data.lng) {
-        setLocationWithType(data.lat, data.lng, `${data.lat},${data.lng}`, type);
+        setLocationWithType(
+          data.lat,
+          data.lng,
+          `${data.lat},${data.lng}`,
+          type
+        );
       } else {
         setErrors((prev) => [
           ...prev,
@@ -689,13 +723,17 @@ const DeliveryOrderCreatePage: React.FC = () => {
         const allowance = formData.additional_allowance[i];
         if (!allowance.description) {
           throw new Error(
-            `Additional allowance ${i + 1} in DO ${formData.do_name} is missing a description.`
+            `Additional allowance ${i + 1} in DO ${
+              formData.do_name
+            } is missing a description.`
           );
         }
         const amount = parseFloat(allowance.amount);
         if (isNaN(amount) || amount <= 0) {
           throw new Error(
-            `Additional allowance ${i + 1} in DO ${formData.do_name} has an invalid amount.`
+            `Additional allowance ${i + 1} in DO ${
+              formData.do_name
+            } has an invalid amount.`
           );
         }
       }
@@ -956,7 +994,7 @@ const DeliveryOrderCreatePage: React.FC = () => {
                     </div>
 
                     {isStandalone && (
-                      <div className="mt-4">
+                      <div className="mt-4 relative">
                         <label className="block text-sm font-medium text-gray-700 mb-2">
                           Customer Name *
                         </label>
@@ -965,10 +1003,45 @@ const DeliveryOrderCreatePage: React.FC = () => {
                           name="customer_name"
                           value={formData.customer_name || ""}
                           onChange={(e) => handleInputChange(index, e)}
+                          onFocus={() =>
+                            formData.customer_name && setShowSuggestions(true)
+                          }
+                          onBlur={() =>
+                            setTimeout(() => setShowSuggestions(false), 150)
+                          } // Delay to allow click
                           className="w-full px-3 py-2 border border-gray-300 rounded-md"
                           placeholder="Enter customer name"
                           required
+                          autoComplete="off"
                         />
+                        {/* --- SUGGESTION BOX --- */}
+                        {showSuggestions &&
+                          customerSuggestions.length > 0 &&
+                          currentFormIndex === index && (
+                            <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                              {customerSuggestions
+                                .filter((suggestion) =>
+                                  suggestion
+                                    .toLowerCase()
+                                    .includes(
+                                      (
+                                        formData.customer_name || ""
+                                      ).toLowerCase()
+                                    )
+                                )
+                                .map((suggestion, sIndex) => (
+                                  <div
+                                    key={sIndex}
+                                    onMouseDown={() =>
+                                      handleSelectSuggestion(suggestion, index)
+                                    } // Use onMouseDown to fire before onBlur
+                                    className="px-4 py-2 text-gray-700 hover:bg-gray-100 cursor-pointer"
+                                  >
+                                    {suggestion}
+                                  </div>
+                                ))}
+                            </div>
+                          )}
                       </div>
                     )}
 
@@ -1195,7 +1268,9 @@ const DeliveryOrderCreatePage: React.FC = () => {
                                 )
                               }
                               className={`w-2/3 px-3 py-2 border border-gray-300 rounded-md ${
-                                !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
+                                !canCreate
+                                  ? "bg-gray-100 cursor-not-allowed"
+                                  : ""
                               }`}
                               disabled={!canCreate}
                               required
@@ -1213,16 +1288,22 @@ const DeliveryOrderCreatePage: React.FC = () => {
                                 )
                               }
                               className={`w-1/3 px-3 py-2 border border-gray-300 rounded-md ${
-                                !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
+                                !canCreate
+                                  ? "bg-gray-100 cursor-not-allowed"
+                                  : ""
                               }`}
                               disabled={!canCreate}
                               required
                             />
                             <button
                               type="button"
-                              onClick={() => removeAllowance(index, allowanceIndex)}
+                              onClick={() =>
+                                removeAllowance(index, allowanceIndex)
+                              }
                               className={`text-red-500 hover:text-red-700 ${
-                                !canCreate ? "opacity-50 cursor-not-allowed" : ""
+                                !canCreate
+                                  ? "opacity-50 cursor-not-allowed"
+                                  : ""
                               }`}
                               disabled={!canCreate}
                             >
@@ -1409,11 +1490,11 @@ const DeliveryOrderCreatePage: React.FC = () => {
                             <span>Total Operational Costs:</span>
                             <span>
                               Rp{" "}
-                              {(parseFloat(formData.trip_allowance || "0") +
+                              {(
+                                parseFloat(formData.trip_allowance || "0") +
                                 calculateAdditionalAllowanceTotal(formData) +
-                                parseFloat(formData.gaji || "0")).toLocaleString(
-                                "id-ID"
-                              )}
+                                parseFloat(formData.gaji || "0")
+                              ).toLocaleString("id-ID")}
                             </span>
                           </div>
                           <div className="flex justify-between font-semibold border-t pt-1">
@@ -1583,7 +1664,10 @@ const DeliveryOrderCreatePage: React.FC = () => {
                           !f.item_name ||
                           !f.unit_price ||
                           f.additional_allowance.some(
-                            (a) => !a.description || !a.amount || parseFloat(a.amount) <= 0
+                            (a) =>
+                              !a.description ||
+                              !a.amount ||
+                              parseFloat(a.amount) <= 0
                           )
                       )
                     }

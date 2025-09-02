@@ -31,11 +31,16 @@ const calculateTotalAmount = (quantity, unitPrice, unit) => {
   }
 };
 
-const calculateOngkosan = (totalAmount, tripAllowance, gaji, additionalAllowances = []) => {
+const calculateOngkosan = (
+  totalAmount,
+  tripAllowance,
+  gaji,
+  additionalAllowances = []
+) => {
   const total = parseFloat(totalAmount) || 0;
   const allowance = parseFloat(tripAllowance) || 0;
   const salary = parseFloat(gaji) || 0;
-  const additional = Array.isArray(additionalAllowances) 
+  const additional = Array.isArray(additionalAllowances)
     ? additionalAllowances.reduce((sum, val) => sum + (parseFloat(val) || 0), 0)
     : 0;
 
@@ -150,7 +155,7 @@ exports.createBatchDeliveryOrder = async (req, res, next) => {
     }
 
     const createdDOs = [];
-    const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
     const usedDrivers = new Set();
     const usedVehicles = new Set();
 
@@ -179,7 +184,7 @@ exports.createBatchDeliveryOrder = async (req, res, next) => {
         payment_status = "proses_tagihan",
         status = "assigned",
         do_name,
-        payment_notes = '',
+        payment_notes = "",
       } = doData;
 
       if (
@@ -228,7 +233,11 @@ exports.createBatchDeliveryOrder = async (req, res, next) => {
       let finalUnitPrice = unit_price || 0;
 
       if (purchase_order_id) {
-        po = await validateItemAgainstPO(purchase_order_id, item_name, transaction);
+        po = await validateItemAgainstPO(
+          purchase_order_id,
+          item_name,
+          transaction
+        );
         finalUnit = unit || (po ? po.unit : "ton");
         finalUnitPrice = unit_price || (po ? po.unit_price : 0);
       } else if (!customer_name || !item_name) {
@@ -405,11 +414,17 @@ exports.createDeliveryOrder = async (req, res, next) => {
       payment_notes,
     } = req.body;
 
-    if (!vehicle_id || !driver_id || !minimal_load_quantity || isNaN(parseFloat(minimal_load_quantity))) {
+    if (
+      !vehicle_id ||
+      !driver_id ||
+      !minimal_load_quantity ||
+      isNaN(parseFloat(minimal_load_quantity))
+    ) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: "Missing or invalid required fields: vehicle_id, driver_id, minimal_load_quantity (must be number)",
+        message:
+          "Missing or invalid required fields: vehicle_id, driver_id, minimal_load_quantity (must be number)",
       });
     }
 
@@ -425,14 +440,20 @@ exports.createDeliveryOrder = async (req, res, next) => {
     if (Array.isArray(additional_allowance)) {
       additional_allowance.forEach((val, index) => {
         if (isNaN(parseFloat(val)) || parseFloat(val) <= 0) {
-          throw new Error(`Invalid additional_allowance at index ${index}: must be a positive number`);
+          throw new Error(
+            `Invalid additional_allowance at index ${index}: must be a positive number`
+          );
         }
       });
     }
 
     let po;
     if (purchase_order_id && item_name) {
-      po = await validateItemAgainstPO(purchase_order_id, item_name, transaction);
+      po = await validateItemAgainstPO(
+        purchase_order_id,
+        item_name,
+        transaction
+      );
     } else if (!customer_name || !item_name) {
       throw new Error("Standalone DO requires customer_name and item_name");
     }
@@ -447,8 +468,17 @@ exports.createDeliveryOrder = async (req, res, next) => {
     const uniqueSuffix = uuidv4().slice(0, 8).toUpperCase();
     const do_number = `DO-${timestamp}-${uniqueSuffix}`;
 
-    let calculatedTotalAmount = total_amount || calculateTotalAmount(minimal_load_quantity, finalUnitPrice, finalUnit);
-    let calculatedOngkosan = ongkosan || calculateOngkosan(calculatedTotalAmount, trip_allowance, gaji, additional_allowance);
+    let calculatedTotalAmount =
+      total_amount ||
+      calculateTotalAmount(minimal_load_quantity, finalUnitPrice, finalUnit);
+    let calculatedOngkosan =
+      ongkosan ||
+      calculateOngkosan(
+        calculatedTotalAmount,
+        trip_allowance,
+        gaji,
+        additional_allowance
+      );
 
     const tempDO = DeliveryOrder.build({
       purchase_order_id,
@@ -482,34 +512,59 @@ exports.createDeliveryOrder = async (req, res, next) => {
       await tempDO.validateQuantityAgainstPO(false);
     }
 
-    const deliveryOrder = await DeliveryOrder.create(tempDO.dataValues, { transaction, scope: "web" });
+    const deliveryOrder = await DeliveryOrder.create(tempDO.dataValues, {
+      transaction,
+      scope: "web",
+    });
 
     if (purchase_order_id && po && po.deposit_group_id) {
       await DepositGroupMember.create(
-        { group_id: po.deposit_group_id, delivery_order_id: deliveryOrder.id, quantity: minimal_load_quantity },
+        {
+          group_id: po.deposit_group_id,
+          delivery_order_id: deliveryOrder.id,
+          quantity: minimal_load_quantity,
+        },
         { transaction }
       );
-      console.log(`✅ Auto-added DO ${deliveryOrder.do_number} to deposit group ${po.deposit_group_id}`);
+      console.log(
+        `✅ Auto-added DO ${deliveryOrder.do_number} to deposit group ${po.deposit_group_id}`
+      );
     }
 
-    await Vehicle.update({ status: "in_use" }, { where: { id: vehicle_id }, transaction });
+    await Vehicle.update(
+      { status: "in_use" },
+      { where: { id: vehicle_id }, transaction }
+    );
 
     const driverUser = await User.findOne({
       where: { id: driver_id },
       attributes: ["username", "expo_push_token"],
-      include: [{ model: DriverProfile, as: "driverProfile", attributes: ["full_name"] }],
+      include: [
+        {
+          model: DriverProfile,
+          as: "driverProfile",
+          attributes: ["full_name"],
+        },
+      ],
       transaction,
     });
 
-    if (driverUser && driverUser.expo_push_token && Expo.isExpoPushToken(driverUser.expo_push_token)) {
+    if (
+      driverUser &&
+      driverUser.expo_push_token &&
+      Expo.isExpoPushToken(driverUser.expo_push_token)
+    ) {
       const expo = new Expo();
-      const driverName = driverUser.driverProfile?.full_name || driverUser.username;
+      const driverName =
+        driverUser.driverProfile?.full_name || driverUser.username;
       const messages = [
         {
           to: driverUser.expo_push_token,
           sound: "default",
           title: "Tugas Pengantaran Baru",
-          body: `Halo ${driverName}, Anda telah ditugaskan untuk DO ${deliveryOrder.do_name || deliveryOrder.do_number}. Silakan cek detail pengantaran di aplikasi.`,
+          body: `Halo ${driverName}, Anda telah ditugaskan untuk DO ${
+            deliveryOrder.do_name || deliveryOrder.do_number
+          }. Silakan cek detail pengantaran di aplikasi.`,
           data: { do_number: deliveryOrder.do_number },
         },
       ];
@@ -651,47 +706,49 @@ exports.getAllDeliveryOrders = async (req, res, next) => {
       kubik,
     ] = await Promise.all(statsPromises);
 
-    const { count, rows: deliveryOrders } = await DeliveryOrder.findAndCountAll({
-      where: whereClause,
-      include: [
-        {
-          model: PurchaseOrder,
-          as: "purchaseOrder",
-          attributes: [
-            "po_number",
-            "customer_name",
-            "total_quantity",
-            "unit",
-          ],
-        },
-        {
-          model: User,
-          as: "driver",
-          attributes: ["id", "username"],
-          include: [
-            {
-              model: DriverProfile,
-              as: "driverProfile",
-              attributes: ["full_name", "phone"],
-            },
-          ],
-        },
-        {
-          model: Vehicle,
-          as: "vehicle",
-          attributes: ["license_plate", "type", "capacity"],
-        },
-        {
-          model: BigDeliveryOrder,
-          as: "bigDeliveryOrderAsMain",
-          attributes: ["big_do_number", "status", "total_trip_allowance"],
-          required: false,
-        },
-      ],
-      order: [["created_at", "DESC"]],
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-    });
+    const { count, rows: deliveryOrders } = await DeliveryOrder.findAndCountAll(
+      {
+        where: whereClause,
+        include: [
+          {
+            model: PurchaseOrder,
+            as: "purchaseOrder",
+            attributes: [
+              "po_number",
+              "customer_name",
+              "total_quantity",
+              "unit",
+            ],
+          },
+          {
+            model: User,
+            as: "driver",
+            attributes: ["id", "username"],
+            include: [
+              {
+                model: DriverProfile,
+                as: "driverProfile",
+                attributes: ["full_name", "phone"],
+              },
+            ],
+          },
+          {
+            model: Vehicle,
+            as: "vehicle",
+            attributes: ["license_plate", "type", "capacity"],
+          },
+          {
+            model: BigDeliveryOrder,
+            as: "bigDeliveryOrderAsMain",
+            attributes: ["big_do_number", "status", "total_trip_allowance"],
+            required: false,
+          },
+        ],
+        order: [["created_at", "DESC"]],
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+      }
+    );
 
     const enhancedDOs = deliveryOrders.map((dOrder) => {
       const doData = dOrder.toJSON();
@@ -838,14 +895,14 @@ exports.getDeliveryOrderById = async (req, res, next) => {
         ...doData,
         unit: orderUnit,
         status_text: deliveryOrder.getStatusText() || doData.status,
-        payment_notes: doData.payment_notes || '', // Changed from notes to payment_notes
+        payment_notes: doData.payment_notes || "", // Changed from notes to payment_notes
         financial_summary: {
           ...(deliveryOrder.getFinancialSummary() || {}),
           minimal_total_amount: minimalTotalAmount,
           actual_total_amount: actualTotalAmount,
           ongkosan: calculatedOngkosan,
           additional_allowance: Array.isArray(doData.additional_allowance)
-            ? doData.additional_allowance.map(a => parseFloat(a) || 0)
+            ? doData.additional_allowance.map((a) => parseFloat(a) || 0)
             : [],
           unit: orderUnit,
           unit_display: deliveryOrder.getUnitDisplay() || orderUnit,
@@ -942,7 +999,9 @@ exports.updateDeliveryOrder = async (req, res, next) => {
     if (Array.isArray(additional_allowance)) {
       additional_allowance.forEach((val, index) => {
         if (isNaN(parseFloat(val)) || parseFloat(val) < 0) {
-          throw new Error(`Invalid additional_allow.currency at index ${index}: must be a non-negative number`);
+          throw new Error(
+            `Invalid additional_allow.currency at index ${index}: must be a non-negative number`
+          );
         }
       });
     }
@@ -962,7 +1021,8 @@ exports.updateDeliveryOrder = async (req, res, next) => {
       unit_price: unit_price ?? deliveryOrder.unit_price,
       trip_allowance: trip_allowance ?? deliveryOrder.trip_allowance,
       gaji: gaji ?? deliveryOrder.gaji,
-      additional_allowance: additional_allowance ?? deliveryOrder.additional_allowance,
+      additional_allowance:
+        additional_allowance ?? deliveryOrder.additional_allowance,
       load_location: load_location ?? deliveryOrder.load_location,
       unload_location: unload_location ?? deliveryOrder.unload_location,
       load_latitude: load_latitude ?? deliveryOrder.load_latitude,
@@ -977,7 +1037,7 @@ exports.updateDeliveryOrder = async (req, res, next) => {
 
     // Append additional allowance notes to payment_notes if provided
     if (additional_allowance_notes) {
-      const currentNotes = proposedData.payment_notes || '';
+      const currentNotes = proposedData.payment_notes || "";
       proposedData.payment_notes = currentNotes
         ? `${currentNotes}\n${additional_allowance_notes}`
         : additional_allowance_notes;
@@ -985,7 +1045,8 @@ exports.updateDeliveryOrder = async (req, res, next) => {
 
     // Enhanced recalculation
     let calculatedTotalAmount = total_amount;
-    const calcQuantity = proposedData.actual_load_quantity || proposedData.minimal_load_quantity;
+    const calcQuantity =
+      proposedData.actual_load_quantity || proposedData.minimal_load_quantity;
     if (calcQuantity && proposedData.unit_price && proposedData.unit) {
       calculatedTotalAmount = calculateTotalAmount(
         calcQuantity,
@@ -1550,9 +1611,9 @@ exports.getDeliveryStatistics = async (req, res, next) => {
       }) || 0,
       DeliveryOrder.sum(
         sequelize.fn(
-          'SUM',
+          "SUM",
           sequelize.fn(
-            'COALESCE',
+            "COALESCE",
             sequelize.literal(
               "(SELECT SUM(allowance) FROM unnest(additional_allowance) AS allowance)"
             ),
@@ -1563,7 +1624,8 @@ exports.getDeliveryStatistics = async (req, res, next) => {
       ) || 0,
     ]);
 
-    const totalDriverCosts = totalTripAllowance + totalGaji + totalAdditionalAllowance;
+    const totalDriverCosts =
+      totalTripAllowance + totalGaji + totalAdditionalAllowance;
     const completionRate =
       totalDeliveries > 0 ? (completedDeliveries / totalDeliveries) * 100 : 0;
     const netProfit = totalOngkosan;
@@ -1611,6 +1673,36 @@ exports.getDeliveryStatistics = async (req, res, next) => {
     });
   } catch (err) {
     console.error("Error getting delivery statistics:", err);
+    res.status(500).json({ success: false, message: err.message });
+    next(err);
+  }
+};
+
+exports.getRecentCustomers = async (req, res, next) => {
+  try {
+    // Ambil 50 DO terakhir untuk mendapatkan sampel nama pelanggan yang relevan
+    const recentDOs = await DeliveryOrder.findAll({
+      attributes: ["customer_name"],
+      where: {
+        customer_name: { [Op.ne]: null, [Op.ne]: "" }, // Abaikan nama yang kosong
+      },
+      order: [["created_at", "DESC"]],
+      limit: 50,
+      raw: true,
+    });
+
+    // Buat daftar nama unik dan ambil 5 teratas
+    const uniqueCustomerNames = [
+      ...new Set(recentDOs.map((po) => po.customer_name)),
+    ];
+    const top5 = uniqueCustomerNames.slice(0, 5);
+
+    res.json({
+      success: true,
+      data: top5,
+    });
+  } catch (err) {
+    console.error("Error getting recent customers from DOs:", err);
     res.status(500).json({ success: false, message: err.message });
     next(err);
   }

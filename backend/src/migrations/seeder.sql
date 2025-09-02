@@ -23,7 +23,7 @@ INSERT INTO driver_profiles (user_id, full_name, phone, address, id_card_number,
 ((SELECT id FROM users WHERE username = 'supir_eko'), 'Eko Prasetyo', '085555555555', 'Jl. Kemakmuran 5', '3201555555550005', '5555-5555-555555', 'B2 Umum', 'available'),
 ((SELECT id FROM users WHERE username = 'supir_yoyo'), 'Yoyo Karyo', '08101010101010', 'Jl. Ikan Sebelah no 22', '320994488009921', '5555-3344-123', 'B1', 'available');
 
--- 1. Create stock categories FIRST
+-- 1. Create stock categories
 INSERT INTO stock_categories (category_name, description) VALUES
 ('Oli & Pelumas', 'Oli mesin, oli transmisi, dan pelumas lainnya'),
 ('Filter', 'Filter oli, filter solar, filter udara'),
@@ -459,6 +459,7 @@ INSERT INTO delivery_orders (
   185000, -- Rp 185,000 per m³
   10406250, -- 56.25 m³ × Rp 185,000/m³ = Rp 10,406,250
   'lunas',
+  
   '2025-07-10',
   'Quarry Sukabumi, Jawa Barat',
   -6.9175, 
