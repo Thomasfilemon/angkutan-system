@@ -427,14 +427,15 @@ exports.getComprehensiveRitaseTable = async (req, res, next) => {
     // ✅ ENHANCED: Summary statistics with error handling
     const summaryStats = {
       totalRecords,
-      totalRevenue: processedData.reduce(
-        (sum, record) => sum + (record.calculated.grossIncome || 0),
-        0
-      ),
-      totalProfit: processedData.reduce(
-        (sum, record) => sum + (record.calculated.netProfit || 0),
-        0
-      ),
+      // Use precise sums guarded against NaN
+      totalRevenue: processedData.reduce((sum, record) => {
+        const v = Number(record.calculated.grossIncome) || 0;
+        return sum + v;
+      }, 0),
+      totalProfit: processedData.reduce((sum, record) => {
+        const v = Number(record.calculated.netProfit) || 0;
+        return sum + v;
+      }, 0),
       vehicleCount: [
         ...new Set(
           processedData.map((record) => record.vehicle_id).filter(Boolean)
@@ -444,21 +445,21 @@ exports.getComprehensiveRitaseTable = async (req, res, next) => {
         (record) => record.status === "completed"
       ).length,
       // ✅ ADDED: Additional summary metrics
-      totalOperationalCosts: processedData.reduce(
-        (sum, record) => sum + (record.calculated.operationalCosts || 0),
-        0
-      ),
+      totalOperationalCosts: processedData.reduce((sum, record) => {
+        const v = Number(record.calculated.operationalCosts) || 0;
+        return sum + v;
+      }, 0),
       averageProfitMargin:
         processedData.length > 0
-          ? processedData.reduce(
-              (sum, record) => sum + (record.calculated.profitMargin || 0),
-              0
-            ) / processedData.length
+          ? processedData.reduce((sum, record) => {
+              const v = Number(record.calculated.profitMargin) || 0;
+              return sum + v;
+            }, 0) / processedData.length
           : 0,
-      outstandingAmount: processedData.reduce(
-        (sum, record) => sum + (record.calculated.outstanding || 0),
-        0
-      ),
+      outstandingAmount: processedData.reduce((sum, record) => {
+        const v = Number(record.calculated.outstanding) || 0;
+        return sum + v;
+      }, 0),
     };
 
     // ✅ ENHANCED: Response with comprehensive data and metadata
@@ -584,21 +585,42 @@ exports.getDashboardMetrics = async (req, res, next) => {
     let completedTrips = deliveryOrders.length;
 
     deliveryOrders.forEach((order) => {
+      // Robust numeric parsing with safe fallbacks to avoid NaN propagation
+      const rawActual = parseFloat(order.actual_load_quantity);
+      const rawMinimal = parseFloat(order.minimal_load_quantity);
       const actualQuantity =
-        parseFloat(order.actual_load_quantity) ||
-        parseFloat(order.minimal_load_quantity);
-      const unitPrice = parseFloat(order.unit_price) || 0;
+        (isFinite(rawActual) && !isNaN(rawActual) ? rawActual : null) ??
+        ((isFinite(rawMinimal) && !isNaN(rawMinimal) ? rawMinimal : null) ?? 0);
+      const unitPrice = isFinite(parseFloat(order.unit_price))
+        ? parseFloat(order.unit_price)
+        : 0;
       const unit = order.unit || "ton"; // Default to ton if unit missing
 
-      // 🎯 FIXED: Use unit-aware calculation
-      const grossIncome = calculateUnitAwareTotal(
+      // 🎯 FIXED: Use unit-aware calculation with robust fallbacks from invoices/DO totals
+      let grossIncome = calculateUnitAwareTotal(
         actualQuantity,
         unitPrice,
         unit
       );
+      // Fallback 1: if invoice(s) exist, take their net amount as revenue basis
+      const invoiceNet = (order.invoices || []).reduce((sum, i) => {
+        const amt = Number(i.net_amount);
+        return sum + (isFinite(amt) ? amt : 0);
+      }, 0);
+      if (!grossIncome && invoiceNet > 0) {
+        grossIncome = invoiceNet;
+      }
+      // Fallback 2: use DO total_amount if present and bigger than computed
+      const doTotal = Number(order.total_amount);
+      if ((!grossIncome || grossIncome === 0) && isFinite(doTotal) && doTotal > 0) {
+        grossIncome = doTotal;
+      }
 
       const operationalCosts =
-        parseFloat(order.trip_allowance) + parseFloat(order.gaji);
+        (isFinite(parseFloat(order.trip_allowance))
+          ? parseFloat(order.trip_allowance)
+          : 0) +
+        (isFinite(parseFloat(order.gaji)) ? parseFloat(order.gaji) : 0);
       const netProfit = grossIncome - operationalCosts;
 
       totalRevenue += grossIncome;
