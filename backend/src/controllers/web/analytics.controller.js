@@ -112,7 +112,7 @@ const getDashboardMetrics = async (req, res) => {
     );
     console.log("[Debug] inventoryMetrics:", inventoryMetrics);
 
-    // Tambah Category Breakdown (dari versi sebelumnya, filtered)
+    // Tambah Category Breakdown
     const categoryBreakdown = await sequelize.query(
       `
       SELECT 
@@ -122,11 +122,11 @@ const getDashboardMetrics = async (req, res) => {
       FROM stock_items si
       LEFT JOIN stock_categories sc ON si.category_id = sc.id
       LEFT JOIN stock_batches sb ON si.id = sb.item_id
-      WHERE sb.purchase_date BETWEEN :startDate AND :endDate
+      -- WHERE clause removed to calculate total current inventory value regardless of purchase date
       GROUP BY sc.category_name
+      HAVING COALESCE(SUM(sb.quantity * sb.unit_price), 0) > 0 -- Only show categories with stock
     `,
       {
-        replacements: { startDate, endDate },
         type: QueryTypes.SELECT,
       }
     );

@@ -26,12 +26,17 @@ const PurchaseOrderCreatePage = () => {
   // Loading and error states
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
+  const [validationErrors, setValidationErrors] = useState<ValidationErrors>(
+    {}
+  );
   const [showPreview, setShowPreview] = useState(true);
 
   // Deposit group states
   const [depositGroups, setDepositGroups] = useState<DepositGroup[]>([]);
   const [selectedDepositGroup, setSelectedDepositGroup] = useState<string>("");
+
+  const [customerSuggestions, setCustomerSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   // Form states
   const [customerName, setCustomerName] = useState("");
@@ -50,13 +55,13 @@ const PurchaseOrderCreatePage = () => {
   // Suggested items
   const suggestedItems = [
     "Pasir Silika",
-    "Batu Split", 
+    "Batu Split",
     "Semen",
     "Gravel",
     "Sand",
     "Abu Batu",
     "Pasir",
-    "Split"
+    "Split",
   ];
 
   // Unit options
@@ -88,13 +93,21 @@ const PurchaseOrderCreatePage = () => {
   useEffect(() => {
     const fetchDepositGroups = async () => {
       try {
-        const response = await apiClient.get('/deposit-groups');
+        const response = await apiClient.get("/deposit-groups");
         setDepositGroups(response.data || []);
+
+        // Fetch recent customers
+        const customerResponse = await apiClient.get(
+          "/purchase-orders/utils/recent-customers"
+        );
+        if (customerResponse.data?.success) {
+          setCustomerSuggestions(customerResponse.data.data);
+        }
       } catch (error) {
-        console.error('Error fetching deposit groups:', error);
+        console.error("Error fetching deposit groups:", error);
       }
     };
-    
+
     fetchDepositGroups();
   }, []);
 
@@ -106,6 +119,21 @@ const PurchaseOrderCreatePage = () => {
     ).padStart(2, "0")}`;
     setPoNumberPreview(`PO-${yearMonth}-XXX`);
   }, []);
+
+  const handleCustomerNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setCustomerName(value);
+    if (value) {
+      setShowSuggestions(true);
+    } else {
+      setShowSuggestions(false);
+    }
+  };
+
+  const handleSelectSuggestion = (name: string) => {
+    setCustomerName(name);
+    setShowSuggestions(false);
+  };
 
   // Smart item handling
   const handleItemsKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -271,9 +299,16 @@ const PurchaseOrderCreatePage = () => {
             <div className="mt-2 text-sm">
               <p className="font-medium">Valid units are:</p>
               <ul className="list-disc list-inside ml-2">
-                <li><strong>kilogram</strong> - For weight-based pricing per kg</li>
-                <li><strong>ton</strong> - For weight-based pricing per kg (converted to tons)</li>
-                <li><strong>kubik</strong> - For volume-based pricing per m³</li>
+                <li>
+                  <strong>kilogram</strong> - For weight-based pricing per kg
+                </li>
+                <li>
+                  <strong>ton</strong> - For weight-based pricing per kg
+                  (converted to tons)
+                </li>
+                <li>
+                  <strong>kubik</strong> - For volume-based pricing per m³
+                </li>
               </ul>
             </div>
           )}
@@ -291,7 +326,12 @@ const PurchaseOrderCreatePage = () => {
             <div className="p-4 bg-blue-50 rounded-lg">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Link to Deposit Group
-                <span className="ml-1 text-gray-400 cursor-help" title="Link this PO to a deposit group for pre-paid handling">ℹ️</span>
+                <span
+                  className="ml-1 text-gray-400 cursor-help"
+                  title="Link this PO to a deposit group for pre-paid handling"
+                >
+                  ℹ️
+                </span>
               </label>
               <select
                 value={selectedDepositGroup}
@@ -299,15 +339,17 @@ const PurchaseOrderCreatePage = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">No Deposit Group</option>
-                {depositGroups.map(group => (
+                {depositGroups.map((group) => (
                   <option key={group.id} value={group.id}>
-                    {group.group_name} (Remaining: {group.remaining_quantity || 0} {group.unit || 'ton'})
+                    {group.group_name} (Remaining:{" "}
+                    {group.remaining_quantity || 0} {group.unit || "ton"})
                   </option>
                 ))}
               </select>
               {selectedDepositGroup && (
                 <p className="text-sm text-blue-600 mt-1">
-                  This PO will be linked to the selected deposit group for pre-paid handling.
+                  This PO will be linked to the selected deposit group for
+                  pre-paid handling.
                 </p>
               )}
             </div>
@@ -322,7 +364,12 @@ const PurchaseOrderCreatePage = () => {
               <div className="relative group">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   PO Number (Preview)
-                  <span className="ml-1 text-gray-400 cursor-help" title="Auto-generated by system on submit">ℹ️</span>
+                  <span
+                    className="ml-1 text-gray-400 cursor-help"
+                    title="Auto-generated by system on submit"
+                  >
+                    ℹ️
+                  </span>
                 </label>
                 <input
                   type="text"
@@ -361,7 +408,11 @@ const PurchaseOrderCreatePage = () => {
                 <input
                   type="text"
                   value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
+                  onChange={handleCustomerNameChange}
+                  onFocus={() => customerName && setShowSuggestions(true)}
+                  onBlur={() =>
+                    setTimeout(() => setShowSuggestions(false), 150)
+                  } // Delay to allow click
                   className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200 ${
                     validationErrors.customerName
                       ? "border-red-300 bg-red-50"
@@ -369,11 +420,32 @@ const PurchaseOrderCreatePage = () => {
                   }`}
                   placeholder="PT Example Corp"
                   required
+                  autoComplete="off" // Disable browser's default autocomplete
                 />
                 {validationErrors.customerName && (
                   <p className="text-red-500 text-xs mt-1">
                     {validationErrors.customerName}
                   </p>
+                )}
+                {/* --- SUGGESTION BOX --- */}
+                {showSuggestions && customerSuggestions.length > 0 && (
+                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                    {customerSuggestions
+                      .filter((suggestion) =>
+                        suggestion
+                          .toLowerCase()
+                          .includes(customerName.toLowerCase())
+                      )
+                      .map((suggestion, index) => (
+                        <div
+                          key={index}
+                          onMouseDown={() => handleSelectSuggestion(suggestion)} // Use onMouseDown to fire before onBlur
+                          className="px-4 py-2 text-gray-700 hover:bg-gray-100 cursor-pointer"
+                        >
+                          {suggestion}
+                        </div>
+                      ))}
+                  </div>
                 )}
               </div>
             </div>
@@ -388,8 +460,14 @@ const PurchaseOrderCreatePage = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <div className="relative group col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Items (Type and press comma/Enter) <span className="text-red-500">*</span>
-                    <span className="ml-1 text-gray-400 cursor-help" title="Add multiple items, stored as comma-separated">ℹ️</span>
+                    Items (Type and press comma/Enter){" "}
+                    <span className="text-red-500">*</span>
+                    <span
+                      className="ml-1 text-gray-400 cursor-help"
+                      title="Add multiple items, stored as comma-separated"
+                    >
+                      ℹ️
+                    </span>
                   </label>
                   <input
                     type="text"
@@ -449,9 +527,14 @@ const PurchaseOrderCreatePage = () => {
                   <input
                     type="number"
                     min="0"
-                    step={unitOptions.find((opt) => opt.value === unit)?.step || 0.01}
+                    step={
+                      unitOptions.find((opt) => opt.value === unit)?.step ||
+                      0.01
+                    }
                     value={totalQuantity}
-                    onChange={(e) => handleChange("totalQuantity", e.target.value)}
+                    onChange={(e) =>
+                      handleChange("totalQuantity", e.target.value)
+                    }
                     className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200 ${
                       validationErrors.totalQuantity
                         ? "border-red-300 bg-red-50"
@@ -586,7 +669,8 @@ const PurchaseOrderCreatePage = () => {
                   Items: {items.join(", ") || "None"}
                 </p>
                 <p className="text-sm text-gray-600 mb-1">
-                  Quantity: {totalQuantity} {unitOptions.find((opt) => opt.value === unit)?.shortLabel}
+                  Quantity: {totalQuantity}{" "}
+                  {unitOptions.find((opt) => opt.value === unit)?.shortLabel}
                 </p>
                 <p className="text-sm text-gray-600 mb-1">
                   Load: {loadLocation || "N/A"}
@@ -595,7 +679,12 @@ const PurchaseOrderCreatePage = () => {
                   Unload: {unloadLocation || "N/A"}
                 </p>
                 <p className="text-sm text-gray-600 mb-1">
-                  Deposit Group: {selectedDepositGroup ? depositGroups.find(g => g.id.toString() === selectedDepositGroup)?.group_name : "None"}
+                  Deposit Group:{" "}
+                  {selectedDepositGroup
+                    ? depositGroups.find(
+                        (g) => g.id.toString() === selectedDepositGroup
+                      )?.group_name
+                    : "None"}
                 </p>
                 <p className="text-sm text-gray-600 mt-2">
                   Notes: {notes || "None"}

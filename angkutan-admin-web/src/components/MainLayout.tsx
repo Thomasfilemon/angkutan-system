@@ -13,7 +13,6 @@ const MainLayout = () => {
     if (path === "/") return "Dashboard";
     if (path.startsWith("/trips")) return "Manajemen Trips";
     if (path.startsWith("/delivery-orders")) return "Delivery Orders";
-    if (path.startsWith("/big-dos")) return "Big Delivery Orders";
     if (path.startsWith("/vehicles/tires")) return "Manajemen Ban";
     if (path.startsWith("/vehicles")) return "Manajemen Kendaraan";
     if (path.startsWith("/drivers")) return "Manajemen Supir";
@@ -21,7 +20,8 @@ const MainLayout = () => {
     if (path.startsWith("/services")) return "Riwayat Servis";
     if (path.startsWith("/cash")) return "Buku Kas";
     if (path.startsWith("/ritase")) return "Dashboard Ritase";
-    if (path.startsWith("/ritase/profitability")) return "DO Profitability Report"; // Added this line
+    if (path.startsWith("/ritase/profitability"))
+      return "DO Profitability Report";
     if (path.startsWith("/buku-kas")) return "Buku Kas";
     if (path.startsWith("/tempo")) return "Buku Tempo";
     if (path.startsWith("/deposit-groups")) return "Pembayaran Deposit";
@@ -215,22 +215,19 @@ const MainLayout = () => {
               </Link>
             </li>
 
-              <Link to="/ritase/profitability" className="text-white">DO Profitability</Link>
-
-
             <li className="mb-4">
               <Link
-                to="/big-dos"
+                to="/ritase/profitability"
                 className={`flex items-center p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink("/big-dos")
+                  isActiveLink("/ritase/profitability")
                     ? "bg-gray-700 border-l-4 border-blue-500"
                     : ""
                 }`}
-                title="Big Delivery Orders"
+                title="Delivery Orders Profitability"
               >
-                <span className="text-xl mr-3">🚛</span>
+                <span className="text-xl mr-3">💸</span>
                 <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
-                  Big DOs
+                  DO Profitability
                 </span>
               </Link>
             </li>

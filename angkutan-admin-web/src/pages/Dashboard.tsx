@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import axios from "../api/axiosConfig";
 import {
   Chart as ChartJS,
@@ -68,6 +68,57 @@ const Dashboard = () => {
   const [timeRange, setTimeRange] = useState("month"); // 'week', 'month', 'year'
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
+
+  // --- NEW: Memoized function to process inventory data for the chart ---
+  const inventoryChartData = useMemo(() => {
+    const breakdown = metrics?.inventoryMetrics?.categoryBreakdown;
+    if (!breakdown || breakdown.length === 0) {
+      return { labels: [], data: [], colors: [] };
+    }
+
+    // Sort categories by value in descending order
+    const sortedBreakdown = [...breakdown].sort((a, b) => b.value - a.value);
+
+    const topN = 5;
+    const labels: string[] = [];
+    const data: number[] = [];
+    const defaultColors = [
+      "#9333EA", // purple
+      "#F59E0B", // amber
+      "#10B981", // emerald
+      "#3B82F6", // blue
+      "#EF4444", // red
+    ];
+    const othersColor = "#9CA3AF"; // Gray for "Others"
+
+    if (sortedBreakdown.length > topN) {
+      // Take the top 5
+      const topItems = sortedBreakdown.slice(0, topN);
+      labels.push(...topItems.map((item) => item.category));
+      data.push(...topItems.map((item) => item.value));
+
+      // Aggregate the rest into "Others"
+      const otherItems = sortedBreakdown.slice(topN);
+      const othersValue = otherItems.reduce((sum, item) => sum + item.value, 0);
+      if (othersValue > 0) {
+        labels.push("Others");
+        data.push(othersValue);
+      }
+
+      // Assign colors
+      const colors = [...defaultColors.slice(0, topItems.length)];
+      if (othersValue > 0) {
+        colors.push(othersColor);
+      }
+      return { labels, data, colors };
+    } else {
+      // If 5 or fewer categories, show all of them
+      const labels = sortedBreakdown.map((item) => item.category);
+      const data = sortedBreakdown.map((item) => item.value);
+      const colors = defaultColors.slice(0, sortedBreakdown.length);
+      return { labels, data, colors };
+    }
+  }, [metrics]);
 
   useEffect(() => {
     const fetchMetrics = async () => {
@@ -265,21 +316,13 @@ const Dashboard = () => {
               <div className="h-80">
                 <Doughnut
                   data={{
-                    labels: (
-                      metrics?.inventoryMetrics.categoryBreakdown ?? []
-                    ).map((item) => item.category),
+                    labels: inventoryChartData.labels,
                     datasets: [
                       {
-                        data: (
-                          metrics?.inventoryMetrics.categoryBreakdown ?? []
-                        ).map((item) => item.value),
-                        backgroundColor: [
-                          "#9333EA",
-                          "#C084FC",
-                          "#A855F7",
-                          "#8B5CF6",
-                          "#7C3AED",
-                        ],
+                        data: inventoryChartData.data,
+                        backgroundColor: inventoryChartData.colors,
+                        borderColor: "#FFFFFF",
+                        borderWidth: 2,
                       },
                     ],
                   }}
