@@ -38,6 +38,15 @@ const PurchaseOrderCreatePage = () => {
   const [customerSuggestions, setCustomerSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
+  const [loadLocationSuggestions, setLoadLocationSuggestions] = useState<
+    string[]
+  >([]);
+  const [unloadLocationSuggestions, setUnloadLocationSuggestions] = useState<
+    string[]
+  >([]);
+  const [showLoadSuggestions, setShowLoadSuggestions] = useState(false);
+  const [showUnloadSuggestions, setShowUnloadSuggestions] = useState(false);
+
   // Form states
   const [customerName, setCustomerName] = useState("");
   const [itemsInput, setItemsInput] = useState(""); // Temp for typing items
@@ -103,6 +112,18 @@ const PurchaseOrderCreatePage = () => {
         if (customerResponse.data?.success) {
           setCustomerSuggestions(customerResponse.data.data);
         }
+
+        const locationResponse = await apiClient.get(
+          "/purchase-orders/utils/recent-locations"
+        );
+        if (locationResponse.data?.success) {
+          setLoadLocationSuggestions(
+            locationResponse.data.data.load_locations || []
+          );
+          setUnloadLocationSuggestions(
+            locationResponse.data.data.unload_locations || []
+          );
+        }
       } catch (error) {
         console.error("Error fetching deposit groups:", error);
       }
@@ -133,6 +154,32 @@ const PurchaseOrderCreatePage = () => {
   const handleSelectSuggestion = (name: string) => {
     setCustomerName(name);
     setShowSuggestions(false);
+  };
+
+  const handleLoadLocationChange = (
+    e: React.ChangeEvent<HTMLTextAreaElement>
+  ) => {
+    const value = e.target.value;
+    setLoadLocation(value);
+    setShowLoadSuggestions(!!value);
+  };
+
+  const handleUnloadLocationChange = (
+    e: React.ChangeEvent<HTMLTextAreaElement>
+  ) => {
+    const value = e.target.value;
+    setUnloadLocation(value);
+    setShowUnloadSuggestions(!!value);
+  };
+
+  const handleSelectLoadSuggestion = (location: string) => {
+    setLoadLocation(location);
+    setShowLoadSuggestions(false);
+  };
+
+  const handleSelectUnloadSuggestion = (location: string) => {
+    setUnloadLocation(location);
+    setShowUnloadSuggestions(false);
   };
 
   // Smart item handling
@@ -591,31 +638,82 @@ const PurchaseOrderCreatePage = () => {
               Specify now or later in delivery orders.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
+              <div className="relative">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Load Location
                 </label>
                 <textarea
                   value={loadLocation}
-                  onChange={(e) => setLoadLocation(e.target.value)}
+                  onChange={handleLoadLocationChange}
+                  onFocus={() => loadLocation && setShowLoadSuggestions(true)}
+                  onBlur={() =>
+                    setTimeout(() => setShowLoadSuggestions(false), 150)
+                  }
                   rows={3}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200 resize-none"
                   placeholder="Quarry Serang, Banten"
+                  autoComplete="off"
                 />
+                {showLoadSuggestions && loadLocationSuggestions.length > 0 && (
+                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                    {loadLocationSuggestions
+                      .filter((loc) =>
+                        loc.toLowerCase().includes(loadLocation.toLowerCase())
+                      )
+                      .map((loc, index) => (
+                        <div
+                          key={index}
+                          onMouseDown={() => handleSelectLoadSuggestion(loc)}
+                          className="px-4 py-2 text-gray-700 hover:bg-gray-100 cursor-pointer"
+                        >
+                          {loc}
+                        </div>
+                      ))}
+                  </div>
+                )}
               </div>
 
-              <div>
+              <div className="relative">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Unload Location
                 </label>
                 <textarea
                   value={unloadLocation}
-                  onChange={(e) => setUnloadLocation(e.target.value)}
+                  onChange={handleUnloadLocationChange}
+                  onFocus={() =>
+                    unloadLocation && setShowUnloadSuggestions(true)
+                  }
+                  onBlur={() =>
+                    setTimeout(() => setShowUnloadSuggestions(false), 150)
+                  }
                   rows={3}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200 resize-none"
                   placeholder="Proyek Jalan Tol Tangerang"
+                  autoComplete="off"
                 />
-              </div>
+                {showUnloadSuggestions &&
+                  unloadLocationSuggestions.length > 0 && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                      {unloadLocationSuggestions
+                        .filter((loc) =>
+                          loc
+                            .toLowerCase()
+                            .includes(unloadLocation.toLowerCase())
+                        )
+                        .map((loc, index) => (
+                          <div
+                            key={index}
+                            onMouseDown={() =>
+                              handleSelectUnloadSuggestion(loc)
+                            }
+                            className="px-4 py-2 text-gray-700 hover:bg-gray-100 cursor-pointer"
+                          >
+                            {loc}
+                          </div>
+                        ))}
+                    </div>
+                  )}
+              </div> 
 
               <div className="col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">

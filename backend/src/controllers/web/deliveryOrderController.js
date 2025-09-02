@@ -1434,7 +1434,11 @@ exports.adminConfirmLoadAndComplete = async (req, res, next) => {
     }
 
     // Normalize files list (support single or multiple)
-    const suratJalanFiles = Array.isArray(req.files) ? req.files : (req.file ? [req.file] : []);
+    const suratJalanFiles = Array.isArray(req.files)
+      ? req.files
+      : req.file
+      ? [req.file]
+      : [];
     if (!suratJalanFiles.length) {
       await transaction.rollback();
       return res.status(400).json({
@@ -1469,17 +1473,24 @@ exports.adminConfirmLoadAndComplete = async (req, res, next) => {
 
     if (!deliveryOrder) {
       await transaction.rollback();
-      return res.status(404).json({ success: false, message: "Delivery Order not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Delivery Order not found" });
     }
 
     // Persist surat jalan photo URLs
-    const photoUrls = suratJalanFiles.map((f) => String(f.path || '').replace(/\\/g, "/"));
+    const photoUrls = suratJalanFiles.map((f) =>
+      String(f.path || "").replace(/\\/g, "/")
+    );
 
     // Update DO with actual quantity and photos first
-    await deliveryOrder.update({
-      actual_load_quantity: parseFloat(actual_load_quantity),
-      surat_jalan_photo_url: photoUrls,
-    }, { transaction });
+    await deliveryOrder.update(
+      {
+        actual_load_quantity: parseFloat(actual_load_quantity),
+        surat_jalan_photo_url: photoUrls,
+      },
+      { transaction }
+    );
 
     // Reuse the standard complete logic (without files) now that actual qty is set
     // Prepare deposit handling similar to completeDeliveryOrder above
@@ -1555,7 +1566,11 @@ exports.adminConfirmLoadAndComplete = async (req, res, next) => {
     await transaction.commit();
 
     const updated = await DeliveryOrder.findByPk(id);
-    return res.json({ success: true, message: "DO confirmed and completed by admin", data: updated });
+    return res.json({
+      success: true,
+      message: "DO confirmed and completed by admin",
+      data: updated,
+    });
   } catch (err) {
     await transaction.rollback();
     console.error("Error in adminConfirmLoadAndComplete:", err);
@@ -1703,6 +1718,37 @@ exports.getRecentCustomers = async (req, res, next) => {
     });
   } catch (err) {
     console.error("Error getting recent customers from DOs:", err);
+    res.status(500).json({ success: false, message: err.message });
+    next(err);
+  }
+};
+
+exports.getRecentLocations = async (req, res, next) => {
+  try {
+    const recentDOs = await DeliveryOrder.findAll({
+      attributes: ["load_location", "unload_location"],
+      order: [["created_at", "DESC"]],
+      limit: 100, // Sample last 100 DOs for relevant locations
+      raw: true,
+    });
+
+    // Get unique, non-empty locations
+    const uniqueLoadLocations = [
+      ...new Set(recentDOs.map((d) => d.load_location).filter(Boolean)),
+    ];
+    const uniqueUnloadLocations = [
+      ...new Set(recentDOs.map((d) => d.unload_location).filter(Boolean)),
+    ];
+
+    res.json({
+      success: true,
+      data: {
+        load_locations: uniqueLoadLocations.slice(0, 10), // Return top 10 unique
+        unload_locations: uniqueUnloadLocations.slice(0, 10),
+      },
+    });
+  } catch (err) {
+    console.error("Error getting recent locations from DOs:", err);
     res.status(500).json({ success: false, message: err.message });
     next(err);
   }

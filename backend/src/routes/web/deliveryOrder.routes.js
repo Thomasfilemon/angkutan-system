@@ -23,6 +23,11 @@ router.get(
   checkRole(["admin", "owner"]),
   webDOController.getRecentCustomers
 );
+router.get(
+  "/utils/recent-locations",
+  checkRole(["admin", "owner"]),
+  webDOController.getRecentLocations
+);
 router.post(
   "/",
   checkRole(["admin", "owner"]),

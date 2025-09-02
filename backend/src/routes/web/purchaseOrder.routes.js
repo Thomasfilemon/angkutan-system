@@ -31,6 +31,12 @@ router.get(
 );
 
 router.get(
+  "/utils/recent-locations",
+  checkRole(["admin", "owner"]),
+  webPOController.getRecentLocations
+);
+
+router.get(
   "/:id",
   checkRole(["admin", "owner"]),
   webPOController.getPurchaseOrderById

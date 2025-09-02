@@ -210,6 +210,15 @@ const DeliveryOrderCreatePage: React.FC = () => {
   const [activeSuggestionIndex, setActiveSuggestionIndex] =
     useState<number>(-1);
 
+  const [loadLocationSuggestions, setLoadLocationSuggestions] = useState<
+    string[]
+  >([]);
+  const [unloadLocationSuggestions, setUnloadLocationSuggestions] = useState<
+    string[]
+  >([]);
+  const [showLoadSuggestions, setShowLoadSuggestions] = useState(false);
+  const [showUnloadSuggestions, setShowUnloadSuggestions] = useState(false);
+
   const defaultCenter = { lat: -6.2088, lng: 106.8456 };
 
   const getUnitDisplay = (unit: string) => {
@@ -382,6 +391,17 @@ const DeliveryOrderCreatePage: React.FC = () => {
             v.status === "available"
         )
       );
+      const locationResponse = await apiClient.get(
+        "/delivery-orders/utils/recent-locations"
+      );
+      if (locationResponse.data?.success) {
+        setLoadLocationSuggestions(
+          locationResponse.data.data.load_locations || []
+        );
+        setUnloadLocationSuggestions(
+          locationResponse.data.data.unload_locations || []
+        );
+      }
     } catch (err) {
       setErrors((prev) => [...prev, "Failed to fetch vehicles."]);
     }
@@ -436,6 +456,17 @@ const DeliveryOrderCreatePage: React.FC = () => {
           if (customerResponse.data?.success) {
             setCustomerSuggestions(customerResponse.data.data);
           }
+          const locationResponse = await apiClient.get(
+            "/delivery-orders/utils/recent-locations"
+          );
+          if (locationResponse.data?.success) {
+            setLoadLocationSuggestions(
+              locationResponse.data.data.load_locations || []
+            );
+            setUnloadLocationSuggestions(
+              locationResponse.data.data.unload_locations || []
+            );
+          }
         } catch (err) {
           setErrors((prev) => [
             ...prev,
@@ -465,11 +496,13 @@ const DeliveryOrderCreatePage: React.FC = () => {
     setFormDataList(newFormDataList);
 
     if (isStandalone && e.target.name === "customer_name") {
-      if (e.target.value) {
-        setShowSuggestions(true);
-      } else {
-        setShowSuggestions(false);
-      }
+      setShowSuggestions(!!e.target.value);
+    }
+    if (e.target.name === "load_location") {
+      setShowLoadSuggestions(!!e.target.value);
+    }
+    if (e.target.name === "unload_location") {
+      setShowUnloadSuggestions(!!e.target.value);
     }
 
     if (
@@ -500,6 +533,22 @@ const DeliveryOrderCreatePage: React.FC = () => {
     };
     setFormDataList(newFormDataList);
     setShowSuggestions(false);
+  };
+
+  const handleSelectLocationSuggestion = (
+    location: string,
+    type: "load" | "unload",
+    formIndex: number
+  ) => {
+    const newFormDataList = [...formDataList];
+    if (type === "load") {
+      newFormDataList[formIndex].load_location = location;
+      setShowLoadSuggestions(false);
+    } else {
+      newFormDataList[formIndex].unload_location = location;
+      setShowUnloadSuggestions(false);
+    }
+    setFormDataList(newFormDataList);
   };
 
   const handleAllowanceChange = (
@@ -1514,18 +1563,57 @@ const DeliveryOrderCreatePage: React.FC = () => {
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Load Location *
                       </label>
-                      <textarea
-                        disabled={!canCreate}
-                        name="load_location"
-                        value={formData.load_location}
-                        onChange={(e) => handleInputChange(index, e)}
-                        className={`w-full px-3 py-2 border border-gray-300 rounded-md ${
-                          !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
-                        }`}
-                        rows={3}
-                        required
-                        placeholder="Enter or select on map"
-                      />
+                      <div className="relative">
+                        <textarea
+                          disabled={!canCreate}
+                          name="load_location"
+                          value={formData.load_location}
+                          onChange={(e) => handleInputChange(index, e)}
+                          onFocus={() =>
+                            formData.load_location &&
+                            setShowLoadSuggestions(true)
+                          }
+                          onBlur={() =>
+                            setTimeout(() => setShowLoadSuggestions(false), 150)
+                          }
+                          className={`w-full px-3 py-2 border border-gray-300 rounded-md ${
+                            !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
+                          }`}
+                          rows={3}
+                          required
+                          placeholder="Enter or select on map"
+                          autoComplete="off"
+                        />
+                        {showLoadSuggestions &&
+                          loadLocationSuggestions.length > 0 &&
+                          currentFormIndex === index && (
+                            <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                              {loadLocationSuggestions
+                                .filter((loc) =>
+                                  loc
+                                    .toLowerCase()
+                                    .includes(
+                                      formData.load_location.toLowerCase()
+                                    )
+                                )
+                                .map((loc, sIndex) => (
+                                  <div
+                                    key={sIndex}
+                                    onMouseDown={() =>
+                                      handleSelectLocationSuggestion(
+                                        loc,
+                                        "load",
+                                        index
+                                      )
+                                    }
+                                    className="px-4 py-2 text-gray-700 hover:bg-gray-100 cursor-pointer"
+                                  >
+                                    {loc}
+                                  </div>
+                                ))}
+                            </div>
+                          )}
+                      </div>
                       <div className="mt-2">
                         <button
                           type="button"
@@ -1575,18 +1663,60 @@ const DeliveryOrderCreatePage: React.FC = () => {
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Unload Location *
                       </label>
-                      <textarea
-                        disabled={!canCreate}
-                        name="unload_location"
-                        value={formData.unload_location}
-                        onChange={(e) => handleInputChange(index, e)}
-                        className={`w-full px-3 py-2 border border-gray-300 rounded-md ${
-                          !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
-                        }`}
-                        rows={3}
-                        required
-                        placeholder="Enter or select on map"
-                      />
+                      <div className="relative">
+                        <textarea
+                          disabled={!canCreate}
+                          name="unload_location"
+                          value={formData.unload_location}
+                          onChange={(e) => handleInputChange(index, e)}
+                          onFocus={() =>
+                            formData.unload_location &&
+                            setShowUnloadSuggestions(true)
+                          }
+                          onBlur={() =>
+                            setTimeout(
+                              () => setShowUnloadSuggestions(false),
+                              150
+                            )
+                          }
+                          className={`w-full px-3 py-2 border border-gray-300 rounded-md ${
+                            !canCreate ? "bg-gray-100 cursor-not-allowed" : ""
+                          }`}
+                          rows={3}
+                          required
+                          placeholder="Enter or select on map"
+                          autoComplete="off"
+                        />
+                        {showUnloadSuggestions &&
+                          unloadLocationSuggestions.length > 0 &&
+                          currentFormIndex === index && (
+                            <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                              {unloadLocationSuggestions
+                                .filter((loc) =>
+                                  loc
+                                    .toLowerCase()
+                                    .includes(
+                                      formData.unload_location.toLowerCase()
+                                    )
+                                )
+                                .map((loc, sIndex) => (
+                                  <div
+                                    key={sIndex}
+                                    onMouseDown={() =>
+                                      handleSelectLocationSuggestion(
+                                        loc,
+                                        "unload",
+                                        index
+                                      )
+                                    }
+                                    className="px-4 py-2 text-gray-700 hover:bg-gray-100 cursor-pointer"
+                                  >
+                                    {loc}
+                                  </div>
+                                ))}
+                            </div>
+                          )}
+                      </div>
                       <div className="mt-2">
                         <button
                           type="button"
