@@ -1220,3 +1220,34 @@ exports.getRecentCustomers = async (req, res, next) => {
     next(err);
   }
 };
+
+exports.getRecentLocations = async (req, res, next) => {
+  try {
+    const recentPOs = await PurchaseOrder.findAll({
+      attributes: ["load_location", "unload_location"],
+      order: [["created_at", "DESC"]],
+      limit: 100, // Sample last 100 POs for relevant locations
+      raw: true,
+    });
+
+    // Get unique, non-empty locations
+    const uniqueLoadLocations = [
+      ...new Set(recentPOs.map((po) => po.load_location).filter(Boolean)),
+    ];
+    const uniqueUnloadLocations = [
+      ...new Set(recentPOs.map((po) => po.unload_location).filter(Boolean)),
+    ];
+
+    res.json({
+      success: true,
+      data: {
+        load_locations: uniqueLoadLocations.slice(0, 10), // Return top 10 unique
+        unload_locations: uniqueUnloadLocations.slice(0, 10),
+      },
+    });
+  } catch (err) {
+    console.error("Error getting recent locations:", err);
+    res.status(500).json({ success: false, message: err.message });
+    next(err);
+  }
+};
