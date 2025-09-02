@@ -336,30 +336,27 @@ const createService = async (req, res, next) => {
 
     // Calculate costs
     const laborCostAmount = parseFloat(labor_cost) || 0;
-    let totalPartsCost = 0;
-
-    // Process service items and calculate total parts cost
+    // Start with non-stock parts cost; stock parts cost will be derived from FIFO transactions after deduction
+    let nonStockPartsCost = 0;
     for (const item of serviceItems) {
-      totalPartsCost +=
-        (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price) || 0);
+      if (!item.from_stock) {
+        nonStockPartsCost += (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price) || 0);
+      }
     }
 
     // Create service record
-    const service = await VehicleService.create(
-      {
-        service_number: serviceNumber,
-        vehicle_id: parseInt(vehicle_id),
-        service_date: service_date || new Date(),
-        service_type: service_type || "regular",
-        description: description.trim(),
-        workshop_name: workshop_name || "",
-        labor_cost: laborCostAmount,
-        parts_cost: totalPartsCost,
-        notes: notes || "",
-        status: "completed",
-      },
-      { transaction }
-    );
+    const service = await VehicleService.create({
+      service_number: serviceNumber,
+      vehicle_id: parseInt(vehicle_id),
+      service_date: service_date || new Date(),
+      service_type: service_type || 'regular',
+      description: description.trim(),
+      workshop_name: workshop_name || '',
+      labor_cost: laborCostAmount,
+      parts_cost: nonStockPartsCost,
+      notes: notes || '',
+      status: 'completed'
+    }, { transaction });
 
     // Create service items and deduct stock
     for (const item of serviceItems) {
@@ -386,10 +383,26 @@ const createService = async (req, res, next) => {
       }
     }
 
+    // After stock deductions, compute actual FIFO-valued stock usage for this service
+    let stockPartsCost = 0;
+    try {
+      stockPartsCost = await StockTransaction.sum('total_amount', {
+        where: { reference_type: 'service', reference_id: service.id },
+        transaction
+      }) || 0;
+    } catch (e) {
+      stockPartsCost = 0;
+    }
+
+    // Update parts_cost on the service to reflect both non-stock and stock usage values
+    const totalPartsCost = nonStockPartsCost + stockPartsCost;
+    await service.update({ parts_cost: totalPartsCost }, { transaction });
+
     // ✅ FIXED: Create kas transaction even for zero-price items
     if (cashSettings.save_to_cash) {
-      const totalServiceCost = laborCostAmount + totalPartsCost;
-
+      // IMPORTANT: Only record non-stock parts to cash; stock usage valued via FIFO is excluded
+      const totalServiceCost = laborCostAmount + nonStockPartsCost;
+      
       // Create kas transaction if there are ANY service items OR labor cost > 0
       if (totalServiceCost > 0 || serviceItems.length > 0) {
         const transactionType = cashSettings.is_tempo
@@ -405,10 +418,8 @@ const createService = async (req, res, next) => {
             `Labor: Rp ${laborCostAmount.toLocaleString("id-ID")}`
           );
         }
-        if (totalPartsCost > 0) {
-          description_parts.push(
-            `Parts: Rp ${totalPartsCost.toLocaleString("id-ID")}`
-          );
+        if (nonStockPartsCost > 0) {
+          description_parts.push(`Parts (non-stock): Rp ${nonStockPartsCost.toLocaleString('id-ID')}`);
         }
         if (serviceItems.length > 0) {
           description_parts.push(`Items used: ${serviceItems.length} items`);

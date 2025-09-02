@@ -62,7 +62,16 @@ const getDashboardMetrics = async (req, res) => {
     const doFinancials = await sequelize.query(
       `
       SELECT 
-        COALESCE(SUM(CASE WHEN payment_status = 'lunas' THEN final_amount ELSE 0 END), 0) as gross_income,
+        COALESCE(SUM(
+          CASE WHEN payment_status = 'lunas' THEN 
+            COALESCE(
+              final_amount,
+              (COALESCE(actual_load_quantity, minimal_load_quantity) * COALESCE(unit_price, 0)),
+              total_amount,
+              0
+            )
+          ELSE 0 END
+        ), 0) as gross_income,
         COALESCE(SUM(trip_allowance), 0) as total_uang_jalan,
         COALESCE(SUM(gaji), 0) as total_gaji_driver
       FROM delivery_orders
@@ -77,6 +86,36 @@ const getDashboardMetrics = async (req, res) => {
       }
     );
     console.log("[Debug] doFinancials:", doFinancials);
+
+    // 1b. Payments actually received in period (cash-in)
+    const paymentsInPeriod = await sequelize.query(
+      `
+      SELECT COALESCE(SUM(payment_amount), 0) AS total_paid
+      FROM delivery_order_payments
+      WHERE payment_date BETWEEN :startDate AND :endDate
+      `,
+      {
+        replacements: { startDate, endDate },
+        type: QueryTypes.SELECT,
+        plain: true,
+      }
+    );
+
+    // 1c. Invoices issued in period by status (for partial vs paid view)
+    const invoiceBuckets = await sequelize.query(
+      `
+      SELECT
+        COALESCE(SUM(CASE WHEN status = 'paid' THEN net_amount ELSE 0 END), 0) AS inv_paid,
+        COALESCE(SUM(CASE WHEN status <> 'paid' THEN net_amount ELSE 0 END), 0) AS inv_unpaid
+      FROM delivery_order_invoices
+      WHERE invoice_date BETWEEN :startDate AND :endDate
+      `,
+      {
+        replacements: { startDate, endDate },
+        type: QueryTypes.SELECT,
+        plain: true,
+      }
+    );
 
     // 2. Biaya Operasional Lainnya
     const otherExpenses = await sequelize.query(
@@ -169,7 +208,28 @@ const getDashboardMetrics = async (req, res) => {
     );
 
     // --- KALKULASI METRIK FINAL ---
-    const grossIncome = parseFloat(doFinancials.gross_income || 0);
+    // Prefer actual cash-in; fall back to DO-based calc if no payments at all
+    const paidCashIn = parseFloat(paymentsInPeriod.total_paid || 0);
+    const grossIncome = paidCashIn > 0
+      ? paidCashIn
+      : parseFloat(doFinancials.gross_income || 0);
+
+    // NEW: Partial vs Paid vs Completed (revenue buckets)
+    const buckets = await sequelize.query(
+      `
+      SELECT
+        COALESCE(SUM(CASE WHEN payment_status = 'lunas' THEN COALESCE(final_amount, (COALESCE(actual_load_quantity, minimal_load_quantity) * COALESCE(unit_price,0)), total_amount, 0) ELSE 0 END), 0) AS paid_revenue,
+        COALESCE(SUM(CASE WHEN payment_status = 'proses_tagihan' THEN COALESCE(final_amount, (COALESCE(actual_load_quantity, minimal_load_quantity) * COALESCE(unit_price,0)), total_amount, 0) ELSE 0 END), 0) AS partial_revenue,
+        COALESCE(SUM(CASE WHEN status = 'completed' THEN COALESCE(final_amount, (COALESCE(actual_load_quantity, minimal_load_quantity) * COALESCE(unit_price,0)), total_amount, 0) ELSE 0 END), 0) AS completed_revenue
+      FROM delivery_orders
+      WHERE completed_at BETWEEN :startDate AND :endDate
+      `,
+      {
+        replacements: { startDate, endDate },
+        type: QueryTypes.SELECT,
+        plain: true,
+      }
+    );
     const totalUangJalan = parseFloat(doFinancials.total_uang_jalan || 0);
     const totalGajiDriver = parseFloat(doFinancials.total_gaji_driver || 0);
     const totalOtherDriverExpenses = parseFloat(
@@ -193,6 +253,11 @@ const getDashboardMetrics = async (req, res) => {
       grossIncome,
       netIncome,
       totalExpenses,
+      revenueBuckets: {
+        paid: paidCashIn,
+        partial: parseFloat(invoiceBuckets.inv_unpaid || 0),
+        completed: parseFloat(buckets.completed_revenue || 0),
+      },
       driverExpenses: {
         totalUangJalan,
         totalGajiDriver,

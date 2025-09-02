@@ -10,6 +10,36 @@ const {
 } = db;
 const { Op } = require("sequelize");
 
+// Helper to sanitize and build a base code from name
+const sanitizeCodePart = (text) => {
+  return (text || "")
+    .toString()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 12);
+};
+
+const generateItemCode = async (itemName, categoryId) => {
+  const datePart = new Date().toISOString().slice(0,10).replace(/-/g,"");
+  const basePart = sanitizeCodePart(itemName).split('-').slice(0,2).join('') || 'ITEM';
+  const prefix = `${basePart}-${datePart}`;
+
+  const lastItem = await StockItem.findOne({
+    where: { item_code: { [Op.iLike]: `${prefix}-%` } },
+    order: [["item_code", "DESC"]],
+  });
+
+  let sequence = 1;
+  if (lastItem && lastItem.item_code) {
+    const lastSeq = parseInt(String(lastItem.item_code).split('-').pop()) || 0;
+    sequence = lastSeq + 1;
+  }
+
+  return `${prefix}-${sequence.toString().padStart(3,'0')}`;
+};
+
 // Helper function to generate batch number
 const generateBatchNumber = async (itemId, itemCode) => {
   const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
@@ -248,21 +278,23 @@ const createStockItem = async (req, res, next) => {
       notes,
     } = req.body;
 
-    const stockItem = await StockItem.create(
-      {
-        category_id: category_id || null,
-        item_code,
-        item_name,
-        supplier,
-        unit: unit || "Pcs",
-        min_stock: parseFloat(min_stock) || 0,
-        notes,
-      },
-      { transaction }
-    );
+    // Auto-generate item_code if missing or empty
+    const finalItemCode = (item_code && String(item_code).trim() !== '')
+      ? item_code
+      : await generateItemCode(item_name, category_id);
+
+    const stockItem = await StockItem.create({
+      category_id: category_id || null,
+      item_code: finalItemCode,
+      item_name,
+      supplier: (supplier && String(supplier).trim() !== '') ? String(supplier).trim() : null,
+      unit: unit || "Pcs",
+      min_stock: parseFloat(min_stock) || 0,
+      notes,
+    }, { transaction });
 
     if (initial_stock && parseFloat(initial_stock) > 0) {
-      const batchNumber = await generateBatchNumber(stockItem.id, item_code);
+      const batchNumber = await generateBatchNumber(stockItem.id, finalItemCode);
       const quantity = parseFloat(initial_stock);
       const price = parseFloat(unit_price) || 0;
 
@@ -895,6 +927,73 @@ const addStock = async (req, res, next) => {
   return adjustStock(req, res, next);
 };
 
+// New: get distinct suppliers for autocomplete (5 most recent from stock activity, then others)
+const getDistinctSuppliers = async (req, res, next) => {
+  try {
+    // 1) Recent suppliers by activity from stock_batches and stock_transactions
+    const recentFromBatches = await StockBatch.findAll({
+      attributes: [
+        [sequelize.literal("TRIM(supplier)"), 'supplier'],
+        'created_at'
+      ],
+      where: { supplier: { [Op.ne]: null } },
+      order: [['created_at','DESC']],
+      limit: 20,
+      raw: true
+    });
+
+    const recentFromTransactions = await StockTransaction.findAll({
+      attributes: [
+        [sequelize.literal("TRIM(supplier)"), 'supplier'],
+        'created_at'
+      ],
+      where: { supplier: { [Op.ne]: null } },
+      order: [['created_at','DESC']],
+      limit: 20,
+      raw: true
+    });
+
+    const recentCombined = [...recentFromBatches, ...recentFromTransactions]
+      .map(r => ({ supplier: String(r.supplier || '').trim(), created_at: new Date(r.created_at) }))
+      .filter(r => r.supplier.length > 0)
+      .sort((a,b) => b.created_at.getTime() - a.created_at.getTime());
+
+    const recentUnique = [];
+    const seen = new Set();
+    for (const r of recentCombined) {
+      const key = r.supplier.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        recentUnique.push(r.supplier);
+      }
+      if (recentUnique.length >= 5) break;
+    }
+
+    // 2) All distinct suppliers from stock_items (for completeness)
+    const allDistinct = await StockItem.findAll({
+      attributes: [[sequelize.literal("DISTINCT TRIM(LOWER(supplier))"), 'supplier']],
+      where: { supplier: { [Op.ne]: null } },
+      raw: true
+    });
+
+    const allList = allDistinct
+      .map(r => String(r.supplier || '').trim())
+      .filter(s => s.length > 0);
+
+    // 3) Merge: recent first (original case from recent), then others (lower-cased), de-duped, and uppercase for UI consistency
+    const lowerRecent = new Set(recentUnique.map(s => s.toLowerCase()));
+    const merged = [
+      ...recentUnique,
+      ...allList.filter(s => !lowerRecent.has(s.toLowerCase()))
+    ].map(s => s.toUpperCase());
+
+    res.json({ success: true, data: merged });
+  } catch (err) {
+    console.error('Error in getDistinctSuppliers:', err);
+    next(err);
+  }
+};
+
 module.exports = {
   getAllStockItems,
   createStockItem,
@@ -907,4 +1006,5 @@ module.exports = {
   getStockCategories,
   getStockItemHistory,
   addStock,
+  getDistinctSuppliers,
 };

@@ -32,6 +32,7 @@ interface DashboardMetrics {
   grossIncome: number;
   netIncome: number;
   totalExpenses: number;
+  revenueBuckets?: { paid: number; partial: number; completed: number };
   driverExpenses: {
     totalUangJalan: number;
     totalGajiDriver: number;
@@ -236,6 +237,19 @@ const Dashboard = () => {
               color="green"
               note="Dari DO yang lunas"
             />
+            {metrics.revenueBuckets && (
+              <div className="bg-white p-6 rounded-lg shadow-md transition hover:shadow-lg">
+                <h3 className="text-lg font-semibold text-gray-700">
+                  Pendapatan (Paid/Partial/Completed)
+                </h3>
+                <div className="space-y-1 text-sm mt-2">
+                  <div className="flex justify-between"><span>Paid</span><span className="font-semibold text-green-600">Rp {metrics.revenueBuckets!.paid.toLocaleString('id-ID')}</span></div>
+                  <div className="flex justify-between"><span>Partial</span><span className="font-semibold text-amber-600">Rp {metrics.revenueBuckets!.partial.toLocaleString('id-ID')}</span></div>
+                  <div className="flex justify-between"><span>Completed</span><span className="font-semibold text-blue-600">Rp {metrics.revenueBuckets!.completed.toLocaleString('id-ID')}</span></div>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">Ringkasan status pembayaran</p>
+              </div>
+            )}
             <MetricCard
               title="Total Pengeluaran"
               value={metrics.totalExpenses}

@@ -9,6 +9,8 @@ stockRouter.use(verifyToken);
 
 // Categories route MUST come BEFORE the /:id route
 stockRouter.get('/categories', stockController.getStockCategories);
+// Suppliers distinct list for autocomplete
+stockRouter.get('/suppliers', stockController.getDistinctSuppliers);
 stockRouter.get('/:id/batches', stockController.getStockBatches);
 // Stock items routes
 stockRouter.get('/batches/:batchId/history', stockController.getStockBatchHistory);

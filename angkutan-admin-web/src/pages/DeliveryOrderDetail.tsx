@@ -15,8 +15,8 @@ interface DeliveryOrderDetail {
   status_text: string;
   load_location: string;
   unload_location: string;
-  surat_jalan_photo_url?: string;
-  standalone_po_number?: string;
+  surat_jalan_photo_url?: string[];
+  standalone_po_number?: string; // ✅ ADD: For standalone DOs
   driver: {
     username: string;
     driverProfile: {
@@ -66,6 +66,10 @@ const DeliveryOrderDetailPage = () => {
     useState<DeliveryOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [adminActualQty, setAdminActualQty] = useState<string>("");
+  const [adminNotes, setAdminNotes] = useState<string>("");
+  const [adminPhotos, setAdminPhotos] = useState<FileList | null>(null);
+  const [submittingAdminComplete, setSubmittingAdminComplete] = useState(false);
 
   // Helper to get unit display
   const getUnitDisplay = (unit: string) => {
@@ -159,6 +163,46 @@ const DeliveryOrderDetailPage = () => {
     }
   }, [id]);
 
+  const handleAdminComplete = async () => {
+    if (!id) return;
+    if (!adminActualQty || isNaN(parseFloat(adminActualQty))) {
+      alert("Masukkan jumlah muatan aktual yang valid.");
+      return;
+    }
+    if (!adminPhotos || adminPhotos.length === 0) {
+      alert("Upload minimal 1 foto surat jalan.");
+      return;
+    }
+
+    try {
+      setSubmittingAdminComplete(true);
+      const formData = new FormData();
+      formData.append("actual_load_quantity", adminActualQty);
+      if (adminNotes) formData.append("notes", adminNotes);
+      Array.from(adminPhotos).forEach((file) => {
+        formData.append("surat_jalan_photos", file);
+      });
+
+      await apiClient.post(`/delivery-orders/${id}/admin-complete`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      // Refresh page data
+      const response = await apiClient.get(`/delivery-orders/${id}`);
+      const data = response.data.data || response.data;
+      setDeliveryOrder(data);
+      setAdminNotes("");
+      setAdminActualQty("");
+      setAdminPhotos(null);
+      alert("DO berhasil diselesaikan oleh admin.");
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.response?.data?.message || "Gagal menyelesaikan DO.");
+    } finally {
+      setSubmittingAdminComplete(false);
+    }
+  };
+
   const handleCancel = async () => {
     if (
       !deliveryOrder ||
@@ -244,6 +288,55 @@ const DeliveryOrderDetailPage = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Admin quick complete */}
+        {deliveryOrder.status !== "completed" && deliveryOrder.status !== "cancelled" && (
+          <div className="lg:col-span-3 bg-white shadow-md rounded-lg p-6">
+            <h2 className="text-xl font-semibold mb-4">Admin Complete DO</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm text-gray-700 mb-1">Muatan Aktual ({unitDisplay})</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={adminActualQty}
+                  onChange={(e) => setAdminActualQty(e.target.value)}
+                  className="w-full border rounded px-3 py-2"
+                  placeholder={`cth: ${deliveryOrder.minimal_load_quantity}`}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm text-gray-700 mb-1">Catatan (opsional)</label>
+                <input
+                  type="text"
+                  value={adminNotes}
+                  onChange={(e) => setAdminNotes(e.target.value)}
+                  className="w-full border rounded px-3 py-2"
+                  placeholder="Catatan penyelesaian"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm text-gray-700 mb-1">Foto Surat Jalan (1-5)</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) => setAdminPhotos(e.target.files)}
+                  className="w-full"
+                />
+              </div>
+              <div className="flex items-end">
+                <button
+                  onClick={handleAdminComplete}
+                  disabled={submittingAdminComplete}
+                  className={`px-4 py-2 rounded text-white ${submittingAdminComplete ? "bg-gray-400" : "bg-green-600 hover:bg-green-700"}`}
+                >
+                  {submittingAdminComplete ? "Menyimpan..." : "Selesaikan DO"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {/* Basic Information */}
         <div className="lg:col-span-2 bg-white shadow-md rounded-lg p-6">
           <h2 className="text-xl font-semibold mb-4">Basic Information</h2>

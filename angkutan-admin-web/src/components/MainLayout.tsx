@@ -131,22 +131,7 @@ const MainLayout = () => {
               </Link>
             </li>
 
-            <li className="mb-4">
-              <Link
-                to="/ritase/profitability"
-                className={`flex items-center p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink("/ritase/profitability")
-                    ? "bg-gray-700 border-l-4 border-blue-500"
-                    : ""
-                }`}
-                title="DO Profitability Report"
-              >
-                <span className="text-xl mr-3">💲</span>
-                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
-                  DO Profitability
-                </span>
-              </Link>
-            </li>
+            {/* Remove duplicate DO Profitability link below */}
 
             <li className="mb-4">
               <Link
@@ -182,54 +167,53 @@ const MainLayout = () => {
                 </div>
               </li>
             )}
+            {/* Collapsible dropdown for DO/PO etc */}
             <li className="mb-4">
-              <Link
-                to="/trips"
-                className={`flex items-center p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink("/trips")
-                    ? "bg-gray-700 border-l-4 border-blue-500"
-                    : ""
-                }`}
-                title="Purchase Orders"
-              >
-                <span className="text-xl mr-3">📋</span>
-                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
-                  Purchase Orders
-                </span>
-              </Link>
-            </li>
-            <li className="mb-4">
-              <Link
-                to="/delivery-orders"
-                className={`flex items-center p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink("/delivery-orders")
-                    ? "bg-gray-700 border-l-4 border-blue-500"
-                    : ""
-                }`}
-                title="Delivery Orders"
-              >
-                <span className="text-xl mr-3">🚚</span>
-                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
-                  Delivery Orders
-                </span>
-              </Link>
-            </li>
-
-            <li className="mb-4">
-              <Link
-                to="/ritase/profitability"
-                className={`flex items-center p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink("/ritase/profitability")
-                    ? "bg-gray-700 border-l-4 border-blue-500"
-                    : ""
-                }`}
-                title="Delivery Orders Profitability"
-              >
-                <span className="text-xl mr-3">💸</span>
-                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
-                  DO Profitability
-                </span>
-              </Link>
+              <details className="group">
+                <summary className="flex items-center p-2 rounded hover:bg-gray-700 cursor-pointer select-none">
+                  <span className="text-xl mr-3">📦</span>
+                  <span className={`${sidebarMinimized ? "hidden" : "block"}`}>Orders & Ritase</span>
+                  <span className="ml-auto text-xs text-gray-300 group-open:hidden">▼</span>
+                  <span className="ml-auto text-xs text-gray-300 hidden group-open:inline">▲</span>
+                </summary>
+                {!sidebarMinimized && (
+                  <ul className="ml-8 mt-2 space-y-2">
+                    <li>
+                      <Link
+                        to="/trips"
+                        className={`block p-2 rounded hover:bg-gray-700 ${
+                          isActiveLink("/trips") ? "bg-gray-700 border-l-4 border-blue-500" : ""
+                        }`}
+                        title="Purchase Orders"
+                      >
+                        Purchase Orders
+                      </Link>
+                    </li>
+                    <li>
+                      <Link
+                        to="/delivery-orders"
+                        className={`block p-2 rounded hover:bg-gray-700 ${
+                          isActiveLink("/delivery-orders") ? "bg-gray-700 border-l-4 border-blue-500" : ""
+                        }`}
+                        title="Delivery Orders"
+                      >
+                        Delivery Orders
+                      </Link>
+                    </li>
+                    <li>
+                      <Link
+                        to="/ritase/profitability"
+                        className={`block p-2 rounded hover:bg-gray-700 ${
+                          isActiveLink("/ritase/profitability") ? "bg-gray-700 border-l-4 border-blue-500" : ""
+                        }`}
+                        title="DO Profitability"
+                      >
+                        DO Profitability
+                      </Link>
+                    </li>
+                  </ul>
+                )}
+              </details>
             </li>
 
             {/* Fleet Management Section */}

@@ -1233,7 +1233,7 @@ exports.completeDeliveryOrder = async (req, res, next) => {
 
     const dgMember = await DepositGroupMember.findOne({
       where: { delivery_order_id: id },
-      include: [{ model: DepositGroup, as: "group" }],
+      include: [{ model: DepositGroup, as: "depositGroup" }],
       transaction,
     });
 
@@ -1269,8 +1269,8 @@ exports.completeDeliveryOrder = async (req, res, next) => {
 
     await deliveryOrder.update(updateData, { transaction });
 
-    if (dgMember && dgMember.group) {
-      const grp = dgMember.group;
+    if (dgMember && dgMember.depositGroup) {
+      const grp = dgMember.depositGroup;
       const qtyUsed = parseFloat(updateData.actual_load_quantity);
       const unitPrice = parseFloat(deliveryOrder.unit_price);
       if (isNaN(unitPrice)) {
@@ -1389,13 +1389,13 @@ exports.completeDeliveryOrder = async (req, res, next) => {
         is_auto_paid: isAutoPaid,
         deposit_group_handled: isAutoPaid,
         deposit_group_info:
-          dgMember && dgMember.group
+          dgMember && dgMember.depositGroup
             ? {
-                id: dgMember.group.id,
-                name: dgMember.group.group_name,
-                status: dgMember.group.status,
-                remaining_quantity: dgMember.group.remaining_quantity,
-                balance: dgMember.group.balance,
+                id: dgMember.depositGroup.id,
+                name: dgMember.depositGroup.group_name,
+                status: dgMember.depositGroup.status,
+                remaining_quantity: dgMember.depositGroup.remaining_quantity,
+                balance: dgMember.depositGroup.balance,
               }
             : null,
         unit_display: updatedDO.getUnitDisplay
@@ -1410,6 +1410,156 @@ exports.completeDeliveryOrder = async (req, res, next) => {
     await transaction.rollback();
     console.error("Error completing delivery order:", err);
     next(err);
+  }
+};
+
+/**
+ * 🎯 ADMIN: CONFIRM LOAD (with surat jalan photos) AND COMPLETE DO
+ * POST /api/web/delivery-orders/:id/admin-complete
+ * FormData: { actual_load_quantity: number, notes?: string, surat_jalan_photos[]: images }
+ */
+exports.adminConfirmLoadAndComplete = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { id } = req.params;
+    const { actual_load_quantity, notes } = req.body || {};
+
+    // Validate payload
+    if (!actual_load_quantity || isNaN(parseFloat(actual_load_quantity))) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "actual_load_quantity is required and must be a number",
+      });
+    }
+
+    // Normalize files list (support single or multiple)
+    const suratJalanFiles = Array.isArray(req.files) ? req.files : (req.file ? [req.file] : []);
+    if (!suratJalanFiles.length) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "At least one surat jalan photo is required",
+      });
+    }
+
+    const deliveryOrder = await DeliveryOrder.findByPk(id, {
+      include: [
+        {
+          model: PurchaseOrder,
+          as: "purchaseOrder",
+          attributes: ["id", "deposit_group_id", "unit", "unit_price"],
+          include: [
+            {
+              model: DepositGroup,
+              as: "depositGroup",
+              attributes: [
+                "id",
+                "group_name",
+                "status",
+                "remaining_quantity",
+                "balance",
+              ],
+            },
+          ],
+        },
+      ],
+      transaction,
+    });
+
+    if (!deliveryOrder) {
+      await transaction.rollback();
+      return res.status(404).json({ success: false, message: "Delivery Order not found" });
+    }
+
+    // Persist surat jalan photo URLs
+    const photoUrls = suratJalanFiles.map((f) => String(f.path || '').replace(/\\/g, "/"));
+
+    // Update DO with actual quantity and photos first
+    await deliveryOrder.update({
+      actual_load_quantity: parseFloat(actual_load_quantity),
+      surat_jalan_photo_url: photoUrls,
+    }, { transaction });
+
+    // Reuse the standard complete logic (without files) now that actual qty is set
+    // Prepare deposit handling similar to completeDeliveryOrder above
+    const po = deliveryOrder.purchaseOrder;
+    const isDepositLinked = !!(po && po.deposit_group_id);
+
+    const dgMember = await DepositGroupMember.findOne({
+      where: { delivery_order_id: id },
+      include: [{ model: DepositGroup, as: "depositGroup" }],
+      transaction,
+    });
+
+    const isInDepositGroup = !!dgMember;
+
+    let paymentStatus;
+    let paymentConfirmationStatus;
+    let paymentConfirmedAt = null;
+
+    if (isDepositLinked || isInDepositGroup) {
+      paymentStatus = "lunas";
+      paymentConfirmationStatus = "confirmed";
+      paymentConfirmedAt = new Date();
+    } else {
+      paymentStatus = "awaiting_confirmation";
+      paymentConfirmationStatus = "awaiting_confirmation";
+    }
+
+    const updateData = {
+      status: "completed",
+      completed_at: new Date(),
+      payment_status: paymentStatus,
+      payment_confirmation_status: paymentConfirmationStatus,
+      payment_confirmation_at: paymentConfirmedAt,
+      notes: notes || deliveryOrder.notes,
+    };
+
+    await deliveryOrder.update(updateData, { transaction });
+
+    if (dgMember && dgMember.depositGroup) {
+      const grp = dgMember.depositGroup;
+      const qtyUsed = parseFloat(deliveryOrder.actual_load_quantity);
+      const unitPrice = parseFloat(deliveryOrder.unit_price);
+      if (isNaN(unitPrice)) {
+        throw new Error(`Invalid unit_price for DO ${deliveryOrder.id}`);
+      }
+      const priceUsed = qtyUsed * unitPrice;
+
+      const currentRemaining = parseFloat(grp.remaining_quantity) || 0;
+      const currentBalance = parseFloat(grp.balance) || 0;
+
+      grp.remaining_quantity = Math.max(0, currentRemaining - qtyUsed);
+      grp.balance = Math.max(0, currentBalance - priceUsed);
+
+      if (grp.remaining_quantity <= 0 && grp.balance <= 0) {
+        grp.status = "fulfilled";
+      } else if (grp.remaining_quantity < 0 || grp.balance < 0) {
+        grp.status = "overdrawn";
+      } else {
+        grp.status = "active";
+      }
+
+      await grp.save({ transaction });
+      await dgMember.update({ quantity: qtyUsed }, { transaction });
+    }
+
+    if (deliveryOrder.vehicle_id) {
+      await Vehicle.update(
+        { status: "available" },
+        { where: { id: deliveryOrder.vehicle_id }, transaction }
+      );
+    }
+
+    await transaction.commit();
+
+    const updated = await DeliveryOrder.findByPk(id);
+    return res.json({ success: true, message: "DO confirmed and completed by admin", data: updated });
+  } catch (err) {
+    await transaction.rollback();
+    console.error("Error in adminConfirmLoadAndComplete:", err);
+    return next(err);
   }
 };
 
