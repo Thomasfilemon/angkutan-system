@@ -3,6 +3,7 @@ const express = require("express");
 const router = express.Router();
 const webDOController = require("../../controllers/web/deliveryOrderController");
 const { verifyToken, checkRole } = require("../../middlewares/auth.middleware");
+const upload = require("../../middlewares/upload.middleware");
 
 router.use(verifyToken);
 
@@ -26,6 +27,14 @@ router.post(
   "/batch",
   checkRole(["admin", "owner"]),
   webDOController.createBatchDeliveryOrder
+);
+
+// Admin: confirm load with surat jalan photos and complete DO in one shot
+router.post(
+  "/:id/admin-complete",
+  checkRole(["admin", "owner"]),
+  upload.array("surat_jalan_photos", 5),
+  webDOController.adminConfirmLoadAndComplete
 );
 router.get(
   "/:id",

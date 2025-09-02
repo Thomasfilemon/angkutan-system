@@ -82,6 +82,8 @@ const StockCreatePage = () => {
     // State declarations
     const [accounts, setAccounts] = useState<string[]>([]);
     const [selectedAccount, setSelectedAccount] = useState<string>('General');
+    const [supplierOptions, setSupplierOptions] = useState<string[]>([]);
+    const [lastSupplier, setLastSupplier] = useState<string | null>(null);
 
     // Fetch accounts
     useEffect(() => {
@@ -96,13 +98,41 @@ const StockCreatePage = () => {
     fetchAccounts();
     }, []);
 
+    const fetchSuppliers = async () => {
+        try {
+            const res = await apiClient.get('/stock/suppliers');
+            // Our axios interceptor unwraps stock responses -> res.data is already the array
+            const payload: unknown = res.data;
+            const list: string[] = (Array.isArray(payload) ? payload : [])
+                .map((s: unknown) => String(s).toUpperCase());
+            const unique = Array.from(new Set(list));
+            if (lastSupplier && !unique.includes(lastSupplier)) {
+                unique.unshift(lastSupplier);
+            } else if (lastSupplier) {
+                const filtered = unique.filter(s => s !== lastSupplier);
+                unique.splice(0, unique.length, lastSupplier, ...filtered);
+            }
+            setSupplierOptions(unique);
+            if (!lastSupplier && unique.length > 0) {
+                setLastSupplier(unique[0]);
+            }
+        } catch (e) {
+            // ignore
+        }
+    };
+
     useEffect(() => {
         fetchCategories();
         fetchStockItems();
+        fetchSuppliers();
         if (isEdit && id) {
             fetchStockItem();
         }
     }, [isEdit, id]);
+
+    useEffect(() => {
+        fetchSuppliers();
+    }, []);
 
     const fetchCategories = async () => {
         try {
@@ -160,7 +190,7 @@ const StockCreatePage = () => {
                 category_id: '',
                 item_code: '',
                 item_name: '',
-                supplier: '',
+                supplier: lastSupplier || '',
                 unit: 'Pcs',
                 current_stock: '',
                 min_stock: '',
@@ -446,13 +476,12 @@ const StockCreatePage = () => {
                 }
 
                 await apiClient.post("/cash/transactions", cashFormData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-                });
-
-                await apiClient.post("/cash/transactions", cashFormData, {
                     headers: { 'Content-Type': 'multipart/form-data' }
                 });
             }
+
+            // After successful save, refresh suppliers so new supplier appears immediately
+            await fetchSuppliers();
 
             navigate('/stock');
         } catch (err: any) {
@@ -559,15 +588,15 @@ const StockCreatePage = () => {
 
                                     <div className="mb-4">
                                         <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Kode Barang
+                                            Kode Barang (otomatis)
                                         </label>
                                         <input
                                             type="text"
                                             name="item_code"
                                             value={item.item_code}
-                                            onChange={(e) => handleInputChange(index, e)}
-                                            placeholder="Contoh: OLI-001"
-                                            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                            disabled
+                                            placeholder="Akan dibuat otomatis saat menyimpan"
+                                            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-500 bg-gray-100 leading-tight focus:outline-none focus:shadow-outline"
                                         />
                                     </div>
                                 </div>
@@ -597,13 +626,34 @@ const StockCreatePage = () => {
                                         <label className="block text-sm font-medium text-gray-700 mb-2">
                                             Supplier
                                         </label>
-                                        <input
-                                            type="text"
-                                            name="supplier"
-                                            value={item.supplier}
-                                            onChange={(e) => handleInputChange(index, e)}
-                                            placeholder="Nama supplier"
-                                            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                        <CreatableSelect
+                                            value={item.supplier ? { label: item.supplier, value: item.supplier } : null}
+                                            options={supplierOptions.map(s => ({ label: s, value: s }))}
+                                            onChange={(selected) => {
+                                                const newItems = [...formItems];
+                                                const chosen = (selected?.value || '').toUpperCase();
+                                                newItems[index].supplier = chosen;
+                                                setFormItems(newItems);
+                                                if (chosen) {
+                                                    setLastSupplier(chosen);
+                                                    // optimistic UI: keep it on top locally
+                                                    setSupplierOptions(prev => {
+                                                        const unique = Array.from(new Set([chosen, ...prev.map(s => s.toUpperCase())]));
+                                                        return unique;
+                                                    });
+                                                }
+                                            }}
+                                            onCreateOption={(inputValue) => {
+                                                const created = inputValue.toUpperCase();
+                                                const newItems = [...formItems];
+                                                newItems[index].supplier = created;
+                                                setFormItems(newItems);
+                                                if (!supplierOptions.includes(created)) {
+                                                    setSupplierOptions([created, ...supplierOptions]);
+                                                }
+                                                setLastSupplier(created);
+                                            }}
+                                            className="w-full"
                                         />
                                     </div>
 

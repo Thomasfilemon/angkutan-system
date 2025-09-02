@@ -106,6 +106,8 @@ const DepositGroupManagement: React.FC = () => {
   const [showPaySelisihModal, setShowPaySelisihModal] = useState(false);
   const [selisihPaymentAmount, setSelisihPaymentAmount] = useState('');
   const [extraCharges, setExtraCharges] = useState<ExtraCharge[]>([]);
+  const [printedSelisihDoIds, setPrintedSelisihDoIds] = useState<Set<number>>(new Set());
+  const [creatingInvoiceDoId, setCreatingInvoiceDoId] = useState<number | null>(null);
 
   // States for PO linking
   const [showLinkPOModal, setShowLinkPOModal] = useState(false);
@@ -396,6 +398,55 @@ const DepositGroupManagement: React.FC = () => {
     setExtraCharges(charges);
   };
 
+  const generateSelisihInvoiceForDO = async (member: GroupMember) => {
+    try {
+      const doItem = member.deliveryOrder;
+      const extraQuantity = member.quantity - doItem.minimal_load_quantity;
+      if (extraQuantity <= 0) {
+        toast.error('Tidak ada selisih untuk DO ini.');
+        return;
+      }
+      const amount = extraQuantity * doItem.unit_price;
+      const invoiceNumber = `INV-SELISIH-${doItem.do_number}-${Date.now().toString().slice(-5)}`;
+
+      setCreatingInvoiceDoId(doItem.id);
+      const res = await apiClient.post(`/payments/delivery-orders/${doItem.id}/invoices`, {
+        invoice_number: invoiceNumber,
+        invoice_amount: amount,
+        notes: `Tagihan selisih ${extraQuantity} x ${doItem.unit_price}`
+      });
+
+      const invoice = res.data?.data || res.data;
+      toast.success('Invoice selisih berhasil dibuat.');
+
+      setPrintedSelisihDoIds(prev => new Set(prev).add(doItem.id));
+
+      if (invoice?.id) {
+        window.open(`/ritase/delivery-orders/${doItem.id}/invoices/${invoice.id}`, '_blank');
+      }
+    } catch (error: any) {
+      console.error('Error generating selisih invoice:', error);
+      toast.error(error.response?.data?.message || 'Gagal membuat invoice selisih.');
+    } finally {
+      setCreatingInvoiceDoId(null);
+    }
+  };
+
+  const parseSelisihDetails = (details?: string): Array<{ doNumber: string; description: string }> => {
+    if (!details) return [];
+    return details
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.startsWith('- '))
+      .map(line => {
+        const content = line.replace(/^-\s*/, '');
+        const parts = content.split(':');
+        const doNumber = (parts[0] || '').trim();
+        const description = (parts.slice(1).join(':') || '').trim();
+        return { doNumber, description };
+      });
+  };
+
   const toggleDOSelection = (doId: number) => {
     setSelectedDOs(prev => 
       prev.includes(doId) 
@@ -586,6 +637,7 @@ const DepositGroupManagement: React.FC = () => {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Paid</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aksi</th>
                     </tr>
                   </thead>
                    <tbody className="bg-white divide-y divide-gray-200">
@@ -607,6 +659,19 @@ const DepositGroupManagement: React.FC = () => {
                           {/*//. THIS IS THE FIX */}
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatCurrency(doItem.paid_amount || 0)}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getStatusBadge(doItem.payment_status)}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm">
+                            {member.quantity > doItem.minimal_load_quantity ? (
+                              <button
+                                onClick={() => generateSelisihInvoiceForDO(member)}
+                                disabled={creatingInvoiceDoId === doItem.id}
+                                className={`px-3 py-1 rounded text-white ${printedSelisihDoIds.has(doItem.id) ? 'bg-green-600' : 'bg-indigo-600 hover:bg-indigo-700'} disabled:opacity-50`}
+                              >
+                                {creatingInvoiceDoId === doItem.id ? 'Membuat...' : printedSelisihDoIds.has(doItem.id) ? 'Invoice Dicetak' : 'Cetak Invoice Selisih'}
+                              </button>
+                            ) : (
+                              <span className="text-xs text-gray-400">Tidak ada selisih</span>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}
@@ -627,35 +692,84 @@ const DepositGroupManagement: React.FC = () => {
                         {isLoading ? 'Generating...' : 'Generate Tagihan Selisih'}
                     </button>
                 </div>
-                {/* *** FIX: Show this section if status is 'pending' OR 'paid' *** */}
                 {(selectedGroup.selisih_status === 'pending' || selectedGroup.selisih_status === 'paid') ? (
-                    <div className="p-6">
-                        <div className={`p-3 rounded-md border ${selectedGroup.selisih_status === 'paid' ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
-                            <div className="flex justify-between items-center">
-                                <div>
-                                    <p className="font-semibold text-gray-800">Total Tagihan: {formatCurrency(selectedGroup.total_selisih_amount || 0)}</p>
-                                    <pre className="text-xs text-gray-600 mt-2 whitespace-pre-wrap">{selectedGroup.selisih_details}</pre>
-                                </div>
-                                <div className="flex items-center space-x-2">
-                                    {/* *** FIX: Show status badge and conditionally show PAY button *** */}
-                                    {getStatusBadge(selectedGroup.selisih_status)}
-                                    {selectedGroup.selisih_status === 'pending' && (
-                                        <button
-                                            onClick={() => setShowPaySelisihModal(true)}
-                                            className="bg-green-500 hover:bg-green-700 text-white px-3 py-1 rounded text-xs font-bold"
-                                            disabled={isLoading}
-                                        >
-                                            BAYAR
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
+                  <div className="p-6">
+                    <div className={`p-4 rounded-md border ${selectedGroup.selisih_status === 'paid' ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <p className="font-semibold text-gray-800">Total Tagihan: {formatCurrency(selectedGroup.total_selisih_amount || 0)}</p>
+                          <p className="text-xs text-gray-500">Rincian per DO:</p>
                         </div>
+                        <div className="flex items-center space-x-2">
+                          {getStatusBadge(selectedGroup.selisih_status)}
+                          {selectedGroup.selisih_status === 'pending' && (
+                            <button
+                              onClick={() => setShowPaySelisihModal(true)}
+                              className="bg-green-500 hover:bg-green-700 text-white px-3 py-1 rounded text-xs font-bold"
+                              disabled={isLoading}
+                            >
+                              BAYAR
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        {(() => {
+                          const rows = parseSelisihDetails(selectedGroup.selisih_details);
+                          const findMember = (doNumber: string) =>
+                            selectedGroup.members.find(m => m.deliveryOrder?.do_number === doNumber);
+                          const split = rows.reduce<{paid: typeof rows; unpaid: typeof rows}>(
+                            (acc, r) => {
+                              const member = findMember(r.doNumber);
+                              const isPaid = member?.deliveryOrder?.payment_status === 'lunas';
+                              (isPaid ? acc.paid : acc.unpaid).push(r);
+                              return acc;
+                            },
+                            { paid: [], unpaid: [] }
+                          );
+
+                          const Section = ({title, data, color}:{title:string; data: typeof rows; color:'green'|'orange'}) => (
+                            <div className={`mb-4 rounded border ${color === 'green' ? 'border-green-200 bg-green-50' : 'border-yellow-200 bg-yellow-50'}`}>
+                              <div className="px-3 py-2 text-xs font-semibold text-gray-700">{title}</div>
+                              <table className="w-full text-sm">
+                                <thead>
+                                  <tr className="text-left text-gray-600">
+                                    <th className="py-2 pr-4">DO Number</th>
+                                    <th className="py-2">Keterangan</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-200">
+                                  {data.map((row, idx) => (
+                                    <tr key={idx}>
+                                      <td className="py-2 pr-4 font-medium text-gray-800">{row.doNumber}</td>
+                                      <td className="py-2 text-gray-700">{row.description}</td>
+                                    </tr>
+                                  ))}
+                                  {data.length === 0 && (
+                                    <tr>
+                                      <td colSpan={2} className="py-2 text-gray-500 text-sm">Tidak ada data.</td>
+                                    </tr>
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                          );
+
+                          return (
+                            <>
+                              <Section title="Belum Dibayar" data={split.unpaid} color="orange" />
+                              <Section title="Sudah Dibayar" data={split.paid} color="green" />
+                            </>
+                          );
+                        })()}
+                      </div>
                     </div>
+                  </div>
                 ) : (
-                    <div className="text-center py-8">
-                        <p className="text-gray-500">Tidak ada tagihan selisih untuk group ini.</p>
-                    </div>
+                  <div className="text-center py-8">
+                    <p className="text-gray-500">Tidak ada tagihan selisih untuk group ini.</p>
+                  </div>
                 )}
             </div>
         </div>

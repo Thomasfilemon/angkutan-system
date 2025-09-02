@@ -1339,14 +1339,40 @@ exports.getProfitabilityReport = async (req, res) => {
         order: [['created_at', 'DESC']]
     });
 
+    // Local helper: unit-aware total, consistent with dashboard logic
+    const calculateUnitAwareTotal = (quantity, unitPrice, unit) => {
+      const qty = parseFloat(quantity) || 0;
+      const price = parseFloat(unitPrice) || 0;
+      switch (unit) {
+        case 'kilogram':
+          return qty * price;
+        case 'ton':
+          return qty * price;
+        case 'kubik':
+          return qty * price;
+        default:
+          return qty * price;
+      }
+    };
+
     const reportData = deliveryOrders.map(doInstance => {
-      const revenue = parseFloat(doInstance.total_amount) || 0;
-      const costOfGoods = doInstance.purchaseOrder ? parseFloat(doInstance.purchaseOrder.total_amount) : 0;
+      // Unit-aware revenue calculation aligned with Ritase dashboard
+      const actualQuantity =
+        parseFloat(doInstance.actual_load_quantity) ||
+        parseFloat(doInstance.minimal_load_quantity) ||
+        0;
+      const unitPrice = parseFloat(doInstance.unit_price) || 0;
+      const orderUnit = doInstance.unit || 'ton';
+
+      const revenue = calculateUnitAwareTotal(actualQuantity, unitPrice, orderUnit);
+
       const uangJalan = parseFloat(doInstance.trip_allowance) || 0;
       const driverSalary = parseFloat(doInstance.gaji) || 0;
-      
-      const grossProfit = revenue - costOfGoods;
-      const netProfit = grossProfit - uangJalan - driverSalary;
+      const operationalCosts = uangJalan + driverSalary;
+
+      // Interpret grossProfit as revenue and netProfit as revenue - operational costs
+      const grossProfit = revenue;
+      const netProfit = revenue - operationalCosts;
 
       return {
         id: doInstance.id,

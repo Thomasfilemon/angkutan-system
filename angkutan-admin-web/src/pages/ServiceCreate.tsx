@@ -115,7 +115,7 @@ const ServiceCreatePage = () => {
   const addServiceItem = () => {
     setServiceItems(prev => [...prev, {
       item_name: '',
-      quantity: 0,
+      quantity: formData.service_type === 'regular' ? 1 : 0,
       unit_price: 0,
       from_stock: false
     }]);
@@ -164,9 +164,13 @@ const ServiceCreatePage = () => {
       submissionData.append('notes', formData.notes);
 
       // Filter and submit service items
-      const itemsToSubmit = serviceItems.filter(item => 
-        item.item_name && item.quantity > 0
-      );
+      const itemsToSubmit = serviceItems
+        .filter(item => item.item_name && (item.quantity > 0 || formData.service_type === 'regular'))
+        .map(item => ({
+          ...item,
+          quantity: formData.service_type === 'regular' ? 1 : item.quantity,
+          from_stock: Boolean(item.from_stock)
+        }));
       submissionData.append('items', JSON.stringify(itemsToSubmit));
 
       // Cash settings
@@ -513,6 +517,66 @@ const ServiceCreatePage = () => {
                       </span>
                     )}
                   </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {formData.service_type === 'regular' && (
+            <div className="mb-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold">Item Sekali Pakai (Non-Stock)</h3>
+                <button
+                  type="button"
+                  onClick={addServiceItem}
+                  className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                >
+                  + Tambah Item
+                </button>
+              </div>
+
+              {serviceItems.map((item, index) => (
+                <div key={index} className="border p-4 mb-4 rounded-lg">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Item Name */}
+                    <div>
+                      <label className="block text-gray-700 text-sm font-bold mb-2">Nama Item</label>
+                      <input
+                        type="text"
+                        value={item.item_name}
+                        onChange={(e) => updateServiceItem(index, 'item_name', e.target.value)}
+                        placeholder="Nama item sekali pakai"
+                        className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                        required
+                      />
+                    </div>
+
+                    {/* Unit Price */}
+                    <div>
+                      <label className="block text-gray-700 text-sm font-bold mb-2">Harga</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={item.unit_price}
+                        onChange={(e) => updateServiceItem(index, 'unit_price', parseFloat(e.target.value) || 0)}
+                        placeholder="0"
+                        className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                        required
+                      />
+                    </div>
+
+                    {/* Remove */}
+                    <div className="flex items-end">
+                      <button
+                        type="button"
+                        onClick={() => removeServiceItem(index)}
+                        className="bg-red-500 hover:bg-red-700 text-white px-3 py-2 rounded"
+                      >
+                        Hapus
+                      </button>
+                    </div>
+                  </div>
+
                 </div>
               ))}
             </div>
