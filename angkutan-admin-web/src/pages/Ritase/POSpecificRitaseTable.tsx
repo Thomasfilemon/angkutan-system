@@ -5,8 +5,7 @@ import Select from "react-select";
 import { paymentsApi } from "../../modules/payments/api";
 import EditablePphCell from "../../modules/payments/components/EditablePphCell";
 import * as XLSX from "xlsx";
-import jsPDF from "jspdf";
-import "jspdf-autotable";
+// using named import for jsPDF below
 import {
   Chart as ChartJS,
   ArcElement,
@@ -17,6 +16,8 @@ import {
   LinearScale,
 } from "chart.js";
 import { Pie, Bar } from "react-chartjs-2";
+import autoTable from "jspdf-autotable";
+import { jsPDF } from "jspdf";
 
 // Register Chart.js components
 ChartJS.register(
@@ -151,7 +152,7 @@ const POSpecificRitaseTable: React.FC = () => {
   >([]);
   const [bulkInvoiceLoading, setBulkInvoiceLoading] = useState(false);
   const [bulkInvoiceError, setBulkInvoiceError] = useState<string | null>(null);
-  const [showCreateInvoiceModal, setShowCreateInvoiceModal] = useState(false);
+  // unused modal state removed
   const [showBulkInvoiceModal, setShowBulkInvoiceModal] = useState(false);
   const [viewingInvoiceDOs, setViewingInvoiceDOs] =
     useState<GroupedInvoice | null>(null);
@@ -175,13 +176,7 @@ const POSpecificRitaseTable: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  useEffect(() => {
-    if (poId) {
-      fetchPOData();
-    }
-  }, [poId]);
-
-  const fetchPOData = async () => {
+  const fetchPOData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -197,7 +192,11 @@ const POSpecificRitaseTable: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [poId]);
+
+  useEffect(() => {
+    if (poId) fetchPOData();
+  }, [poId, fetchPOData]);
 
   useEffect(() => {
     if (data?.metadata?.filters_available?.vehicles) {
@@ -420,157 +419,194 @@ const POSpecificRitaseTable: React.FC = () => {
     number | null
   >(null);
 
-  const handleDownloadInvoice = async (invoiceId: number) => {
+  const handleDownloadInvoice = async (invoiceId: number, doId?: number) => {
     setDownloadingInvoiceId(invoiceId);
     try {
-      const response = await apiClient.get(`/payments/invoices/${invoiceId}`);
+      const url = `/payments/invoices/${invoiceId}`;
+      const response = await apiClient.get(url);
       const invoiceData = response.data.data;
-
-      generateInvoicePDF(invoiceData);
+      await generateInvoicePDF(invoiceData); // Call the new generator
     } catch (err) {
       console.error("Download failed:", err);
-      alert("Failed to download invoice");
+      alert("Failed to download invoice. Check console for the carnage.");
     } finally {
       setDownloadingInvoiceId(null);
     }
   };
 
   const generateInvoicePDF = (invoiceData: any) => {
-    const { invoice, delivery_order, payments } = invoiceData;
-    const doc = new jsPDF();
+    const { invoice, delivery_orders = [], payments = [] } = invoiceData || {};
 
-    // Company Header
-    doc.setFontSize(20);
+    // Fallback to single DO if array is empty or not provided
+    const dos = Array.isArray(delivery_orders)
+      ? delivery_orders
+      : [delivery_orders].filter(Boolean);
+
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+
+    // Header: Company Info & Invoice Meta
+    doc.setFontSize(18);
     doc.setFont("helvetica", "bold");
-    doc.text("INVOICE", 105, 20, { align: "center" });
+    doc.text("INVOICE", doc.internal.pageSize.width / 2, 40, {
+      align: "center",
+    });
 
-    doc.setFontSize(12);
+    doc.setFontSize(11);
     doc.setFont("helvetica", "normal");
-    doc.text("Your Company Name", 20, 35); // Replace with actual company name
-    doc.text("Your Address Line 1", 20, 42);
-    doc.text("Your Address Line 2", 20, 49);
-    doc.text("Phone: +62 XXX XXXX XXXX", 20, 56);
+    doc.text("Your Company Name", 40, 70);
+    doc.text("Your Address Line 1, Tangerang, Indonesia", 40, 85); // Customized for you, champ
+    doc.text("Phone: +62 XXX XXXX XXXX | Email: info@yourcompany.com", 40, 100);
 
-    // Invoice Details (Right side)
+    // Invoice Details (right-aligned)
+    const metaX = 350;
     doc.setFont("helvetica", "bold");
-    doc.text("Invoice Number:", 130, 35);
-    doc.text("Invoice Date:", 130, 42);
-    doc.text("Due Date:", 130, 49);
-    doc.text("DO Number:", 130, 56);
-
-    doc.setFont("helvetica", "normal");
-    doc.text(invoice.invoice_number, 175, 35);
+    doc.text(`Invoice Number: ${invoice?.invoice_number || "-"}`, metaX, 70);
     doc.text(
-      new Date(invoice.invoice_date).toLocaleDateString("id-ID"),
-      175,
-      42
+      `Invoice Date: ${
+        invoice?.invoice_date
+          ? new Date(invoice.invoice_date).toLocaleDateString("id-ID")
+          : "-"
+      }`,
+      metaX,
+      85
     );
     doc.text(
-      invoice.due_date
-        ? new Date(invoice.due_date).toLocaleDateString("id-ID")
-        : "N/A",
-      175,
-      49
+      `Due Date: ${
+        invoice?.due_date
+          ? new Date(invoice.due_date).toLocaleDateString("id-ID")
+          : "-"
+      }`,
+      metaX,
+      100
     );
-    doc.text(delivery_order.do_number, 175, 56);
+    doc.text(`Status: ${invoice?.status || "-"}`, metaX, 115);
 
-    // Customer Info
+    // Bill To
     doc.setFont("helvetica", "bold");
-    doc.text("Bill To:", 20, 75);
+    doc.text("Bill To:", 40, 140);
     doc.setFont("helvetica", "normal");
-    doc.text(delivery_order.customer_name, 20, 82);
+    doc.text(dos[0]?.customer_name || "-", 100, 140); // Assuming same customer for grouped; adjust if not
 
-    // Delivery Details Table
-    const deliveryDetails = [
-      ["Item", delivery_order.item_name],
-      [
-        "Vehicle",
-        delivery_order.vehicle
-          ? `${delivery_order.vehicle.license_plate} (${delivery_order.vehicle.type})`
-          : "N/A",
-      ],
-      [
-        "Driver",
-        delivery_order.driver?.driverProfile?.full_name ||
-          delivery_order.driver?.username ||
-          "N/A",
-      ],
-      ["Load Location", delivery_order.load_location || "N/A"],
-      ["Unload Location", delivery_order.unload_location || "N/A"],
+    // Delivery Orders Table (handles multiple DOs)
+    let yPos = 170;
+    doc.setFont("helvetica", "bold");
+    doc.text("Delivery Orders:", 40, yPos);
+    yPos += 10;
+
+    const doTableColumns = [
+      "DO Number",
+      "Item",
+      "Quantity",
+      "Unit Price",
+      "Total",
+      "Vehicle",
+      "Driver",
     ];
+    const doTableRows = dos.map((do_) => [
+      do_.do_number || "-",
+      do_.item_name || "-",
+      `${do_.actual_load_quantity || do_.minimal_load_quantity || "0"} ${
+        do_.unit || ""
+      }`,
+      `Rp ${Number(do_.unit_price || 0).toLocaleString("id-ID")}`,
+      `Rp ${Number(do_.total_amount || 0).toLocaleString("id-ID")}`,
+      do_.vehicle ? `${do_.vehicle.license_plate} (${do_.vehicle.type})` : "-",
+      do_.driver?.driverProfile?.full_name || do_.driver?.username || "-",
+    ]);
 
-    (doc as any).autoTable({
-      startY: 95,
-      head: [["Description", "Details"]],
-      body: deliveryDetails,
+    autoTable(doc, {
+      startY: yPos,
+      head: [doTableColumns],
+      body: doTableRows,
+      theme: "striped",
+      headStyles: { fillColor: [22, 160, 133] }, // Green header for flair
+      margin: { left: 40 },
+    });
+    yPos = (doc as any).lastAutoTable.finalY + 20; // Update position after table
+
+    // Amount Summary
+    doc.setFont("helvetica", "bold");
+    doc.text("Summary:", 40, yPos);
+    yPos += 15;
+
+    const grossAmount = Number(invoice?.invoice_amount || 0);
+    const pphAmount = Number(invoice?.pph_amount || 0);
+    const netAmount = Number(invoice?.net_amount || 0);
+
+    autoTable(doc, {
+      startY: yPos,
+      body: [
+        ["Gross Amount", `Rp ${grossAmount.toLocaleString("id-ID")}`],
+        [
+          `PPH (${invoice?.pph_percentage || 0}%)`,
+          `Rp ${pphAmount.toLocaleString("id-ID")}`,
+        ],
+        ["Net Amount", `Rp ${netAmount.toLocaleString("id-ID")}`],
+      ],
       theme: "grid",
-      headStyles: { fillColor: [71, 85, 105] },
-      margin: { left: 20, right: 20 },
+      columnStyles: { 1: { halign: "right" } },
+      margin: { left: 40 },
     });
+    yPos = (doc as any).lastAutoTable.finalY + 20;
 
-    // Amount Breakdown
-    const finalY = (doc as any).lastAutoTable.finalY + 10;
-
-    const amountData = [
-      ["Gross Amount", `Rp ${invoice.invoice_amount.toLocaleString("id-ID")}`],
-      [
-        `PPH (${invoice.pph_percentage}%)`,
-        `Rp ${invoice.pph_amount.toLocaleString("id-ID")}`,
-      ],
-      ["Net Amount", `Rp ${invoice.net_amount.toLocaleString("id-ID")}`],
-    ];
-
-    (doc as any).autoTable({
-      startY: finalY,
-      body: amountData,
-      theme: "plain",
-      styles: { halign: "right" },
-      columnStyles: {
-        0: { halign: "left", fontStyle: "bold" },
-        1: { halign: "right", fontStyle: "bold" },
-      },
-      margin: { left: 120, right: 20 },
-    });
-
-    // Payment History (if any)
-    if (payments && payments.length > 0) {
-      const paymentY = (doc as any).lastAutoTable.finalY + 15;
-
+    // Payments Table (if any)
+    if (payments.length > 0) {
       doc.setFont("helvetica", "bold");
-      doc.text("Payment History:", 20, paymentY);
+      doc.text("Payment History:", 40, yPos);
+      yPos += 10;
 
-      const paymentData = payments.map((payment: any) => [
-        new Date(payment.payment_date).toLocaleDateString("id-ID"),
-        `Rp ${payment.payment_amount.toLocaleString("id-ID")}`,
-        payment.payment_type,
-        payment.payment_reference || "-",
+      const paymentColumns = ["Date", "Amount", "Type", "Reference"];
+      const paymentRows = payments.map((p: any) => [
+        p.payment_date
+          ? new Date(p.payment_date).toLocaleDateString("id-ID")
+          : "-",
+        `Rp ${Number(p.payment_amount || 0).toLocaleString("id-ID")}`,
+        p.payment_type || "-",
+        p.payment_reference || "-",
       ]);
 
-      (doc as any).autoTable({
-        startY: paymentY + 5,
-        head: [["Date", "Amount", "Type", "Reference"]],
-        body: paymentData,
+      autoTable(doc, {
+        startY: yPos,
+        head: [paymentColumns],
+        body: paymentRows,
         theme: "striped",
-        headStyles: { fillColor: [71, 85, 105] },
-        margin: { left: 20, right: 20 },
+        margin: { left: 40 },
       });
+      yPos = (doc as any).lastAutoTable.finalY + 20;
+    }
+
+    // Notes (if any)
+    if (invoice?.notes) {
+      doc.setFont("helvetica", "bold");
+      doc.text("Notes:", 40, yPos);
+      doc.setFont("helvetica", "normal");
+      doc.text(invoice.notes, 40, yPos + 15);
+      yPos += 30;
     }
 
     // Footer
     const pageHeight = doc.internal.pageSize.height;
-    doc.setFontSize(8);
-    doc.text("Thank you for your business!", 105, pageHeight - 20, {
-      align: "center",
-    });
+    doc.setFontSize(9);
     doc.text(
-      `Generated on ${new Date().toLocaleDateString("id-ID")}`,
-      105,
-      pageHeight - 15,
+      "Thank you for your business! Questions? Hit us up.",
+      doc.internal.pageSize.width / 2,
+      pageHeight - 40,
+      { align: "center" }
+    );
+    doc.text(
+      `Generated on ${new Date().toLocaleDateString(
+        "id-ID"
+      )} at ${new Date().toLocaleTimeString("id-ID")}`,
+      doc.internal.pageSize.width / 2,
+      pageHeight - 25,
       { align: "center" }
     );
 
-    // Save the PDF
-    doc.save(`invoice-${invoice.invoice_number}.pdf`);
+    // Save it
+    const fileName = `invoice-${
+      invoice?.invoice_number || invoice?.id || "unknown"
+    }.pdf`;
+    doc.save(fileName);
   };
 
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {

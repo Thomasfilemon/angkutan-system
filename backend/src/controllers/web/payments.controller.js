@@ -702,6 +702,161 @@ module.exports = {
     }
   },
 
+  async getInvoiceById(req, res, next) {
+    try {
+      const { invoiceId } = req.params;
+
+      // Fetch the invoice with payments (same as before)
+      const invoice = await DeliveryOrderInvoices.findByPk(invoiceId, {
+        include: [
+          {
+            model: DeliveryOrderPayments,
+            as: "payments",
+            attributes: [
+              "id",
+              "payment_amount",
+              "payment_date",
+              "payment_type",
+              "payment_reference",
+              "notes",
+              "attachment_urls",
+            ],
+            order: [["payment_date", "DESC"]],
+          },
+        ],
+      });
+
+      if (!invoice) {
+        return res.status(404).json({
+          success: false,
+          message: "Invoice not found. Check if it exists, you donut.",
+        });
+      }
+
+      // Fetch ALL related DeliveryOrders with proper join on invoices association
+      const deliveryOrders = await DeliveryOrder.findAll({
+        where: {}, // No direct where; filter via include
+        include: [
+          {
+            model: DeliveryOrderInvoices, // Your invoice model
+            as: "invoices", // Assuming this alias in your associations
+            where: { id: invoiceId }, // Filter to this specific invoice
+            required: true, // Inner join to ensure only matching DOs
+          },
+          {
+            model: Vehicle,
+            as: "vehicle",
+            attributes: ["license_plate", "type"],
+          },
+          {
+            model: User,
+            as: "driver",
+            attributes: ["username"],
+            include: [
+              {
+                model: DriverProfile,
+                as: "driverProfile",
+                attributes: ["full_name"],
+              },
+            ],
+          },
+        ],
+        attributes: [
+          "id",
+          "do_number",
+          "customer_name",
+          "item_name",
+          "minimal_load_quantity",
+          "actual_load_quantity",
+          "unit",
+          "unit_price",
+          "load_location",
+          "unload_location",
+          "vehicle_id",
+          "driver_id",
+          "final_amount",
+        ],
+      });
+
+      // Derived calcs (unchanged)
+      const totalPaid = (invoice.payments || []).reduce(
+        (sum, p) => sum + Number(p.payment_amount),
+        0
+      );
+      const remaining = Number(invoice.net_amount) - totalPaid;
+      const isOverdue =
+        invoice.due_date &&
+        new Date() > new Date(invoice.due_date) &&
+        invoice.status !== "paid";
+
+      // Response shaping: delivery_orders as array
+      const responseData = {
+        invoice: {
+          id: invoice.id,
+          invoice_number: invoice.invoice_number,
+          invoice_amount: Number(invoice.invoice_amount),
+          net_amount: Number(invoice.net_amount),
+          pph_amount: Number(invoice.pph_amount),
+          pph_percentage: Number(invoice.pph_percentage),
+          invoice_date: invoice.invoice_date,
+          due_date: invoice.due_date,
+          status: invoice.status,
+          notes: invoice.notes,
+          created_at: invoice.created_at,
+          updated_at: invoice.updated_at,
+        },
+        delivery_orders: deliveryOrders.map((do_) => ({
+          id: do_.id,
+          do_number: do_.do_number,
+          customer_name: do_.customer_name,
+          item_name: do_.item_name,
+          minimal_load_quantity: Number(do_.minimal_load_quantity),
+          actual_load_quantity: Number(do_.actual_load_quantity),
+          unit: do_.unit,
+          unit_price: Number(do_.unit_price),
+          load_location: do_.load_location,
+          unload_location: do_.unload_location,
+          vehicle: do_.vehicle
+            ? {
+                license_plate: do_.vehicle.license_plate,
+                type: do_.vehicle.type,
+              }
+            : null,
+          driver: do_.driver
+            ? {
+                username: do_.driver.username,
+                driverProfile: {
+                  full_name: do_.driver.driverProfile?.full_name || "N/A",
+                },
+              }
+            : null,
+        })),
+        payments: (invoice.payments || []).map((p) => ({
+          id: p.id,
+          payment_amount: Number(p.payment_amount),
+          payment_date: p.payment_date,
+          payment_type: p.payment_type,
+          payment_reference: p.payment_reference || null,
+          notes: p.notes || null,
+        })),
+        summary: {
+          total_paid: totalPaid,
+          remaining_amount: remaining,
+          is_fully_paid: totalPaid >= Number(invoice.net_amount),
+          is_overdue: isOverdue,
+        },
+      };
+
+      return res.json({
+        success: true,
+        data: responseData,
+      });
+    } catch (err) {
+      console.error("Generic invoice fetch error:", err);
+      return next(err);
+    }
+  },
+
   /* ──────────────────────────────────────────────────────────────
    * GET /api/web/payments/delivery-orders/bulk-eligible
    * Get delivery orders eligible for bulk invoicing

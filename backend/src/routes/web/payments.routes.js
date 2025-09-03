@@ -23,6 +23,12 @@ router.get(
   PaymentsCtrl.getDeliveryOrders
 );
 
+router.get(
+  "/invoices/:invoiceId",
+  checkRole(["admin", "owner"]),
+  PaymentsCtrl.getInvoiceById // Reuse the same controller as the DO-scoped one, or make a new one if needed
+);
+
 // GET /purchase-orders/:poId/billing-summa
 // GET /purchase-orders/:poId/billing-summary
 // Now returns full potential vs actual breakdown
