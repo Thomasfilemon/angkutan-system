@@ -1,5 +1,5 @@
 const db = require('../../models');
-const { CashTransaction, CashCategory } = db;
+const { CashTransaction, CashCategory, TempoDetail } = db;
 const { Op } = require('sequelize');
 
 const parseCategoryId = (id) => {
@@ -82,7 +82,6 @@ exports.getAllCashTransactions = async (req, res, next) => {
     const totalKredit = summaryResults.find(s => s.transaction_type === 'kredit')?.total || 0;
     const saldo = parseFloat(totalDebit || 0) - parseFloat(totalKredit || 0);
 
-    // Debug logging
     console.log('Cash Summary Results:', summaryResults);
     console.log('Total Debit:', totalDebit, 'Total Kredit:', totalKredit, 'Saldo:', saldo);
 
@@ -132,7 +131,7 @@ exports.getAllCashTransactions = async (req, res, next) => {
     });
   } catch (err) {
     console.error('Error in getAllCashTransactions:', err);
-    next(err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
@@ -184,7 +183,6 @@ exports.getAllTempoTransactions = async (req, res, next) => {
       offset: offset
     });
 
-    // Calculate summary for tempo transactions
     const summaryResults = await CashTransaction.findAll({
       where: whereClause,
       attributes: [
@@ -199,7 +197,6 @@ exports.getAllTempoTransactions = async (req, res, next) => {
     const totalKreditTempo = summaryResults.find(s => s.transaction_type === 'kredit_tempo')?.total || 0;
     const saldo = parseFloat(totalDebitTempo || 0) - parseFloat(totalKreditTempo || 0);
 
-    // Debug logging
     console.log('Tempo Summary Results:', summaryResults);
     console.log('Total Debit Tempo:', totalDebitTempo, 'Total Kredit Tempo:', totalKreditTempo, 'Saldo:', saldo);
 
@@ -226,9 +223,11 @@ exports.getAllTempoTransactions = async (req, res, next) => {
       return {
         ...transactionData,
         running_balance: balanceLookup[transaction.id] || 0,
-        amount: parseFloat(transactionData.amount) || 0, // Ensure amount is numeric
+        amount: parseFloat(transactionData.amount) || 0,
         no_nota: transactionData.no_nota || [],
-        date_nota: transactionData.date_nota || []
+        date_nota: transactionData.date_nota || [],
+        supplier: transactionData.supplier || null,
+        tanggal_jatuh_tempo: transactionData.tanggal_jatuh_tempo || null
       };
     });
 
@@ -249,7 +248,7 @@ exports.getAllTempoTransactions = async (req, res, next) => {
     });
   } catch (err) {
     console.error('Error in getAllTempoTransactions:', err);
-    next(err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
@@ -264,19 +263,16 @@ exports.getUniqueAccounts = async (req, res, next) => {
     });
     res.json({
       success: true,
-      data: accounts.map(a => a.account).filter(account => account) // Filter out null/undefined
+      data: accounts.map(a => a.account).filter(account => account)
     });
   } catch (err) {
     console.error('Error in getUniqueAccounts:', err);
-    next(err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
 // Create new cash transaction
 exports.createCashTransaction = async (req, res, next) => {
-  if (!req.body) {
-    return res.status(400).json({ success: false, message: 'Invalid request format' });
-  }
   const transaction = await db.sequelize.transaction();
   
   try {
@@ -288,9 +284,10 @@ exports.createCashTransaction = async (req, res, next) => {
       reference_number,
       transaction_date,
       account,
+      supplier,
+      tanggal_jatuh_tempo
     } = req.body;
 
-    // Handle attachment_urls
     let attachment_urls = [];
     if (req.body.attachment_urls) {
       try {
@@ -304,7 +301,6 @@ exports.createCashTransaction = async (req, res, next) => {
       attachment_urls = [...attachment_urls, ...fileUrls];
     }
 
-    // Parse no_nota
     let no_nota = [];
     if (typeof req.body.no_nota === 'string') {
       try {
@@ -316,7 +312,6 @@ exports.createCashTransaction = async (req, res, next) => {
       no_nota = req.body.no_nota;
     }
 
-    // Parse date_nota
     let date_nota = [];
     if (typeof req.body.date_nota === 'string') {
       try {
@@ -328,7 +323,6 @@ exports.createCashTransaction = async (req, res, next) => {
       date_nota = req.body.date_nota;
     }
 
-    // Validation
     if (!transaction_type || !['debit', 'kredit', 'debit_tempo', 'kredit_tempo'].includes(transaction_type)) {
       await transaction.rollback();
       return res.status(400).json({ success: false, message: 'Invalid transaction type' });
@@ -358,7 +352,22 @@ exports.createCashTransaction = async (req, res, next) => {
       attachment_urls: attachment_urls.length > 0 ? attachment_urls : null,
       no_nota: no_nota.length > 0 ? no_nota : null,
       date_nota: date_nota.length > 0 ? date_nota : null,
+      supplier: supplier || null,
+      tanggal_jatuh_tempo: tanggal_jatuh_tempo || null
     }, { transaction });
+
+    if (['debit_tempo', 'kredit_tempo'].includes(transaction_type)) {
+      await TempoDetail.create({
+        cash_transaction_id: cashTransaction.id,
+        due_date: tanggal_jatuh_tempo || null,
+        store_name: supplier || null,
+        amount: parsedAmount,
+        status: 'pending',
+        payment_date: null,
+        payment_method: null,
+        nota_attachment_url: attachment_urls.length > 0 ? attachment_urls : []
+      }, { transaction });
+    }
 
     const createdTransaction = await CashTransaction.findByPk(cashTransaction.id, {
       include: [{ model: CashCategory, as: 'category', required: false }],
@@ -372,16 +381,18 @@ exports.createCashTransaction = async (req, res, next) => {
       message: 'Cash transaction created successfully',
       data: {
         ...createdTransaction.toJSON(),
-        amount: parseFloat(createdTransaction.amount), // Ensure numeric
+        amount: parseFloat(createdTransaction.amount),
         attachment_urls: createdTransaction.attachment_urls || [],
         no_nota: createdTransaction.no_nota || [],
-        date_nota: createdTransaction.date_nota || []
+        date_nota: createdTransaction.date_nota || [],
+        supplier: createdTransaction.supplier || null,
+        tanggal_jatuh_tempo: createdTransaction.tanggal_jatuh_tempo || null
       }
     });
   } catch (err) {
     await transaction.rollback();
     console.error('Error in createCashTransaction:', err);
-    next(err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
@@ -416,15 +427,17 @@ exports.getCashTransactionById = async (req, res, next) => {
       success: true,
       data: {
         ...cashTransaction.toJSON(),
-        amount: parseFloat(cashTransaction.amount), // Ensure numeric
+        amount: parseFloat(cashTransaction.amount),
         attachment_urls: cashTransaction.attachment_urls || [],
         no_nota: cashTransaction.no_nota || [],
-        date_nota: cashTransaction.date_nota || []
+        date_nota: cashTransaction.date_nota || [],
+        supplier: cashTransaction.supplier || null,
+        tanggal_jatuh_tempo: cashTransaction.tanggal_jatuh_tempo || null
       }
     });
   } catch (err) {
     console.error('Error in getCashTransactionById:', err);
-    next(err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
@@ -442,7 +455,11 @@ exports.updateCashTransaction = async (req, res, next) => {
       transaction_date,
       account,
       no_nota,
-      date_nota
+      date_nota,
+      supplier,
+      tanggal_jatuh_tempo,
+      payment_method,
+      payment_date
     } = req.body;
 
     if (isNaN(parseInt(id))) {
@@ -459,7 +476,6 @@ exports.updateCashTransaction = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Transaction not found' });
     }
 
-    // Parse no_nota
     let updatedNoNota = cashTransaction.no_nota || [];
     if (typeof no_nota === 'string') {
       try {
@@ -471,7 +487,6 @@ exports.updateCashTransaction = async (req, res, next) => {
       updatedNoNota = no_nota;
     }
 
-    // Parse date_nota
     let updatedDateNota = cashTransaction.date_nota || [];
     if (typeof date_nota === 'string') {
       try {
@@ -483,16 +498,10 @@ exports.updateCashTransaction = async (req, res, next) => {
       updatedDateNota = date_nota;
     }
 
-    // Handle file uploads
     const existingUrls = cashTransaction.attachment_urls || [];
     const newUrls = req.files?.map(file => `uploads/receipts/${file.filename}`) || [];
     const updatedAttachmentUrls = [...existingUrls, ...newUrls];
 
-    // Validation
-    if (transaction_type && !['debit', 'kredit', 'debit_tempo', 'kredit_tempo'].includes(transaction_type)) {
-      await transaction.rollback();
-      return res.status(400).json({ success: false, message: 'Invalid transaction type' });
-    }
     const parsedAmount = amount ? parseFloat(amount) : cashTransaction.amount;
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
       await transaction.rollback();
@@ -507,8 +516,10 @@ exports.updateCashTransaction = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Account cannot be empty' });
     }
 
+    // Update CashTransaction
+    const newTransactionType = transaction_type || cashTransaction.transaction_type;
     await cashTransaction.update({
-      transaction_type: transaction_type || cashTransaction.transaction_type,
+      transaction_type: newTransactionType,
       category_id: category_id !== undefined ? parseCategoryId(category_id) : cashTransaction.category_id,
       amount: parsedAmount,
       description: description ? description.trim() : cashTransaction.description,
@@ -517,8 +528,40 @@ exports.updateCashTransaction = async (req, res, next) => {
       account: account ? account.trim() : cashTransaction.account,
       no_nota: updatedNoNota.length > 0 ? updatedNoNota : cashTransaction.no_nota,
       date_nota: updatedDateNota.length > 0 ? updatedDateNota : cashTransaction.date_nota,
-      attachment_urls: updatedAttachmentUrls.length > 0 ? updatedAttachmentUrls : cashTransaction.attachment_urls
+      attachment_urls: updatedAttachmentUrls.length > 0 ? updatedAttachmentUrls : cashTransaction.attachment_urls,
+      supplier: supplier !== undefined ? supplier : cashTransaction.supplier,
+      tanggal_jatuh_tempo: tanggal_jatuh_tempo !== undefined ? tanggal_jatuh_tempo : cashTransaction.tanggal_jatuh_tempo
     }, { transaction });
+
+    // Update or create TempoDetail
+    const isSettled = newTransactionType === 'debit' || newTransactionType === 'kredit';
+    const tempoDetail = await TempoDetail.findOne({
+      where: { cash_transaction_id: id },
+      transaction
+    });
+
+    if (tempoDetail) {
+      await tempoDetail.update({
+        due_date: tanggal_jatuh_tempo !== undefined ? tanggal_jatuh_tempo : tempoDetail.due_date,
+        store_name: supplier !== undefined ? supplier : tempoDetail.store_name,
+        amount: parsedAmount,
+        status: isSettled ? 'lunas' : 'pending',
+        payment_date: isSettled ? (payment_date || new Date().toISOString().split('T')[0]) : null,
+        payment_method: isSettled ? (payment_method || 'unknown') : null,
+        nota_attachment_url: updatedAttachmentUrls.length > 0 ? updatedAttachmentUrls : tempoDetail.nota_attachment_url
+      }, { transaction });
+    } else if (isSettled && ['debit_tempo', 'kredit_tempo'].includes(cashTransaction.transaction_type)) {
+      await TempoDetail.create({
+        cash_transaction_id: id,
+        due_date: tanggal_jatuh_tempo || null,
+        store_name: supplier || null,
+        amount: parsedAmount,
+        status: 'lunas',
+        payment_date: payment_date || new Date().toISOString().split('T')[0],
+        payment_method: payment_method || 'unknown',
+        nota_attachment_url: updatedAttachmentUrls.length > 0 ? updatedAttachmentUrls : []
+      }, { transaction });
+    }
 
     const updatedTransaction = await CashTransaction.findByPk(id, {
       include: [{ model: CashCategory, as: 'category', required: false }],
@@ -532,16 +575,107 @@ exports.updateCashTransaction = async (req, res, next) => {
       message: 'Transaction updated successfully',
       data: {
         ...updatedTransaction.toJSON(),
-        amount: parseFloat(updatedTransaction.amount), // Ensure numeric
+        amount: parseFloat(updatedTransaction.amount),
         attachment_urls: updatedTransaction.attachment_urls || [],
         no_nota: updatedTransaction.no_nota || [],
-        date_nota: updatedTransaction.date_nota || []
+        date_nota: updatedTransaction.date_nota || [],
+        supplier: updatedTransaction.supplier || null,
+        tanggal_jatuh_tempo: updatedTransaction.tanggal_jatuh_tempo || null
       }
     });
   } catch (error) {
     await transaction.rollback();
     console.error('Error in updateCashTransaction:', error);
-    return res.status(500).json({ success: false, message: 'Failed to update transaction', error: error.message });
+    res.status(500).json({ success: false, message: 'Failed to update transaction', error: error.message });
+  }
+};
+
+// Confirm Lunasi for multiple tempo transactions
+exports.confirmLunasi = async (req, res, next) => {
+  const transaction = await db.sequelize.transaction();
+  try {
+    const { transactionIds, payment_method, payment_date, no_nota, date_nota, description, account } = req.body;
+
+    if (!Array.isArray(transactionIds) || transactionIds.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: 'No transactions selected' });
+    }
+
+    const transactions = await CashTransaction.findAll({
+      where: {
+        id: { [Op.in]: transactionIds },
+        transaction_type: { [Op.in]: ['debit_tempo', 'kredit_tempo'] }
+      },
+      transaction
+    });
+
+    if (transactions.length !== transactionIds.length) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: 'Some transactions not found or not tempo type' });
+    }
+
+    const totalAmount = transactions.reduce((sum, t) => sum + parseFloat(t.amount), 0);
+    const suppliers = [...new Set(transactions.map(t => t.supplier).filter(s => s))];
+    const combinedNoNota = Array.isArray(no_nota) ? no_nota : transactions.flatMap(t => t.no_nota || []);
+    const combinedDateNota = Array.isArray(date_nota) ? date_nota : transactions.flatMap(t => t.date_nota || []);
+    const attachment_urls = req.files?.map(file => `uploads/receipts/${file.filename}`) || transactions.flatMap(t => t.attachment_urls || []);
+
+    // Update each transaction and its TempoDetail
+    for (const t of transactions) {
+      const newTransactionType = t.transaction_type === 'debit_tempo' ? 'debit' : 'kredit';
+      await t.update({
+        transaction_type: newTransactionType,
+        description: description || t.description,
+        no_nota: combinedNoNota.length > 0 ? combinedNoNota : t.no_nota,
+        date_nota: combinedDateNota.length > 0 ? combinedDateNota : t.date_nota,
+        attachment_urls: attachment_urls.length > 0 ? attachment_urls : t.attachment_urls,
+        account: account || t.account
+      }, { transaction });
+
+      const tempoDetail = await TempoDetail.findOne({
+        where: { cash_transaction_id: t.id },
+        transaction
+      });
+
+      if (tempoDetail) {
+        await tempoDetail.update({
+          status: 'lunas',
+          payment_date: payment_date || new Date().toISOString().split('T')[0],
+          payment_method: payment_method || 'unknown',
+          nota_attachment_url: attachment_urls.length > 0 ? attachment_urls : tempoDetail.nota_attachment_url
+        }, { transaction });
+      } else {
+        await TempoDetail.create({
+          cash_transaction_id: t.id,
+          due_date: t.tanggal_jatuh_tempo || null,
+          store_name: t.supplier || null,
+          amount: parseFloat(t.amount),
+          status: 'lunas',
+          payment_date: payment_date || new Date().toISOString().split('T')[0],
+          payment_method: payment_method || 'unknown',
+          nota_attachment_url: attachment_urls.length > 0 ? attachment_urls : []
+        }, { transaction });
+      }
+    }
+
+    await transaction.commit();
+
+    res.status(200).json({
+      success: true,
+      message: 'Transactions settled successfully',
+      data: {
+        total_amount: totalAmount,
+        supplier: suppliers.join(', '),
+        transaction_ids: transactionIds,
+        no_nota: combinedNoNota,
+        date_nota: combinedDateNota,
+        attachment_urls
+      }
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error in confirmLunasi:', error);
+    res.status(500).json({ success: false, message: 'Failed to settle transactions', error: error.message });
   }
 };
 
@@ -570,6 +704,11 @@ exports.deleteCashTransaction = async (req, res, next) => {
       });
     }
 
+    await TempoDetail.destroy({
+      where: { cash_transaction_id: id },
+      transaction
+    });
+
     await cashTransaction.destroy({ transaction });
     await transaction.commit();
 
@@ -580,7 +719,7 @@ exports.deleteCashTransaction = async (req, res, next) => {
   } catch (err) {
     await transaction.rollback();
     console.error('Error in deleteCashTransaction:', err);
-    next(err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
@@ -605,6 +744,6 @@ exports.getCashCategories = async (req, res, next) => {
     });
   } catch (err) {
     console.error('Error in getCashCategories:', err);
-    next(err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };

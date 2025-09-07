@@ -84,6 +84,7 @@ const StockCreatePage = () => {
     const [selectedAccount, setSelectedAccount] = useState<string>('General');
     const [supplierOptions, setSupplierOptions] = useState<string[]>([]);
     const [lastSupplier, setLastSupplier] = useState<string | null>(null);
+    const [tanggalJatuhTempo, setTanggalJatuhTempo] = useState('');
 
     // Fetch accounts
     useEffect(() => {
@@ -462,6 +463,11 @@ const StockCreatePage = () => {
                 const transactionType = isTempo ? "kredit_tempo" : "kredit";
                 restockDescription += `\nTotal Investment: ${totalRestockCost.toLocaleString()}`;
 
+                // Combine suppliers from all items
+                const combinedSuppliers = Array.from(
+                    new Set(formItems.map(item => item.supplier).filter(Boolean))
+                ).join(', ');
+                
                 const cashFormData = new FormData();
                 cashFormData.append('transaction_type', transactionType);
                 cashFormData.append('amount', String(totalRestockCost));
@@ -470,15 +476,25 @@ const StockCreatePage = () => {
                 cashFormData.append('account', selectedAccount);
                 cashFormData.append('no_nota', JSON.stringify([]));
                 cashFormData.append('category_id', '9');
+                // NEW: Add supplier and tanggal_jatuh_tempo fields
+                cashFormData.append('supplier', combinedSuppliers);
+                if (isTempo && tanggalJatuhTempo) {
+                    cashFormData.append('tanggal_jatuh_tempo', tanggalJatuhTempo);
+                }
 
                 if (notaFile) {
-                cashFormData.append('attachments', notaFile); // Changed from 'attachment' to 'attachments'
+                    cashFormData.append('attachments', notaFile);
                 }
 
                 await apiClient.post("/cash/transactions", cashFormData, {
                     headers: { 'Content-Type': 'multipart/form-data' }
                 });
             }
+
+            // After successful save, refresh suppliers so new supplier appears immediately
+            await fetchSuppliers();
+
+            navigate('/stock');
 
             // After successful save, refresh suppliers so new supplier appears immediately
             await fetchSuppliers();
@@ -866,17 +882,32 @@ const StockCreatePage = () => {
                                         </label>
                                     </div>
 
+                                    {/* NEW: Tanggal Jatuh Tempo field */}
+                                    {isTempo && (
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Tanggal Jatuh Tempo
+                                            </label>
+                                            <input
+                                                type="date"
+                                                value={tanggalJatuhTempo}
+                                                onChange={(e) => setTanggalJatuhTempo(e.target.value)}
+                                                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                            />
+                                        </div>
+                                    )}
+
                                     <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Akun *</label>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Akun *</label>
                                         <CreatableSelect
                                             value={{ label: selectedAccount, value: selectedAccount }}
                                             options={accounts.map(account => ({ label: account, value: account }))}
                                             onChange={(selected) => {
-                                            const newAccount = selected?.value || 'General';
-                                            setSelectedAccount(newAccount);
+                                                const newAccount = selected?.value || 'General';
+                                                setSelectedAccount(newAccount);
                                             }}
                                             onCreateOption={(inputValue) => {
-                                            setSelectedAccount(inputValue);
+                                                setSelectedAccount(inputValue);
                                             }}
                                             className="w-full"
                                         />

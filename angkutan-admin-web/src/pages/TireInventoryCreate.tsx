@@ -9,7 +9,7 @@ interface TireInventoryData {
   tire_brand: string;
   tire_size: string;
   tire_type: string;
-  condition: string; // ✅ Changed from min_stock to condition
+  condition: string;
   serial_numbers: string[];
   purchase_price: number;
   purchase_date: string;
@@ -20,7 +20,7 @@ const TireInventoryCreatePage = () => {
     tire_brand: '',
     tire_size: '',
     tire_type: '',
-    condition: 'new', // ✅ Default condition is 'new'
+    condition: 'new',
     serial_numbers: [''],
     purchase_price: 0,
     purchase_date: new Date().toISOString().split('T')[0]
@@ -32,10 +32,11 @@ const TireInventoryCreatePage = () => {
   const [saveToCash, setSaveToCash] = useState(true);
   const [isTempo, setIsTempo] = useState(false);
   const [notaFile, setNotaFile] = useState<File | null>(null);
+  const [tanggalJatuhTempo, setTanggalJatuhTempo] = useState('');
+  const [supplier, setSupplier] = useState('');
 
   const [accounts, setAccounts] = useState<string[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<string>('General');
-
   const [accountInput, setAccountInput] = useState('');
 
   // Fetch accounts
@@ -68,7 +69,7 @@ const TireInventoryCreatePage = () => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: name === 'purchase_price' ? Number(value) : value // ✅ Removed min_stock number conversion
+      [name]: name === 'purchase_price' ? Number(value) : value
     }));
   };
 
@@ -112,13 +113,12 @@ const TireInventoryCreatePage = () => {
     }
 
     try {
-      // ✅ Updated inventory creation - removed min_stock
+      // ✅ Updated inventory creation
       const inventoryResponse = await apiClient.post('/tires/tire-inventory', {
         tire_brand: formData.tire_brand,
         tire_size: formData.tire_size,
         tire_type: formData.tire_type,
         unit_price: formData.purchase_price
-        // ✅ Removed min_stock from here
       });
       const inventoryId = inventoryResponse.data?.data?.id || inventoryResponse.data?.id;
 
@@ -128,7 +128,7 @@ const TireInventoryCreatePage = () => {
         serial_numbers: validSerialNumbers,
         purchase_price: formData.purchase_price,
         purchase_date: formData.purchase_date,
-        condition: formData.condition // ✅ Pass condition to tire instances
+        condition: formData.condition
       });
 
       if (saveToCash) {
@@ -144,12 +144,20 @@ const TireInventoryCreatePage = () => {
             cashFormData.append('transaction_date', new Date().toISOString());
             cashFormData.append('account', selectedAccount);
             cashFormData.append('category_id', '9');
+            cashFormData.append('no_nota', JSON.stringify([]));
 
-            // Add no_nota as a JSON string (empty array by default)
-            cashFormData.append('no_nota', JSON.stringify([])); // ← New line
+            // NEW: Add supplier and tanggal_jatuh_tempo for tempo transactions
+            if (isTempo) {
+              if (supplier) {
+                cashFormData.append('supplier', supplier);
+              }
+              if (tanggalJatuhTempo) {
+                cashFormData.append('tanggal_jatuh_tempo', tanggalJatuhTempo);
+              }
+            }
 
             if (notaFile) {
-            cashFormData.append('attachments', notaFile);
+              cashFormData.append('attachments', notaFile);
             }
 
             await apiClient.post("/cash/transactions", cashFormData, {
@@ -200,7 +208,6 @@ const TireInventoryCreatePage = () => {
               <option value="Tube Type">Tube Type</option>
             </select>
           </div>
-          {/* ✅ Changed from min_stock to condition */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Kondisi Ban *</label>
             <select 
@@ -265,7 +272,35 @@ const TireInventoryCreatePage = () => {
                   <span className="ml-2 text-gray-700">Transaksi Tempo</span>
                 </label>
               </div>
-              <div>
+              
+              {/* NEW: Supplier field for tempo transactions */}
+              {isTempo && (
+                <div className="mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Nama Toko/Supplier</label>
+                  <input
+                    type="text"
+                    value={supplier}
+                    onChange={(e) => setSupplier(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    placeholder="Masukkan nama toko/supplier"
+                  />
+                </div>
+              )}
+              
+              {/* NEW: Tanggal jatuh tempo field for tempo transactions */}
+              {isTempo && (
+                <div className="mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal Jatuh Tempo</label>
+                  <input
+                    type="date"
+                    value={tanggalJatuhTempo}
+                    onChange={(e) => setTanggalJatuhTempo(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  />
+                </div>
+              )}
+              
+              <div className="mb-3">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Akun *</label>
                 <CreatableSelect
                   value={{ label: selectedAccount, value: selectedAccount }}
@@ -275,12 +310,11 @@ const TireInventoryCreatePage = () => {
                   onChange={(selected) => {
                     const newAccount = selected?.value || 'General';
                     setSelectedAccount(newAccount);
-                    setAccountInput(newAccount); // Sync input with selection
+                    setAccountInput(newAccount);
                   }}
                   onCreateOption={(inputValue) => {
                     setSelectedAccount(inputValue);
-                    setAccountInput(inputValue); // Sync input with creation
-                    // Add new account to local options
+                    setAccountInput(inputValue);
                     if (!accounts.includes(inputValue)) {
                       setAccounts(prev => [...prev, inputValue]);
                     }

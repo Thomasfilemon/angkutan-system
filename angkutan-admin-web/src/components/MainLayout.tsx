@@ -24,6 +24,7 @@ const MainLayout = () => {
       return "DO Profitability Report";
     if (path.startsWith("/buku-kas")) return "Buku Kas";
     if (path.startsWith("/tempo")) return "Buku Tempo";
+    if (path.startsWith("/tempoDetails")) return "Detail Tempo";
     if (path.startsWith("/deposit-groups")) return "Pembayaran Deposit";
     return "Dashboard";
   };
@@ -384,6 +385,22 @@ const MainLayout = () => {
                 <span className="text-xl mr-3">🤬</span>
                 <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
                   Buku Tempo
+                </span>
+              </Link>
+            </li>
+            <li className="mb-4">
+              <Link
+                to="/tempoDetails"
+                className={`flex items-center p-2 rounded hover:bg-gray-700 ${
+                  isActiveLink("/tempoDetails")
+                    ? "bg-gray-700 border-l-4 border-blue-500"
+                    : ""
+                }`}
+                title="Detail Tempo"
+              >
+                <span className="text-xl mr-3">🤬</span>
+                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
+                  Detail Tempo
                 </span>
               </Link>
             </li>

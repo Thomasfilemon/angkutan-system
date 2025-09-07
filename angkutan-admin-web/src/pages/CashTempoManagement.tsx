@@ -26,6 +26,8 @@ interface CashTransaction {
   attachment_urls?: Array<string>;
   no_nota?: string[];
   date_nota?: string[];
+  supplier?: string; // NEW: Added supplier field
+  tanggal_jatuh_tempo?: string; // NEW: Added tanggal_jatuh_tempo field
 }
 
 interface CashSummary {
@@ -79,6 +81,8 @@ const TempoManagementPage = () => {
     transaction_date: new Date().toISOString().split('T')[0],
     no_nota: [''] as string[],
     date_nota: [''] as string[],
+    supplier: '', // NEW: Added supplier to formData
+    tanggal_jatuh_tempo: '', // NEW: Added tanggal_jatuh_tempo to formData
   });
 
   const [accounts, setAccounts] = useState<string[]>([]);
@@ -180,6 +184,10 @@ const TempoManagementPage = () => {
           no_nota: transaction.no_nota || [''],
           date_nota: transaction.date_nota || [''],
           amount: parseAmount(transaction.amount),
+          supplier: transaction.supplier || '', // NEW: Include supplier
+          tanggal_jatuh_tempo: transaction.tanggal_jatuh_tempo || '', // NEW: Include tanggal_jatuh_tempo
+          payment_method: 'cash', // NEW: Add payment_method for lunasi
+          payment_date: new Date().toISOString().split('T')[0], // NEW: Add payment_date for lunasi
         });
         toast.success('Transaksi berhasil dilunasi');
       } else {
@@ -202,6 +210,10 @@ const TempoManagementPage = () => {
           const combinedAttachmentUrls = selectedTransactions.flatMap(t => t.attachment_urls || []);
           const combinedNoNota = selectedTransactions.flatMap(t => t.no_nota || []);
           const combinedDateNota = selectedTransactions.flatMap(t => t.date_nota || []);
+          const combinedSuppliers = selectedTransactions.map(t => t.supplier || '').filter(s => s).join(', '); // NEW: Combine suppliers
+          const lastTanggalJatuhTempo = selectedTransactions
+            .filter(t => t.tanggal_jatuh_tempo)
+            .slice(-1)[0]?.tanggal_jatuh_tempo || ''; // NEW: Take last tanggal_jatuh_tempo
 
           const submissionData = new FormData();
           submissionData.append('transaction_type', combinedType);
@@ -212,6 +224,10 @@ const TempoManagementPage = () => {
           submissionData.append('attachment_urls', JSON.stringify(combinedAttachmentUrls));
           submissionData.append('no_nota', JSON.stringify(combinedNoNota));
           submissionData.append('date_nota', JSON.stringify(combinedDateNota));
+          submissionData.append('supplier', combinedSuppliers); // NEW: Add combined suppliers
+          submissionData.append('tanggal_jatuh_tempo', lastTanggalJatuhTempo); // NEW: Add last tanggal_jatuh_tempo
+          submissionData.append('payment_method', 'cash'); // NEW: Add payment_method for lunasi
+          submissionData.append('payment_date', new Date().toISOString().split('T')[0]); // NEW: Add payment_date for lunasi
 
           await apiClient.post('/cash/transactions', submissionData, {
             headers: { 'Content-Type': 'multipart/form-data' },
@@ -326,7 +342,12 @@ const TempoManagementPage = () => {
       return;
     }
 
-    Object.entries({ ...formData, amount: parsedAmount }).forEach(([key, value]) => {
+    Object.entries({
+      ...formData,
+      amount: parsedAmount,
+      supplier: formData.supplier || '', // NEW: Include supplier
+      tanggal_jatuh_tempo: formData.tanggal_jatuh_tempo || '', // NEW: Include tanggal_jatuh_tempo
+    }).forEach(([key, value]) => {
       if (key === 'no_nota' || key === 'date_nota') return;
       if (typeof value === 'string' || typeof value === 'number') {
         submissionData.append(key, value.toString());
@@ -379,6 +400,8 @@ const TempoManagementPage = () => {
       account: transaction.account || 'General',
       no_nota: Array.isArray(transaction.no_nota) && transaction.no_nota.length > 0 ? transaction.no_nota : [''],
       date_nota: Array.isArray(transaction.date_nota) && transaction.date_nota.length > 0 ? transaction.date_nota : [''],
+      supplier: transaction.supplier || '', // NEW: Include supplier
+      tanggal_jatuh_tempo: transaction.tanggal_jatuh_tempo || '', // NEW: Include tanggal_jatuh_tempo
     });
     setAttachmentFiles([]);
     setShowModal(true);
@@ -413,6 +436,8 @@ const TempoManagementPage = () => {
       transaction_date: new Date().toISOString().split('T')[0],
       no_nota: [''],
       date_nota: [''],
+      supplier: '', // NEW: Reset supplier
+      tanggal_jatuh_tempo: '', // NEW: Reset tanggal_jatuh_tempo
     });
     setAttachmentFiles([]);
     setIsSpecialCategory(false);
@@ -493,7 +518,7 @@ const TempoManagementPage = () => {
           <p className="text-2xl font-bold text-red-600">{formatCurrency(summary.total_kredit_tempo)}</p>
         </div>
         <div className="bg-white p-4 rounded-lg shadow border-l-4 border-blue-500">
-          <h3 className="text-lg font-semibold text-gray-700">Saldo</h3>
+          <h3 className="text-lg font-medium text-gray-700">Saldo</h3>
           <p className={`text-2xl font-bold ${summary.saldo >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
             {formatCurrency(summary.saldo)}
           </p>
@@ -950,6 +975,25 @@ const TempoManagementPage = () => {
                 {!isSpecialCategory && (
                   <>
                     <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Nama Toko</label>
+                      <input
+                        type="text"
+                        value={formData.supplier}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, supplier: e.target.value }))}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                        placeholder="Masukkan nama toko (opsional)"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal Jatuh Tempo</label>
+                      <input
+                        type="date"
+                        value={formData.tanggal_jatuh_tempo}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, tanggal_jatuh_tempo: e.target.value }))}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                      />
+                    </div>
+                    <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Jumlah *</label>
                       <input
                         type="text"
@@ -1288,4 +1332,4 @@ const TempoManagementPage = () => {
   );
 };
 
-export default TempoManagementPage;
+export default TempoManagementPage
