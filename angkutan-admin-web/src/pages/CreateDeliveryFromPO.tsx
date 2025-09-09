@@ -335,7 +335,7 @@ const CreateDeliveryFromPO: React.FC = () => {
   const fetchRecentLocations = async () => {
     try {
       const resp = await apiClient.get(
-        "/purchase-orders/utils/recent-locations"
+        "/delivery-orders/utils/recent-locations"
       );
       const payload = resp.data?.data || resp.data;
 
@@ -346,10 +346,10 @@ const CreateDeliveryFromPO: React.FC = () => {
           const loadArr = (payload as any).load_locations || [];
           const unloadArr = (payload as any).unload_locations || [];
           setLoadLocationSuggestions(
-            Array.from(new Set(loadArr as string[])).slice(0, 50)
+            Array.from(new Set(loadArr as string[])).slice(0, 200)
           );
           setUnloadLocationSuggestions(
-            Array.from(new Set(unloadArr as string[])).slice(0, 50)
+            Array.from(new Set(unloadArr as string[])).slice(0, 200)
           );
           return;
         }
@@ -365,7 +365,7 @@ const CreateDeliveryFromPO: React.FC = () => {
         })
         .filter((s: string) => !!s && s.length > 0);
       const unique = Array.from(new Set(locs)) as string[];
-      const top = unique.slice(0, 50);
+      const top = unique.slice(0, 200);
       setLoadLocationSuggestions(top);
       setUnloadLocationSuggestions(top);
     } catch (err) {

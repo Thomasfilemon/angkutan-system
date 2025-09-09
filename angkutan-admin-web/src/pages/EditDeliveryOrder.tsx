@@ -99,7 +99,7 @@ const EditDeliveryOrder: React.FC = () => {
   const fetchRecentLocations = async () => {
     try {
       const resp = await apiClient.get(
-        "/purchase-orders/utils/recent-locations"
+        "/delivery-orders/utils/recent-locations"
       );
       // Support multiple response shapes:
       // 1) { data: { load_locations: [...], unload_locations: [...] } }
@@ -114,10 +114,10 @@ const EditDeliveryOrder: React.FC = () => {
           const loadArr = hasLoad ? (payload as any).load_locations : [];
           const unloadArr = hasUnload ? (payload as any).unload_locations : [];
           setLoadLocationSuggestions(
-            Array.from(new Set(loadArr as string[])).slice(0, 50)
+            Array.from(new Set(loadArr as string[])).slice(0, 200)
           );
           setUnloadLocationSuggestions(
-            Array.from(new Set(unloadArr as string[])).slice(0, 50)
+            Array.from(new Set(unloadArr as string[])).slice(0, 200)
           );
           return;
         }
@@ -133,7 +133,7 @@ const EditDeliveryOrder: React.FC = () => {
         })
         .filter((s: string) => !!s && s.length > 0);
       const unique = Array.from(new Set(locs)) as string[];
-      const top = unique.slice(0, 50);
+      const top = unique.slice(0, 200);
       setLoadLocationSuggestions(top);
       setUnloadLocationSuggestions(top);
     } catch (err) {
@@ -594,9 +594,10 @@ const EditDeliveryOrder: React.FC = () => {
                   <button
                     key={r}
                     type="button"
-                    onClick={() =>
-                      setFormData((prev) => ({ ...prev, load_location: r }))
-                    }
+                    onClick={() => {
+                      setFormData((prev) => ({ ...prev, load_location: r }));
+                      setShowSuggestions(null);
+                    }}
                     className="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm"
                   >
                     {r}
@@ -634,9 +635,13 @@ const EditDeliveryOrder: React.FC = () => {
                     <button
                       key={r}
                       type="button"
-                      onClick={() =>
-                        setFormData((prev) => ({ ...prev, unload_location: r }))
-                      }
+                      onClick={() => {
+                        setFormData((prev) => ({
+                          ...prev,
+                          unload_location: r,
+                        }));
+                        setShowSuggestions(null);
+                      }}
                       className="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm"
                     >
                       {r}
