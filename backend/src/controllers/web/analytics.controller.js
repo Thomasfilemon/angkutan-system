@@ -35,6 +35,7 @@ const getDashboardMetrics = async (req, res) => {
       timeRange = "month",
       startDate: customStartDate,
       endDate: customEndDate,
+      vehicleId,
     } = req.query;
 
     let startDate, endDate;
@@ -54,9 +55,14 @@ const getDashboardMetrics = async (req, res) => {
       endDate = range.endDate;
     }
 
+    const vehicleIdInt = vehicleId ? parseInt(vehicleId, 10) : null;
+
     console.log(
       `[Analytics] Fetching data for time range: ${startDate} to ${endDate}`
     );
+    if (vehicleIdInt) {
+      console.log(`[Analytics] Vehicle filter enabled for vehicleId=${vehicleIdInt}`);
+    }
 
     // 1. Metrik Finansial dari Delivery Orders
     const doFinancials = await sequelize.query(
@@ -78,9 +84,10 @@ const getDashboardMetrics = async (req, res) => {
       WHERE 
         status = 'completed' AND 
         completed_at BETWEEN :startDate AND :endDate
+        AND (:vehicleId IS NULL OR vehicle_id = :vehicleId)
     `,
       {
-        replacements: { startDate, endDate },
+        replacements: { startDate, endDate, vehicleId: vehicleIdInt },
         type: QueryTypes.SELECT,
         plain: true,
       }
@@ -90,12 +97,14 @@ const getDashboardMetrics = async (req, res) => {
     // 1b. Payments actually received in period (cash-in)
     const paymentsInPeriod = await sequelize.query(
       `
-      SELECT COALESCE(SUM(payment_amount), 0) AS total_paid
-      FROM delivery_order_payments
-      WHERE payment_date BETWEEN :startDate AND :endDate
+      SELECT COALESCE(SUM(dop.payment_amount), 0) AS total_paid
+      FROM delivery_order_payments dop
+      JOIN delivery_orders dord ON dord.id = dop.delivery_order_id
+      WHERE dop.payment_date BETWEEN :startDate AND :endDate
+        AND (:vehicleId IS NULL OR dord.vehicle_id = :vehicleId)
       `,
       {
-        replacements: { startDate, endDate },
+        replacements: { startDate, endDate, vehicleId: vehicleIdInt },
         type: QueryTypes.SELECT,
         plain: true,
       }
@@ -105,13 +114,15 @@ const getDashboardMetrics = async (req, res) => {
     const invoiceBuckets = await sequelize.query(
       `
       SELECT
-        COALESCE(SUM(CASE WHEN status = 'paid' THEN net_amount ELSE 0 END), 0) AS inv_paid,
-        COALESCE(SUM(CASE WHEN status <> 'paid' THEN net_amount ELSE 0 END), 0) AS inv_unpaid
-      FROM delivery_order_invoices
-      WHERE invoice_date BETWEEN :startDate AND :endDate
+        COALESCE(SUM(CASE WHEN doi.status = 'paid' THEN doi.net_amount ELSE 0 END), 0) AS inv_paid,
+        COALESCE(SUM(CASE WHEN doi.status <> 'paid' THEN doi.net_amount ELSE 0 END), 0) AS inv_unpaid
+      FROM delivery_order_invoices doi
+      JOIN delivery_orders dord ON dord.id = doi.delivery_order_id
+      WHERE doi.invoice_date BETWEEN :startDate AND :endDate
+        AND (:vehicleId IS NULL OR dord.vehicle_id = :vehicleId)
       `,
       {
-        replacements: { startDate, endDate },
+        replacements: { startDate, endDate, vehicleId: vehicleIdInt },
         type: QueryTypes.SELECT,
         plain: true,
       }
@@ -121,12 +132,28 @@ const getDashboardMetrics = async (req, res) => {
     const otherExpenses = await sequelize.query(
       `
       SELECT 
-        (SELECT COALESCE(SUM(amount), 0) FROM driver_expenses WHERE created_at BETWEEN :startDate AND :endDate AND jenis NOT IN ('uang_jalan', 'gaji')) as other_driver_expenses,
-        (SELECT COALESCE(SUM(total_cost), 0) FROM vehicle_services WHERE service_date BETWEEN :startDate AND :endDate) as total_service_cost,
-        (SELECT COALESCE(SUM(amount), 0) FROM office_expenses WHERE expense_date BETWEEN :startDate AND :endDate) as total_office_expenses
+        (
+          SELECT COALESCE(SUM(de.amount), 0)
+          FROM driver_expenses de
+          JOIN delivery_orders dord ON dord.id = de.delivery_order_id
+          WHERE de.created_at BETWEEN :startDate AND :endDate
+            AND de.jenis NOT IN ('uang_jalan', 'gaji')
+            AND (:vehicleId IS NULL OR dord.vehicle_id = :vehicleId)
+        ) as other_driver_expenses,
+        (
+          SELECT COALESCE(SUM(vs.total_cost), 0)
+          FROM vehicle_services vs
+          WHERE vs.service_date BETWEEN :startDate AND :endDate
+            AND (:vehicleId IS NULL OR vs.vehicle_id = :vehicleId)
+        ) as total_service_cost,
+        (
+          SELECT COALESCE(SUM(oe.amount), 0)
+          FROM office_expenses oe
+          WHERE oe.expense_date BETWEEN :startDate AND :endDate
+        ) as total_office_expenses
       `,
       {
-        replacements: { startDate, endDate },
+        replacements: { startDate, endDate, vehicleId: vehicleIdInt },
         type: QueryTypes.SELECT,
         plain: true,
       }
@@ -180,9 +207,10 @@ const getDashboardMetrics = async (req, res) => {
         (SELECT COUNT(*) FROM vehicles WHERE status = 'maintenance') as vehicles_in_maintenance
       FROM delivery_orders
       WHERE created_at BETWEEN :startDate AND :endDate
+        AND (:vehicleId IS NULL OR vehicle_id = :vehicleId)
     `,
       {
-        replacements: { startDate, endDate },
+        replacements: { startDate, endDate, vehicleId: vehicleIdInt },
         type: QueryTypes.SELECT,
         plain: true,
       }
@@ -198,11 +226,12 @@ const getDashboardMetrics = async (req, res) => {
         COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed
       FROM delivery_orders
       WHERE created_at BETWEEN :startDate AND :endDate
+        AND (:vehicleId IS NULL OR vehicle_id = :vehicleId)
       GROUP BY DATE_TRUNC('day', created_at AT TIME ZONE 'Asia/Jakarta')
       ORDER BY date ASC
     `,
       {
-        replacements: { startDate, endDate },
+        replacements: { startDate, endDate, vehicleId: vehicleIdInt },
         type: QueryTypes.SELECT,
       }
     );
@@ -223,9 +252,10 @@ const getDashboardMetrics = async (req, res) => {
         COALESCE(SUM(CASE WHEN status = 'completed' THEN COALESCE(final_amount, (COALESCE(actual_load_quantity, minimal_load_quantity) * COALESCE(unit_price,0)), total_amount, 0) ELSE 0 END), 0) AS completed_revenue
       FROM delivery_orders
       WHERE completed_at BETWEEN :startDate AND :endDate
+        AND (:vehicleId IS NULL OR vehicle_id = :vehicleId)
       `,
       {
-        replacements: { startDate, endDate },
+        replacements: { startDate, endDate, vehicleId: vehicleIdInt },
         type: QueryTypes.SELECT,
         plain: true,
       }
@@ -298,9 +328,19 @@ const getDashboardMetrics = async (req, res) => {
       },
     };
 
+    // Disable caching so filters are always respected
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+
     res.json({
       success: true,
       data: metrics,
+      meta: {
+        startDate,
+        endDate,
+        vehicleId: vehicleIdInt,
+      },
     });
   } catch (error) {
     console.error("Error in getDashboardMetrics:", error);

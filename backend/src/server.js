@@ -38,6 +38,7 @@ const webAnalyticsRoutes = require("./routes/web/analytics.routes");
 const legacyRitasePaymentsRoutes = require("./routes/web/ritase.payments.legacy.route");
 const utilsRoutes = require("./routes/utils.routes");
 const webDepositGroupRoutes = require("./routes/web/depositGroup.routes");
+const webTempoDetailRoutes = require("./routes/web/tempoDetails.routes"); // NEW: Import tempo details routes
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -82,6 +83,7 @@ app.get("/", (req, res) => {
         buku_kas: "/api/web/buku-kas",
         payments: "/api/web/payments",
         analytics: "/api/web/analytics",
+        tempo_details: "/api/web/tempo-details", // NEW: Add tempo details endpoint
       },
     },
   });
@@ -99,7 +101,7 @@ app.use("/api/driver-expenses", driverExpenseRoutes);
 app.use("/api/drivers", driverRoutes);
 
 // Static uploads
-app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
+app.use("/uploads", express.static(path.join(__dirname, "../Uploads")));
 
 // === New Web Routes (ADDED) ===
 app.use("/api/web/purchase-orders", webPurchaseOrderRoutes);
@@ -117,6 +119,7 @@ app.use("/api/web/payments", webPaymentsRoutes);
 app.use("/api/web/utils", utilsRoutes);
 app.use("/api/web/deposit-groups", webDepositGroupRoutes);
 app.use("/api/web/analytics", webAnalyticsRoutes);
+app.use("/api/web/tempo-details", webTempoDetailRoutes); // NEW: Mount tempo details routes
 
 // Error handling middleware
 app.use(errorHandler);
@@ -129,6 +132,6 @@ app.listen(PORT, "0.0.0.0", () => {
   );
   console.log(
     "🌐 Web API: /api/web/purchase-orders, /api/web/delivery-orders, /api/web/vehicles, " +
-      "/api/web/stock, /api/web/services, /api/web/tires, /api/web/payments"
+      "/api/web/stock, /api/web/services, /api/web/tires, /api/web/payments, /api/web/tempo-details"
   );
 });

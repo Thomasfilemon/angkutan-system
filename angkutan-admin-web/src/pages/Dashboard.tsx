@@ -70,6 +70,18 @@ const Dashboard = () => {
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
 
+  // --- VEHICLE FILTER UI STATE ---
+  const [vehicleFilterOpen, setVehicleFilterOpen] = useState(false);
+  const [selectedVehicle, setSelectedVehicle] = useState<
+    { id: number; label: string } | null
+  >(null);
+  const [vehicleSearch, setVehicleSearch] = useState("");
+  const [vehicleOptions, setVehicleOptions] = useState<
+    { id: number; label: string }[]
+  >([]);
+  const [vehicleFetchLoading, setVehicleFetchLoading] = useState(false);
+  const [vehicleFetchError, setVehicleFetchError] = useState<string | null>(null);
+
   // --- NEW: Memoized function to process inventory data for the chart ---
   const inventoryChartData = useMemo(() => {
     const breakdown = metrics?.inventoryMetrics?.categoryBreakdown;
@@ -137,6 +149,11 @@ const Dashboard = () => {
         params.append("timeRange", timeRange);
       }
 
+      if (selectedVehicle?.id) {
+        params.append("vehicleId", String(selectedVehicle.id));
+      }
+      // Cache-busting to prevent 304 interfering with dynamic filters
+      params.append("_", String(Date.now()));
       url += `?${params.toString()}`;
 
       try {
@@ -151,7 +168,42 @@ const Dashboard = () => {
       }
     };
     fetchMetrics();
-  }, [timeRange, customStartDate, customEndDate, filterType]);
+  }, [timeRange, customStartDate, customEndDate, filterType, selectedVehicle]);
+
+  // --- Fetch vehicle options with debounce ---
+  useEffect(() => {
+    let active = true;
+    const handler = setTimeout(async () => {
+      try {
+        setVehicleFetchLoading(true);
+        setVehicleFetchError(null);
+        const res = await axios.get(
+          `/vehicles?limit=20&page=1${vehicleSearch ? `&search=${encodeURIComponent(vehicleSearch)}` : ""}`
+        );
+        // axios interceptor unwraps .data to the array
+        const vehicles = res.data as any[];
+        if (!active) return;
+        setVehicleOptions(
+          (vehicles || []).map((v: any) => ({
+            id: v.id,
+            label: `${v.license_plate}${v.type ? ` · ${v.type}` : ""}`,
+          }))
+        );
+      } catch (e: any) {
+        if (!active) return;
+        setVehicleFetchError(
+          e?.response?.data?.error || e.message || "Gagal memuat kendaraan"
+        );
+      } finally {
+        if (active) setVehicleFetchLoading(false);
+      }
+    }, 350);
+
+    return () => {
+      active = false;
+      clearTimeout(handler);
+    };
+  }, [vehicleSearch]);
 
   // Tampilan Loading
   if (loading) {
@@ -186,7 +238,7 @@ const Dashboard = () => {
             Ringkasan finansial dan operasional bisnis.
           </p>
         </div>
-        <div className="flex items-center space-x-4 flex-wrap bg-white p-2 rounded-lg shadow-sm">
+        <div className="flex items-center space-x-4 flex-wrap bg-white p-2 rounded-lg shadow-sm relative">
           {/* Filter Preset */}
           <select
             value={timeRange}
@@ -222,6 +274,79 @@ const Dashboard = () => {
               }}
               className="border-gray-300 rounded-md px-3 py-2 bg-white focus:ring-blue-500 focus:border-blue-500"
             />
+          </div>
+
+          {/* Vehicle Filter Button */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setVehicleFilterOpen((v) => !v)}
+              className="flex items-center gap-2 border border-gray-300 rounded-md px-3 py-2 bg-white hover:bg-gray-50 focus:ring-2 focus:ring-blue-500"
+            >
+              <span className="material-icons text-gray-500">directions_car</span>
+              <span className="text-sm">Filter Kendaraan</span>
+              {selectedVehicle && (
+                <span className="ml-2 text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
+                  {selectedVehicle.label}
+                </span>
+              )}
+            </button>
+
+            {vehicleFilterOpen && (
+              <div className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-lg z-20">
+                <div className="p-2 border-b">
+                  <input
+                    autoFocus
+                    type="text"
+                    value={vehicleSearch}
+                    onChange={(e) => setVehicleSearch(e.target.value)}
+                    placeholder="Cari plat nomor / tipe..."
+                    className="w-full border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div className="max-h-64 overflow-auto">
+                  {vehicleFetchLoading && (
+                    <div className="p-3 text-sm text-gray-500">Memuat...</div>
+                  )}
+                  {vehicleFetchError && (
+                    <div className="p-3 text-sm text-red-600">{vehicleFetchError}</div>
+                  )}
+                  {!vehicleFetchLoading && !vehicleFetchError && vehicleOptions.length === 0 && (
+                    <div className="p-3 text-sm text-gray-500">Tidak ada hasil</div>
+                  )}
+                  {!vehicleFetchLoading && !vehicleFetchError && vehicleOptions.map((opt) => (
+                    <button
+                      key={opt.id}
+                      onClick={() => {
+                        setSelectedVehicle(opt);
+                        setVehicleFilterOpen(false);
+                      }}
+                      className={`w-full text-left px-3 py-2 hover:bg-gray-50 ${selectedVehicle?.id === opt.id ? "bg-blue-50" : ""}`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="p-2 border-t flex justify-between">
+                  <button
+                    onClick={() => {
+                      setSelectedVehicle(null);
+                      setVehicleSearch("");
+                      setVehicleFilterOpen(false);
+                    }}
+                    className="text-sm text-gray-600 hover:text-gray-800"
+                  >
+                    Hapus Filter
+                  </button>
+                  <button
+                    onClick={() => setVehicleFilterOpen(false)}
+                    className="text-sm text-blue-600 hover:text-blue-700"
+                  >
+                    Tutup
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -511,9 +511,30 @@ CREATE TABLE cash_transactions (
   attachment_urls TEXT[], -- Photo attachments
   no_nota TEXT[], -- Enhanced nota tracking (from current)
   date_nota TEXT[],
+  supplier VARCHAR(255), -- NEW: Nullable supplier column
+  tanggal_jatuh_tempo DATE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+CREATE TABLE tempo_details (
+  id SERIAL PRIMARY KEY,
+  cash_transaction_id INTEGER REFERENCES cash_transactions(id) ON DELETE SET NULL, -- NEW: Foreign key to cash_transactions
+  due_date DATE NOT NULL,
+  store_name VARCHAR(255) NOT NULL,
+  amount NUMERIC(15,2) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'lunas')),
+  payment_date DATE,
+  payment_method VARCHAR(100),
+  nota_attachment_url TEXT[],
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX idx_tempo_details_due_date ON tempo_details(due_date);
+CREATE INDEX idx_tempo_details_status ON tempo_details(status);
+CREATE INDEX idx_tempo_details_payment_date ON tempo_details(payment_date);
+CREATE INDEX idx_tempo_details_cash_transaction_id ON tempo_details(cash_transaction_id); -- NEW: Index for foreign key
 
 CREATE TABLE payment_terms (
   id SERIAL PRIMARY KEY,

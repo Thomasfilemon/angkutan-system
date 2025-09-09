@@ -50,6 +50,7 @@ import PaymentsRoutes from "./modules/payments/routes";
 import InvoiceDetail from "./pages/Ritase/InvoiceDetail";
 import DepositGroupManagement from "./pages/DepositGroupManagement";
 import DOProfitabilityReport from './pages/Ritase/DOProfitabilityReport'; // Import the new page
+import TempoDetailsPage from "./pages/TempoDetails";
 import { Toaster } from "react-hot-toast";
 
 import ComprehensiveRitaseTable from "./pages/Ritase/ComprehensiveRitaseTable";
@@ -173,6 +174,7 @@ function App() {
           <Route path="services/edit/:id" element={<ServiceEditPage />} />
           <Route path="cash" element={<CashManagementPage />} />
           <Route path="tempo" element={<TempoManagementPage />} />
+          <Route path="tempoDetails" element={<TempoDetailsPage />} />
           <Route path="deposit-groups" element={<DepositGroupManagement />} />
         </Route>
       </Routes>

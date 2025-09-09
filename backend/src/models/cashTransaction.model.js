@@ -51,6 +51,14 @@ module.exports = (sequelize) => {
       type: DataTypes.ARRAY(DataTypes.STRING),
       allowNull: true
     },
+    supplier: {
+      type: DataTypes.STRING(255),
+      allowNull: true
+    },
+    tanggal_jatuh_tempo: {
+      type: DataTypes.DATEONLY,
+      allowNull: true
+    }
   }, {
     tableName: 'cash_transactions',
     timestamps: true,

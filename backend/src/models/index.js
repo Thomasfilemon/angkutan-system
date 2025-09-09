@@ -37,6 +37,7 @@ const setupCashTransactionModel = require("./cashTransaction.model");
 
 const setupDepositGroupModel = require("./depositGroup.model");
 const setupDepositGroupMemberModel = require("./depositGroupMember.model");
+const setupTempoDetailModel = require("./tempoDetails.model");
 
 // Initialize Sequelize connection using your .env variables
 const sequelize = new Sequelize(
@@ -98,6 +99,7 @@ db.CashTransaction = setupCashTransactionModel(sequelize);
 
 db.DepositGroup = setupDepositGroupModel(sequelize);
 db.DepositGroupMember = setupDepositGroupMemberModel(sequelize);
+db.TempoDetail = setupTempoDetailModel(sequelize);
 
 const {
   User,
@@ -128,6 +130,7 @@ const {
   SystemSettings,
   DepositGroup,
   DepositGroupMember,
+  TempoDetail
 } = db;
 
 // User <-> Profile Associations (One-to-One)
@@ -478,6 +481,7 @@ DepositGroup.hasMany(PurchaseOrder, {
   as: "purchaseOrders",
 });
 
-
+CashTransaction.hasOne(TempoDetail, { foreignKey: "cash_transaction_id", as: "tempoDetail" });
+TempoDetail.belongsTo(CashTransaction, { foreignKey: "cash_transaction_id", as: "cashTransaction" });
 
 module.exports = db;
