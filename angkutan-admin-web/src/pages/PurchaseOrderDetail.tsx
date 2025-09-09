@@ -226,6 +226,38 @@ const PurchaseOrderDetailPage = () => {
                 </button>
               </Link>
             )}
+          {/* Create Deposit Group button (only if no DO yet) */}
+          {(!po.poDeliveryOrders || po.poDeliveryOrders.length === 0) && (
+            <button
+              onClick={async () => {
+                const val = window.prompt('Enter initial deposit amount (Rp):', '0');
+                if (val === null) return;
+                const amount = parseFloat(val);
+                if (isNaN(amount) || amount < 0) {
+                  toast.error('Invalid deposit amount');
+                  return;
+                }
+                try {
+                  const payload = {
+                    group_name: `DEP ${po.po_number}`,
+                    target_quantity: 0,
+                    deposited_amount: amount,
+                    remaining_quantity: 0,
+                    unit: po.unit || 'ton',
+                    purchase_order_id: po.id,
+                  } as any;
+                  await apiClient.post('/deposit-groups', payload);
+                  toast.success('Deposit group created and linked to PO');
+                  fetchPO();
+                } catch (err: any) {
+                  toast.error(err.response?.data?.message || 'Failed to create deposit group');
+                }
+              }}
+              className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded"
+            >
+              + Create Deposit Group
+            </button>
+          )}
         </div>
       </div>
 

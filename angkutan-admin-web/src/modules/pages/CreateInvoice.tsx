@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import apiClient from "../../../api/axiosConfig";
+import apiClient from "../../api/axiosConfig";
 import toast from "react-hot-toast";
 
 interface DeliveryOrder {

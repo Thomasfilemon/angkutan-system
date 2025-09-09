@@ -95,4 +95,25 @@ router.post(
   depositGroupController.paySelisih
 );
 
+// ✅ Finalize group into invoice
+router.post(
+  "/:id/finalize",
+  checkRole(["admin", "owner"]),
+  depositGroupController.finalizeGroup
+);
+
+// ✅ Update deposited amount (edit)
+router.put(
+  "/:id/deposit-amount",
+  checkRole(["admin", "owner", "finance"]),
+  depositGroupController.updateDepositAmount
+);
+
+// ✅ Top-up deposit amount
+router.post(
+  "/:id/deposit-topup",
+  checkRole(["admin", "owner", "finance"]),
+  depositGroupController.addDepositTopUp
+);
+
 module.exports = router;

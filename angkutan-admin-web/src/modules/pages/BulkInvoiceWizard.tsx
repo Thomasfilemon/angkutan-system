@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import StepSelectDO from "../components/BulkInvoice/StepSelectDO";
 import StepConfigure from "../components/BulkInvoice/StepConfigure";
 import StepReview from "../components/BulkInvoice/StepReview";
-import { paymentsApi } from "../api";
+import { paymentsApi } from "../payments/api";
 
 interface InvoiceConfig {
   invoice_number: string;

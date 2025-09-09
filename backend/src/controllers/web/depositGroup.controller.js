@@ -1,4 +1,4 @@
-const { DepositGroup, DepositGroupMember, DeliveryOrder, DeliveryOrderPayments, DeliveryOrderAdjustments, PurchaseOrder, sequelize, CashTransaction } = require("../../models");
+const { DepositGroup, DepositGroupMember, DeliveryOrder, DeliveryOrderPayments, DeliveryOrderAdjustments, PurchaseOrder, sequelize, CashTransaction, DepositGroupInvoice, DepositGroupPayment } = require("../../models");
 const { Op, fn, col } = require("sequelize");
 
 // Helper function to get paid amount for a DO
@@ -67,36 +67,73 @@ module.exports = {
   // src/controllers/web/depositGroup.controller.js
   async createGroup(req, res) {
     try {
-       const { group_name, target_quantity, deposited_amount, unit, delivery_order_ids = [], purchase_order_id } = req.body;
+      const { group_name, target_quantity, deposited_amount, unit, delivery_order_ids = [], purchase_order_id } = req.body;
       
       // *** FIX STARTS HERE ***
       // The initial balance of the group should be the amount that was deposited.
       const balance = deposited_amount; 
       const remaining_quantity = target_quantity; // Initial remaining = target
       
+      // If creating from a PO → enforce only one deposit group per PO and name it
+      let finalGroupName = group_name;
+      let po = null;
+      if (purchase_order_id) {
+        po = await PurchaseOrder.findByPk(purchase_order_id, {
+          include: [{ model: DeliveryOrder, as: 'poDeliveryOrders' }]
+        });
+        if (!po) {
+          return res.status(404).json({ error: 'Purchase Order not found' });
+        }
+        // Only allow if PO has no DO yet
+        if (po.poDeliveryOrders && po.poDeliveryOrders.length > 0) {
+          return res.status(400).json({ error: 'Cannot create deposit group: PO already has Delivery Orders' });
+        }
+        // Enforce single group per PO
+        if (po.deposit_group_id) {
+          return res.status(400).json({ error: 'This PO already linked to a deposit group' });
+        }
+        // Name: DEP-PO <customer>
+        finalGroupName = `DEP-PO ${po.customer_name}`;
+      }
+
+      // If created from PO, take quantities and unit from PO
+      const finalTargetQty = po ? parseFloat(po.total_quantity) || 0 : (target_quantity || 0);
+      const finalRemainingQty = po ? parseFloat(po.total_quantity) || 0 : (remaining_quantity || target_quantity || 0);
+      const finalUnit = po ? (po.unit || unit || 'ton') : (unit || 'ton');
+
       const group = await DepositGroup.create({
-        group_name, 
+        group_name: finalGroupName || 'Deposit Group',
         balance, // Use the deposited amount as the starting balance
-        target_quantity, 
-        deposited_amount, 
-        remaining_quantity, 
-        unit, 
+        target_quantity: finalTargetQty,
+        deposited_amount,
+        remaining_quantity: finalRemainingQty,
+        unit: finalUnit,
         status: 'active'
       });
+
+      // Record initial deposit into topup history (for invoice display)
+      try {
+        const { DepositGroupTopup } = require("../../models");
+        if (parseFloat(deposited_amount || 0) > 0) {
+          await DepositGroupTopup.create({
+            group_id: group.id,
+            amount: parseFloat(deposited_amount),
+            description: 'Initial deposit'
+          });
+        }
+      } catch (e) {
+        console.warn('Failed to record initial topup history:', e?.message || e);
+      }
 
       let doIdsToAdd = delivery_order_ids;
 
       // If PO is selected, get its DOs
-      if (purchase_order_id) {
-        const po = await PurchaseOrder.findByPk(purchase_order_id, {
-          include: [{
-            model: DeliveryOrder,
-            as: 'poDeliveryOrders'
-          }]
-        });
-        if (po && po.poDeliveryOrders) {
+      if (purchase_order_id && po) {
+        if (po.poDeliveryOrders) {
           doIdsToAdd = po.poDeliveryOrders.map(doItem => doItem.id);
         }
+        // Link PO to this group so future DOs auto-link
+        await po.update({ deposit_group_id: group.id });
       }
 
       // Add DOs to group if provided
@@ -126,6 +163,149 @@ module.exports = {
       });
     }
   },
+
+  // Finalize a deposit group and create a group-level invoice: net = gross(actual) - deposited_amount
+  async finalizeGroup(req, res) {
+    const transaction = await sequelize.transaction();
+    try {
+      const { id } = req.params;
+
+      const group = await DepositGroup.findByPk(id, {
+        include: [
+          {
+            model: DepositGroupMember,
+            as: 'members',
+            include: [
+              {
+                model: DeliveryOrder,
+                as: 'deliveryOrder',
+              },
+            ],
+          },
+          { model: PurchaseOrder, as: 'purchaseOrders', required: false },
+        ],
+        transaction,
+      });
+
+      if (!group) {
+        await transaction.rollback();
+        return res.status(404).json({ error: 'Deposit group not found' });
+      }
+
+      // Prevent duplicate finalization if any invoice exists (finalize only once)
+      const existingInvoice = await DepositGroupInvoice.findOne({
+        where: { group_id: id },
+        transaction,
+      });
+      if (existingInvoice) {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'Group already has an active invoice' });
+      }
+
+      // Compute gross from actual quantities (fallback to minimal if actual not set)
+      let grossAmount = 0;
+      for (const member of group.members || []) {
+        const doItem = member.deliveryOrder;
+        if (!doItem) continue;
+        const qty = parseFloat(doItem.actual_load_quantity ?? doItem.minimal_load_quantity ?? 0) || 0;
+        const price = parseFloat(doItem.unit_price ?? 0) || 0;
+        grossAmount += qty * price;
+      }
+
+      const depositDeducted = parseFloat(group.deposited_amount || 0) || 0;
+      const netAmount = Math.max(0, grossAmount - depositDeducted);
+
+      // Create invoice number
+      const today = new Date();
+      const y = today.getFullYear();
+      const m = String(today.getMonth() + 1).padStart(2, '0');
+      const seqBase = `DEP/${y}/${m}`;
+      const lastInvoice = await DepositGroupInvoice.findOne({
+        where: { invoice_number: { [require('sequelize').Op.like]: `${seqBase}/%` } },
+        order: [['created_at', 'DESC']],
+        transaction,
+      });
+      let seq = 1;
+      if (lastInvoice) {
+        const match = String(lastInvoice.invoice_number).match(/DEP\/\d{4}\/\d{2}\/(\d+)/);
+        if (match) seq = parseInt(match[1], 10) + 1;
+      }
+      const invoiceNumber = `${seqBase}/${String(seq).padStart(3, '0')}`;
+
+      const invoice = await DepositGroupInvoice.create(
+        {
+          group_id: group.id,
+          invoice_number: invoiceNumber,
+          invoice_date: new Date(),
+          due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          gross_amount: grossAmount,
+          deposit_deducted: depositDeducted,
+          net_amount: netAmount,
+          status: 'issued',
+          notes: `Finalized invoice for deposit group ${group.group_name}`,
+        },
+        { transaction }
+      );
+
+      // Set group status to fulfilled if no remaining quantity, else active; lock editing could be handled by status
+      await group.update(
+        {
+          status: group.remaining_quantity <= 0 ? 'fulfilled' : 'active',
+        },
+        { transaction }
+      );
+
+      await transaction.commit();
+      return res.status(201).json({ success: true, data: invoice });
+    } catch (error) {
+      await transaction.rollback();
+      console.error('Error finalizing deposit group:', error);
+      return res.status(500).json({ error: 'Failed to finalize deposit group' });
+    }
+  },
+
+  // Edit deposited amount directly (and align balance accordingly)
+  async updateDepositAmount(req, res) {
+    try {
+      const { id } = req.params;
+      const { deposited_amount } = req.body;
+      const group = await DepositGroup.findByPk(id);
+      if (!group) return res.status(404).json({ error: 'Group not found' });
+      const newDeposited = parseFloat(deposited_amount);
+      if (isNaN(newDeposited) || newDeposited < 0) return res.status(400).json({ error: 'Invalid deposited_amount' });
+      // Adjust balance by delta between new and old deposited_amount
+      const oldDeposited = parseFloat(group.deposited_amount || 0) || 0;
+      const delta = newDeposited - oldDeposited;
+      group.deposited_amount = newDeposited;
+      group.balance = parseFloat(group.balance || 0) + delta;
+      await group.save();
+      return res.json({ success: true, data: group });
+    } catch (error) {
+      console.error('Error updating deposit amount:', error);
+      return res.status(500).json({ error: 'Failed to update deposit amount' });
+    }
+  },
+
+  // Add to deposited amount (top-up). This increases both deposited_amount and balance
+  async addDepositTopUp(req, res) {
+    try {
+      const { id } = req.params;
+      const { amount } = req.body;
+      const topUp = parseFloat(amount);
+      if (isNaN(topUp) || topUp <= 0) return res.status(400).json({ error: 'Invalid amount' });
+      const { DepositGroupTopup } = require("../../models");
+      const group = await DepositGroup.findByPk(id);
+      if (!group) return res.status(404).json({ error: 'Group not found' });
+      group.deposited_amount = parseFloat(group.deposited_amount || 0) + topUp;
+      group.balance = parseFloat(group.balance || 0) + topUp;
+      await group.save();
+      await DepositGroupTopup.create({ group_id: group.id, amount: topUp, description: 'Top-up' });
+      return res.json({ success: true, data: group });
+    } catch (error) {
+      console.error('Error topping up deposit:', error);
+      return res.status(500).json({ error: 'Failed to top-up deposit' });
+    }
+  },
   async finalizeDOAmount(req, res) {
     const { do_id } = req.params; // ✅ Use the correct parameter name
     const { finalized_amount } = req.body;
@@ -151,43 +331,22 @@ module.exports = {
   // Get all groups with calculated status
   async getAllGroups(req, res) {
     try {
-      const groups = await DepositGroup.findAll({
-        include: [{
-          model: DepositGroupMember,
-          as: 'members',
-          attributes: [],
-        }]
-      });
+      const groups = await DepositGroup.findAll({});
       
       // Calculate status for each group
       const groupsWithStatus = await Promise.all(groups.map(async group => {
-        // Get all DOs in this group
-        const members = await DepositGroupMember.findAll({
-          where: { group_id: group.id },
-          include: [
-            {
-              model: DeliveryOrder,
-              as: 'deliveryOrder', // ✅ Must match the alias defined in the association
-              attributes: ['id', 'do_number', 'customer_name', 'final_amount', 'total_amount', 'is_amount_finalized', 'payment_status']
-            }
-          ]
+        // Determine status based on deposit-group invoices and payments
+        const invoices = await require('../../models').DepositGroupInvoice.findAll({ where: { group_id: group.id } });
+        const payments = await require('../../models').DepositGroupPayment.findAll({
+          include: [{ model: require('../../models').DepositGroupInvoice, as: 'invoice', where: { group_id: group.id } }]
         });
-        
-        // Calculate total unpaid
-        let totalUnpaid = 0;
-        for (const member of members) {
-          const paid = await getTotalPaidAmount(member.deliveryOrder.id);
-          const unpaid = member.deliveryOrder.final_amount - paid;
-          if (unpaid > 0) totalUnpaid += unpaid;
-        }
-        
-        // Determine status
+        const totalNet = invoices.reduce((s, inv) => s + Number(inv.net_amount || 0), 0);
+        const totalPaid = payments.reduce((s, p) => s + Number(p.payment_amount || 0), 0);
+        const remaining = Math.max(0, totalNet - totalPaid);
+
         let status = 'normal';
-        if (totalUnpaid > group.balance) {
-          status = 'butuh bayar';
-        } else if (group.balance > totalUnpaid) {
-          status = 'extra saldo';
-        }
+        if (remaining > 0) status = 'butuh bayar';
+        if (remaining === 0 && invoices.length > 0) status = 'lunas';
         
         return {
           ...group.get({ plain: true }),
@@ -295,6 +454,7 @@ module.exports = {
 async getGroupDetails(req, res) {
   const { id } = req.params;
   try {
+    const { DepositGroupTopup } = require("../../models");
     const group = await DepositGroup.findByPk(id, {
       include: [
         {
@@ -310,6 +470,12 @@ async getGroupDetails(req, res) {
             ],
           }],
           attributes: ["id", "delivery_order_id", "quantity"]
+        },
+        {
+          model: DepositGroupTopup,
+          as: "topups",
+          attributes: ["id", "amount", "description", "created_at"],
+          required: false
         },
         {
           model: PurchaseOrder,
@@ -759,10 +925,31 @@ async linkPOToGroup(req, res) {
     const { po_id, group_id } = req.body;
     
     // Link PO to deposit group
+    const po = await PurchaseOrder.findByPk(po_id, { transaction });
+    if (!po) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'PO not found' });
+    }
+
     await PurchaseOrder.update(
       { deposit_group_id: group_id },
       { where: { id: po_id }, transaction }
     );
+
+    // Ensure group's target/remaining qty follows PO total_quantity if currently zero
+    const group = await DepositGroup.findByPk(group_id, { transaction });
+    if (group) {
+      const poTotal = parseFloat(po.total_quantity) || 0;
+      const needsTarget = !group.target_quantity || parseFloat(group.target_quantity) === 0;
+      const needsRemaining = !group.remaining_quantity || parseFloat(group.remaining_quantity) === 0;
+      if (poTotal > 0 && (needsTarget || needsRemaining)) {
+        await group.update({
+          target_quantity: needsTarget ? poTotal : group.target_quantity,
+          remaining_quantity: needsRemaining ? poTotal : group.remaining_quantity,
+          unit: group.unit || po.unit || 'ton',
+        }, { transaction });
+      }
+    }
 
     // Find all DOs from this PO that aren't already in deposit groups
     const existingDOs = await DeliveryOrder.findAll({

@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import apiClient from "../../api/axiosConfig";
 import Select from "react-select";
 import { paymentsApi } from "../../modules/payments/api";
-import EditablePphCell from "../../modules/payments/components/EditablePphCell";
+import EditablePphCell from "../../modules/components/EditablePphCell";
 import * as XLSX from "xlsx";
 // using named import for jsPDF below
 import {

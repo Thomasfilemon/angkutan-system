@@ -433,6 +433,44 @@ CREATE TABLE deposit_group_members (
   UNIQUE (group_id, delivery_order_id) -- Prevent duplicate DO in same group
 );
 
+-- Track deposit group top-ups/history
+CREATE TABLE deposit_group_topups (
+  id SERIAL PRIMARY KEY,
+  group_id INTEGER NOT NULL REFERENCES deposit_groups(id) ON DELETE CASCADE,
+  amount NUMERIC(15,2) NOT NULL CHECK (amount > 0),
+  description VARCHAR(255),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Deposit group billing (group-level invoice & payments)
+CREATE TABLE deposit_group_invoices (
+  id SERIAL PRIMARY KEY,
+  group_id INTEGER NOT NULL REFERENCES deposit_groups(id) ON DELETE CASCADE,
+  invoice_number VARCHAR(100) NOT NULL UNIQUE,
+  invoice_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  due_date DATE,
+  gross_amount NUMERIC(15,2) NOT NULL DEFAULT 0, -- sum(actual * unit_price) for all DOs in group
+  deposit_deducted NUMERIC(15,2) NOT NULL DEFAULT 0, -- initial deposit applied
+  net_amount NUMERIC(15,2) NOT NULL DEFAULT 0, -- gross - deposit_deducted
+  status VARCHAR(20) NOT NULL DEFAULT 'issued' CHECK(status IN ('issued','sent','paid','cancelled')),
+  notes TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE deposit_group_payments (
+  id SERIAL PRIMARY KEY,
+  invoice_id INTEGER NOT NULL REFERENCES deposit_group_invoices(id) ON DELETE CASCADE,
+  payment_amount NUMERIC(15,2) NOT NULL CHECK(payment_amount > 0),
+  payment_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  method VARCHAR(30),
+  reference_number VARCHAR(100),
+  notes TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- BAGIAN 4: KEUANGAN & BIAYA
 -- =================================================================
 
@@ -650,6 +688,11 @@ CREATE INDEX idx_do_payment_history_date ON delivery_order_payment_history(chang
 CREATE INDEX idx_do_adjustments_do_id ON delivery_order_adjustments(delivery_order_id);
 CREATE INDEX idx_do_adjustments_type ON delivery_order_adjustments(adjustment_type);
 CREATE INDEX idx_purchase_orders_deposit_group ON purchase_orders(deposit_group_id); -- Enhanced indexing (from current)
+CREATE INDEX idx_deposit_group_invoices_group_id ON deposit_group_invoices(group_id);
+CREATE INDEX idx_deposit_group_invoices_status ON deposit_group_invoices(status);
+CREATE INDEX idx_deposit_group_invoices_due_date ON deposit_group_invoices(due_date);
+CREATE INDEX idx_deposit_group_payments_invoice_id ON deposit_group_payments(invoice_id);
+CREATE INDEX idx_deposit_group_payments_date ON deposit_group_payments(payment_date);
 
 -- BAGIAN 6: TRIGGERS & FUNCTIONS
 -- =================================================================

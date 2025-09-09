@@ -1,5 +1,6 @@
 // src/pages/DepositGroupManagement.tsx
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import apiClient from '../api/axiosConfig';
 
@@ -108,6 +109,7 @@ const DepositGroupManagement: React.FC = () => {
   const [extraCharges, setExtraCharges] = useState<ExtraCharge[]>([]);
   const [printedSelisihDoIds, setPrintedSelisihDoIds] = useState<Set<number>>(new Set());
   const [creatingInvoiceDoId, setCreatingInvoiceDoId] = useState<number | null>(null);
+  const [searchParams] = useSearchParams();
 
   // States for PO linking
   const [showLinkPOModal, setShowLinkPOModal] = useState(false);
@@ -398,6 +400,67 @@ const DepositGroupManagement: React.FC = () => {
     setExtraCharges(charges);
   };
 
+  // Finalize group: creates deposit-group invoice (gross - deposited)
+  const handleFinalizeGroup = async () => {
+    if (!selectedGroup) return;
+    try {
+      setIsLoading(true);
+      const res = await apiClient.post(`/deposit-groups/${selectedGroup.id}/finalize`);
+      toast.success('Deposit group finalized. Invoice created.');
+      // Optionally navigate to payments deposit-group invoices page
+      fetchGroupDetails(selectedGroup.id);
+      window.open('/payments/deposit-group-invoices', '_blank');
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Failed to finalize group');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Edit deposited amount
+  const handleEditDepositedAmount = async () => {
+    if (!selectedGroup) return;
+    const val = prompt('Enter new deposited amount (Rp):', String(selectedGroup.deposited_amount || 0));
+    if (val === null) return;
+    const amount = parseFloat(val);
+    if (isNaN(amount) || amount < 0) {
+      toast.error('Invalid amount');
+      return;
+    }
+    try {
+      setIsLoading(true);
+      await apiClient.put(`/deposit-groups/${selectedGroup.id}/deposit-amount`, { deposited_amount: amount });
+      toast.success('Deposited amount updated');
+      fetchGroupDetails(selectedGroup.id);
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Failed to update deposited amount');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Top-up deposit
+  const handleTopUpDeposit = async () => {
+    if (!selectedGroup) return;
+    const val = prompt('Top-up deposit amount (Rp):');
+    if (val === null) return;
+    const amount = parseFloat(val);
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Invalid amount');
+      return;
+    }
+    try {
+      setIsLoading(true);
+      await apiClient.post(`/deposit-groups/${selectedGroup.id}/deposit-topup`, { amount });
+      toast.success('Deposit topped up');
+      fetchGroupDetails(selectedGroup.id);
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Failed to top-up deposit');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const generateSelisihInvoiceForDO = async (member: GroupMember) => {
     try {
       const doItem = member.deliveryOrder;
@@ -454,11 +517,24 @@ const DepositGroupManagement: React.FC = () => {
         : [...prev, doId]
     );
   };
+  
+  // Nota calculation block is added above in the UI: ensure DO includes status in SelectedGroup type if not already
 
   // ===== EFFECTS =====
   useEffect(() => {
     fetchGroups();
   }, []);
+
+  useEffect(() => {
+    // Auto-select group if groupId is present
+    const gid = searchParams.get('groupId');
+    if (gid && groups.length > 0) {
+      const found = groups.find((g) => String(g.id) === gid);
+      if (found) {
+        fetchGroupDetails(found.id);
+      }
+    }
+  }, [groups, searchParams]);
 
   useEffect(() => {
     if (showAddDOModal) {
@@ -497,133 +573,126 @@ const DepositGroupManagement: React.FC = () => {
                   ← Back to Groups
                 </button>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div>
-                  <label className="text-sm text-gray-600">Target Quantity</label>
-                  <div className="font-medium">
-                    {selectedGroup.target_quantity?.toLocaleString('id-ID') || 0} {getUnitDisplay(selectedGroup.unit || 'ton')}
+              {(() => {
+                const totalDeposited = parseFloat(String(selectedGroup.deposited_amount || 0));
+                const totalUsed = (selectedGroup.members || []).reduce((sum, m) => {
+                  const d: any = m.deliveryOrder;
+                  const isCompleted = d?.status === 'completed';
+                  if (!isCompleted) return sum;
+                  const qty = (d.actual_load_quantity ?? d.minimal_load_quantity) || 0;
+                  const price = d.unit_price || 0;
+                  const amount = d.final_amount || qty * price;
+                  return sum + amount;
+                }, 0);
+                const derivedBalance = Math.max(0, totalDeposited - totalUsed);
+                return (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                      <label className="text-sm text-gray-600">Target Quantity</label>
+                      <div className="font-medium">
+                        {selectedGroup.target_quantity?.toLocaleString('id-ID') || 0} {getUnitDisplay(selectedGroup.unit || 'ton')}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-sm text-gray-600">Remaining Quantity</label>
+                      <div className="font-medium">
+                        {selectedGroup.remaining_quantity?.toLocaleString('id-ID') || 0} {getUnitDisplay(selectedGroup.unit || 'ton')}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-sm text-gray-600">Deposited Amount</label>
+                      <div className="font-medium">{formatCurrency(selectedGroup.deposited_amount || 0)}</div>
+                    </div>
+                    <div>
+                      <label className="text-sm text-gray-600">Current Balance</label>
+                      <div className="font-medium">{formatCurrency(derivedBalance)}</div>
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <label className="text-sm text-gray-600">Remaining Quantity</label>
-                  <div className="font-medium">
-                    {selectedGroup.remaining_quantity?.toLocaleString('id-ID') || 0} {getUnitDisplay(selectedGroup.unit || 'ton')}
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm text-gray-600">Deposited Amount</label>
-                  <div className="font-medium">{formatCurrency(selectedGroup.deposited_amount || 0)}</div>
-                </div>
-                <div>
-                  <label className="text-sm text-gray-600">Current Balance</label>
-                  <div className="font-medium">{formatCurrency(selectedGroup.balance)}</div>
-                </div>
-              </div>
+                );
+              })()}
             </div>
 
-            {/* Linked Purchase Orders Section */}
-            {selectedGroup.linkedPOs && selectedGroup.linkedPOs.length > 0 && (
-              <div className="bg-white rounded-lg shadow">
-                <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-                  <h3 className="text-lg font-medium">📋 Linked Purchase Orders</h3>
-                  <button
-                    onClick={() => setShowLinkPOModal(true)}
-                    className="bg-indigo-500 hover:bg-indigo-700 text-white px-4 py-2 rounded text-sm"
-                  >
-                    + Link PO
-                  </button>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          PO Number
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Customer
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Quantity
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Status
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          DOs Created
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Action
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {selectedGroup.linkedPOs.map((po) => (
-                        <tr key={po.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-2 font-medium text-gray-900">{po.po_number}</td>
-                          <td className="px-4 py-2 text-gray-900">{po.customer_name}</td>
-                          <td className="px-4 py-2 text-gray-900">
-                            {po.total_quantity.toLocaleString('id-ID')} {getUnitDisplay(po.unit)}
-                          </td>
-                          <td className="px-4 py-2">
-                            {getStatusBadge(po.status)}
-                          </td>
-                          <td className="px-4 py-2">
-                            <span className="text-sm">
-                              {po.do_count} DOs
-                              {po.dos.length > 0 && (
-                                <div className="text-xs text-gray-500 mt-1">
-                                  {po.dos.map(d => d.do_number).join(', ')}
-                                </div>
-                              )}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2">
-                            {po.do_count === 0 && (
-                              <button 
-                                className="text-blue-600 hover:text-blue-800 text-sm bg-blue-100 hover:bg-blue-200 px-3 py-1 rounded"
-                                onClick={() => {
-                                  // Navigate to create DO from PO
-                                  window.open(`/admin/purchase-orders/${po.id}/create-do`, '_blank');
-                                }}
-                              >
-                                Create DO
-                              </button>
-                            )}
-                          </td>
+            <div className="flex items-center gap-2 mt-4">
+              <button onClick={handleEditDepositedAmount} className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded text-sm">Edit Deposit</button>
+              <button onClick={handleTopUpDeposit} className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm">Top-up Deposit</button>
+              <button onClick={handleFinalizeGroup} disabled={isLoading} className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-3 py-1 rounded text-sm">{isLoading ? 'Finalizing...' : 'Finalize Deposit'}</button>
+              <a href="/payments/deposit-group-invoices" target="_blank" rel="noreferrer" className="ml-auto text-sm text-indigo-600 hover:underline">View Deposit Group Invoices</a>
+            </div>
+
+            <div className="bg-white rounded-lg shadow p-6">
+              <h3 className="text-lg font-medium mb-3">Nota (Ringkasan)</h3>
+              {(() => {
+                const completedTotals = (selectedGroup.members || []).reduce((sum, m) => {
+                  const d = m.deliveryOrder;
+                  const isCompleted = (d as any)?.status === 'completed';
+                  if (!isCompleted) return sum;
+                  const qty = (d.actual_load_quantity ?? d.minimal_load_quantity) || 0;
+                  const price = d.unit_price || 0;
+                  const amount = d.final_amount || qty * price;
+                  return sum + amount;
+                }, 0);
+                // Initial deposit: prefer 'Initial deposit' record if exists
+                const topups = ((selectedGroup as any).topups || []) as any[];
+                let initialTopup = topups.find(t => (t.description || '').toLowerCase().includes('initial'));
+                if (!initialTopup && topups.length > 0) {
+                  initialTopup = topups.slice().sort((a,b)=> new Date(a.created_at).getTime()-new Date(b.created_at).getTime())[0];
+                }
+                const deposited = initialTopup ? initialTopup.amount : (selectedGroup.deposited_amount || 0);
+                const netto = Math.max(0, completedTotals - deposited);
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <div className="text-sm text-gray-600">Total DO Selesai</div>
+                      <div className="font-semibold">{formatCurrency(completedTotals)}</div>
+                    </div>
+                    <div>
+                      <div className="text-sm text-gray-600">Deposit (Tanggal Awal)</div>
+                      <div className="font-semibold">
+                        {formatCurrency(deposited)}
+                        <span className="text-xs text-gray-500 ml-2">{initialTopup ? formatDate(initialTopup.created_at) : formatDate(selectedGroup.created_at)}</span>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-sm text-gray-600">Tagihan Akhir (Total - Deposit)</div>
+                      <div className="font-bold text-red-600">{formatCurrency(netto)}</div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {Array.isArray((selectedGroup as any).topups) && (selectedGroup as any).topups.length > 0 && (
+                <div className="mt-4">
+                  <div className="text-sm text-gray-600 mb-2">Riwayat Deposit</div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-gray-500">Tanggal</th>
+                          <th className="px-3 py-2 text-left text-gray-500">Keterangan</th>
+                          <th className="px-3 py-2 text-left text-gray-500">Jumlah</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {(selectedGroup as any).topups.map((t: any) => (
+                          <tr key={t.id}>
+                            <td className="px-3 py-2">{formatDate(t.created_at)}</td>
+                            <td className="px-3 py-2">{t.description || 'Top-up'}</td>
+                            <td className="px-3 py-2 font-medium">{formatCurrency(t.amount)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
+
+            {/* Linked PO section removed per requirements */}
             
             <div className="bg-white rounded-lg shadow">
               <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
                 <h3 className="text-lg font-medium">Delivery Orders dalam Group</h3>
-                <div className="space-x-2">
-                  {(!selectedGroup.linkedPOs || selectedGroup.linkedPOs.length === 0) && (
-                    <button
-                      onClick={() => setShowLinkPOModal(true)}
-                      className="bg-indigo-500 hover:bg-indigo-700 text-white px-4 py-2 rounded text-sm"
-                    >
-                      + Link PO
-                    </button>
-                  )}
-                  <button
-                    onClick={() => setShowAddDOModal(true)}
-                    className="bg-green-500 hover:bg-green-700 text-white px-4 py-2 rounded text-sm"
-                  >
-                    + Tambah DO
-                  </button>
-                  <button
-                    onClick={() => setShowExtraCharges(!showExtraCharges)}
-                    className="bg-purple-500 hover:bg-purple-700 text-white px-4 py-2 rounded text-sm"
-                  >
-                    {showExtraCharges ? 'Hide' : 'Show'} Extra Charges
-                  </button>
-                </div>
+                <div className="space-x-2" />
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -637,7 +706,7 @@ const DepositGroupManagement: React.FC = () => {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Paid</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aksi</th>
+                      {/* No per-DO actions for deposit groups */}
                     </tr>
                   </thead>
                    <tbody className="bg-white divide-y divide-gray-200">
@@ -659,19 +728,7 @@ const DepositGroupManagement: React.FC = () => {
                           {/*//. THIS IS THE FIX */}
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatCurrency(doItem.paid_amount || 0)}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{getStatusBadge(doItem.payment_status)}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">
-                            {member.quantity > doItem.minimal_load_quantity ? (
-                              <button
-                                onClick={() => generateSelisihInvoiceForDO(member)}
-                                disabled={creatingInvoiceDoId === doItem.id}
-                                className={`px-3 py-1 rounded text-white ${printedSelisihDoIds.has(doItem.id) ? 'bg-green-600' : 'bg-indigo-600 hover:bg-indigo-700'} disabled:opacity-50`}
-                              >
-                                {creatingInvoiceDoId === doItem.id ? 'Membuat...' : printedSelisihDoIds.has(doItem.id) ? 'Invoice Dicetak' : 'Cetak Invoice Selisih'}
-                              </button>
-                            ) : (
-                              <span className="text-xs text-gray-400">Tidak ada selisih</span>
-                            )}
-                          </td>
+                          {/* No per-DO actions */}
                         </tr>
                       );
                     })}
@@ -680,98 +737,7 @@ const DepositGroupManagement: React.FC = () => {
               </div>
             </div>
 
-            {/* *** Selisih Charges Section *** */}
-            <div className="bg-white rounded-lg shadow">
-                <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-                    <h3 className="text-lg font-medium">Tagihan Selisih (Extra Quantity)</h3>
-                    <button
-                        onClick={() => handleGenerateSelisih(selectedGroup.id)}
-                        className="bg-purple-500 hover:bg-purple-700 text-white px-4 py-2 rounded text-sm"
-                        disabled={isLoading}
-                    >
-                        {isLoading ? 'Generating...' : 'Generate Tagihan Selisih'}
-                    </button>
-                </div>
-                {(selectedGroup.selisih_status === 'pending' || selectedGroup.selisih_status === 'paid') ? (
-                  <div className="p-6">
-                    <div className={`p-4 rounded-md border ${selectedGroup.selisih_status === 'paid' ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
-                      <div className="flex justify-between items-start mb-3">
-                        <div>
-                          <p className="font-semibold text-gray-800">Total Tagihan: {formatCurrency(selectedGroup.total_selisih_amount || 0)}</p>
-                          <p className="text-xs text-gray-500">Rincian per DO:</p>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          {getStatusBadge(selectedGroup.selisih_status)}
-                          {selectedGroup.selisih_status === 'pending' && (
-                            <button
-                              onClick={() => setShowPaySelisihModal(true)}
-                              className="bg-green-500 hover:bg-green-700 text-white px-3 py-1 rounded text-xs font-bold"
-                              disabled={isLoading}
-                            >
-                              BAYAR
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="overflow-x-auto">
-                        {(() => {
-                          const rows = parseSelisihDetails(selectedGroup.selisih_details);
-                          const findMember = (doNumber: string) =>
-                            selectedGroup.members.find(m => m.deliveryOrder?.do_number === doNumber);
-                          const split = rows.reduce<{paid: typeof rows; unpaid: typeof rows}>(
-                            (acc, r) => {
-                              const member = findMember(r.doNumber);
-                              const isPaid = member?.deliveryOrder?.payment_status === 'lunas';
-                              (isPaid ? acc.paid : acc.unpaid).push(r);
-                              return acc;
-                            },
-                            { paid: [], unpaid: [] }
-                          );
-
-                          const Section = ({title, data, color}:{title:string; data: typeof rows; color:'green'|'orange'}) => (
-                            <div className={`mb-4 rounded border ${color === 'green' ? 'border-green-200 bg-green-50' : 'border-yellow-200 bg-yellow-50'}`}>
-                              <div className="px-3 py-2 text-xs font-semibold text-gray-700">{title}</div>
-                              <table className="w-full text-sm">
-                                <thead>
-                                  <tr className="text-left text-gray-600">
-                                    <th className="py-2 pr-4">DO Number</th>
-                                    <th className="py-2">Keterangan</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-200">
-                                  {data.map((row, idx) => (
-                                    <tr key={idx}>
-                                      <td className="py-2 pr-4 font-medium text-gray-800">{row.doNumber}</td>
-                                      <td className="py-2 text-gray-700">{row.description}</td>
-                                    </tr>
-                                  ))}
-                                  {data.length === 0 && (
-                                    <tr>
-                                      <td colSpan={2} className="py-2 text-gray-500 text-sm">Tidak ada data.</td>
-                                    </tr>
-                                  )}
-                                </tbody>
-                              </table>
-                            </div>
-                          );
-
-                          return (
-                            <>
-                              <Section title="Belum Dibayar" data={split.unpaid} color="orange" />
-                              <Section title="Sudah Dibayar" data={split.paid} color="green" />
-                            </>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <p className="text-gray-500">Tidak ada tagihan selisih untuk group ini.</p>
-                  </div>
-                )}
-            </div>
+            {/* Selisih section removed per new flow */}
         </div>
       ) : (
           <div className="bg-white rounded-lg shadow">

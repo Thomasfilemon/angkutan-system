@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { paymentsApi } from "../api";
+import { paymentsApi } from "../payments/api";
 
 interface EditablePphCellProps {
   invoice: {

@@ -116,4 +116,21 @@ router.patch(
   PaymentsCtrl.confirmDeliveryOrder
 );
 
+// ──────── Deposit Group Invoices & Payments ────────
+router.get(
+  "/deposit-groups/invoices",
+  checkRole(["admin", "owner", "finance"]),
+  PaymentsCtrl.getDepositGroupInvoices
+);
+router.get(
+  "/deposit-groups/invoices/:invoiceId",
+  checkRole(["admin", "owner", "finance"]),
+  PaymentsCtrl.getDepositGroupInvoiceById
+);
+router.post(
+  "/deposit-groups/invoices/:invoiceId/payments",
+  checkRole(["admin", "owner", "finance"]),
+  PaymentsCtrl.recordDepositGroupPayment
+);
+
 module.exports = router;

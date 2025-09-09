@@ -552,6 +552,15 @@ exports.updatePurchaseOrder = async (req, res, next) => {
       }
 
       updateData.total_quantity = newQuantity;
+
+      // Sync deposit group remaining_quantity with PO total_quantity
+      if (po.deposit_group_id) {
+        const group = await DepositGroup.findByPk(po.deposit_group_id, { transaction });
+        if (group) {
+          group.remaining_quantity = newQuantity;
+          await group.save({ transaction });
+        }
+      }
     }
 
     const updatedPO = await po.update(updateData, { transaction });

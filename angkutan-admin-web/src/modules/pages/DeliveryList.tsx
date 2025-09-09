@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { paymentsApi } from "../api";
+import { paymentsApi } from "../payments/api";
 import toast from "react-hot-toast";
 
 interface DeliveryOrder {
@@ -16,6 +16,8 @@ interface DeliveryOrder {
   invoice_count: number;
   payment_count: number;
   total_paid: number;
+  is_deposit_member?: boolean;
+  deposit_group_id?: number | null;
   invoices: {
     id: number;
     invoice_number: string;
@@ -230,53 +232,70 @@ const DeliveryList: React.FC = () => {
       </button>
     );
 
-    // Hanya tampilkan tombol Create Invoice jika sudah confirm for billing
-    if (
-      doOrder.invoice_count === 0 &&
-      ["proses_tagihan", "deposit", "lunas"].includes(doOrder.payment_status)
-    ) {
-      actions.push(
-        <button
-          key="create-invoice"
-          onClick={() => handleCreateInvoice(doOrder)}
-          className="px-3 py-1 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-        >
-          Create Invoice
-        </button>
-      );
+    // If this DO is under a deposit group, do not show billing/invoice flows
+    if (!doOrder.is_deposit_member) {
+      // Hanya tampilkan tombol Create Invoice jika sudah confirm for billing
+      if (
+        doOrder.invoice_count === 0 &&
+        ["proses_tagihan", "deposit", "lunas"].includes(doOrder.payment_status)
+      ) {
+        actions.push(
+          <button
+            key="create-invoice"
+            onClick={() => handleCreateInvoice(doOrder)}
+            className="px-3 py-1 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+          >
+            Create Invoice
+          </button>
+        );
+      }
     }
 
     // View invoices for orders with invoices
-    if (
-      doOrder.invoice_count > 0 &&
-      doOrder.invoices &&
-      doOrder.invoices.length > 0
-    ) {
+    if (!doOrder.is_deposit_member) {
+      if (
+        doOrder.invoice_count > 0 &&
+        doOrder.invoices &&
+        doOrder.invoices.length > 0
+      ) {
+        actions.push(
+          <button
+            key="view-invoice"
+            onClick={() => handleViewInvoice(doOrder)}
+            className="px-3 py-1 text-xs bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
+          >
+            View Invoice{doOrder.invoice_count > 1 ? "s" : ""}
+          </button>
+        );
+      }
+    } else {
       actions.push(
-        <button
-          key="view-invoice"
-          onClick={() => handleViewInvoice(doOrder)}
-          className="px-3 py-1 text-xs bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
+        <Link
+          key="deposit-payments"
+          to={`/deposit-groups?groupId=${doOrder.deposit_group_id || ''}`}
+          className="px-3 py-1 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
         >
-          View Invoice{doOrder.invoice_count > 1 ? "s" : ""}
-        </button>
+          Deposit Payments
+        </Link>
       );
     }
 
     // Confirm for Billing for completed DOs that are awaiting confirmation
-    if (
-      doOrder.status === "completed" &&
-      ["pending", "awaiting_confirmation"].includes(doOrder.payment_status)
-    ) {
-      actions.push(
-        <button
-          key="confirm-billing"
-          onClick={() => handleConfirmForBilling(doOrder)}
-          className="px-3 py-1 text-xs bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
-        >
-          Confirm for Billing
-        </button>
-      );
+    if (!doOrder.is_deposit_member) {
+      if (
+        doOrder.status === "completed" &&
+        ["pending", "awaiting_confirmation"].includes(doOrder.payment_status)
+      ) {
+        actions.push(
+          <button
+            key="confirm-billing"
+            onClick={() => handleConfirmForBilling(doOrder)}
+            className="px-3 py-1 text-xs bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+          >
+            Confirm for Billing
+          </button>
+        );
+      }
     }
 
     return <div className="flex flex-wrap gap-2">{actions}</div>;

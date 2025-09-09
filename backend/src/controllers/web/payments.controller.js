@@ -10,6 +10,8 @@ const {
   SystemSettings,
   DepositGroup,
   DepositGroupMember,
+  DepositGroupInvoice,
+  DepositGroupPayment,
   sequelize,
 } = require("../../models");
 
@@ -1259,6 +1261,18 @@ module.exports = {
           .status(404)
           .json({ success: false, message: "Delivery Order not found" });
 
+      // Block confirmation for DOs managed by a deposit group
+      const dgMember = await require("../../models").DepositGroupMember.findOne({
+        where: { delivery_order_id: doId },
+      });
+      if (dgMember) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "This Delivery Order is managed by a deposit group and cannot be confirmed for billing.",
+        });
+      }
+
       if (doRecord.status !== "completed")
         return res.status(400).json({
           success: false,
@@ -1297,7 +1311,7 @@ module.exports = {
       const { Op } = require("sequelize");
       const { sequelize } = require("../../models");
 
-      // Total outstanding (proses_tagihan + awaiting_confirmation)
+      // Total outstanding (proses_tagihan + awaiting_confirmation) for DOs
       const outstandingQuery = await DeliveryOrder.sum("final_amount", {
         where: {
           payment_status: {
@@ -1307,15 +1321,36 @@ module.exports = {
         },
       });
 
-      // Total paid (lunas)
+      // Total paid (lunas) for DOs
       const paidQuery = await DeliveryOrderPayments.sum("payment_amount");
 
-      // Pending invoices count
+      // ───── Deposit Group additions
+      // Sum of deposit-group payments (all time)
+      const dgPaid = await DepositGroupPayment.sum("payment_amount");
+
+      // Outstanding for deposit-group invoices (issued/sent)
+      const [dgNetIssuedResult] = await sequelize.query(
+        `SELECT COALESCE(SUM(net_amount),0) AS total FROM deposit_group_invoices WHERE status IN ('issued','sent')`
+      );
+      const dgNetIssued = Number(dgNetIssuedResult?.total || 0);
+      const [dgTotalPaidResult] = await sequelize.query(
+        `SELECT COALESCE(SUM(payment_amount),0) AS total FROM deposit_group_payments`
+      );
+      const dgTotalPaidAll = Number(dgTotalPaidResult?.total || 0);
+      const dgOutstanding = Math.max(0, dgNetIssued - dgTotalPaidAll);
+
+      // Pending invoices count (DO invoices only)
       const pendingInvoices = await DeliveryOrderInvoices.count({
         where: {
           status: { [Op.in]: ["issued", "sent"] },
         },
       });
+
+      // Pending deposit-group invoices count
+      const [dgPendingCountResult] = await sequelize.query(
+        `SELECT COUNT(*)::int AS count FROM deposit_group_invoices WHERE status IN ('issued','sent')`
+      );
+      const dgPendingInvoices = Number(dgPendingCountResult?.count || 0);
 
       // ✅ ADD: Pending deliveries count (NEW)
       const pendingDeliveries = await DeliveryOrder.count({
@@ -1326,13 +1361,19 @@ module.exports = {
         },
       });
 
-      // Overdue invoices (past due_date and not paid)
+      // Overdue invoices (past due_date and not paid) for DOs
       const overdueInvoices = await DeliveryOrderInvoices.count({
         where: {
           due_date: { [Op.lt]: new Date() },
           status: { [Op.ne]: "paid" },
         },
       });
+
+      // Overdue deposit-group invoices
+      const [dgOverdueResult] = await sequelize.query(
+        `SELECT COUNT(*)::int AS count FROM deposit_group_invoices WHERE due_date < NOW() AND status <> 'paid'`
+      );
+      const dgOverdueInvoices = Number(dgOverdueResult?.count || 0);
 
       // Recent payments (last 10)
       const recentPayments = await DeliveryOrderPayments.findAll({
@@ -1348,11 +1389,11 @@ module.exports = {
       });
 
       const stats = {
-        totalOutstanding: outstandingQuery || 0,
-        totalPaid: paidQuery || 0,
-        pendingInvoices: pendingInvoices || 0,
+        totalOutstanding: (outstandingQuery || 0) + dgOutstanding,
+        totalPaid: (paidQuery || 0) + (dgPaid || 0),
+        pendingInvoices: (pendingInvoices || 0) + dgPendingInvoices,
         pendingDeliveries: pendingDeliveries || 0,
-        overdueInvoices: overdueInvoices || 0,
+        overdueInvoices: (overdueInvoices || 0) + dgOverdueInvoices,
         recentPayments: recentPayments.map((payment) => ({
           id: payment.id,
           do_number: payment.deliveryOrder?.do_number || "N/A",
@@ -1414,6 +1455,12 @@ module.exports = {
             as: "payments",
             required: false,
           },
+          {
+            model: DepositGroupMember,
+            as: "groupMemberships",
+            required: false,
+            attributes: ["id", "group_id"],
+          },
         ],
         order: [["created_at", "DESC"]],
         limit: parseInt(limit),
@@ -1435,6 +1482,11 @@ module.exports = {
         total_paid:
           do_.payments?.reduce((sum, p) => sum + Number(p.payment_amount), 0) ||
           0,
+        is_deposit_member: Array.isArray(do_.groupMemberships) && do_.groupMemberships.length > 0,
+        deposit_group_id:
+          Array.isArray(do_.groupMemberships) && do_.groupMemberships.length > 0
+            ? do_.groupMemberships[0].group_id
+            : null,
         invoices: (do_.invoices || []).map((inv) => ({
           id: inv.id,
           invoice_number: inv.invoice_number,
@@ -1456,6 +1508,167 @@ module.exports = {
         },
       });
     } catch (err) {
+      return next(err);
+    }
+  },
+
+  // ──────────────────────────────────────────────────────────────
+  // GET /api/web/payments/deposit-groups/invoices
+  // List deposit-group invoices
+  // ────────────────────────────────────────────────────────────
+  async getDepositGroupInvoices(req, res, next) {
+    try {
+      const { status, page = 1, limit = 20, order = 'DESC' } = req.query;
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+
+      const where = {};
+      if (status && status !== 'all') where.status = status;
+
+      const { count, rows } = await DepositGroupInvoice.findAndCountAll({
+        where,
+        include: [
+          { 
+            model: DepositGroup, 
+            as: 'depositGroup', 
+            attributes: ['id', 'group_name'],
+            include: [{ model: require('../../models').DepositGroupTopup, as: 'topups', attributes: ['id','amount','description','created_at'], required: false }]
+          },
+          { model: DepositGroupPayment, as: 'payments', required: false },
+        ],
+        order: [['created_at', order.toUpperCase()]],
+        limit: parseInt(limit),
+        offset,
+      });
+
+      const invoices = rows.map((inv) => {
+        const totalPaid = (inv.payments || []).reduce((s, p) => s + parseFloat(p.payment_amount || 0), 0);
+        return {
+          id: inv.id,
+          invoice_number: inv.invoice_number,
+          group: inv.depositGroup ? { id: inv.depositGroup.id, name: inv.depositGroup.group_name } : null,
+          invoice_date: inv.invoice_date,
+          due_date: inv.due_date,
+          gross_amount: Number(inv.gross_amount),
+          deposit_deducted: Number(inv.deposit_deducted),
+          net_amount: Number(inv.net_amount),
+          status: inv.status,
+          notes: inv.notes,
+          total_paid: totalPaid,
+          remaining_amount: Number(inv.net_amount) - totalPaid,
+          topups: inv.depositGroup && inv.depositGroup.topups ? inv.depositGroup.topups.map(t => ({ id: t.id, amount: Number(t.amount), description: t.description, created_at: t.created_at })) : [],
+        };
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          invoices,
+          pagination: {
+            page: parseInt(page),
+            limit: parseInt(limit),
+            total: count,
+            pages: Math.ceil(count / parseInt(limit)),
+          },
+        },
+      });
+    } catch (err) {
+      return next(err);
+    }
+  },
+
+  // GET /api/web/payments/deposit-groups/invoices/:invoiceId
+  async getDepositGroupInvoiceById(req, res, next) {
+    try {
+      const { invoiceId } = req.params;
+      const invoice = await DepositGroupInvoice.findByPk(invoiceId, {
+        include: [
+          {
+            model: DepositGroup,
+            as: 'depositGroup',
+            attributes: ['id', 'group_name'],
+            include: [
+              { model: require('../../models').DepositGroupTopup, as: 'topups', attributes: ['id','amount','description','created_at'], required: false }
+            ]
+          },
+          { model: DepositGroupPayment, as: 'payments', required: false },
+        ],
+      });
+      if (!invoice) {
+        return res.status(404).json({ success: false, message: 'Deposit group invoice not found' });
+      }
+      const totalPaid = (invoice.payments || []).reduce((s, p) => s + Number(p.payment_amount || 0), 0);
+      return res.json({
+        success: true,
+        data: {
+          id: invoice.id,
+          invoice_number: invoice.invoice_number,
+          invoice_date: invoice.invoice_date,
+          due_date: invoice.due_date,
+          gross_amount: Number(invoice.gross_amount),
+          deposit_deducted: Number(invoice.deposit_deducted),
+          net_amount: Number(invoice.net_amount),
+          status: invoice.status,
+          notes: invoice.notes,
+          group: invoice.depositGroup ? { id: invoice.depositGroup.id, name: invoice.depositGroup.group_name } : null,
+          topups: invoice.depositGroup && invoice.depositGroup.topups ? invoice.depositGroup.topups.map(t => ({ id: t.id, amount: Number(t.amount), description: t.description, created_at: t.created_at })) : [],
+          payments: (invoice.payments || []).map(p => ({ id: p.id, amount: Number(p.payment_amount), date: p.payment_date, method: p.method, reference_number: p.reference_number, notes: p.notes })),
+          total_paid: totalPaid,
+          remaining_amount: Number(invoice.net_amount) - totalPaid,
+        }
+      });
+    } catch (err) {
+      return next(err);
+    }
+  },
+
+  // POST /api/web/payments/deposit-groups/invoices/:invoiceId/payments
+  async recordDepositGroupPayment(req, res, next) {
+    const transaction = await sequelize.transaction();
+    try {
+      const { invoiceId } = req.params;
+      const { payment_amount, payment_date, method, reference_number, notes } = req.body;
+      const amount = Number.parseFloat(payment_amount);
+      if (isNaN(amount) || amount <= 0) {
+        await transaction.rollback();
+        return res.status(400).json({ success: false, message: 'Invalid payment_amount' });
+      }
+
+      const invoice = await DepositGroupInvoice.findByPk(invoiceId, { include: [{ model: DepositGroupPayment, as: 'payments' }], transaction });
+      if (!invoice) {
+        await transaction.rollback();
+        return res.status(404).json({ success: false, message: 'Invoice not found' });
+      }
+
+      // Prevent overpay
+      const totalPaid = (invoice.payments || []).reduce((s, p) => s + parseFloat(p.payment_amount || 0), 0);
+      if (totalPaid + amount > Number(invoice.net_amount) + 0.01) {
+        await transaction.rollback();
+        return res.status(400).json({ success: false, message: 'Payment would exceed invoice net amount' });
+      }
+
+      const payment = await DepositGroupPayment.create(
+        {
+          invoice_id: invoice.id,
+          payment_amount: amount,
+          payment_date: payment_date || new Date(),
+          method,
+          reference_number,
+          notes,
+          created_by: req.user?.id,
+        },
+        { transaction }
+      );
+
+      // Mark invoice paid if fully settled
+      const newTotalPaid = totalPaid + amount;
+      if (newTotalPaid + 0.01 >= Number(invoice.net_amount) && invoice.status !== 'paid') {
+        await invoice.update({ status: 'paid', updated_at: new Date() }, { transaction });
+      }
+
+      await transaction.commit();
+      return res.status(201).json({ success: true, data: payment });
+    } catch (err) {
+      await transaction.rollback();
       return next(err);
     }
   },

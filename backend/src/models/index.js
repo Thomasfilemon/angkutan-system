@@ -37,6 +37,9 @@ const setupCashTransactionModel = require("./cashTransaction.model");
 
 const setupDepositGroupModel = require("./depositGroup.model");
 const setupDepositGroupMemberModel = require("./depositGroupMember.model");
+const setupDepositGroupInvoiceModel = require("./depositGroupInvoice.model");
+const setupDepositGroupPaymentModel = require("./depositGroupPayment.model");
+const setupDepositGroupTopupModel = require("./depositGroupTopup.model");
 const setupTempoDetailModel = require("./tempoDetails.model");
 
 // Initialize Sequelize connection using your .env variables
@@ -99,6 +102,9 @@ db.CashTransaction = setupCashTransactionModel(sequelize);
 
 db.DepositGroup = setupDepositGroupModel(sequelize);
 db.DepositGroupMember = setupDepositGroupMemberModel(sequelize);
+db.DepositGroupInvoice = setupDepositGroupInvoiceModel(sequelize);
+db.DepositGroupPayment = setupDepositGroupPaymentModel(sequelize);
+db.DepositGroupTopup = setupDepositGroupTopupModel(sequelize);
 db.TempoDetail = setupTempoDetailModel(sequelize);
 
 const {
@@ -130,6 +136,9 @@ const {
   SystemSettings,
   DepositGroup,
   DepositGroupMember,
+  DepositGroupInvoice,
+  DepositGroupPayment,
+  DepositGroupTopup,
   TempoDetail
 } = db;
 
@@ -480,6 +489,30 @@ DepositGroup.hasMany(PurchaseOrder, {
   foreignKey: "deposit_group_id",
   as: "purchaseOrders",
 });
+
+// DepositGroup to DepositGroupInvoice (One-to-Many)
+DepositGroup.hasMany(DepositGroupInvoice, {
+  foreignKey: "group_id",
+  as: "invoices",
+});
+DepositGroupInvoice.belongsTo(DepositGroup, {
+  foreignKey: "group_id",
+  as: "depositGroup",
+});
+
+// DepositGroupInvoice to DepositGroupPayment (One-to-Many)
+DepositGroupInvoice.hasMany(DepositGroupPayment, {
+  foreignKey: "invoice_id",
+  as: "payments",
+});
+DepositGroupPayment.belongsTo(DepositGroupInvoice, {
+  foreignKey: "invoice_id",
+  as: "invoice",
+});
+
+// DepositGroup to Topups (One-to-Many)
+DepositGroup.hasMany(DepositGroupTopup, { foreignKey: "group_id", as: "topups" });
+DepositGroupTopup.belongsTo(DepositGroup, { foreignKey: "group_id", as: "depositGroup" });
 
 CashTransaction.hasOne(TempoDetail, { foreignKey: "cash_transaction_id", as: "tempoDetail" });
 TempoDetail.belongsTo(CashTransaction, { foreignKey: "cash_transaction_id", as: "cashTransaction" });

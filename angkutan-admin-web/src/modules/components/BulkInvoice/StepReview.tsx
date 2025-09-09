@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { paymentsApi } from "../../api";
+import { paymentsApi } from "../../payments/api";
 
 interface StepReviewProps {
   selectedDOs: number[];

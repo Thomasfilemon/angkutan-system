@@ -31,6 +31,29 @@ export const paymentsApi = {
     order?: string;
   }) => apiClient.get("/payments/invoices", { params }),
 
+  // Deposit group invoices
+  fetchDepositGroupInvoices: (params?: {
+    status?: string;
+    page?: number;
+    limit?: number;
+    order?: string;
+  }) => apiClient.get("/payments/deposit-groups/invoices", { params }),
+
+  fetchDepositGroupInvoiceDetail: (invoiceId: number) =>
+    apiClient.get(`/payments/deposit-groups/invoices/${invoiceId}`),
+
+  // Record payment for deposit group invoice
+  recordDepositGroupPayment: (
+    invoiceId: number,
+    payload: {
+      payment_amount: number;
+      payment_date?: string;
+      method?: string;
+      reference_number?: string;
+      notes?: string;
+    }
+  ) => apiClient.post(`/payments/deposit-groups/invoices/${invoiceId}/payments`, payload),
+
   confirmForBilling: (doId: number, body = {}) =>
     apiClient.patch(`/payments/delivery-orders/${doId}/confirm`, body),
 
