@@ -1,12 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import {
-  MapContainer,
-  TileLayer,
-  Marker,
-  Popup,
-  useMap,
-} from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import apiClient from "../api/axiosConfig";
@@ -147,10 +141,14 @@ const MapClickHandler: React.FC<{
     const onClick = (e: L.LeafletMouseEvent) => {
       if (selectedLocationType) {
         const { lat, lng } = e.latlng;
-        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
-          .then(res => res.json())
-          .then(data => {
-            const address = data.display_name || `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
+        fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
+        )
+          .then((res) => res.json())
+          .then((data) => {
+            const address =
+              data.display_name ||
+              `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
             onLocationSelect(lat, lng, address);
             onClearSelection();
           })
@@ -162,10 +160,10 @@ const MapClickHandler: React.FC<{
       }
     };
 
-    map.on('click', onClick);
+    map.on("click", onClick);
 
     return () => {
-      map.off('click', onClick);
+      map.off("click", onClick);
     };
   }, [map, selectedLocationType, onLocationSelect, onClearSelection]);
 
@@ -200,8 +198,10 @@ const CreateDeliveryFromPO: React.FC = () => {
       payment_notes: "",
     },
   ]);
-  
-  const [selectedLocationType, setSelectedLocationType] = useState<"load" | "unload" | null>(null);
+
+  const [selectedLocationType, setSelectedLocationType] = useState<
+    "load" | "unload" | null
+  >(null);
   const [showMap, setShowMap] = useState<boolean>(true);
   const [markers, setMarkers] = useState<MarkerType[]>([]);
   const [currentFormIndex, setCurrentFormIndex] = useState<number>(0);
@@ -209,6 +209,17 @@ const CreateDeliveryFromPO: React.FC = () => {
     load: boolean;
     unload: boolean;
   }>({ load: false, unload: false });
+
+  // Recent locations suggestions (separate lists for load & unload)
+  const [loadLocationSuggestions, setLoadLocationSuggestions] = useState<
+    string[]
+  >([]);
+  const [unloadLocationSuggestions, setUnloadLocationSuggestions] = useState<
+    string[]
+  >([]);
+  const [showSuggestions, setShowSuggestions] = useState<
+    null | "load" | "unload"
+  >(null);
 
   const defaultCenter = { lat: -6.2088, lng: 106.8456 };
 
@@ -249,7 +260,12 @@ const CreateDeliveryFromPO: React.FC = () => {
     return totalRevenue - operationalCosts;
   };
 
-  const setLocationWithType = (lat: number, lng: number, address: string, type: "load" | "unload") => {
+  const setLocationWithType = (
+    lat: number,
+    lng: number,
+    address: string,
+    type: "load" | "unload"
+  ) => {
     const newFormDataList = [...formDataList];
     if (type === "load") {
       newFormDataList[currentFormIndex] = {
@@ -268,14 +284,17 @@ const CreateDeliveryFromPO: React.FC = () => {
     }
     setFormDataList(newFormDataList);
 
-    setMarkers(prev => {
-      const filtered = prev.filter(m => m.type !== type);
-      return [...filtered, {
-        lat,
-        lng,
-        title: type === "load" ? "Load Location" : "Unload Location",
-        type
-      }];
+    setMarkers((prev) => {
+      const filtered = prev.filter((m) => m.type !== type);
+      return [
+        ...filtered,
+        {
+          lat,
+          lng,
+          title: type === "load" ? "Load Location" : "Unload Location",
+          type,
+        },
+      ];
     });
 
     setSelectedLocationType(null);
@@ -287,12 +306,72 @@ const CreateDeliveryFromPO: React.FC = () => {
     }
   };
 
+  const applySuggestion = (type: "load" | "unload", value: string) => {
+    const newFormDataList = [...formDataList];
+    if (type === "load") {
+      newFormDataList[currentFormIndex] = {
+        ...newFormDataList[currentFormIndex],
+        load_location: value,
+      };
+    } else {
+      newFormDataList[currentFormIndex] = {
+        ...newFormDataList[currentFormIndex],
+        unload_location: value,
+      };
+    }
+    setFormDataList(newFormDataList);
+    setShowSuggestions(null);
+  };
+
   useEffect(() => {
     if (poId) {
       fetchPODetails();
       fetchAvailableVehicles();
     }
+    // fetch recent locations once on mount
+    fetchRecentLocations();
   }, [poId]);
+
+  const fetchRecentLocations = async () => {
+    try {
+      const resp = await apiClient.get(
+        "/purchase-orders/utils/recent-locations"
+      );
+      const payload = resp.data?.data || resp.data;
+
+      if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+        const hasLoad = Array.isArray((payload as any).load_locations);
+        const hasUnload = Array.isArray((payload as any).unload_locations);
+        if (hasLoad || hasUnload) {
+          const loadArr = (payload as any).load_locations || [];
+          const unloadArr = (payload as any).unload_locations || [];
+          setLoadLocationSuggestions(
+            Array.from(new Set(loadArr as string[])).slice(0, 50)
+          );
+          setUnloadLocationSuggestions(
+            Array.from(new Set(unloadArr as string[])).slice(0, 50)
+          );
+          return;
+        }
+      }
+
+      const raw = payload || [];
+      const data: any[] = Array.isArray(raw) ? raw : [raw];
+      const locs: string[] = data
+        .map((l: any) => {
+          if (!l) return "";
+          if (typeof l === "string") return l;
+          return l.address || l.location || l.name || "";
+        })
+        .filter((s: string) => !!s && s.length > 0);
+      const unique = Array.from(new Set(locs)) as string[];
+      const top = unique.slice(0, 50);
+      setLoadLocationSuggestions(top);
+      setUnloadLocationSuggestions(top);
+    } catch (err) {
+      console.warn("Could not fetch recent locations", err);
+    }
+  };
 
   const fetchPODetails = async (): Promise<void> => {
     try {
@@ -327,7 +406,7 @@ const CreateDeliveryFromPO: React.FC = () => {
         load_longitude: details.load_longitude?.toString() || "",
         unload_latitude: details.unload_latitude?.toString() || "",
         unload_longitude: details.unload_longitude?.toString() || "",
-        payment_notes: "", // Initialize as empty
+        payment_notes: "",
       };
       setFormDataList([initialFormData]);
 
@@ -351,7 +430,7 @@ const CreateDeliveryFromPO: React.FC = () => {
       setMarkers(initialMarkers);
     } catch (err) {
       console.error("Error fetching PO details:", err);
-      setErrors(prev => [...prev, "Failed to fetch purchase order details."]);
+      setErrors((prev) => [...prev, "Failed to fetch purchase order details."]);
     }
   };
 
@@ -369,7 +448,7 @@ const CreateDeliveryFromPO: React.FC = () => {
       );
     } catch (err) {
       console.error("Error fetching vehicles:", err);
-      setErrors(prev => [...prev, "Failed to fetch available vehicles."]);
+      setErrors((prev) => [...prev, "Failed to fetch available vehicles."]);
     }
   };
 
@@ -406,18 +485,22 @@ const CreateDeliveryFromPO: React.FC = () => {
     // Update payment_notes with all allowances
     const allowances = newFormDataList[formIndex].additional_allowance;
     let paymentNotes = newFormDataList[formIndex].payment_notes || "";
-    
+
     // Remove existing allowance lines from payment_notes
     paymentNotes = paymentNotes
       .split("\n")
-      .filter(line => !line.startsWith("Additional Allowance"))
+      .filter((line) => !line.startsWith("Additional Allowance"))
       .join("\n");
 
     // Append all allowances to payment_notes
     allowances.forEach((allowance, i) => {
       if (allowance.description || allowance.amount) {
         const amount = parseFloat(allowance.amount) || 0;
-        const allowanceText = `Additional Allowance ${i + 1}: Rp ${amount.toLocaleString("id-ID")} - ${allowance.description || "No description"}`;
+        const allowanceText = `Additional Allowance ${
+          i + 1
+        }: Rp ${amount.toLocaleString("id-ID")} - ${
+          allowance.description || "No description"
+        }`;
         paymentNotes = paymentNotes
           ? `${paymentNotes}\n${allowanceText}`
           : allowanceText;
@@ -461,14 +544,18 @@ const CreateDeliveryFromPO: React.FC = () => {
     let paymentNotes = newFormDataList[formIndex].payment_notes || "";
     paymentNotes = paymentNotes
       .split("\n")
-      .filter(line => !line.startsWith("Additional Allowance"))
+      .filter((line) => !line.startsWith("Additional Allowance"))
       .join("\n");
 
     const allowances = newFormDataList[formIndex].additional_allowance;
     allowances.forEach((allowance, i) => {
       if (allowance.description || allowance.amount) {
         const amount = parseFloat(allowance.amount) || 0;
-        const allowanceText = `Additional Allowance ${i + 1}: Rp ${amount.toLocaleString("id-ID")} - ${allowance.description || "No description"}`;
+        const allowanceText = `Additional Allowance ${
+          i + 1
+        }: Rp ${amount.toLocaleString("id-ID")} - ${
+          allowance.description || "No description"
+        }`;
         paymentNotes = paymentNotes
           ? `${paymentNotes}\n${allowanceText}`
           : allowanceText;
@@ -542,16 +629,21 @@ const CreateDeliveryFromPO: React.FC = () => {
       const data = await resp.json();
 
       if (data.lat && data.lng) {
-        setLocationWithType(data.lat, data.lng, `${data.lat},${data.lng}`, type);
+        setLocationWithType(
+          data.lat,
+          data.lng,
+          `${data.lat},${data.lng}`,
+          type
+        );
       } else {
-        setErrors(prev => [
+        setErrors((prev) => [
           ...prev,
           data.message ||
             "Could not determine coordinates. Please check the input or enter coordinates manually.",
         ]);
       }
     } catch (error) {
-      setErrors(prev => [
+      setErrors((prev) => [
         ...prev,
         "Could not process the location link. Please try again or enter coordinates manually.",
       ]);
@@ -589,9 +681,7 @@ const CreateDeliveryFromPO: React.FC = () => {
         const selectedVehicle = getSelectedVehicle(formData.vehicle_id);
         if (!selectedVehicle || !selectedVehicle.driver_id) {
           throw new Error(
-            `Invalid vehicle selection for DO ${
-              formData.do_name || index + 1
-            }`
+            `Invalid vehicle selection for DO ${formData.do_name || index + 1}`
           );
         }
 
@@ -667,11 +757,14 @@ const CreateDeliveryFromPO: React.FC = () => {
           unit_price: unitPrice,
           total_amount: totalAmount,
           trip_allowance: parseFloat(formData.trip_allowance) || 0,
-          additional_allowance: formData.additional_allowance.map(allowance => parseFloat(allowance.amount)),
+          additional_allowance: formData.additional_allowance.map((allowance) =>
+            parseFloat(allowance.amount)
+          ),
           gaji: parseFloat(formData.gaji) || 0,
           ongkosan: parseFloat(formData.ongkosan) || 0,
           load_location: formData.load_location || poDetails.load_location,
-          unload_location: formData.unload_location || poDetails.unload_location,
+          unload_location:
+            formData.unload_location || poDetails.unload_location,
           load_latitude: formData.load_latitude
             ? parseFloat(formData.load_latitude)
             : null,
@@ -775,7 +868,9 @@ const CreateDeliveryFromPO: React.FC = () => {
           <div className="mt-4 pt-4 border-t border-blue-200">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-sm text-gray-600">PO Unit Price (Reference)</label>
+                <label className="text-sm text-gray-600">
+                  PO Unit Price (Reference)
+                </label>
                 <p className="font-medium text-blue-700">
                   Rp {poDetails.unit_price.toLocaleString("id-ID")}/
                   {unitDisplay}
@@ -809,7 +904,9 @@ const CreateDeliveryFromPO: React.FC = () => {
             {formDataList.map((formData, index) => (
               <div key={index} className="bg-white border rounded-lg p-6">
                 <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-semibold">Delivery Order {index + 1}</h3>
+                  <h3 className="text-lg font-semibold">
+                    Delivery Order {index + 1}
+                  </h3>
                   <div className="flex space-x-2">
                     {index > 0 && (
                       <button
@@ -829,7 +926,7 @@ const CreateDeliveryFromPO: React.FC = () => {
                     </button>
                   </div>
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Delivery Order Name *
@@ -913,7 +1010,8 @@ const CreateDeliveryFromPO: React.FC = () => {
                     required
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    💡 Set the negotiated price per {unitDisplay} for this delivery
+                    💡 Set the negotiated price per {unitDisplay} for this
+                    delivery
                   </p>
                 </div>
 
@@ -991,50 +1089,52 @@ const CreateDeliveryFromPO: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Additional Allowances
                   </label>
-                  {formData.additional_allowance.map((allowance, allowanceIndex) => (
-                    <div
-                      key={allowanceIndex}
-                      className="flex items-center space-x-2 mb-2"
-                    >
-                      <input
-                        type="text"
-                        placeholder="Description (e.g., Parking Fee)"
-                        value={allowance.description}
-                        onChange={(e) =>
-                          handleAllowanceChange(
-                            index,
-                            allowanceIndex,
-                            "description",
-                            e.target.value
-                          )
-                        }
-                        className="w-2/3 px-3 py-2 border border-gray-300 rounded-md"
-                        required
-                      />
-                      <input
-                        type="number"
-                        placeholder="Amount (Rp)"
-                        value={allowance.amount}
-                        onChange={(e) =>
-                          handleAllowanceChange(
-                            index,
-                            allowanceIndex,
-                            "amount",
-                            e.target.value
-                          )
-                        }
-                        className="w-1/3 px-3 py-2 border border-gray-300 rounded-md"
-                        required
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeAllowance(index, allowanceIndex)}
-                        className="text-red-500 hover:text-red-700"
+                  {formData.additional_allowance.map(
+                    (allowance, allowanceIndex) => (
+                      <div
+                        key={allowanceIndex}
+                        className="flex items-center space-x-2 mb-2"
                       >
-                        ×
-                      </button>
-                    </div>
-                  ))}
+                        <input
+                          type="text"
+                          placeholder="Description (e.g., Parking Fee)"
+                          value={allowance.description}
+                          onChange={(e) =>
+                            handleAllowanceChange(
+                              index,
+                              allowanceIndex,
+                              "description",
+                              e.target.value
+                            )
+                          }
+                          className="w-2/3 px-3 py-2 border border-gray-300 rounded-md"
+                          required
+                        />
+                        <input
+                          type="number"
+                          placeholder="Amount (Rp)"
+                          value={allowance.amount}
+                          onChange={(e) =>
+                            handleAllowanceChange(
+                              index,
+                              allowanceIndex,
+                              "amount",
+                              e.target.value
+                            )
+                          }
+                          className="w-1/3 px-3 py-2 border border-gray-300 rounded-md"
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeAllowance(index, allowanceIndex)}
+                          className="text-red-500 hover:text-red-700"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )
+                  )}
                   <button
                     type="button"
                     onClick={() => addAllowance(index)}
@@ -1118,7 +1218,9 @@ const CreateDeliveryFromPO: React.FC = () => {
                         <span>Trip Allowance:</span>
                         <span>
                           Rp{" "}
-                          {parseFloat(formData.trip_allowance || "0").toLocaleString("id-ID")}
+                          {parseFloat(
+                            formData.trip_allowance || "0"
+                          ).toLocaleString("id-ID")}
                         </span>
                       </div>
                       {formData.additional_allowance.map((allowance, i) => (
@@ -1126,7 +1228,9 @@ const CreateDeliveryFromPO: React.FC = () => {
                           <span>{allowance.description}:</span>
                           <span>
                             Rp{" "}
-                            {parseFloat(allowance.amount || "0").toLocaleString("id-ID")}
+                            {parseFloat(allowance.amount || "0").toLocaleString(
+                              "id-ID"
+                            )}
                           </span>
                         </div>
                       ))}
@@ -1134,23 +1238,29 @@ const CreateDeliveryFromPO: React.FC = () => {
                         <span>Driver Salary:</span>
                         <span>
                           Rp{" "}
-                          {parseFloat(formData.gaji || "0").toLocaleString("id-ID")}
+                          {parseFloat(formData.gaji || "0").toLocaleString(
+                            "id-ID"
+                          )}
                         </span>
                       </div>
                       <div className="flex justify-between font-semibold border-t pt-1">
                         <span>Total Operational Costs:</span>
                         <span>
                           Rp{" "}
-                          {(parseFloat(formData.trip_allowance || "0") +
+                          {(
+                            parseFloat(formData.trip_allowance || "0") +
                             calculateAdditionalAllowanceTotal(formData) +
-                            parseFloat(formData.gaji || "0")).toLocaleString("id-ID")}
+                            parseFloat(formData.gaji || "0")
+                          ).toLocaleString("id-ID")}
                         </span>
                       </div>
                       <div className="flex justify-between font-semibold border-t pt-1">
                         <span>Profit (Ongkosan):</span>
                         <span>
                           Rp{" "}
-                          {parseFloat(formData.ongkosan || "0").toLocaleString("id-ID")}
+                          {parseFloat(formData.ongkosan || "0").toLocaleString(
+                            "id-ID"
+                          )}
                         </span>
                       </div>
                     </div>
@@ -1165,11 +1275,39 @@ const CreateDeliveryFromPO: React.FC = () => {
                     name="load_location"
                     value={formData.load_location}
                     onChange={(e) => handleInputChange(index, e)}
+                    onFocus={() => {
+                      setCurrentFormIndex(index);
+                      setShowSuggestions("load");
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     rows={3}
                     required
                     placeholder="Enter or select on map"
                   />
+                  {showSuggestions === "load" &&
+                    loadLocationSuggestions.length > 0 && (
+                      <div className="mt-2 bg-white border rounded shadow max-h-40 overflow-auto">
+                        {loadLocationSuggestions
+                          .filter((r) =>
+                            r
+                              .toLowerCase()
+                              .includes(
+                                (formData.load_location || "").toLowerCase()
+                              )
+                          )
+                          .slice(0, 10)
+                          .map((r) => (
+                            <button
+                              key={r}
+                              type="button"
+                              onClick={() => applySuggestion("load", r)}
+                              className="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm"
+                            >
+                              {r}
+                            </button>
+                          ))}
+                      </div>
+                    )}
                   <div className="mt-2">
                     <button
                       type="button"
@@ -1198,13 +1336,15 @@ const CreateDeliveryFromPO: React.FC = () => {
                       setSelectedLocationType("load");
                     }}
                     className={`mt-2 px-3 py-1 rounded text-sm w-full ${
-                      selectedLocationType === "load" && currentFormIndex === index
+                      selectedLocationType === "load" &&
+                      currentFormIndex === index
                         ? "bg-blue-500 text-white animate-pulse"
                         : "bg-gray-200 hover:bg-gray-300"
                     }`}
                   >
                     {showMap &&
-                      (selectedLocationType === "load" && currentFormIndex === index
+                      (selectedLocationType === "load" &&
+                      currentFormIndex === index
                         ? "Click on map..."
                         : "Set Load Location")}
                   </button>
@@ -1218,11 +1358,39 @@ const CreateDeliveryFromPO: React.FC = () => {
                     name="unload_location"
                     value={formData.unload_location}
                     onChange={(e) => handleInputChange(index, e)}
+                    onFocus={() => {
+                      setCurrentFormIndex(index);
+                      setShowSuggestions("unload");
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     rows={3}
                     required
                     placeholder="Enter or select on map"
                   />
+                  {showSuggestions === "unload" &&
+                    unloadLocationSuggestions.length > 0 && (
+                      <div className="mt-2 bg-white border rounded shadow max-h-40 overflow-auto">
+                        {unloadLocationSuggestions
+                          .filter((r) =>
+                            r
+                              .toLowerCase()
+                              .includes(
+                                (formData.unload_location || "").toLowerCase()
+                              )
+                          )
+                          .slice(0, 10)
+                          .map((r) => (
+                            <button
+                              key={r}
+                              type="button"
+                              onClick={() => applySuggestion("unload", r)}
+                              className="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm"
+                            >
+                              {r}
+                            </button>
+                          ))}
+                      </div>
+                    )}
                   <div className="mt-2">
                     <button
                       type="button"
@@ -1251,13 +1419,15 @@ const CreateDeliveryFromPO: React.FC = () => {
                       setSelectedLocationType("unload");
                     }}
                     className={`mt-2 px-3 py-1 rounded text-sm w-full ${
-                      selectedLocationType === "unload" && currentFormIndex === index
+                      selectedLocationType === "unload" &&
+                      currentFormIndex === index
                         ? "bg-red-500 text-white animate-pulse"
                         : "bg-gray-200 hover:bg-gray-300"
                     }`}
                   >
                     {showMap &&
-                      (selectedLocationType === "unload" && currentFormIndex === index
+                      (selectedLocationType === "unload" &&
+                      currentFormIndex === index
                         ? "Click on map..."
                         : "Set Unload Location")}
                   </button>
@@ -1278,7 +1448,7 @@ const CreateDeliveryFromPO: React.FC = () => {
                 </div>
               </div>
             ))}
-            
+
             <button
               type="button"
               onClick={addForm}
@@ -1286,7 +1456,7 @@ const CreateDeliveryFromPO: React.FC = () => {
             >
               + Add Another Delivery Order
             </button>
-            
+
             <div className="flex justify-end space-x-4">
               <button
                 type="button"
@@ -1307,7 +1477,10 @@ const CreateDeliveryFromPO: React.FC = () => {
                       !f.trip_allowance ||
                       !f.gaji ||
                       f.additional_allowance.some(
-                        (a) => !a.description || !a.amount || parseFloat(a.amount) <= 0
+                        (a) =>
+                          !a.description ||
+                          !a.amount ||
+                          parseFloat(a.amount) <= 0
                       )
                   )
                 }
@@ -1340,11 +1513,16 @@ const CreateDeliveryFromPO: React.FC = () => {
                   attribution="© OpenStreetMap contributors"
                 />
                 <SearchControlComponent onLocationFound={handleSearchSelect} />
-                <MapClickHandler 
+                <MapClickHandler
                   selectedLocationType={selectedLocationType}
                   onLocationSelect={(lat, lng, address) => {
                     if (selectedLocationType) {
-                      setLocationWithType(lat, lng, address, selectedLocationType);
+                      setLocationWithType(
+                        lat,
+                        lng,
+                        address,
+                        selectedLocationType
+                      );
                     }
                   }}
                   onClearSelection={() => setSelectedLocationType(null)}
@@ -1367,7 +1545,8 @@ const CreateDeliveryFromPO: React.FC = () => {
               </p>
               {selectedLocationType && (
                 <p className="text-blue-600 mt-2">
-                  🎯 Ready to set {selectedLocationType} location for form {currentFormIndex + 1}
+                  🎯 Ready to set {selectedLocationType} location for form{" "}
+                  {currentFormIndex + 1}
                 </p>
               )}
             </div>
