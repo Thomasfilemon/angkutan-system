@@ -26,6 +26,10 @@ interface PurchaseOrderDetail {
     percentage: number;
     is_complete: boolean;
   };
+  // Optional deposit linkage fields (may be provided by the API)
+  has_deposit?: boolean;
+  deposit_group_id?: number | null;
+  deposit_summary?: any;
   poDeliveryOrders: Array<{
     id: number;
     do_number: string;
@@ -102,17 +106,13 @@ const PurchaseOrderDetailPage = () => {
           percentage: data.delivery_progress?.percentage ?? 0,
           is_complete: data.delivery_progress?.is_complete ?? false,
         },
-        poDeliveryOrders: (data.poDeliveryOrders ?? []).map(
-          (doItem: any) => ({
-            ...doItem,
-            minimal_load_quantity:
-              parseFloat(doItem.minimal_load_quantity) ?? 0,
-            actual_load_quantity:
-              parseFloat(doItem.actual_load_quantity) ?? null,
-            total_amount: parseFloat(doItem.total_amount) ?? 0,
-            ongkosan: parseFloat(doItem.ongkosan) ?? null,
-          })
-        ),
+        poDeliveryOrders: (data.poDeliveryOrders ?? []).map((doItem: any) => ({
+          ...doItem,
+          minimal_load_quantity: parseFloat(doItem.minimal_load_quantity) ?? 0,
+          actual_load_quantity: parseFloat(doItem.actual_load_quantity) ?? null,
+          total_amount: parseFloat(doItem.total_amount) ?? 0,
+          ongkosan: parseFloat(doItem.ongkosan) ?? null,
+        })),
       };
 
       // Ensure unit field exists with fallback
@@ -129,6 +129,23 @@ const PurchaseOrderDetailPage = () => {
         })
       );
 
+      // Detect deposit linkage from various possible API shapes
+      // (assume backend may return deposit_group, deposit_group_id, deposit_id, or a boolean flag)
+      mappedData.has_deposit = Boolean(
+        data.deposit_group ||
+          data.deposit_group_id ||
+          data.deposit_id ||
+          data.is_deposit ||
+          data.has_deposit
+      );
+      mappedData.deposit_group_id =
+        (data.deposit_group && data.deposit_group.id) ||
+        data.deposit_group_id ||
+        data.deposit_id ||
+        null;
+      mappedData.deposit_summary =
+        data.deposit_group || data.deposit_summary || null;
+
       setPO(mappedData as PurchaseOrderDetail);
     } catch (err) {
       setError("Failed to fetch purchase order details.");
@@ -142,6 +159,8 @@ const PurchaseOrderDetailPage = () => {
     if (id) {
       fetchPO();
     }
+    // fetchPO intentionally omitted from deps (defined inline)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const getStatusColor = (status: string) => {
@@ -174,7 +193,8 @@ const PurchaseOrderDetailPage = () => {
 
   // Mutation deletion functionality (from current version)
   const handleDeleteMutation = async (index: number) => {
-    if (!window.confirm("Are you sure you want to delete this mutation?")) return;
+    if (!window.confirm("Are you sure you want to delete this mutation?"))
+      return;
 
     try {
       const updatedMutasi = [...po!.quantity_mutasi];
@@ -268,7 +288,26 @@ const PurchaseOrderDetailPage = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="text-sm text-gray-600">PO Number</label>
-              <p className="font-medium text-lg">{po.po_number}</p>
+              <div className="flex items-center gap-3">
+                <p className="font-medium text-lg">{po.po_number}</p>
+                {po.has_deposit &&
+                  (po.deposit_group_id ? (
+                    <Link
+                      to={`/deposit-groups/${po.deposit_group_id}`}
+                      className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800 border border-yellow-200"
+                      title={`Linked to deposit group #${po.deposit_group_id}`}
+                    >
+                      Deposit Payment
+                    </Link>
+                  ) : (
+                    <span
+                      className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800 border border-yellow-200"
+                      title="Linked to a deposit"
+                    >
+                      Deposit Payment
+                    </span>
+                  ))}
+              </div>
             </div>
             <div>
               <label className="text-sm text-gray-600">Status</label>

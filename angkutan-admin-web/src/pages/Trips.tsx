@@ -32,6 +32,9 @@ interface PurchaseOrder {
   };
   can_create_do: boolean;
   big_do_context?: { type: string; message: string; big_do?: any };
+  // Optional deposit linkage
+  has_deposit?: boolean;
+  deposit_group_id?: number | null;
 }
 
 const TripsPage = () => {
@@ -102,6 +105,18 @@ const TripsPage = () => {
                   po.total_quantity || 1
                 ),
             },
+            has_deposit: Boolean(
+              (po as any).deposit_group ||
+                (po as any).deposit_group_id ||
+                (po as any).deposit_id ||
+                (po as any).is_deposit ||
+                (po as any).has_deposit
+            ),
+            deposit_group_id:
+              ((po as any).deposit_group && (po as any).deposit_group.id) ||
+              (po as any).deposit_group_id ||
+              (po as any).deposit_id ||
+              null,
           };
         });
 
@@ -311,6 +326,19 @@ const TripsPage = () => {
                   <p className="text-gray-600">{po.customer_name}</p>
                 </div>
                 <div className="flex items-center space-x-3">
+                  {po.has_deposit &&
+                    (po.deposit_group_id ? (
+                      <Link
+                        to={`/deposit-groups/${po.deposit_group_id}`}
+                        className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800 border border-yellow-200 mr-2"
+                      >
+                        Deposit
+                      </Link>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800 border border-yellow-200 mr-2">
+                        Deposit
+                      </span>
+                    ))}
                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
                     {unitDisplay}
                   </span>

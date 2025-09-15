@@ -43,16 +43,23 @@ const EditDeliveryOrder: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
-  const [deliveryOrder, setDeliveryOrder] = useState<DeliveryOrderData | null>(null);
+  const [deliveryOrder, setDeliveryOrder] = useState<DeliveryOrderData | null>(
+    null
+  );
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancellationReason, setCancellationReason] = useState("");
-  const [additionalAllowances, setAdditionalAllowances] = useState<AdditionalAllowance[]>([]);
+  const [additionalAllowances, setAdditionalAllowances] = useState<
+    AdditionalAllowance[]
+  >([]);
   const [showAddAllowance, setShowAddAllowance] = useState(false);
-  const [newAllowance, setNewAllowance] = useState({ amount: 0, description: "" });
+  const [newAllowance, setNewAllowance] = useState({
+    amount: 0,
+    description: "",
+  });
 
   const [formData, setFormData] = useState({
     customer_name: "",
@@ -70,11 +77,69 @@ const EditDeliveryOrder: React.FC = () => {
     additional_allowance: [] as number[],
   });
 
+  // Recent locations suggestions (separate lists for load & unload)
+  const [loadLocationSuggestions, setLoadLocationSuggestions] = useState<
+    string[]
+  >([]);
+  const [unloadLocationSuggestions, setUnloadLocationSuggestions] = useState<
+    string[]
+  >([]);
+  const [showSuggestions, setShowSuggestions] = useState<
+    null | "load" | "unload"
+  >(null);
+
   useEffect(() => {
     if (id) {
       fetchDeliveryOrder();
     }
+    // fetch recent locations once on mount
+    fetchRecentLocations();
   }, [id]);
+
+  const fetchRecentLocations = async () => {
+    try {
+      const resp = await apiClient.get(
+        "/delivery-orders/utils/recent-locations"
+      );
+      // Support multiple response shapes:
+      // 1) { data: { load_locations: [...], unload_locations: [...] } }
+      // 2) ["loc1", "loc2"] or { ... } (fallback)
+      const payload = resp.data?.data || resp.data;
+
+      if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+        // If API returned separate arrays
+        const hasLoad = Array.isArray((payload as any).load_locations);
+        const hasUnload = Array.isArray((payload as any).unload_locations);
+        if (hasLoad || hasUnload) {
+          const loadArr = hasLoad ? (payload as any).load_locations : [];
+          const unloadArr = hasUnload ? (payload as any).unload_locations : [];
+          setLoadLocationSuggestions(
+            Array.from(new Set(loadArr as string[])).slice(0, 200)
+          );
+          setUnloadLocationSuggestions(
+            Array.from(new Set(unloadArr as string[])).slice(0, 200)
+          );
+          return;
+        }
+      }
+
+      const raw = payload || [];
+      const data: any[] = Array.isArray(raw) ? raw : [raw];
+      const locs: string[] = data
+        .map((l: any) => {
+          if (!l) return "";
+          if (typeof l === "string") return l;
+          return l.address || l.location || l.name || "";
+        })
+        .filter((s: string) => !!s && s.length > 0);
+      const unique = Array.from(new Set(locs)) as string[];
+      const top = unique.slice(0, 200);
+      setLoadLocationSuggestions(top);
+      setUnloadLocationSuggestions(top);
+    } catch (err) {
+      console.warn("Could not fetch recent locations", err);
+    }
+  };
 
   const fetchDeliveryOrder = async () => {
     try {
@@ -99,11 +164,14 @@ const EditDeliveryOrder: React.FC = () => {
         additional_allowance: data.additional_allowance || [],
       });
 
-      if (data.additional_allowance && Array.isArray(data.additional_allowance)) {
+      if (
+        data.additional_allowance &&
+        Array.isArray(data.additional_allowance)
+      ) {
         setAdditionalAllowances(
-          data.additional_allowance.map((amount: number) => ({ 
-            amount, 
-            description: ""
+          data.additional_allowance.map((amount: number) => ({
+            amount,
+            description: "",
           }))
         );
       }
@@ -115,7 +183,9 @@ const EditDeliveryOrder: React.FC = () => {
   };
 
   const handleInputChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+    >
   ) => {
     const { name, value } = e.target;
     setFormData((prev) => ({
@@ -138,14 +208,20 @@ const EditDeliveryOrder: React.FC = () => {
 
     const updatedAllowances = [...additionalAllowances, newAllowance];
     setAdditionalAllowances(updatedAllowances);
-    
-    setFormData(prev => ({
+
+    setFormData((prev) => ({
       ...prev,
-      additional_allowance: updatedAllowances.map(a => a.amount),
+      additional_allowance: updatedAllowances.map((a) => a.amount),
       payment_notes: newAllowance.description
         ? prev.payment_notes
-          ? `${prev.payment_notes}\nAdditional Allowance: Rp ${newAllowance.amount.toLocaleString('id-ID')} - ${newAllowance.description}`
-          : `Additional Allowance: Rp ${newAllowance.amount.toLocaleString('id-ID')} - ${newAllowance.description}`
+          ? `${
+              prev.payment_notes
+            }\nAdditional Allowance: Rp ${newAllowance.amount.toLocaleString(
+              "id-ID"
+            )} - ${newAllowance.description}`
+          : `Additional Allowance: Rp ${newAllowance.amount.toLocaleString(
+              "id-ID"
+            )} - ${newAllowance.description}`
         : prev.payment_notes,
     }));
 
@@ -154,12 +230,14 @@ const EditDeliveryOrder: React.FC = () => {
   };
 
   const handleRemoveAllowance = (index: number) => {
-    const updatedAllowances = additionalAllowances.filter((_, i) => i !== index);
+    const updatedAllowances = additionalAllowances.filter(
+      (_, i) => i !== index
+    );
     setAdditionalAllowances(updatedAllowances);
-    
-    setFormData(prev => ({
+
+    setFormData((prev) => ({
       ...prev,
-      additional_allowance: updatedAllowances.map(a => a.amount),
+      additional_allowance: updatedAllowances.map((a) => a.amount),
     }));
   };
 
@@ -173,7 +251,9 @@ const EditDeliveryOrder: React.FC = () => {
         state: { message: "Delivery Order updated successfully!" },
       });
     } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to update delivery order");
+      setError(
+        err.response?.data?.message || "Failed to update delivery order"
+      );
     } finally {
       setSaving(false);
     }
@@ -196,7 +276,9 @@ const EditDeliveryOrder: React.FC = () => {
         state: { message: "Delivery Order cancelled successfully!" },
       });
     } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to cancel delivery order");
+      setError(
+        err.response?.data?.message || "Failed to cancel delivery order"
+      );
     } finally {
       setCancelling(false);
     }
@@ -290,7 +372,10 @@ const EditDeliveryOrder: React.FC = () => {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="bg-white shadow-lg rounded-lg p-8 border border-gray-100">
+      <form
+        onSubmit={handleSubmit}
+        className="bg-white shadow-lg rounded-lg p-8 border border-gray-100"
+      >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Customer Name */}
           <div>
@@ -428,10 +513,19 @@ const EditDeliveryOrder: React.FC = () => {
             </label>
             <div className="space-y-2 mb-2">
               {additionalAllowances.map((allowance, index) => (
-                <div key={index} className="flex items-center justify-between bg-gray-50 p-3 rounded-md">
+                <div
+                  key={index}
+                  className="flex items-center justify-between bg-gray-50 p-3 rounded-md"
+                >
                   <div>
-                    <span className="font-medium">Rp {allowance.amount.toLocaleString('id-ID')}</span>
-                    {allowance.description && <span className="text-gray-600 ml-2">- {allowance.description}</span>}
+                    <span className="font-medium">
+                      Rp {allowance.amount.toLocaleString("id-ID")}
+                    </span>
+                    {allowance.description && (
+                      <span className="text-gray-600 ml-2">
+                        - {allowance.description}
+                      </span>
+                    )}
                   </div>
                   <button
                     type="button"
@@ -483,9 +577,34 @@ const EditDeliveryOrder: React.FC = () => {
             name="load_location"
             value={formData.load_location}
             onChange={handleInputChange}
+            onFocus={() => setShowSuggestions("load")}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             required
           />
+          {showSuggestions === "load" && loadLocationSuggestions.length > 0 && (
+            <div className="mt-2 bg-white border rounded shadow max-h-40 overflow-auto">
+              {loadLocationSuggestions
+                .filter((r) =>
+                  r
+                    .toLowerCase()
+                    .includes((formData.load_location || "").toLowerCase())
+                )
+                .slice(0, 10)
+                .map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => {
+                      setFormData((prev) => ({ ...prev, load_location: r }));
+                      setShowSuggestions(null);
+                    }}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm"
+                  >
+                    {r}
+                  </button>
+                ))}
+            </div>
+          )}
         </div>
 
         {/* Unload Location */}
@@ -498,9 +617,38 @@ const EditDeliveryOrder: React.FC = () => {
             name="unload_location"
             value={formData.unload_location}
             onChange={handleInputChange}
+            onFocus={() => setShowSuggestions("unload")}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             required
           />
+          {showSuggestions === "unload" &&
+            unloadLocationSuggestions.length > 0 && (
+              <div className="mt-2 bg-white border rounded shadow max-h-40 overflow-auto">
+                {unloadLocationSuggestions
+                  .filter((r) =>
+                    r
+                      .toLowerCase()
+                      .includes((formData.unload_location || "").toLowerCase())
+                  )
+                  .slice(0, 10)
+                  .map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => {
+                        setFormData((prev) => ({
+                          ...prev,
+                          unload_location: r,
+                        }));
+                        setShowSuggestions(null);
+                      }}
+                      className="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm"
+                    >
+                      {r}
+                    </button>
+                  ))}
+              </div>
+            )}
         </div>
 
         {/* Payment Notes */}
@@ -534,8 +682,10 @@ const EditDeliveryOrder: React.FC = () => {
       {showAddAllowance && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Add Additional Allowance</h3>
-            
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Add Additional Allowance
+            </h3>
+
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Amount (Rp)
@@ -543,7 +693,12 @@ const EditDeliveryOrder: React.FC = () => {
               <input
                 type="number"
                 value={newAllowance.amount}
-                onChange={(e) => setNewAllowance({...newAllowance, amount: parseFloat(e.target.value) || 0})}
+                onChange={(e) =>
+                  setNewAllowance({
+                    ...newAllowance,
+                    amount: parseFloat(e.target.value) || 0,
+                  })
+                }
                 step="0.01"
                 min="0"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -557,7 +712,12 @@ const EditDeliveryOrder: React.FC = () => {
               <input
                 type="text"
                 value={newAllowance.description}
-                onChange={(e) => setNewAllowance({...newAllowance, description: e.target.value})}
+                onChange={(e) =>
+                  setNewAllowance({
+                    ...newAllowance,
+                    description: e.target.value,
+                  })
+                }
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="Reason for additional allowance"
               />
