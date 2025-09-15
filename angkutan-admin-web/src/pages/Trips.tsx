@@ -552,7 +552,7 @@ const TripsPage = () => {
                   </Link>
                 )}
 
-                {po.status !== "completed" && po.status !== "cancelled" && (
+                {po.status !== "cancelled" && (
                   <button
                     onClick={() => {
                       setSelectedPO(po);

@@ -439,10 +439,15 @@ const DepositGroupManagement: React.FC = () => {
     try {
       setIsLoading(true);
       const res = await apiClient.post(`/deposit-groups/${selectedGroup.id}/finalize`);
+      const created = res.data?.data || res.data;
       toast.success('Deposit group finalized. Invoice created.');
-      // Optionally navigate to payments deposit-group invoices page
+      // Navigate directly to the created invoice so payment is one click away
       fetchGroupDetails(selectedGroup.id);
-      window.open('/payments/deposit-group-invoices', '_blank');
+      if (created?.id) {
+        window.open(`/payments/deposit-groups/invoices/${created.id}`,'_blank');
+      } else {
+        window.open('/payments/deposit-group-invoices', '_blank');
+      }
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to finalize group');
     } finally {
@@ -628,6 +633,9 @@ const DepositGroupManagement: React.FC = () => {
                   return sum + amount;
                 }, 0);
                 const derivedBalance = Math.max(0, totalDeposited - totalUsed);
+                const rawBalance: any = (selectedGroup as any).balance;
+                const parsedBalance = rawBalance !== undefined && rawBalance !== null ? parseFloat(String(rawBalance)) : NaN;
+                const saldo = Number.isFinite(parsedBalance) ? parsedBalance : derivedBalance;
                 return (
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
@@ -647,8 +655,8 @@ const DepositGroupManagement: React.FC = () => {
                       <div className="font-medium">{formatCurrency(selectedGroup.deposited_amount || 0)}</div>
                     </div>
                     <div>
-                      <label className="text-sm text-gray-600">Current Balance</label>
-                      <div className="font-medium">{formatCurrency(derivedBalance)}</div>
+                      <label className="text-sm text-gray-600">Saldo</label>
+                      <div className="font-medium">{formatCurrency(saldo)}</div>
                     </div>
                   </div>
                 );

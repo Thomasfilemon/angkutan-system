@@ -368,6 +368,51 @@ const PaymentsOverview: React.FC = () => {
                 />
               </svg>
             </Link>
+
+            {/* Deposit Group Invoices & Payments */}
+            <Link
+              to="/payments/deposit-group-invoices"
+              className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <div className="flex items-center">
+                <div className="w-10 h-10 bg-teal-100 rounded-lg flex items-center justify-center mr-3">
+                  <svg
+                    className="w-5 h-5 text-teal-600"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M3 7h18M3 12h18M3 17h18"
+                    />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-900">
+                    Deposit Group Invoices
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    Record payments and view deposit invoices
+                  </p>
+                </div>
+              </div>
+              <svg
+                className="w-5 h-5 text-gray-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 5l7 7-7 7"
+                />
+              </svg>
+            </Link>
           </div>
         </div>
 

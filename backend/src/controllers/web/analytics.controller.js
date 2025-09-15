@@ -197,6 +197,40 @@ const getDashboardMetrics = async (req, res) => {
       }
     );
 
+    // 3b. Deposit revenue breakdown within period
+    const depositRevenue = await sequelize.query(
+      `
+      -- Top-ups that occurred in period (cash-in)
+      SELECT 
+        COALESCE(SUM(dgt.amount), 0) AS topup_amount
+      FROM deposit_group_topups dgt
+      WHERE dgt.created_at BETWEEN :startDate AND :endDate
+      `,
+      {
+        replacements: { startDate, endDate },
+        type: QueryTypes.SELECT,
+        plain: true,
+      }
+    );
+
+    const depositSisaPaid = await sequelize.query(
+      `
+      -- Sisa pembayaran deposit (net invoice after deposit) actually paid in period,
+      -- but only count if the invoice is fully paid (status = 'paid')
+      SELECT 
+        COALESCE(SUM(dgp.payment_amount), 0) AS sisa_paid_amount
+      FROM deposit_group_payments dgp
+      JOIN deposit_group_invoices dgi ON dgi.id = dgp.invoice_id
+      WHERE dgp.payment_date BETWEEN :startDate AND :endDate
+        AND dgi.status = 'paid'
+      `,
+      {
+        replacements: { startDate, endDate },
+        type: QueryTypes.SELECT,
+        plain: true,
+      }
+    );
+
     // 4. Metrik Operasional (tambah dailyTrend)
     const operationalMetrics = await sequelize.query(
       `
@@ -239,9 +273,13 @@ const getDashboardMetrics = async (req, res) => {
     // --- KALKULASI METRIK FINAL ---
     // Prefer actual cash-in; fall back to DO-based calc if no payments at all
     const paidCashIn = parseFloat(paymentsInPeriod.total_paid || 0);
-    const grossIncome = paidCashIn > 0
+    const depositTopup = parseFloat(depositRevenue.topup_amount || 0);
+    const depositSisa = parseFloat(depositSisaPaid.sisa_paid_amount || 0);
+    const grossIncomeBase = paidCashIn > 0
       ? paidCashIn
       : parseFloat(doFinancials.gross_income || 0);
+    // Include deposit revenue into gross income
+    const grossIncome = grossIncomeBase + depositTopup + depositSisa;
 
     // NEW: Partial vs Paid vs Completed (revenue buckets)
     const buckets = await sequelize.query(
@@ -284,9 +322,14 @@ const getDashboardMetrics = async (req, res) => {
       netIncome,
       totalExpenses,
       revenueBuckets: {
-        paid: paidCashIn,
+        // Add deposit cash-ins into the paid bucket as well
+        paid: paidCashIn + depositTopup + depositSisa,
         partial: parseFloat(invoiceBuckets.inv_unpaid || 0),
         completed: parseFloat(buckets.completed_revenue || 0),
+      },
+      depositRevenue: {
+        topup: parseFloat(depositRevenue.topup_amount || 0),
+        sisa_paid: parseFloat(depositSisaPaid.sisa_paid_amount || 0),
       },
       driverExpenses: {
         totalUangJalan,

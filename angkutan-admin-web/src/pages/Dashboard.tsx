@@ -33,6 +33,7 @@ interface DashboardMetrics {
   netIncome: number;
   totalExpenses: number;
   revenueBuckets?: { paid: number; partial: number; completed: number };
+  depositRevenue?: { topup: number; sisa_paid: number };
   driverExpenses: {
     totalUangJalan: number;
     totalGajiDriver: number;
@@ -373,6 +374,16 @@ const Dashboard = () => {
                   <div className="flex justify-between"><span>Completed</span><span className="font-semibold text-blue-600">Rp {metrics.revenueBuckets!.completed.toLocaleString('id-ID')}</span></div>
                 </div>
                 <p className="text-xs text-gray-500 mt-2">Ringkasan status pembayaran</p>
+              </div>
+            )}
+            {metrics.depositRevenue && (
+              <div className="bg-white p-6 rounded-lg shadow-md transition hover:shadow-lg">
+                <h3 className="text-lg font-semibold text-gray-700">Pendapatan Deposit</h3>
+                <div className="space-y-1 text-sm mt-2">
+                  <div className="flex justify-between"><span>Top-up</span><span className="font-semibold text-teal-600">Rp {metrics.depositRevenue.topup.toLocaleString('id-ID')}</span></div>
+                  <div className="flex justify-between"><span>Sisa Pembayaran (lunas)</span><span className="font-semibold text-emerald-600">Rp {metrics.depositRevenue.sisa_paid.toLocaleString('id-ID')}</span></div>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">Termasuk top up dan sisa pembayaran invoice deposit yang sudah lunas</p>
               </div>
             )}
             <MetricCard
