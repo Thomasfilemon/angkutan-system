@@ -1,8 +1,8 @@
 // src/pages/DepositGroupManagement.tsx
-import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { toast } from 'react-hot-toast';
-import apiClient from '../api/axiosConfig';
+import React, { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
+import { toast } from "react-hot-toast";
+import apiClient from "../api/axiosConfig";
 
 // ===== INTERFACES =====
 interface DepositGroup {
@@ -12,6 +12,8 @@ interface DepositGroup {
   target_quantity?: number;
   remaining_quantity?: number;
   deposited_amount?: number;
+  last_edited_by?: string | null;
+  last_edited_at?: string | null;
   unit?: string;
   status?: string;
   created_at: string;
@@ -109,8 +111,12 @@ const DepositGroupManagement: React.FC = () => {
   const [showPaySelisihModal, setShowPaySelisihModal] = useState(false);
   const [selisihPaymentAmount, setSelisihPaymentAmount] = useState("");
   const [extraCharges, setExtraCharges] = useState<ExtraCharge[]>([]);
-  const [printedSelisihDoIds, setPrintedSelisihDoIds] = useState<Set<number>>(new Set());
-  const [creatingInvoiceDoId, setCreatingInvoiceDoId] = useState<number | null>(null);
+  const [printedSelisihDoIds, setPrintedSelisihDoIds] = useState<Set<number>>(
+    new Set()
+  );
+  const [creatingInvoiceDoId, setCreatingInvoiceDoId] = useState<number | null>(
+    null
+  );
   const [searchParams] = useSearchParams();
 
   // States for PO linking
@@ -449,7 +455,7 @@ const DepositGroupManagement: React.FC = () => {
         window.open('/payments/deposit-group-invoices', '_blank');
       }
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to finalize group');
+      toast.error(err.response?.data?.error || "Failed to finalize group");
     } finally {
       setIsLoading(false);
     }
@@ -458,20 +464,38 @@ const DepositGroupManagement: React.FC = () => {
   // Edit deposited amount
   const handleEditDepositedAmount = async () => {
     if (!selectedGroup) return;
-    const val = prompt('Enter new deposited amount (Rp):', String(selectedGroup.deposited_amount || 0));
+    const val = prompt(
+      "Enter new deposited amount (Rp):",
+      String(selectedGroup.deposited_amount || 0)
+    );
     if (val === null) return;
     const amount = parseFloat(val);
     if (isNaN(amount) || amount < 0) {
-      toast.error('Invalid amount');
+      toast.error("Invalid amount");
       return;
     }
     try {
       setIsLoading(true);
-      await apiClient.put(`/deposit-groups/${selectedGroup.id}/deposit-amount`, { deposited_amount: amount });
-      toast.success('Deposited amount updated');
-      fetchGroupDetails(selectedGroup.id);
+      const res = await apiClient.put(
+        `/deposit-groups/${selectedGroup.id}/deposit-amount`,
+        { deposited_amount: amount }
+      );
+      const updated = res.data?.data || res.data;
+      toast.success("Deposited amount updated");
+      if (updated) {
+        setSelectedGroup(
+          (prev) => ({ ...(prev || {}), ...(updated as any) } as SelectedGroup)
+        );
+        if ((updated as any).last_edited_by) {
+          toast(`Updated by ${(updated as any).last_edited_by}`);
+        }
+      } else {
+        fetchGroupDetails(selectedGroup.id);
+      }
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to update deposited amount');
+      toast.error(
+        err.response?.data?.error || "Failed to update deposited amount"
+      );
     } finally {
       setIsLoading(false);
     }
@@ -480,20 +504,33 @@ const DepositGroupManagement: React.FC = () => {
   // Top-up deposit
   const handleTopUpDeposit = async () => {
     if (!selectedGroup) return;
-    const val = prompt('Top-up deposit amount (Rp):');
+    const val = prompt("Top-up deposit amount (Rp):");
     if (val === null) return;
     const amount = parseFloat(val);
     if (isNaN(amount) || amount <= 0) {
-      toast.error('Invalid amount');
+      toast.error("Invalid amount");
       return;
     }
     try {
       setIsLoading(true);
-      await apiClient.post(`/deposit-groups/${selectedGroup.id}/deposit-topup`, { amount });
-      toast.success('Deposit topped up');
-      fetchGroupDetails(selectedGroup.id);
+      const res = await apiClient.post(
+        `/deposit-groups/${selectedGroup.id}/deposit-topup`,
+        { amount }
+      );
+      const updated = res.data?.data || res.data;
+      toast.success("Deposit topped up");
+      if (updated) {
+        setSelectedGroup(
+          (prev) => ({ ...(prev || {}), ...(updated as any) } as SelectedGroup)
+        );
+        if ((updated as any).last_edited_by) {
+          toast(`Topped up by ${(updated as any).last_edited_by}`);
+        }
+      } else {
+        fetchGroupDetails(selectedGroup.id);
+      }
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to top-up deposit');
+      toast.error(err.response?.data?.error || "Failed to top-up deposit");
     } finally {
       setIsLoading(false);
     }
@@ -565,7 +602,7 @@ const DepositGroupManagement: React.FC = () => {
       prev.includes(doId) ? prev.filter((id) => id !== doId) : [...prev, doId]
     );
   };
-  
+
   // Nota calculation block is added above in the UI: ensure DO includes status in SelectedGroup type if not already
 
   // ===== EFFECTS =====
@@ -575,7 +612,7 @@ const DepositGroupManagement: React.FC = () => {
 
   useEffect(() => {
     // Auto-select group if groupId is present
-    const gid = searchParams.get('groupId');
+    const gid = searchParams.get("groupId");
     if (gid && groups.length > 0) {
       const found = groups.find((g) => String(g.id) === gid);
       if (found) {
@@ -611,23 +648,49 @@ const DepositGroupManagement: React.FC = () => {
 
       {selectedGroup ? (
         <div className="space-y-6">
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold">{selectedGroup.group_name}</h2>
-                <button
-                  onClick={() => setSelectedGroup(null)}
-                  className="text-gray-600 hover:text-gray-800"
-                >
-                  ← Back to Groups
-                </button>
-              </div>
-              {(() => {
-                const totalDeposited = parseFloat(String(selectedGroup.deposited_amount || 0));
-                const totalUsed = (selectedGroup.members || []).reduce((sum, m) => {
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold">{selectedGroup.group_name}</h2>
+              {selectedGroup.last_edited_by && (
+                <div className="text-sm text-gray-600">
+                  <div className="inline-flex items-center px-2 py-1 bg-gray-100 rounded-full text-xs text-gray-700">
+                    <svg
+                      className="w-3 h-3 mr-2 text-gray-500"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path d="M10 2a4 4 0 100 8 4 4 0 000-8zM2 18a8 8 0 1116 0H2z" />
+                    </svg>
+                    Edited by {selectedGroup.last_edited_by}
+                    {selectedGroup.last_edited_at && (
+                      <span className="ml-2 text-xs text-gray-500">
+                        •{" "}
+                        {new Date(selectedGroup.last_edited_at).toLocaleString(
+                          "id-ID"
+                        )}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+              <button
+                onClick={() => setSelectedGroup(null)}
+                className="text-gray-600 hover:text-gray-800"
+              >
+                ← Back to Groups
+              </button>
+            </div>
+            {(() => {
+              const totalDeposited = parseFloat(
+                String(selectedGroup.deposited_amount || 0)
+              );
+              const totalUsed = (selectedGroup.members || []).reduce(
+                (sum, m) => {
                   const d: any = m.deliveryOrder;
-                  const isCompleted = d?.status === 'completed';
+                  const isCompleted = d?.status === "completed";
                   if (!isCompleted) return sum;
-                  const qty = (d.actual_load_quantity ?? d.minimal_load_quantity) || 0;
+                  const qty =
+                    (d.actual_load_quantity ?? d.minimal_load_quantity) || 0;
                   const price = d.unit_price || 0;
                   const amount = d.final_amount || qty * price;
                   return sum + amount;
@@ -663,72 +726,138 @@ const DepositGroupManagement: React.FC = () => {
               })()}
             </div>
 
-            <div className="flex items-center gap-2 mt-4">
-              <button onClick={handleEditDepositedAmount} className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded text-sm">Edit Deposit</button>
-              <button onClick={handleTopUpDeposit} className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm">Top-up Deposit</button>
-              <button onClick={handleFinalizeGroup} disabled={isLoading} className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-3 py-1 rounded text-sm">{isLoading ? 'Finalizing...' : 'Finalize Deposit'}</button>
-              <a href="/payments/deposit-group-invoices" target="_blank" rel="noreferrer" className="ml-auto text-sm text-indigo-600 hover:underline">View Deposit Group Invoices</a>
-            </div>
+          <div className="flex items-center gap-2 mt-4">
+            <button
+              onClick={handleEditDepositedAmount}
+              className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded text-sm"
+            >
+              Edit Deposit
+            </button>
+            <button
+              onClick={handleTopUpDeposit}
+              className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm"
+            >
+              Top-up Deposit
+            </button>
+            <button
+              onClick={handleFinalizeGroup}
+              disabled={isLoading}
+              className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-3 py-1 rounded text-sm"
+            >
+              {isLoading ? "Finalizing..." : "Finalize Deposit"}
+            </button>
+            <a
+              href="/payments/deposit-group-invoices"
+              target="_blank"
+              rel="noreferrer"
+              className="ml-auto text-sm text-indigo-600 hover:underline"
+            >
+              View Deposit Group Invoices
+            </a>
+          </div>
 
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-medium mb-3">Nota (Ringkasan)</h3>
-              {(() => {
-                const completedTotals = (selectedGroup.members || []).reduce((sum, m) => {
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-lg font-medium mb-3">Nota (Ringkasan)</h3>
+            {(() => {
+              const completedTotals = (selectedGroup.members || []).reduce(
+                (sum, m) => {
                   const d = m.deliveryOrder;
-                  const isCompleted = (d as any)?.status === 'completed';
+                  const isCompleted = (d as any)?.status === "completed";
                   if (!isCompleted) return sum;
-                  const qty = (d.actual_load_quantity ?? d.minimal_load_quantity) || 0;
+                  const qty =
+                    (d.actual_load_quantity ?? d.minimal_load_quantity) || 0;
                   const price = d.unit_price || 0;
                   const amount = d.final_amount || qty * price;
                   return sum + amount;
-                }, 0);
-                // Initial deposit: prefer 'Initial deposit' record if exists
-                const topups = ((selectedGroup as any).topups || []) as any[];
-                let initialTopup = topups.find(t => (t.description || '').toLowerCase().includes('initial'));
-                if (!initialTopup && topups.length > 0) {
-                  initialTopup = topups.slice().sort((a,b)=> new Date(a.created_at).getTime()-new Date(b.created_at).getTime())[0];
-                }
-                const deposited = initialTopup ? initialTopup.amount : (selectedGroup.deposited_amount || 0);
-                const netto = Math.max(0, completedTotals - deposited);
-                return (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <div className="text-sm text-gray-600">Total DO Selesai</div>
-                      <div className="font-semibold">{formatCurrency(completedTotals)}</div>
+                },
+                0
+              );
+              // Initial deposit: prefer 'Initial deposit' record if exists
+              const topups = ((selectedGroup as any).topups || []) as any[];
+              let initialTopup = topups.find((t) =>
+                (t.description || "").toLowerCase().includes("initial")
+              );
+              if (!initialTopup && topups.length > 0) {
+                initialTopup = topups
+                  .slice()
+                  .sort(
+                    (a, b) =>
+                      new Date(a.created_at).getTime() -
+                      new Date(b.created_at).getTime()
+                  )[0];
+              }
+              const deposited = initialTopup
+                ? initialTopup.amount
+                : selectedGroup.deposited_amount || 0;
+              const netto = Math.max(0, completedTotals - deposited);
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <div className="text-sm text-gray-600">
+                      Total DO Selesai
                     </div>
-                    <div>
-                      <div className="text-sm text-gray-600">Deposit (Tanggal Awal)</div>
-                      <div className="font-semibold">
-                        {formatCurrency(deposited)}
-                        <span className="text-xs text-gray-500 ml-2">{initialTopup ? formatDate(initialTopup.created_at) : formatDate(selectedGroup.created_at)}</span>
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-gray-600">Tagihan Akhir (Total - Deposit)</div>
-                      <div className="font-bold text-red-600">{formatCurrency(netto)}</div>
+                    <div className="font-semibold">
+                      {formatCurrency(completedTotals)}
                     </div>
                   </div>
-                );
-              })()}
+                  <div>
+                    <div className="text-sm text-gray-600">
+                      Deposit (Tanggal Awal)
+                    </div>
+                    <div className="font-semibold">
+                      {formatCurrency(deposited)}
+                      <span className="text-xs text-gray-500 ml-2">
+                        {initialTopup
+                          ? formatDate(initialTopup.created_at)
+                          : formatDate(selectedGroup.created_at)}
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-600">
+                      Tagihan Akhir (Total - Deposit)
+                    </div>
+                    <div className="font-bold text-red-600">
+                      {formatCurrency(netto)}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
-              {Array.isArray((selectedGroup as any).topups) && (selectedGroup as any).topups.length > 0 && (
+            {Array.isArray((selectedGroup as any).topups) &&
+              (selectedGroup as any).topups.length > 0 && (
                 <div className="mt-4">
-                  <div className="text-sm text-gray-600 mb-2">Riwayat Deposit</div>
+                  <div className="text-sm text-gray-600 mb-2">
+                    Riwayat Deposit
+                  </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50">
                         <tr>
-                          <th className="px-3 py-2 text-left text-gray-500">Tanggal</th>
-                          <th className="px-3 py-2 text-left text-gray-500">Keterangan</th>
-                          <th className="px-3 py-2 text-left text-gray-500">Jumlah</th>
+                          <th className="px-3 py-2 text-left text-gray-500">
+                            Tanggal
+                          </th>
+                          <th className="px-3 py-2 text-left text-gray-500">
+                            Keterangan
+                          </th>
+                          <th className="px-3 py-2 text-left text-gray-500">
+                            Jumlah
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
                         {(selectedGroup as any).topups.map((t: any) => (
                           <tr key={t.id}>
-                            <td className="px-3 py-2">{formatDate(t.created_at)}</td>
-                            <td className="px-3 py-2">{t.description || 'Top-up'}</td>
-                            <td className="px-3 py-2 font-medium">{formatCurrency(t.amount)}</td>
+                            <td className="px-3 py-2">
+                              {formatDate(t.created_at)}
+                            </td>
+                            <td className="px-3 py-2">
+                              {t.description || "Top-up"}
+                            </td>
+                            <td className="px-3 py-2 font-medium">
+                              {formatCurrency(t.amount)}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -736,59 +865,91 @@ const DepositGroupManagement: React.FC = () => {
                   </div>
                 </div>
               )}
-            </div>
+          </div>
 
-            {/* Linked PO section removed per requirements */}
-            
-            <div className="bg-white rounded-lg shadow">
-              <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-                <h3 className="text-lg font-medium">Delivery Orders dalam Group</h3>
-                <div className="space-x-2" />
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">DO Number</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Min Qty</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actual Qty</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unit Price</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Paid</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                      {/* No per-DO actions for deposit groups */}
-                    </tr>
-                  </thead>
-                   <tbody className="bg-white divide-y divide-gray-200">
-                    {selectedGroup.members.map((member) => {
-                      const doItem = member.deliveryOrder;
-                      const displayQuantity = member.quantity;
-                      const total = doItem.unit_price * displayQuantity;
-                      
-                      return (
-                        <tr key={member.id}>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{doItem.do_number}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{doItem.customer_name}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{doItem.minimal_load_quantity.toLocaleString('id-ID')}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-green-600">
-                            {displayQuantity.toLocaleString('id-ID')}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatCurrency(doItem.unit_price)}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatCurrency(total)}</td>
-                          {/*//. THIS IS THE FIX */}
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatCurrency(doItem.paid_amount || 0)}</td>
-                          <td className="px-6 py-4 whitespace-nowrap">{getStatusBadge(doItem.payment_status)}</td>
-                          {/* No per-DO actions */}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+          {/* Linked PO section removed per requirements */}
 
-            {/* Selisih section removed per new flow */}
+          <div className="bg-white rounded-lg shadow">
+            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+              <h3 className="text-lg font-medium">
+                Delivery Orders dalam Group
+              </h3>
+              <div className="space-x-2" />
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      DO Number
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Customer
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Min Qty
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actual Qty
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Unit Price
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Total
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Paid
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    {/* No per-DO actions for deposit groups */}
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {selectedGroup.members.map((member) => {
+                    const doItem = member.deliveryOrder;
+                    const displayQuantity = member.quantity;
+                    const total = doItem.unit_price * displayQuantity;
+
+                    return (
+                      <tr key={member.id}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {doItem.do_number}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {doItem.customer_name}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {doItem.minimal_load_quantity.toLocaleString("id-ID")}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-green-600">
+                          {displayQuantity.toLocaleString("id-ID")}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {formatCurrency(doItem.unit_price)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {formatCurrency(total)}
+                        </td>
+                        {/*//. THIS IS THE FIX */}
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {formatCurrency(doItem.paid_amount || 0)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {getStatusBadge(doItem.payment_status)}
+                        </td>
+                        {/* No per-DO actions */}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Selisih section removed per new flow */}
         </div>
       ) : (
         <div className="bg-white rounded-lg shadow">

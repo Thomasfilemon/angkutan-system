@@ -42,18 +42,26 @@ module.exports = (sequelize) => {
       unit: {
         type: DataTypes.STRING(10),
         allowNull: false,
-        defaultValue: 'ton',
+        defaultValue: "ton",
         validate: {
-          isIn: [['kilogram', 'ton', 'kubik']]
+          isIn: [["kilogram", "ton", "kubik"]],
         },
         comment: "Unit of measurement",
       },
       status: {
         type: DataTypes.STRING(20),
         allowNull: false,
-        defaultValue: 'active',
+        defaultValue: "active",
         validate: {
-          isIn: [['active', 'fulfilled', 'overdrawn', 'cancelled', 'pending_selisih']],
+          isIn: [
+            [
+              "active",
+              "fulfilled",
+              "overdrawn",
+              "cancelled",
+              "pending_selisih",
+            ],
+          ],
         },
         comment: "Status of the deposit group",
       },
@@ -66,9 +74,19 @@ module.exports = (sequelize) => {
       },
       selisih_status: {
         type: DataTypes.STRING,
-        defaultValue: 'none', // e.g., 'none', 'pending', 'paid'
+        defaultValue: "none", // e.g., 'none', 'pending', 'paid'
       },
-        created_at: {
+      last_edited_by: {
+        type: DataTypes.STRING(255),
+        allowNull: true,
+        comment: "Username who last edited the deposit group",
+      },
+      last_edited_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        comment: "Timestamp of last edit",
+      },
+      created_at: {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW,
         field: "created_at",
@@ -90,14 +108,13 @@ module.exports = (sequelize) => {
         beforeSave: (grp) => {
           if (grp.remaining_quantity < 0) grp.remaining_quantity = 0;
           if (grp.balance < 0) grp.balance = 0;
-        }
+        },
       },
     }
   );
-  
 
   // Instance methods
-  DepositGroup.prototype.getStatus = async function() {
+  DepositGroup.prototype.getStatus = async function () {
     const unpaidTotal = await sequelize.query(
       `SELECT SUM(do.final_amount - COALESCE(p.total_paid, 0)) AS total_unpaid
        FROM deposit_group_members dgm
@@ -110,24 +127,24 @@ module.exports = (sequelize) => {
        WHERE dgm.group_id = :groupId`,
       {
         replacements: { groupId: this.id },
-        type: sequelize.QueryTypes.SELECT
+        type: sequelize.QueryTypes.SELECT,
       }
     );
 
     const totalUnpaid = parseFloat(unpaidTotal[0]?.total_unpaid || 0);
-    
+
     if (totalUnpaid > this.balance) {
-      return 'butuh bayar';
+      return "butuh bayar";
     } else if (this.balance > totalUnpaid) {
-      return 'extra saldo';
+      return "extra saldo";
     }
-    return 'normal';
+    return "normal";
   };
 
   DepositGroup.prototype.reduceQuantity = async function (amount) {
     this.remaining_quantity -= amount;
-    if (this.remaining_quantity <= 0) this.status = 'fulfilled';
-    else if (this.remaining_quantity < 0) this.status = 'overdrawn';
+    if (this.remaining_quantity <= 0) this.status = "fulfilled";
+    else if (this.remaining_quantity < 0) this.status = "overdrawn";
     await this.save();
   };
 
@@ -135,9 +152,11 @@ module.exports = (sequelize) => {
   DepositGroup.prototype.calculateSelisih = async function () {
     const members = await this.getMembers(); // Assuming association
     let totalExcess = 0;
-    members.forEach(member => {
+    members.forEach((member) => {
       const deliveryOrder = member.deliveryOrder; // Renamed from 'do' to avoid keyword conflict
-      const excess = deliveryOrder.actual_load_quantity - deliveryOrder.minimal_load_quantity;
+      const excess =
+        deliveryOrder.actual_load_quantity -
+        deliveryOrder.minimal_load_quantity;
       if (excess > 0) totalExcess += excess;
     });
     return totalExcess;

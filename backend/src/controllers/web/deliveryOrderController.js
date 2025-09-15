@@ -1077,6 +1077,12 @@ exports.updateDeliveryOrder = async (req, res, next) => {
       await tempDO.validateQuantityAgainstPO(true);
     }
 
+    // Record editor info
+    if (req.user && req.user.username) {
+      proposedData.last_edited_by = req.user.username;
+      proposedData.last_edited_at = new Date();
+    }
+
     // Update delivery order
     const updatedDO = await deliveryOrder.update(proposedData, { transaction });
 
@@ -1096,6 +1102,8 @@ exports.updateDeliveryOrder = async (req, res, next) => {
         ...updatedDO.toJSON(),
         financial_summary: updatedDO.getFinancialSummary() || {},
         po_stats: stats,
+        last_edited_by: updatedDO.last_edited_by || null,
+        last_edited_at: updatedDO.last_edited_at || null,
       },
     });
   } catch (err) {

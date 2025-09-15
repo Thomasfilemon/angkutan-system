@@ -26,6 +26,8 @@ interface PurchaseOrderDetail {
     percentage: number;
     is_complete: boolean;
   };
+  last_edited_by?: string | null;
+  last_edited_at?: string | null;
   // Optional deposit linkage fields (may be provided by the API)
   has_deposit?: boolean;
   deposit_group_id?: number | null;
@@ -225,6 +227,19 @@ const PurchaseOrderDetailPage = () => {
         <h1 className="text-3xl font-bold text-gray-800">
           Purchase Order Details
         </h1>
+        {/* Editor badge */}
+        {po.last_edited_by && (
+          <div className="text-sm text-gray-600 mr-4">
+            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200">
+              Edited by {po.last_edited_by}
+              {po.last_edited_at && (
+                <span className="ml-2 text-xs text-gray-500">
+                  • {new Date(po.last_edited_at).toLocaleString("id-ID")}
+                </span>
+              )}
+            </span>
+          </div>
+        )}
         <div className="space-x-2">
           <button
             onClick={() => navigate("/trips")}
@@ -250,11 +265,14 @@ const PurchaseOrderDetailPage = () => {
           {(!po.poDeliveryOrders || po.poDeliveryOrders.length === 0) && (
             <button
               onClick={async () => {
-                const val = window.prompt('Enter initial deposit amount (Rp):', '0');
+                const val = window.prompt(
+                  "Enter initial deposit amount (Rp):",
+                  "0"
+                );
                 if (val === null) return;
                 const amount = parseFloat(val);
                 if (isNaN(amount) || amount < 0) {
-                  toast.error('Invalid deposit amount');
+                  toast.error("Invalid deposit amount");
                   return;
                 }
                 try {
@@ -263,14 +281,17 @@ const PurchaseOrderDetailPage = () => {
                     target_quantity: 0,
                     deposited_amount: amount,
                     remaining_quantity: 0,
-                    unit: po.unit || 'ton',
+                    unit: po.unit || "ton",
                     purchase_order_id: po.id,
                   } as any;
-                  await apiClient.post('/deposit-groups', payload);
-                  toast.success('Deposit group created and linked to PO');
+                  await apiClient.post("/deposit-groups", payload);
+                  toast.success("Deposit group created and linked to PO");
                   fetchPO();
                 } catch (err: any) {
-                  toast.error(err.response?.data?.message || 'Failed to create deposit group');
+                  toast.error(
+                    err.response?.data?.message ||
+                      "Failed to create deposit group"
+                  );
                 }
               }}
               className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded"

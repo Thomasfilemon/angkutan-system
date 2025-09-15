@@ -17,6 +17,8 @@ interface PurchaseOrderData {
   status: string;
   order_date: string;
   created_at: string;
+  last_edited_by?: string | null;
+  last_edited_at?: string | null;
 }
 
 interface ValidationErrors {
@@ -232,9 +234,21 @@ const PurchaseOrderEditPage = () => {
 
       const response = await apiClient.put(`/purchase-orders/${id}`, payload);
 
+      // The updated API returns data with last_edited_by and last_edited_at
+      const returned = response.data?.data || response.data;
       if (response.data?.success) {
-        toast.success("PO updated successfully!");
-        navigate(`/trips/po/${id}`);
+        const editor = returned?.last_edited_by || null;
+        if (editor) {
+          toast.success(`PO updated by ${editor}`);
+        } else {
+          toast.success("PO updated successfully!");
+        }
+
+        // Update local PO data so badge appears immediately
+        setPOData((prev) => ({ ...(prev as any), ...returned }));
+
+        // Navigate back to details after a short delay so user sees the toast
+        setTimeout(() => navigate(`/trips/po/${id}`), 700);
       }
     } catch (err: any) {
       const errorMessage = err.response?.data?.message || "Failed to update PO";

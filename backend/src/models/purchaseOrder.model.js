@@ -82,8 +82,8 @@ module.exports = (sequelize) => {
         type: DataTypes.INTEGER,
         allowNull: true,
         references: {
-          model: 'deposit_groups',
-          key: 'id'
+          model: "deposit_groups",
+          key: "id",
         },
         comment: "Reference to deposit group (optional for prepaid orders)",
       },
@@ -95,6 +95,17 @@ module.exports = (sequelize) => {
         },
       },
       notes: { type: DataTypes.TEXT },
+      // Track who last edited the PO and when
+      last_edited_by: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        comment: "Username of the user who last edited this PO",
+      },
+      last_edited_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        comment: "Timestamp when the PO was last edited",
+      },
     },
     {
       tableName: "purchase_orders",
@@ -199,7 +210,8 @@ module.exports = (sequelize) => {
 
       deliveryOrders.forEach((deliveryOrder) => {
         if (deliveryOrder.status === "completed") {
-          fulfilledActual += parseFloat(deliveryOrder.actual_load_quantity) || 0;
+          fulfilledActual +=
+            parseFloat(deliveryOrder.actual_load_quantity) || 0;
         } else {
           estimatedPending +=
             parseFloat(deliveryOrder.minimal_load_quantity) || 0;
@@ -221,12 +233,16 @@ module.exports = (sequelize) => {
         current_total_forecast: this.total_amount, // From database or calculated
         fulfillment_status: fulfillmentStatus,
         delivery_progress: {
-          percentage: totalQuantity > 0 ? (fulfilledActual / totalQuantity) * 100 : 0,
+          percentage:
+            totalQuantity > 0 ? (fulfilledActual / totalQuantity) * 100 : 0,
           is_complete: remaining <= 0,
         },
       };
     } catch (error) {
-      console.error(`Error in getRemainingAndForecast for PO ${this.id}:`, error);
+      console.error(
+        `Error in getRemainingAndForecast for PO ${this.id}:`,
+        error
+      );
       // Return fallback data
       return {
         total_quantity: parseFloat(this.total_quantity),

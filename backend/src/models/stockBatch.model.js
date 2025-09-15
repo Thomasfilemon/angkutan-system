@@ -57,6 +57,14 @@ const setupStockBatchModel = (sequelize) => {
         type: DataTypes.TEXT,
         allowNull: true,
       },
+      last_edited_by: {
+        type: DataTypes.STRING(255),
+        allowNull: true,
+      },
+      last_edited_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
       created_at: {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW,

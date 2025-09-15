@@ -66,17 +66,19 @@ module.exports = (sequelize) => {
         validate: {
           isValidArray(value) {
             if (value && !Array.isArray(value)) {
-              throw new Error('Additional allowance must be an array');
+              throw new Error("Additional allowance must be an array");
             }
             if (value) {
-              value.forEach(val => {
+              value.forEach((val) => {
                 if (val < 0) {
-                  throw new Error('Each additional allowance must be a non-negative number');
+                  throw new Error(
+                    "Each additional allowance must be a non-negative number"
+                  );
                 }
               });
             }
-          }
-        }
+          },
+        },
       },
       gaji: {
         type: DataTypes.DECIMAL(15, 2),
@@ -194,10 +196,10 @@ module.exports = (sequelize) => {
       },
 
       has_generated_selisih: {
-            type: DataTypes.BOOLEAN,
-            defaultValue: false,
-            allowNull: false
-        },
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+        allowNull: false,
+      },
 
       // === TIMESTAMPS ===
       created_at: {
@@ -211,6 +213,17 @@ module.exports = (sequelize) => {
       arrived_at_unload_location_at: { type: DataTypes.DATE },
       departed_from_unload_location_at: { type: DataTypes.DATE },
       completed_at: { type: DataTypes.DATE },
+      // Track who last edited this DO and when
+      last_edited_by: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        comment: "Username of the user who last edited this DO",
+      },
+      last_edited_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        comment: "Timestamp when the DO was last edited",
+      },
     },
     {
       tableName: "delivery_orders",
@@ -258,9 +271,9 @@ module.exports = (sequelize) => {
 
     return {
       trip_allowance: parseFloat(this.trip_allowance) || 0,
-      additional_allowance: Array.isArray(this.additional_allowance) 
-      ? this.additional_allowance.map(a => parseFloat(a) || 0)
-      : [],
+      additional_allowance: Array.isArray(this.additional_allowance)
+        ? this.additional_allowance.map((a) => parseFloat(a) || 0)
+        : [],
       gaji: parseFloat(this.gaji) || 0,
       total_for_driver: this.getTotalDriverPayment(),
       minimal_total_amount: parseFloat(this.total_amount) || 0,
@@ -334,10 +347,13 @@ module.exports = (sequelize) => {
   DeliveryOrder.prototype.getTotalDriverPayment = function () {
     const allowance = parseFloat(this.trip_allowance) || 0;
     const salary = parseFloat(this.gaji) || 0;
-    const additional = Array.isArray(this.additional_allowance) 
-      ? this.additional_allowance.reduce((sum, val) => sum + (parseFloat(val) || 0), 0)
+    const additional = Array.isArray(this.additional_allowance)
+      ? this.additional_allowance.reduce(
+          (sum, val) => sum + (parseFloat(val) || 0),
+          0
+        )
       : 0;
-    
+
     return allowance + salary + additional;
   };
 

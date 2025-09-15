@@ -5,6 +5,8 @@ import apiClient from "../api/axiosConfig";
 interface DeliveryOrderDetail {
   id: number;
   do_number: string;
+  last_edited_by?: string | null;
+  last_edited_at?: string | null;
   customer_name: string;
   item_name: string;
   minimal_load_quantity: number;
@@ -116,9 +118,9 @@ const DeliveryOrderDetailPage = () => {
   const parseAllowanceDescriptions = (paymentNotes: string): string[] => {
     if (!paymentNotes) return [];
     // Split by newlines and filter for lines starting with "Additional Allowance"
-    const lines = paymentNotes.split("\n").filter((line) =>
-      line.startsWith("Additional Allowance")
-    );
+    const lines = paymentNotes
+      .split("\n")
+      .filter((line) => line.startsWith("Additional Allowance"));
     // Extract description after the amount (format: "Additional Allowance X: Rp Y - Description")
     return lines.map((line) => {
       const parts = line.split(" - ");
@@ -141,7 +143,9 @@ const DeliveryOrderDetailPage = () => {
 
         // Ensure additional_allowance and payment_notes exist with fallbacks
         if (!data.additional_allowance) {
-          console.warn('DO data missing additional_allowance, defaulting to []');
+          console.warn(
+            "DO data missing additional_allowance, defaulting to []"
+          );
           data.additional_allowance = [];
         }
         if (!data.payment_notes) {
@@ -260,7 +264,9 @@ const DeliveryOrderDetailPage = () => {
     return <div className="text-center p-8">Delivery order not found.</div>;
 
   const unitDisplay = getUnitDisplay(deliveryOrder.unit);
-  const allowanceDescriptions = parseAllowanceDescriptions(deliveryOrder.payment_notes);
+  const allowanceDescriptions = parseAllowanceDescriptions(
+    deliveryOrder.payment_notes
+  );
 
   return (
     <div className="max-w-7xl mx-auto p-6">
@@ -268,6 +274,29 @@ const DeliveryOrderDetailPage = () => {
         <h1 className="text-3xl font-bold text-gray-800">
           Delivery Order Details
         </h1>
+        {/* Badge: last edited info */}
+        {deliveryOrder.last_edited_by && (
+          <div className="ml-4 text-sm text-gray-600 text-right">
+            <div className="inline-flex items-center px-3 py-1 bg-gray-100 rounded-full text-xs text-gray-700">
+              <svg
+                className="w-3 h-3 mr-2 text-gray-500"
+                fill="currentColor"
+                viewBox="0 0 20 20"
+              >
+                <path d="M10 2a4 4 0 100 8 4 4 0 000-8zM2 18a8 8 0 1116 0H2z" />
+              </svg>
+              Edited by {deliveryOrder.last_edited_by}
+              {deliveryOrder.last_edited_at && (
+                <span className="ml-2 text-xs text-gray-500">
+                  •{" "}
+                  {new Date(deliveryOrder.last_edited_at).toLocaleString(
+                    "id-ID"
+                  )}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
         <div className="space-x-2">
           <button
             onClick={() => navigate(-1)}
@@ -289,54 +318,65 @@ const DeliveryOrderDetailPage = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Admin quick complete */}
-        {deliveryOrder.status !== "completed" && deliveryOrder.status !== "cancelled" && (
-          <div className="lg:col-span-3 bg-white shadow-md rounded-lg p-6">
-            <h2 className="text-xl font-semibold mb-4">Admin Complete DO</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm text-gray-700 mb-1">Muatan Aktual ({unitDisplay})</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={adminActualQty}
-                  onChange={(e) => setAdminActualQty(e.target.value)}
-                  className="w-full border rounded px-3 py-2"
-                  placeholder={`cth: ${deliveryOrder.minimal_load_quantity}`}
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="block text-sm text-gray-700 mb-1">Catatan (opsional)</label>
-                <input
-                  type="text"
-                  value={adminNotes}
-                  onChange={(e) => setAdminNotes(e.target.value)}
-                  className="w-full border rounded px-3 py-2"
-                  placeholder="Catatan penyelesaian"
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="block text-sm text-gray-700 mb-1">Foto Surat Jalan (1-5)</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={(e) => setAdminPhotos(e.target.files)}
-                  className="w-full"
-                />
-              </div>
-              <div className="flex items-end">
-                <button
-                  onClick={handleAdminComplete}
-                  disabled={submittingAdminComplete}
-                  className={`px-4 py-2 rounded text-white ${submittingAdminComplete ? "bg-gray-400" : "bg-green-600 hover:bg-green-700"}`}
-                >
-                  {submittingAdminComplete ? "Menyimpan..." : "Selesaikan DO"}
-                </button>
+        {deliveryOrder.status !== "completed" &&
+          deliveryOrder.status !== "cancelled" && (
+            <div className="lg:col-span-3 bg-white shadow-md rounded-lg p-6">
+              <h2 className="text-xl font-semibold mb-4">Admin Complete DO</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-700 mb-1">
+                    Muatan Aktual ({unitDisplay})
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={adminActualQty}
+                    onChange={(e) => setAdminActualQty(e.target.value)}
+                    className="w-full border rounded px-3 py-2"
+                    placeholder={`cth: ${deliveryOrder.minimal_load_quantity}`}
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm text-gray-700 mb-1">
+                    Catatan (opsional)
+                  </label>
+                  <input
+                    type="text"
+                    value={adminNotes}
+                    onChange={(e) => setAdminNotes(e.target.value)}
+                    className="w-full border rounded px-3 py-2"
+                    placeholder="Catatan penyelesaian"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm text-gray-700 mb-1">
+                    Foto Surat Jalan (1-5)
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => setAdminPhotos(e.target.files)}
+                    className="w-full"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <button
+                    onClick={handleAdminComplete}
+                    disabled={submittingAdminComplete}
+                    className={`px-4 py-2 rounded text-white ${
+                      submittingAdminComplete
+                        ? "bg-gray-400"
+                        : "bg-green-600 hover:bg-green-700"
+                    }`}
+                  >
+                    {submittingAdminComplete ? "Menyimpan..." : "Selesaikan DO"}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
         {/* Basic Information */}
         <div className="lg:col-span-2 bg-white shadow-md rounded-lg p-6">
           <h2 className="text-xl font-semibold mb-4">Basic Information</h2>
@@ -349,7 +389,9 @@ const DeliveryOrderDetailPage = () => {
               <label className="text-sm text-gray-600">PO Number</label>
               <p className="font-medium">{getPONumber(deliveryOrder)}</p>
               {!deliveryOrder.purchaseOrder && (
-                <p className="text-xs text-gray-500 italic">Standalone Delivery Order</p>
+                <p className="text-xs text-gray-500 italic">
+                  Standalone Delivery Order
+                </p>
               )}
             </div>
             <div>
