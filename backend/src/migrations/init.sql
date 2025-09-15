@@ -53,6 +53,9 @@ CREATE TABLE vehicles (
   stnk_number VARCHAR(50) UNIQUE,
   stnk_expired_date DATE,
   tax_due_date DATE,
+  -- Audit: who last edited this vehicle and when
+  last_edited_by VARCHAR(255),
+  last_edited_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   current_mileage INTEGER DEFAULT 0,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -80,6 +83,9 @@ CREATE TABLE tire_instances (
   condition VARCHAR(20) DEFAULT 'new' CHECK (condition IN ('new', 'good', 'fair', 'poor', 'damaged', 'disposed', 'replace', 'meledak', 'bocor', 'kampasa')),
   status VARCHAR(20) DEFAULT 'in_stock' CHECK(status IN ('in_stock','installed','removed','disposed')),
   notes TEXT,
+  -- Audit: who last edited this service and when
+  last_edited_by VARCHAR(255),
+  last_edited_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -137,6 +143,9 @@ CREATE TABLE stock_items (
     average_unit_price NUMERIC(15,2) DEFAULT 0, -- Weighted average price
     total_value NUMERIC(15,2) DEFAULT 0, -- Total value of all batches
     notes TEXT,
+  -- Audit
+  last_edited_by VARCHAR(255),
+  last_edited_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -151,6 +160,9 @@ CREATE TABLE stock_batches (
     purchase_date DATE NOT NULL DEFAULT CURRENT_DATE,
     supplier VARCHAR(255),
     notes TEXT,
+  -- Audit
+  last_edited_by VARCHAR(255),
+  last_edited_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE(item_id, batch_number)
@@ -186,7 +198,9 @@ CREATE TABLE vehicle_services (
   status VARCHAR(20) NOT NULL DEFAULT 'completed' CHECK(status IN ('completed', 'cancelled')),
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  last_edited_by VARCHAR(255), 
+  last_edited_at TIMESTAMP WITH TIME ZONE
 );
 
 CREATE TABLE service_items (
@@ -223,6 +237,10 @@ CREATE TABLE deposit_groups (
     selisih_details TEXT,
     selisih_status VARCHAR(255) DEFAULT 'none' CHECK (selisih_status IN ('none', 'pending', 'paid')),
 
+  -- Track who last edited this deposit group and when
+  last_edited_by VARCHAR(255),
+  last_edited_at TIMESTAMP WITH TIME ZONE,
+
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -243,7 +261,10 @@ CREATE TABLE purchase_orders (
   deposit_group_id INTEGER REFERENCES deposit_groups(id), -- Deposit group integration
   status VARCHAR(20) DEFAULT 'confirmed' CHECK (status IN ('confirmed', 'partial', 'completed', 'cancelled')),
   notes TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  -- Track who last edited this PO and when
+  last_edited_by VARCHAR(255),
+  last_edited_at TIMESTAMP WITH TIME ZONE
 );
 
 CREATE TYPE delivery_status AS ENUM (
@@ -330,6 +351,10 @@ CREATE TABLE delivery_orders (
   completed_at TIMESTAMP WITH TIME ZONE,
   payment_confirmation_at TIMESTAMP WITH TIME ZONE,
   payment_confirmed_by INTEGER REFERENCES users(id)
+  ,
+  -- Track editor for delivery orders
+  last_edited_by VARCHAR(255),
+  last_edited_at TIMESTAMP WITH TIME ZONE
 );
 
 CREATE TABLE big_delivery_orders (
@@ -551,6 +576,9 @@ CREATE TABLE cash_transactions (
   date_nota TEXT[],
   supplier VARCHAR(255), -- NEW: Nullable supplier column
   tanggal_jatuh_tempo DATE,
+  -- Audit: who last edited this cash transaction and when
+  last_edited_by VARCHAR(255),
+  last_edited_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

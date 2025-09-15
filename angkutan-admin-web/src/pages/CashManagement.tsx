@@ -1,18 +1,19 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import apiClient from '../api/axiosConfig';
-import CreatableSelect from 'react-select/creatable';
+import React, { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import apiClient from "../api/axiosConfig";
+import CreatableSelect from "react-select/creatable";
+import toast from "react-hot-toast";
 
 interface CashCategory {
   id: number;
   category_name: string;
-  category_type: 'income' | 'expense';
+  category_type: "income" | "expense";
   description?: string;
 }
 
 interface CashTransaction {
   id: number;
-  transaction_type: 'debit' | 'kredit';
+  transaction_type: "debit" | "kredit";
   category_id?: number;
   amount: number;
   description: string;
@@ -26,6 +27,8 @@ interface CashTransaction {
   no_nota?: string[];
   date_nota?: string[];
   supplier?: string | null;
+  last_edited_by?: string;
+  last_edited_at?: string;
 }
 
 interface CashSummary {
@@ -40,7 +43,7 @@ const CashManagementPage = () => {
   const [summary, setSummary] = useState<CashSummary>({
     total_debit: 0,
     total_kredit: 0,
-    saldo: 0
+    saldo: 0,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -48,49 +51,54 @@ const CashManagementPage = () => {
   const navigate = useNavigate();
 
   const [filters, setFilters] = useState({
-    transaction_type: '',
-    category_id: '',
-    date_from: '',
-    date_to: '',
-    search: '',
-    account: 'All'
+    transaction_type: "",
+    category_id: "",
+    date_from: "",
+    date_to: "",
+    search: "",
+    account: "All",
   });
 
   const [pagination, setPagination] = useState({
     page: 1,
     limit: 20,
     total: 0,
-    totalPages: 0
+    totalPages: 0,
   });
 
   const [showModal, setShowModal] = useState(false);
-  const [showTransactionTypeModal, setShowTransactionTypeModal] = useState(false);
+  const [showTransactionTypeModal, setShowTransactionTypeModal] =
+    useState(false);
   const [showNotaModal, setShowNotaModal] = useState(false);
-  const [selectedNotaDetails, setSelectedNotaDetails] = useState<CashTransaction | null>(null);
-  const [selectedTransactionType, setSelectedTransactionType] = useState('');
-  const [editingTransaction, setEditingTransaction] = useState<CashTransaction | null>(null);
+  const [selectedNotaDetails, setSelectedNotaDetails] =
+    useState<CashTransaction | null>(null);
+  const [selectedTransactionType, setSelectedTransactionType] = useState("");
+  const [editingTransaction, setEditingTransaction] =
+    useState<CashTransaction | null>(null);
   const [formData, setFormData] = useState({
-    transaction_type: 'debit' as 'debit' | 'kredit',
-    category_id: '',
-    amount: '',
-    description: '',
-    reference_number: '',
-    account: 'General',
-    transaction_date: new Date().toISOString().split('T')[0],
-    no_nota: [''] as string[],
-    date_nota: [''] as string[]
+    transaction_type: "debit" as "debit" | "kredit",
+    category_id: "",
+    amount: "",
+    description: "",
+    reference_number: "",
+    account: "General",
+    transaction_date: new Date().toISOString().split("T")[0],
+    no_nota: [""] as string[],
+    date_nota: [""] as string[],
   });
 
   const [accounts, setAccounts] = useState<string[]>([]);
-  const [selectedAccount, setSelectedAccount] = useState<string>(formData.account);
+  const [selectedAccount, setSelectedAccount] = useState<string>(
+    formData.account
+  );
 
   useEffect(() => {
     const fetchAccounts = async () => {
       try {
-        const response = await apiClient.get('/cash/accounts');
+        const response = await apiClient.get("/cash/accounts");
         setAccounts(response.data.data || []);
       } catch (err) {
-        console.error('Failed to fetch accounts:', err);
+        console.error("Failed to fetch accounts:", err);
       }
     };
     fetchAccounts();
@@ -99,7 +107,7 @@ const CashManagementPage = () => {
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
 
   const [showDescModal, setShowDescModal] = useState(false);
-  const [currentDesc, setCurrentDesc] = useState('');
+  const [currentDesc, setCurrentDesc] = useState("");
 
   const fetchTransactions = useCallback(async () => {
     try {
@@ -107,20 +115,24 @@ const CashManagementPage = () => {
       const params = new URLSearchParams({
         page: pagination.page.toString(),
         limit: pagination.limit.toString(),
-        ...Object.fromEntries(Object.entries(filters).filter(([_, v]) => v !== ''))
+        ...Object.fromEntries(
+          Object.entries(filters).filter(([_, v]) => v !== "")
+        ),
       });
 
       const response = await apiClient.get(`/cash/transactions?${params}`);
-      
+
       setTransactions(response.data.data || []);
-      setSummary(response.data.summary || { total_debit: 0, total_kredit: 0, saldo: 0 });
-      setPagination(prev => ({
+      setSummary(
+        response.data.summary || { total_debit: 0, total_kredit: 0, saldo: 0 }
+      );
+      setPagination((prev) => ({
         ...prev,
         total: response.data.pagination?.total || 0,
-        totalPages: response.data.pagination?.totalPages || 0
+        totalPages: response.data.pagination?.totalPages || 0,
       }));
     } catch (err) {
-      setError('Failed to fetch cash transactions.');
+      setError("Failed to fetch cash transactions.");
       console.error(err);
     } finally {
       setLoading(false);
@@ -129,10 +141,10 @@ const CashManagementPage = () => {
 
   const fetchCategories = useCallback(async () => {
     try {
-      const response = await apiClient.get('/cash/categories');
+      const response = await apiClient.get("/cash/categories");
       setCategories(response.data.data || []);
     } catch (err) {
-      console.error('Failed to fetch categories:', err);
+      console.error("Failed to fetch categories:", err);
     }
   }, []);
 
@@ -143,7 +155,7 @@ const CashManagementPage = () => {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      Array.from(e.target.files).forEach(file => handleAddFile(file));
+      Array.from(e.target.files).forEach((file) => handleAddFile(file));
     }
   };
 
@@ -151,8 +163,8 @@ const CashManagementPage = () => {
     setAttachmentFiles((prev) => [...prev, file]);
     setFormData((prev) => ({
       ...prev,
-      no_nota: [...prev.no_nota, ''],
-      date_nota: [...prev.date_nota, '']
+      no_nota: [...prev.no_nota, ""],
+      date_nota: [...prev.date_nota, ""],
     }));
   };
 
@@ -165,7 +177,11 @@ const CashManagementPage = () => {
     newNotas.splice(index, 1);
     const newDateNotas = [...formData.date_nota];
     newDateNotas.splice(index, 1);
-    setFormData((prev) => ({ ...prev, no_nota: newNotas, date_nota: newDateNotas }));
+    setFormData((prev) => ({
+      ...prev,
+      no_nota: newNotas,
+      date_nota: newDateNotas,
+    }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -173,10 +189,10 @@ const CashManagementPage = () => {
 
     if (isSpecialCategory) {
       setShowModal(false);
-      if (formData.category_id === 'inventory_redirect') {
-        navigate('/inventory/purchase');
+      if (formData.category_id === "inventory_redirect") {
+        navigate("/inventory/purchase");
       } else {
-        navigate('/services');
+        navigate("/services");
       }
       return;
     }
@@ -184,65 +200,89 @@ const CashManagementPage = () => {
     const submissionData = new FormData();
 
     Object.entries(formData).forEach(([key, value]) => {
-      if (key === 'no_nota' || key === 'date_nota') return;
-      if (typeof value === 'string' || typeof value === 'number') {
+      if (key === "no_nota" || key === "date_nota") return;
+      if (typeof value === "string" || typeof value === "number") {
         submissionData.append(key, value.toString());
       } else if (Array.isArray(value)) {
         submissionData.append(key, JSON.stringify(value));
       }
     });
 
-    submissionData.append('no_nota', JSON.stringify(formData.no_nota));
-    submissionData.append('date_nota', JSON.stringify(formData.date_nota));
+    submissionData.append("no_nota", JSON.stringify(formData.no_nota));
+    submissionData.append("date_nota", JSON.stringify(formData.date_nota));
 
     attachmentFiles.forEach((file) => {
-      submissionData.append('attachments', file);
+      submissionData.append("attachments", file);
     });
 
     try {
       const config = {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { "Content-Type": "multipart/form-data" },
       };
 
+      let res;
       if (editingTransaction) {
-        await apiClient.put(`/cash/transactions/${editingTransaction.id}`, submissionData, config);
+        res = await apiClient.put(
+          `/cash/transactions/${editingTransaction.id}`,
+          submissionData,
+          config
+        );
       } else {
-        await apiClient.post('/cash/transactions', submissionData, config);
+        res = await apiClient.post(
+          "/cash/transactions",
+          submissionData,
+          config
+        );
       }
 
       setShowModal(false);
+      const returned = res?.data?.data || res?.data;
+      if (returned?.last_edited_by) {
+        toast.success("Transaksi berhasil disimpan");
+        toast(`Diubah oleh ${returned.last_edited_by}`);
+      } else {
+        toast.success("Transaksi berhasil disimpan");
+      }
       fetchTransactions();
     } catch (err) {
-      console.error('Error saving transaction:', err);
-      setError('Failed to save transaction.');
+      console.error("Error saving transaction:", err);
+      setError("Failed to save transaction.");
     }
   };
 
   const handleCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
-    setFormData(prev => ({ ...prev, category_id: value }));
-    setIsSpecialCategory(value === 'inventory_redirect' || value === 'service_redirect');
+    setFormData((prev) => ({ ...prev, category_id: value }));
+    setIsSpecialCategory(
+      value === "inventory_redirect" || value === "service_redirect"
+    );
   };
 
   const handleEdit = (transaction: CashTransaction) => {
     setEditingTransaction(transaction);
     setFormData({
       transaction_type: transaction.transaction_type,
-      category_id: transaction.category_id?.toString() || '',
+      category_id: transaction.category_id?.toString() || "",
       amount: transaction.amount.toString(),
       description: transaction.description,
-      reference_number: transaction.reference_number || '',
+      reference_number: transaction.reference_number || "",
       transaction_date: transaction.transaction_date,
-      account: transaction.account || 'General',
-      no_nota: Array.isArray(transaction.no_nota) && transaction.no_nota.length > 0 ? transaction.no_nota : [''],
-      date_nota: Array.isArray(transaction.date_nota) && transaction.date_nota.length > 0 ? transaction.date_nota : ['']
+      account: transaction.account || "General",
+      no_nota:
+        Array.isArray(transaction.no_nota) && transaction.no_nota.length > 0
+          ? transaction.no_nota
+          : [""],
+      date_nota:
+        Array.isArray(transaction.date_nota) && transaction.date_nota.length > 0
+          ? transaction.date_nota
+          : [""],
     });
     setAttachmentFiles([]);
     setShowModal(true);
   };
 
   const handleDelete = async (id: number) => {
-    if (!window.confirm('Apakah Anda yakin ingin menghapus transaksi ini?')) {
+    if (!window.confirm("Apakah Anda yakin ingin menghapus transaksi ini?")) {
       return;
     }
 
@@ -250,8 +290,8 @@ const CashManagementPage = () => {
       await apiClient.delete(`/cash/transactions/${id}`);
       fetchTransactions();
     } catch (err) {
-      console.error('Error deleting transaction:', err);
-      setError('Failed to delete transaction.');
+      console.error("Error deleting transaction:", err);
+      setError("Failed to delete transaction.");
     }
   };
 
@@ -262,15 +302,15 @@ const CashManagementPage = () => {
 
   const resetForm = () => {
     setFormData({
-      transaction_type: 'debit',
-      category_id: '',
-      amount: '',
-      description: '',
-      reference_number: '',
-      account: 'General',
-      transaction_date: new Date().toISOString().split('T')[0],
-      no_nota: [''],
-      date_nota: ['']
+      transaction_type: "debit",
+      category_id: "",
+      amount: "",
+      description: "",
+      reference_number: "",
+      account: "General",
+      transaction_date: new Date().toISOString().split("T")[0],
+      no_nota: [""],
+      date_nota: [""],
     });
     setAttachmentFiles([]);
     setIsSpecialCategory(false);
@@ -279,36 +319,37 @@ const CashManagementPage = () => {
   const handleTransactionTypeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setShowTransactionTypeModal(false);
-    if (selectedTransactionType === 'kas_normal') {
+    if (selectedTransactionType === "kas_normal") {
       resetForm();
       setEditingTransaction(null);
       setShowModal(true);
-    } else if (selectedTransactionType === 'kas_stok_barang') {
-      navigate('/stock/create');
-    } else if (selectedTransactionType === 'kas_stok_ban') {
-      navigate('/tire-inventory/create');
-    } else if (selectedTransactionType === 'kas_servis') {
-      navigate('/services/create');
+    } else if (selectedTransactionType === "kas_stok_barang") {
+      navigate("/stock/create");
+    } else if (selectedTransactionType === "kas_stok_ban") {
+      navigate("/tire-inventory/create");
+    } else if (selectedTransactionType === "kas_servis") {
+      navigate("/services/create");
     }
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('id-ID', {
-      style: 'currency',
-      currency: 'IDR',
-      minimumFractionDigits: 0
+    return new Intl.NumberFormat("id-ID", {
+      style: "currency",
+      currency: "IDR",
+      minimumFractionDigits: 0,
     }).format(amount);
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('id-ID', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
+    return new Date(dateString).toLocaleDateString("id-ID", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
     });
   };
 
-  if (loading) return <div className="text-center p-8">Loading cash transactions...</div>;
+  if (loading)
+    return <div className="text-center p-8">Loading cash transactions...</div>;
 
   return (
     <div className="p-6">
@@ -316,7 +357,7 @@ const CashManagementPage = () => {
         <h1 className="text-3xl font-bold text-gray-800">Buku Kas</h1>
         <button
           onClick={() => {
-            setSelectedTransactionType('');
+            setSelectedTransactionType("");
             setShowTransactionTypeModal(true);
           }}
           className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
@@ -334,20 +375,30 @@ const CashManagementPage = () => {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-white p-4 rounded-lg shadow border-l-4 border-green-500">
           <h3 className="text-lg font-semibold text-gray-700">Total Debit</h3>
-          <p className="text-2xl font-bold text-green-600">{formatCurrency(summary.total_debit)}</p>
+          <p className="text-2xl font-bold text-green-600">
+            {formatCurrency(summary.total_debit)}
+          </p>
         </div>
         <div className="bg-white p-4 rounded-lg shadow border-l-4 border-red-500">
           <h3 className="text-lg font-semibold text-gray-700">Total Kredit</h3>
-          <p className="text-2xl font-bold text-red-600">{formatCurrency(summary.total_kredit)}</p>
+          <p className="text-2xl font-bold text-red-600">
+            {formatCurrency(summary.total_kredit)}
+          </p>
         </div>
         <div className="bg-white p-4 rounded-lg shadow border-l-4 border-blue-500">
           <h3 className="text-lg font-semibold text-gray-700">Saldo</h3>
-          <p className={`text-2xl font-bold ${summary.saldo >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+          <p
+            className={`text-2xl font-bold ${
+              summary.saldo >= 0 ? "text-blue-600" : "text-red-600"
+            }`}
+          >
             {formatCurrency(summary.saldo)}
           </p>
         </div>
         <div className="bg-white p-4 rounded-lg shadow border-l-4 border-gray-500">
-          <h3 className="text-lg font-semibold text-gray-700">Total Transaksi</h3>
+          <h3 className="text-lg font-semibold text-gray-700">
+            Total Transaksi
+          </h3>
           <p className="text-2xl font-bold text-gray-600">{pagination.total}</p>
         </div>
       </div>
@@ -355,10 +406,17 @@ const CashManagementPage = () => {
       <div className="bg-white p-4 rounded-lg shadow mb-6">
         <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Tipe</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Tipe
+            </label>
             <select
               value={filters.transaction_type}
-              onChange={(e) => setFilters(prev => ({ ...prev, transaction_type: e.target.value }))}
+              onChange={(e) =>
+                setFilters((prev) => ({
+                  ...prev,
+                  transaction_type: e.target.value,
+                }))
+              }
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             >
               <option value="">Semua Tipe</option>
@@ -367,14 +425,18 @@ const CashManagementPage = () => {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Kategori</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Kategori
+            </label>
             <select
               value={filters.category_id}
-              onChange={(e) => setFilters(prev => ({ ...prev, category_id: e.target.value }))}
+              onChange={(e) =>
+                setFilters((prev) => ({ ...prev, category_id: e.target.value }))
+              }
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             >
               <option value="">Pilih Kategori</option>
-              {categories.map(category => (
+              {categories.map((category) => (
                 <option key={category.id} value={category.id}>
                   {category.category_name}
                 </option>
@@ -382,47 +444,68 @@ const CashManagementPage = () => {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Dari Tanggal</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Dari Tanggal
+            </label>
             <input
               type="date"
               value={filters.date_from}
-              onChange={(e) => setFilters(prev => ({ ...prev, date_from: e.target.value }))}
+              onChange={(e) =>
+                setFilters((prev) => ({ ...prev, date_from: e.target.value }))
+              }
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Sampai Tanggal</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Sampai Tanggal
+            </label>
             <input
               type="date"
               value={filters.date_to}
-              onChange={(e) => setFilters(prev => ({ ...prev, date_to: e.target.value }))}
+              onChange={(e) =>
+                setFilters((prev) => ({ ...prev, date_to: e.target.value }))
+              }
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Cari</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Cari
+            </label>
             <input
               type="text"
               placeholder="Deskripsi atau referensi..."
               value={filters.search}
-              onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+              onChange={(e) =>
+                setFilters((prev) => ({ ...prev, search: e.target.value }))
+              }
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Akun</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Akun
+            </label>
             <CreatableSelect
-              value={filters.account === 'All' ? { label: 'All', value: 'All' } : { label: filters.account, value: filters.account }}
+              value={
+                filters.account === "All"
+                  ? { label: "All", value: "All" }
+                  : { label: filters.account, value: filters.account }
+              }
               options={[
-                { label: 'All', value: 'All' },
-                ...accounts.map(account => ({ label: account, value: account }))
+                { label: "All", value: "All" },
+                ...accounts.map((account) => ({
+                  label: account,
+                  value: account,
+                })),
               ]}
               onChange={(selected) => {
-                const newAccount = selected?.value || 'All';
-                setFilters(prev => ({ ...prev, account: newAccount }));
+                const newAccount = selected?.value || "All";
+                setFilters((prev) => ({ ...prev, account: newAccount }));
               }}
               onCreateOption={(inputValue) => {
-                setFilters(prev => ({ ...prev, account: inputValue }));
+                setFilters((prev) => ({ ...prev, account: inputValue }));
               }}
               className="w-full"
             />
@@ -432,14 +515,14 @@ const CashManagementPage = () => {
           <button
             onClick={() => {
               setFilters({
-                transaction_type: '',
-                category_id: '',
-                date_from: '',
-                date_to: '',
-                search: '',
-                account: 'All'
+                transaction_type: "",
+                category_id: "",
+                date_from: "",
+                date_to: "",
+                search: "",
+                account: "All",
               });
-              setPagination(prev => ({ ...prev, page: 1 }));
+              setPagination((prev) => ({ ...prev, page: 1 }));
             }}
             className="bg-gray-500 hover:bg-gray-700 text-white px-4 py-2 rounded"
           >
@@ -492,7 +575,9 @@ const CashManagementPage = () => {
               {transactions.map((transaction) => {
                 const fullDesc = transaction.description;
                 const isLong = fullDesc.length > 100;
-                const truncated = isLong ? fullDesc.substring(0, 100) + '...' : fullDesc;
+                const truncated = isLong
+                  ? fullDesc.substring(0, 100) + "..."
+                  : fullDesc;
                 return (
                   <tr key={transaction.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -501,63 +586,103 @@ const CashManagementPage = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
                         className={`px-2 py-1 text-xs font-medium rounded-full ${
-                          transaction.transaction_type === 'debit'
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-red-100 text-red-800'
+                          transaction.transaction_type === "debit"
+                            ? "bg-green-100 text-green-800"
+                            : "bg-red-100 text-red-800"
                         }`}
                       >
-                        {transaction.transaction_type === 'debit' ? 'Debit' : 'Kredit'}
+                        {transaction.transaction_type === "debit"
+                          ? "Debit"
+                          : "Kredit"}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {transaction.supplier || '-'}
+                      {transaction.supplier || "-"}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {transaction.category?.category_name || '-'}
+                      {transaction.category?.category_name || "-"}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
                       <div>
                         <div className="font-medium">
                           <span
-                            onClick={() => isLong && (setCurrentDesc(fullDesc), setShowDescModal(true))}
-                            className={isLong ? 'cursor-pointer text-blue-600 hover:underline' : ''}
+                            onClick={() =>
+                              isLong &&
+                              (setCurrentDesc(fullDesc), setShowDescModal(true))
+                            }
+                            className={
+                              isLong
+                                ? "cursor-pointer text-blue-600 hover:underline"
+                                : ""
+                            }
                           >
                             {truncated}
                           </span>
                         </div>
                         {transaction.reference_number && (
-                          <div className="text-xs text-gray-500">Ref: {transaction.reference_number}</div>
+                          <div className="text-xs text-gray-500">
+                            Ref: {transaction.reference_number}
+                          </div>
+                        )}
+                        {transaction.last_edited_by && (
+                          <div className="text-xs text-gray-600 mt-2">
+                            Diubah oleh {transaction.last_edited_by} •{" "}
+                            {new Date(
+                              transaction.last_edited_at || ""
+                            ).toLocaleString("id-ID")}
+                          </div>
                         )}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
-                      {transaction.transaction_type === 'debit' ? (
-                        <span className="text-green-600 font-medium">{formatCurrency(transaction.amount)}</span>
-                      ) : '-'}
+                      {transaction.transaction_type === "debit" ? (
+                        <span className="text-green-600 font-medium">
+                          {formatCurrency(transaction.amount)}
+                        </span>
+                      ) : (
+                        "-"
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
-                      {transaction.transaction_type === 'kredit' ? (
-                        <span className="text-red-600 font-medium">{formatCurrency(transaction.amount)}</span>
-                      ) : '-'}
+                      {transaction.transaction_type === "kredit" ? (
+                        <span className="text-red-600 font-medium">
+                          {formatCurrency(transaction.amount)}
+                        </span>
+                      ) : (
+                        "-"
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium">
                       {transaction.running_balance !== undefined ? (
-                        <span className={transaction.running_balance >= 0 ? 'text-blue-600' : 'text-red-600'}>
+                        <span
+                          className={
+                            transaction.running_balance >= 0
+                              ? "text-blue-600"
+                              : "text-red-600"
+                          }
+                        >
                           {formatCurrency(transaction.running_balance)}
                         </span>
-                      ) : '-'}
+                      ) : (
+                        "-"
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {(transaction.no_nota && transaction.no_nota.length > 0) ||
-                      (transaction.date_nota && transaction.date_nota.length > 0) ||
-                      (transaction.attachment_urls && transaction.attachment_urls.length > 0) ? (
+                      {(transaction.no_nota &&
+                        transaction.no_nota.length > 0) ||
+                      (transaction.date_nota &&
+                        transaction.date_nota.length > 0) ||
+                      (transaction.attachment_urls &&
+                        transaction.attachment_urls.length > 0) ? (
                         <button
                           onClick={() => handleShowNotaDetails(transaction)}
                           className="text-blue-600 hover:text-blue-900 font-medium"
                         >
                           Details
                         </button>
-                      ) : '-'}
+                      ) : (
+                        "-"
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {transaction.account}
@@ -590,10 +715,17 @@ const CashManagementPage = () => {
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
             <div className="mt-3">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Pilih Tipe Transaksi</h3>
-              <form onSubmit={handleTransactionTypeSubmit} className="space-y-4">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">
+                Pilih Tipe Transaksi
+              </h3>
+              <form
+                onSubmit={handleTransactionTypeSubmit}
+                className="space-y-4"
+              >
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipe Transaksi *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Tipe Transaksi *
+                  </label>
                   <select
                     value={selectedTransactionType}
                     onChange={(e) => setSelectedTransactionType(e.target.value)}
@@ -633,35 +765,44 @@ const CashManagementPage = () => {
           <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
             <div className="mt-3">
               <h3 className="text-lg font-medium text-gray-900 mb-4">
-                {editingTransaction ? 'Edit Transaksi' : 'Tambah Transaksi Baru'}
+                {editingTransaction
+                  ? "Edit Transaksi"
+                  : "Tambah Transaksi Baru"}
               </h3>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Akun *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Akun *
+                  </label>
                   <CreatableSelect
                     value={{ label: selectedAccount, value: selectedAccount }}
-                    options={accounts.map(account => ({ label: account, value: account }))}
+                    options={accounts.map((account) => ({
+                      label: account,
+                      value: account,
+                    }))}
                     onChange={(selected) => {
-                      const newAccount = selected?.value || 'General';
+                      const newAccount = selected?.value || "General";
                       setSelectedAccount(newAccount);
-                      setFormData(prev => ({ ...prev, account: newAccount }));
+                      setFormData((prev) => ({ ...prev, account: newAccount }));
                     }}
                     onCreateOption={(inputValue) => {
                       setSelectedAccount(inputValue);
-                      setFormData(prev => ({ ...prev, account: inputValue }));
+                      setFormData((prev) => ({ ...prev, account: inputValue }));
                     }}
                     className="w-full"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipe Transaksi *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Tipe Transaksi *
+                  </label>
                   <select
                     value={formData.transaction_type}
                     onChange={(e) => {
-                      setFormData(prev => ({ 
-                        ...prev, 
-                        transaction_type: e.target.value as 'debit' | 'kredit',
-                        category_id: ''
+                      setFormData((prev) => ({
+                        ...prev,
+                        transaction_type: e.target.value as "debit" | "kredit",
+                        category_id: "",
                       }));
                       setIsSpecialCategory(false);
                     }}
@@ -673,7 +814,9 @@ const CashManagementPage = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Kategori</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Kategori
+                  </label>
                   <select
                     value={formData.category_id}
                     onChange={handleCategoryChange}
@@ -681,19 +824,24 @@ const CashManagementPage = () => {
                   >
                     <option value="">Pilih Kategori</option>
                     {categories
-                      .filter(cat => 
-                        (formData.transaction_type === 'debit' && cat.category_type === 'income') ||
-                        (formData.transaction_type === 'kredit' && cat.category_type === 'expense')
+                      .filter(
+                        (cat) =>
+                          (formData.transaction_type === "debit" &&
+                            cat.category_type === "income") ||
+                          (formData.transaction_type === "kredit" &&
+                            cat.category_type === "expense")
                       )
-                      .map(category => (
+                      .map((category) => (
                         <option key={category.id} value={category.id}>
                           {category.category_name}
                         </option>
                       ))}
-                    {formData.transaction_type === 'kredit' && (
-                      <option value="inventory_redirect">Inventory (Pembelian Stok)</option>
+                    {formData.transaction_type === "kredit" && (
+                      <option value="inventory_redirect">
+                        Inventory (Pembelian Stok)
+                      </option>
                     )}
-                    {formData.transaction_type === 'kredit' && (
+                    {formData.transaction_type === "kredit" && (
                       <option value="service_redirect">Servis</option>
                     )}
                   </select>
@@ -701,22 +849,36 @@ const CashManagementPage = () => {
                 {!isSpecialCategory && (
                   <>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Jumlah *</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Jumlah *
+                      </label>
                       <input
                         type="number"
                         step="0.01"
                         value={formData.amount}
-                        onChange={(e) => setFormData(prev => ({ ...prev, amount: e.target.value }))}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            amount: e.target.value,
+                          }))
+                        }
                         className="w-full border border-gray-300 rounded-md px-3 py-2"
                         placeholder="0"
                         required={!isSpecialCategory}
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Deskripsi *</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Deskripsi *
+                      </label>
                       <textarea
                         value={formData.description}
-                        onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            description: e.target.value,
+                          }))
+                        }
                         className="w-full border border-gray-300 rounded-md px-3 py-2"
                         rows={3}
                         placeholder="Deskripsi transaksi..."
@@ -724,27 +886,43 @@ const CashManagementPage = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Nomor Referensi</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Nomor Referensi
+                      </label>
                       <input
                         type="text"
                         value={formData.reference_number}
-                        onChange={(e) => setFormData(prev => ({ ...prev, reference_number: e.target.value }))}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            reference_number: e.target.value,
+                          }))
+                        }
                         className="w-full border border-gray-300 rounded-md px-3 py-2"
                         placeholder="Nomor referensi (opsional)"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal Transaksi *</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Tanggal Transaksi *
+                      </label>
                       <input
                         type="date"
                         value={formData.transaction_date}
-                        onChange={(e) => setFormData(prev => ({ ...prev, transaction_date: e.target.value }))}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            transaction_date: e.target.value,
+                          }))
+                        }
                         className="w-full border border-gray-300 rounded-md px-3 py-2"
                         required={!isSpecialCategory}
                       />
                     </div>
                     <div className="mt-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Upload Nota</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Upload Nota
+                      </label>
                       <div className="flex items-center space-x-2">
                         <input
                           id="fileInput"
@@ -756,17 +934,25 @@ const CashManagementPage = () => {
                         />
                         <button
                           type="button"
-                          onClick={() => document.getElementById('fileInput')?.click()}
+                          onClick={() =>
+                            document.getElementById("fileInput")?.click()
+                          }
                           className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded flex items-center"
                         >
-                          <span>+</span> <span className="ml-1">Tambah Nota</span>
+                          <span>+</span>{" "}
+                          <span className="ml-1">Tambah Nota</span>
                         </button>
                         {attachmentFiles.length > 0 && (
                           <div className="mt-2">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">New Files</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              New Files
+                            </label>
                             <ul className="space-y-1">
                               {attachmentFiles.map((file, index) => (
-                                <li key={index} className="text-sm text-gray-600 flex justify-between">
+                                <li
+                                  key={index}
+                                  className="text-sm text-gray-600 flex justify-between"
+                                >
                                   <span>{file.name}</span>
                                   <button
                                     type="button"
@@ -782,28 +968,35 @@ const CashManagementPage = () => {
                         )}
                       </div>
                     </div>
-                    {editingTransaction?.attachment_urls && editingTransaction.attachment_urls.length > 0 && (
-                      <div className="mt-2">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Existing Files</label>
-                        <ul className="space-y-1">
-                          {editingTransaction.attachment_urls.map((url, index) => (
-                            <li key={index}>
-                              <a
-                                href={`${process.env.REACT_APP_BACKEND_URL}/${url}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-blue-500 hover:underline"
-                              >
-                                Nota {index + 1}
-                              </a>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+                    {editingTransaction?.attachment_urls &&
+                      editingTransaction.attachment_urls.length > 0 && (
+                        <div className="mt-2">
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Existing Files
+                          </label>
+                          <ul className="space-y-1">
+                            {editingTransaction.attachment_urls.map(
+                              (url, index) => (
+                                <li key={index}>
+                                  <a
+                                    href={`${process.env.REACT_APP_BACKEND_URL}/${url}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-blue-500 hover:underline"
+                                  >
+                                    Nota {index + 1}
+                                  </a>
+                                </li>
+                              )
+                            )}
+                          </ul>
+                        </div>
+                      )}
                     {attachmentFiles.length > 0 && (
                       <div className="mt-2">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">New Files</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          New Files
+                        </label>
                         <ul className="space-y-1">
                           {attachmentFiles.map((file, index) => (
                             <li key={index} className="text-sm text-gray-600">
@@ -834,7 +1027,7 @@ const CashManagementPage = () => {
                       />
                       <input
                         type="date"
-                        value={formData.date_nota[index] || ''}
+                        value={formData.date_nota[index] || ""}
                         onChange={(e) => {
                           const newDateNotas = [...formData.date_nota];
                           newDateNotas[index] = e.target.value;
@@ -848,7 +1041,7 @@ const CashManagementPage = () => {
                 ))}
                 {isSpecialCategory && (
                   <div className="bg-blue-50 p-3 rounded-md text-blue-800">
-                    {formData.category_id === 'inventory_redirect' ? (
+                    {formData.category_id === "inventory_redirect" ? (
                       <p>Anda akan diarahkan ke halaman pembelian stok</p>
                     ) : (
                       <p>Anda akan diarahkan ke halaman penjualan servis</p>
@@ -871,7 +1064,7 @@ const CashManagementPage = () => {
                     type="submit"
                     className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
                   >
-                    {editingTransaction ? 'Update' : 'Lanjutkan'}
+                    {editingTransaction ? "Update" : "Lanjutkan"}
                   </button>
                 </div>
               </form>
@@ -884,7 +1077,9 @@ const CashManagementPage = () => {
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
             <div className="mt-3">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Deskripsi Lengkap</h3>
+              <h3 className="text-lg font-medium text-gray-900 mb-4">
+                Deskripsi Lengkap
+              </h3>
               <div className="whitespace-pre-wrap text-sm text-gray-700 mb-4">
                 {currentDesc}
               </div>
@@ -905,12 +1100,18 @@ const CashManagementPage = () => {
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-6 border w-full max-w-lg shadow-lg rounded-md bg-white">
             <div className="mt-3">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Detail Nota</h3>
+              <h3 className="text-lg font-medium text-gray-900 mb-4">
+                Detail Nota
+              </h3>
               <div className="space-y-4">
-                {(selectedNotaDetails.no_nota && selectedNotaDetails.no_nota.length > 0) || 
-                 (selectedNotaDetails.date_nota && selectedNotaDetails.date_nota.length > 0) ? (
+                {(selectedNotaDetails.no_nota &&
+                  selectedNotaDetails.no_nota.length > 0) ||
+                (selectedNotaDetails.date_nota &&
+                  selectedNotaDetails.date_nota.length > 0) ? (
                   <div>
-                    <h4 className="text-sm font-medium text-gray-700 mb-2">Nota Details</h4>
+                    <h4 className="text-sm font-medium text-gray-700 mb-2">
+                      Nota Details
+                    </h4>
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50">
                         <tr>
@@ -923,27 +1124,36 @@ const CashManagementPage = () => {
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {selectedNotaDetails.no_nota && selectedNotaDetails.no_nota.map((nota, index) => (
-                          <tr key={index}>
-                            <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
-                              {nota || '-'}
-                            </td>
-                            <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
-                              {selectedNotaDetails.date_nota && selectedNotaDetails.date_nota[index] 
-                                ? formatDate(selectedNotaDetails.date_nota[index]) 
-                                : '-'}
-                            </td>
-                          </tr>
-                        ))}
+                        {selectedNotaDetails.no_nota &&
+                          selectedNotaDetails.no_nota.map((nota, index) => (
+                            <tr key={index}>
+                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
+                                {nota || "-"}
+                              </td>
+                              <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
+                                {selectedNotaDetails.date_nota &&
+                                selectedNotaDetails.date_nota[index]
+                                  ? formatDate(
+                                      selectedNotaDetails.date_nota[index]
+                                    )
+                                  : "-"}
+                              </td>
+                            </tr>
+                          ))}
                       </tbody>
                     </table>
                   </div>
                 ) : (
-                  <p className="text-sm text-gray-500">Tidak ada nomor nota atau tanggal nota.</p>
+                  <p className="text-sm text-gray-500">
+                    Tidak ada nomor nota atau tanggal nota.
+                  </p>
                 )}
-                {selectedNotaDetails.attachment_urls && selectedNotaDetails.attachment_urls.length > 0 ? (
+                {selectedNotaDetails.attachment_urls &&
+                selectedNotaDetails.attachment_urls.length > 0 ? (
                   <div>
-                    <h4 className="text-sm font-medium text-gray-700 mb-2">Attached Files</h4>
+                    <h4 className="text-sm font-medium text-gray-700 mb-2">
+                      Attached Files
+                    </h4>
                     <ul className="space-y-2">
                       {selectedNotaDetails.attachment_urls.map((url, index) => (
                         <li key={index}>
@@ -953,8 +1163,18 @@ const CashManagementPage = () => {
                             rel="noopener noreferrer"
                             className="text-blue-500 hover:underline flex items-center"
                           >
-                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12h2m0 0h-2m2 0v-2m0 2v2m-6-6h2m0 0h-2m2 0v-2m0 2v2m-6 6h2m0 0h-2m2 0v-2m0 2v2M12 3C8.134 3 5 6.134 5 10c0 2.506 1.42 4.668 3.5 5.799v4.701h7V15.8c2.08-1.132 3.5-3.294 3.5-5.8 0-3.866-3.134-7-7-7z" />
+                            <svg
+                              className="w-4 h-4 mr-2"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M15 12h2m0 0h-2m2 0v-2m0 2v2m-6-6h2m0 0h-2m2 0v-2m0 2v2m-6 6h2m0 0h-2m2 0v-2m0 2v2M12 3C8.134 3 5 6.134 5 10c0 2.506 1.42 4.668 3.5 5.799v4.701h7V15.8c2.08-1.132 3.5-3.294 3.5-5.8 0-3.866-3.134-7-7-7z"
+                              />
                             </svg>
                             Nota {index + 1}
                           </a>
@@ -963,7 +1183,9 @@ const CashManagementPage = () => {
                     </ul>
                   </div>
                 ) : (
-                  <p className="text-sm text-gray-500">Tidak ada file terlampir.</p>
+                  <p className="text-sm text-gray-500">
+                    Tidak ada file terlampir.
+                  </p>
                 )}
               </div>
               <div className="flex justify-end mt-6">

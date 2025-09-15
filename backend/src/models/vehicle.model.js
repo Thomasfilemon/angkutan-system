@@ -181,6 +181,15 @@ module.exports = (sequelize) => {
           },
         },
       },
+      // Audit fields
+      last_edited_by: {
+        type: DataTypes.STRING(255),
+        allowNull: true,
+      },
+      last_edited_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
       created_at: {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW,
@@ -268,38 +277,47 @@ module.exports = (sequelize) => {
 
   // NEW: Get tire positions based on tire count
   Vehicle.prototype.getTirePositions = function () {
-  const positions = [];
+    const positions = [];
 
-  // Always have front tires
-  positions.push("FL", "FR");
+    // Always have front tires
+    positions.push("FL", "FR");
 
-  // Add rear tires based on count - FIXED FOR PROPER DUAL LAYOUT WITH A/B DESIGNATION
-  const rearTireCount = this.tire_count - 2; // Subtract front tires
-  
-  if (rearTireCount === 2) {
-    // Single rear axle (4-tire vehicle)
-    positions.push("RL1", "RR1");
-  } else if (rearTireCount === 4) {
-    // Dual rear axle (6-tire vehicle) - inner/outer designation
-    positions.push("RL1A", "RL1B", "RR1A", "RR1B");
-  } else if (rearTireCount === 8) {
-    // 10-tire vehicle - TWO rear axles with dual tires each
-    positions.push("RL1A", "RL1B", "RR1A", "RR1B", "RL2A", "RL2B", "RR2A", "RR2B");
-  } else if (rearTireCount >= 6) {
-    // Large vehicles - create proper dual axle configuration
-    const axleCount = Math.ceil(rearTireCount / 4); // 4 tires per axle
-    for (let axle = 1; axle <= axleCount; axle++) {
-      positions.push(`RL${axle}A`, `RL${axle}B`, `RR${axle}A`, `RR${axle}B`);
+    // Add rear tires based on count - FIXED FOR PROPER DUAL LAYOUT WITH A/B DESIGNATION
+    const rearTireCount = this.tire_count - 2; // Subtract front tires
+
+    if (rearTireCount === 2) {
+      // Single rear axle (4-tire vehicle)
+      positions.push("RL1", "RR1");
+    } else if (rearTireCount === 4) {
+      // Dual rear axle (6-tire vehicle) - inner/outer designation
+      positions.push("RL1A", "RL1B", "RR1A", "RR1B");
+    } else if (rearTireCount === 8) {
+      // 10-tire vehicle - TWO rear axles with dual tires each
+      positions.push(
+        "RL1A",
+        "RL1B",
+        "RR1A",
+        "RR1B",
+        "RL2A",
+        "RL2B",
+        "RR2A",
+        "RR2B"
+      );
+    } else if (rearTireCount >= 6) {
+      // Large vehicles - create proper dual axle configuration
+      const axleCount = Math.ceil(rearTireCount / 4); // 4 tires per axle
+      for (let axle = 1; axle <= axleCount; axle++) {
+        positions.push(`RL${axle}A`, `RL${axle}B`, `RR${axle}A`, `RR${axle}B`);
+      }
     }
-  }
 
-  // Add spare tires
-  for (let spare = 1; spare <= this.spare_tire_count; spare++) {
-    positions.push(`SPARE${spare}`);
-  }
+    // Add spare tires
+    for (let spare = 1; spare <= this.spare_tire_count; spare++) {
+      positions.push(`SPARE${spare}`);
+    }
 
-  return positions;
-};
+    return positions;
+  };
 
   return Vehicle;
 };

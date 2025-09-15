@@ -1,6 +1,5 @@
 // src/pages/Ritase/DOProfitabilityReport.tsx
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
 import apiClient from "../../api/axiosConfig";
 import TableSkeleton from "../../components/ui/TableSkeleton";
 import toast from "react-hot-toast";
@@ -73,8 +72,6 @@ const DOProfitabilityReport: React.FC = () => {
   const [loadLocationFilter, setLoadLocationFilter] = useState("");
   const [unloadLocationFilter, setUnloadLocationFilter] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-
-  const navigate = useNavigate();
 
   const fetchAddresses = useCallback(async (data: ProfitabilityData[]) => {
     setIsAddressLoading(true);

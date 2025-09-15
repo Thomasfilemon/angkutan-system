@@ -555,12 +555,20 @@ exports.updatePurchaseOrder = async (req, res, next) => {
 
       // Sync deposit group remaining_quantity with PO total_quantity
       if (po.deposit_group_id) {
-        const group = await DepositGroup.findByPk(po.deposit_group_id, { transaction });
+        const group = await DepositGroup.findByPk(po.deposit_group_id, {
+          transaction,
+        });
         if (group) {
           group.remaining_quantity = newQuantity;
           await group.save({ transaction });
         }
       }
+    }
+
+    // Record who made the change
+    if (req.user && req.user.username) {
+      updateData.last_edited_by = req.user.username;
+      updateData.last_edited_at = new Date();
     }
 
     const updatedPO = await po.update(updateData, { transaction });
@@ -643,14 +651,18 @@ exports.updatePurchaseOrder = async (req, res, next) => {
       ],
     });
 
+    const finalData = {
+      ...finalPO.toJSON(),
+      ...stats,
+      deposit_group_linked: !!finalPO.deposit_group_id,
+      last_edited_by: finalPO.last_edited_by || null,
+      last_edited_at: finalPO.last_edited_at || null,
+    };
+
     res.json({
       success: true,
       message: "Purchase Order updated successfully",
-      data: {
-        ...finalPO.toJSON(),
-        ...stats,
-        deposit_group_linked: !!finalPO.deposit_group_id,
-      },
+      data: finalData,
     });
   } catch (err) {
     await transaction.rollback();

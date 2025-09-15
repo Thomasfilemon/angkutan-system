@@ -8,6 +8,8 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 interface DeliveryOrder {
   id: number;
   do_number: string;
+  last_edited_by?: string | null;
+  last_edited_at?: string | null;
   do_name?: string; // Add the new field
   standalone_po_number?: string; // ✅ ADD this line
   customer_name: string;
@@ -309,6 +311,19 @@ const DeliveryOrdersPage = () => {
                       <div className="text-sm font-semibold text-gray-900">
                         {dOrder.do_number}
                       </div>
+                      {dOrder.last_edited_by && (
+                        <div className="mt-1 text-xs text-gray-500">
+                          Edited by {dOrder.last_edited_by}
+                          {dOrder.last_edited_at && (
+                            <span className="ml-1">
+                              •{" "}
+                              {new Date(dOrder.last_edited_at).toLocaleString(
+                                "id-ID"
+                              )}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </td>
 
                     {/* Name */}

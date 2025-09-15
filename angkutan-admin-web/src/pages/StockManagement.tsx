@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import apiClient from "../api/axiosConfig";
+import StockAdjustmentModal from "../components/StockAdjustmentModal";
 
 // --- Simplified Icon Collection ---
 const IconHistory = () => (
@@ -69,6 +70,8 @@ interface StockItem {
   weighted_average_price?: number;
   batch_count?: number;
   is_low_stock?: boolean;
+  last_edited_by?: string;
+  last_edited_at?: string;
 }
 
 // ✅ ADD SEARCH FILTERS INTERFACE
@@ -108,6 +111,11 @@ const StockManagementPage = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [totalItems, setTotalItems] = useState(0);
+
+  // Modal state for adjustments
+  const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
+  const [selectedItemForAdjust, setSelectedItemForAdjust] =
+    useState<StockItem | null>(null);
 
   // ✅ ENHANCED FETCH FUNCTION
   const fetchStockItems = useCallback(async (page = 1) => {
@@ -264,6 +272,24 @@ const StockManagementPage = () => {
         );
       }
     }
+  };
+
+  const openAdjustModal = (item: StockItem) => {
+    setSelectedItemForAdjust(item);
+    setIsAdjustModalOpen(true);
+  };
+
+  const handleAdjustSuccess = (payload: any) => {
+    const updated = payload?.updated_item;
+    if (!updated) return;
+
+    // Update stockItems and filteredItems
+    setStockItems((prev) =>
+      prev.map((it) => (it.id === updated.id ? { ...it, ...updated } : it))
+    );
+    setFilteredItems((prev) =>
+      prev.map((it) => (it.id === updated.id ? { ...it, ...updated } : it))
+    );
   };
 
   const getStatusBadge = (status: string) => {
@@ -514,6 +540,16 @@ const StockManagementPage = () => {
                             {item.category.category_name}
                           </span>
                         )}
+                        {item.last_edited_by && (
+                          <div className="mt-1 text-xs text-gray-600">
+                            <span className="px-2 py-1 bg-gray-100 rounded text-xs">
+                              Diubah oleh {item.last_edited_by} •{" "}
+                              {new Date(
+                                item.last_edited_at || ""
+                              ).toLocaleString("id-ID")}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -576,6 +612,27 @@ const StockManagementPage = () => {
                         <IconHistory />
                       </Link>
                       <button
+                        onClick={() => openAdjustModal(item)}
+                        className="p-1 rounded-full hover:bg-blue-100 text-gray-500 hover:text-blue-600"
+                        title="Penyesuaian Stok"
+                      >
+                        {/* Simple plus icon */}
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-5 w-5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M12 4v16m8-8H4"
+                          />
+                        </svg>
+                      </button>
+                      <button
                         onClick={() => handleDelete(item.id)}
                         className="p-1 rounded-full hover:bg-red-100 text-gray-500 hover:text-red-600"
                         title="Hapus Barang"
@@ -590,6 +647,18 @@ const StockManagementPage = () => {
           </tbody>
         </table>
       </div>
+
+      {selectedItemForAdjust && (
+        <StockAdjustmentModal
+          isOpen={isAdjustModalOpen}
+          onClose={() => {
+            setIsAdjustModalOpen(false);
+            setSelectedItemForAdjust(null);
+          }}
+          item={selectedItemForAdjust}
+          onSuccess={(payload) => handleAdjustSuccess(payload)}
+        />
+      )}
 
       {/* Pagination */}
       <div className="py-4 flex justify-between items-center">

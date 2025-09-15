@@ -1,7 +1,7 @@
 // src/pages/ServiceEdit.tsx
-import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import apiClient from '../api/axiosConfig';
+import React, { useState, useEffect } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import apiClient from "../api/axiosConfig";
 
 interface Vehicle {
   id: number;
@@ -14,7 +14,7 @@ interface ServiceDetail {
   vehicle_id: number;
   service_number: string; // ADD THIS LINE
   service_date: string;
-  service_type: 'regular' | 'with_parts';
+  service_type: "regular" | "with_parts";
   description: string;
   workshop_name: string;
   labor_cost: number;
@@ -28,15 +28,15 @@ const ServiceEditPage = () => {
   const [loading, setLoading] = useState(false);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [service, setService] = useState<ServiceDetail | null>(null);
-  
+
   const [formData, setFormData] = useState({
-    vehicle_id: '',
-    service_date: '',
-    service_type: 'regular' as 'regular' | 'with_parts',
-    description: '',
-    workshop_name: '',
-    labor_cost: '',
-    notes: ''
+    vehicle_id: "",
+    service_date: "",
+    service_type: "regular" as "regular" | "with_parts",
+    description: "",
+    workshop_name: "",
+    labor_cost: "",
+    notes: "",
   });
 
   useEffect(() => {
@@ -48,10 +48,10 @@ const ServiceEditPage = () => {
 
   const fetchVehicles = async () => {
     try {
-      const response = await apiClient.get('/vehicles');
+      const response = await apiClient.get("/vehicles");
       setVehicles(response.data);
     } catch (err) {
-      console.error('Failed to fetch vehicles:', err);
+      console.error("Failed to fetch vehicles:", err);
     }
   };
 
@@ -61,39 +61,43 @@ const ServiceEditPage = () => {
       const response = await apiClient.get(`/services/${id}`);
       const serviceData = response.data;
       setService(serviceData);
-      
+
       setFormData({
         vehicle_id: serviceData.vehicle_id.toString(),
         service_date: serviceData.service_date,
         service_type: serviceData.service_type,
         description: serviceData.description,
-        workshop_name: serviceData.workshop_name || '',
+        workshop_name: serviceData.workshop_name || "",
         labor_cost: serviceData.labor_cost.toString(),
-        notes: serviceData.notes || ''
+        notes: serviceData.notes || "",
       });
     } catch (err) {
-      console.error('Failed to fetch service:', err);
-      alert('Failed to load service data');
+      console.error("Failed to fetch service:", err);
+      alert("Failed to load service data");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+  const handleInputChange = (
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+    >
+  ) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      [name]: value
+      [name]: value,
     }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!service) return;
 
-    if (service.status === 'cancelled') {
-      alert('Cannot edit cancelled service');
+    if (service.status === "cancelled") {
+      alert("Cannot edit cancelled service");
       return;
     }
 
@@ -107,14 +111,14 @@ const ServiceEditPage = () => {
         description: formData.description,
         workshop_name: formData.workshop_name,
         labor_cost: parseFloat(formData.labor_cost) || 0,
-        notes: formData.notes
+        notes: formData.notes,
       };
 
       await apiClient.put(`/services/${id}`, submitData);
       navigate(`/services/${id}`);
     } catch (err) {
-      console.error('Failed to update service:', err);
-      alert('Failed to update service. Please try again.');
+      console.error("Failed to update service:", err);
+      alert("Failed to update service. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -128,7 +132,7 @@ const ServiceEditPage = () => {
     return <div className="text-center p-8">Service not found</div>;
   }
 
-  if (service.status === 'cancelled') {
+  if (service.status === "cancelled") {
     return (
       <div className="max-w-4xl mx-auto">
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
@@ -137,7 +141,7 @@ const ServiceEditPage = () => {
         </div>
         <div className="mt-4">
           <button
-            onClick={() => navigate('/services')}
+            onClick={() => navigate("/services")}
             className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded"
           >
             Back to Services
@@ -150,13 +154,26 @@ const ServiceEditPage = () => {
   return (
     <div className="max-w-4xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-800">Edit Servis Kendaraan</h1>
+        <h1 className="text-3xl font-bold text-gray-800">
+          Edit Servis Kendaraan
+        </h1>
         <p className="text-gray-600 mt-2">
           Edit informasi servis - Service Number: {service.service_number}
         </p>
+        {service && (service as any).last_edited_by && (
+          <div className="text-sm text-gray-600 mt-3">
+            Diubah oleh {(service as any).last_edited_by} •{" "}
+            {new Date((service as any).last_edited_at || "").toLocaleString(
+              "id-ID"
+            )}
+          </div>
+        )}
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-white shadow-md rounded-lg p-6">
+      <form
+        onSubmit={handleSubmit}
+        className="bg-white shadow-md rounded-lg p-6"
+      >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
           {/* Vehicle Selection */}
           <div>
@@ -171,7 +188,7 @@ const ServiceEditPage = () => {
               required
             >
               <option value="">Pilih Kendaraan</option>
-              {vehicles.map(vehicle => (
+              {vehicles.map((vehicle) => (
                 <option key={vehicle.id} value={vehicle.id}>
                   {vehicle.license_plate} - {vehicle.type}
                 </option>
@@ -278,10 +295,14 @@ const ServiceEditPage = () => {
         </div>
 
         {/* Warning for parts */}
-        {service.service_type === 'with_parts' && (
+        {service.service_type === "with_parts" && (
           <div className="mb-6 bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded">
             <p className="font-bold">Perhatian:</p>
-            <p>Servis ini menggunakan suku cadang. Perubahan pada suku cadang tidak dapat dilakukan melalui form ini. Untuk mengubah suku cadang, batalkan servis ini dan buat servis baru.</p>
+            <p>
+              Servis ini menggunakan suku cadang. Perubahan pada suku cadang
+              tidak dapat dilakukan melalui form ini. Untuk mengubah suku
+              cadang, batalkan servis ini dan buat servis baru.
+            </p>
           </div>
         )}
 
@@ -299,7 +320,7 @@ const ServiceEditPage = () => {
             disabled={loading}
             className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50"
           >
-            {loading ? 'Menyimpan...' : 'Update Servis'}
+            {loading ? "Menyimpan..." : "Update Servis"}
           </button>
         </div>
       </form>
