@@ -139,6 +139,8 @@ CREATE TABLE stock_items (
     item_name VARCHAR(255) NOT NULL,
     supplier VARCHAR(255),
     unit VARCHAR(20) NOT NULL DEFAULT 'Pcs',
+    rack_row SMALLINT CHECK (rack_row BETWEEN 1 AND 4),
+    rack_level SMALLINT CHECK (rack_level BETWEEN 1 AND 5),
     min_stock NUMERIC(10,2) NOT NULL DEFAULT 0,
     average_unit_price NUMERIC(15,2) DEFAULT 0, -- Weighted average price
     total_value NUMERIC(15,2) DEFAULT 0, -- Total value of all batches

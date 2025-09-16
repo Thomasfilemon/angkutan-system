@@ -40,6 +40,23 @@ module.exports = (sequelize) => {
         allowNull: false,
         defaultValue: "Pcs",
       },
+      // Rak lokasi penyimpanan: baris (1-4) dan tingkat (1-5)
+      rack_row: {
+        type: DataTypes.SMALLINT,
+        allowNull: true,
+        validate: {
+          min: 1,
+          max: 4,
+        },
+      },
+      rack_level: {
+        type: DataTypes.SMALLINT,
+        allowNull: true,
+        validate: {
+          min: 1,
+          max: 5,
+        },
+      },
       // ❌ REMOVED: current_stock field (now calculated from batches)
       min_stock: {
         type: DataTypes.DECIMAL(10, 2),

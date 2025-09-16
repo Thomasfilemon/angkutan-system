@@ -16,6 +16,8 @@ interface StockItem {
     item_name: string;
     supplier: string;
     unit: string;
+    rack_row?: number | null;
+    rack_level?: number | null;
     current_stock: number;
     min_stock: number;
     unit_price: number;
@@ -40,6 +42,8 @@ interface FormItem {
     item_name: string;
     supplier: string;
     unit: string;
+    rack_row?: string;
+    rack_level?: string;
     current_stock: string;
     min_stock: string;
     unit_price: string;
@@ -65,6 +69,8 @@ const StockCreatePage = () => {
         item_name: '',
         supplier: '',
         unit: 'Pcs',
+        rack_row: '',
+        rack_level: '',
         current_stock: '',
         min_stock: '',
         unit_price: '',
@@ -165,6 +171,8 @@ const StockCreatePage = () => {
                 item_name: item.item_name || '',
                 supplier: item.supplier || '',
                 unit: item.unit || 'Pcs',
+                rack_row: item.rack_row?.toString() || '',
+                rack_level: item.rack_level?.toString() || '',
                 current_stock: item.current_stock?.toString() || '0',
                 min_stock: item.min_stock?.toString() || '',
                 unit_price: item.average_unit_price?.toString() || '',
@@ -269,6 +277,8 @@ const StockCreatePage = () => {
             item_name: '',
             supplier: '',
             unit: 'Pcs',
+            rack_row: '',
+            rack_level: '',
             current_stock: '',
             min_stock: '',
             unit_price: '',
@@ -321,6 +331,8 @@ const StockCreatePage = () => {
                 item_name: selectedItem.item_name || '',
                 supplier: selectedItem.supplier || '',
                 unit: selectedItem.unit || 'Pcs',
+                rack_row: selectedItem.rack_row?.toString() || '',
+                rack_level: selectedItem.rack_level?.toString() || '',
                 current_stock: selectedItem.current_stock?.toString() || '0',
                 min_stock: selectedItem.min_stock?.toString() || '',
                 unit_price: (selectedItem.average_unit_price || selectedItem.unit_price)?.toString() || '',
@@ -422,6 +434,8 @@ const StockCreatePage = () => {
                         item_name: formItem.item_name,
                         supplier: formItem.supplier,
                         unit: formItem.unit,
+                        rack_row: formItem.rack_row ? parseInt(formItem.rack_row) : null,
+                        rack_level: formItem.rack_level ? parseInt(formItem.rack_level) : null,
                         min_stock: parseFloat(formItem.min_stock) || 0,
                         unit_price: parseFloat(formItem.unit_price) || 0,
                         initial_stock: adjustmentAmount,
@@ -699,6 +713,42 @@ const StockCreatePage = () => {
                                         {errors[`unit-${index}`] && (
                                             <p className="text-red-500 text-xs italic">{errors[`unit-${index}`]}</p>
                                         )}
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {/* Rak lokasi: 4 baris x 5 tingkat */}
+                                    <div className="mb-4">
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Rak - Baris (1-4)
+                                        </label>
+                                        <select
+                                            name="rack_row"
+                                            value={item.rack_row || ''}
+                                            onChange={(e) => handleInputChange(index, e)}
+                                            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                        >
+                                            <option value="">Pilih Baris</option>
+                                            {[1,2,3,4].map(v => (
+                                                <option key={v} value={String(v)}>Baris {v}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="mb-4">
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Rak - Tingkat (1-5)
+                                        </label>
+                                        <select
+                                            name="rack_level"
+                                            value={item.rack_level || ''}
+                                            onChange={(e) => handleInputChange(index, e)}
+                                            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                        >
+                                            <option value="">Pilih Tingkat</option>
+                                            {[1,2,3,4,5].map(v => (
+                                                <option key={v} value={String(v)}>Tingkat {v}</option>
+                                            ))}
+                                        </select>
                                     </div>
                                 </div>
 

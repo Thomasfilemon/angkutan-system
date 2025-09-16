@@ -12,8 +12,26 @@ INSERT INTO users (username, password_hash, role) VALUES
 ('supir_dedi', 'awak1234', 'driver'),
 ('supir_eko', 'awak1234', 'driver');
 
+-- Tambahan akun admin kedua dan owner
+INSERT INTO users (username, password_hash, role) VALUES
+('admin_dua', 'awak1234', 'admin')
+ON CONFLICT (username) DO NOTHING;
+
+INSERT INTO users (username, password_hash, role) VALUES
+('owner_utama', 'awak1234', 'owner')
+ON CONFLICT (username) DO NOTHING;
+
 INSERT INTO admin_profiles (user_id, full_name, phone, email) VALUES
 ((SELECT id FROM users WHERE username = 'admin_satu'), 'Admin Satu', '081234567890', 'admin1@perusahaan.com');
+
+-- Profil untuk admin_dua dan owner_utama
+INSERT INTO admin_profiles (user_id, full_name, phone, email) VALUES
+((SELECT id FROM users WHERE username = 'admin_dua'), 'Admin Dua', '081234567891', 'admin2@perusahaan.com')
+ON CONFLICT (user_id) DO NOTHING;
+
+INSERT INTO admin_profiles (user_id, full_name, phone, email) VALUES
+((SELECT id FROM users WHERE username = 'owner_utama'), 'Owner Utama', '081234567892', 'owner@perusahaan.com')
+ON CONFLICT (user_id) DO NOTHING;
 
 INSERT INTO driver_profiles (user_id, full_name, phone, address, id_card_number, sim_number, license_type, status) VALUES
 ((SELECT id FROM users WHERE username = 'supir_andi'), 'Andi Setiawan', '081111111111', 'Jl. Merdeka 1', '3201111111110001', '1111-1111-111111', 'B2 Umum', 'available'),

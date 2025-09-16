@@ -274,6 +274,8 @@ const createStockItem = async (req, res, next) => {
       item_name,
       supplier,
       unit,
+      rack_row,
+      rack_level,
       min_stock,
       unit_price,
       initial_stock,
@@ -296,6 +298,8 @@ const createStockItem = async (req, res, next) => {
             ? String(supplier).trim()
             : null,
         unit: unit || "Pcs",
+        rack_row: rack_row ? parseInt(rack_row) : null,
+        rack_level: rack_level ? parseInt(rack_level) : null,
         min_stock: parseFloat(min_stock) || 0,
         notes,
       },
@@ -426,7 +430,25 @@ const updateStockItem = async (req, res, next) => {
       });
     }
 
-    await stockItem.update(req.body);
+    const {
+      item_name,
+      supplier,
+      unit,
+      rack_row,
+      rack_level,
+      min_stock,
+      notes,
+    } = req.body;
+
+    await stockItem.update({
+      item_name,
+      supplier,
+      unit,
+      rack_row: rack_row ? parseInt(rack_row) : null,
+      rack_level: rack_level ? parseInt(rack_level) : null,
+      min_stock,
+      notes,
+    });
     res.json({
       success: true,
       message: "Stock item updated successfully",

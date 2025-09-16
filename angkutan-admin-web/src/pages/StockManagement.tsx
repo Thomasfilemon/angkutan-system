@@ -61,6 +61,8 @@ interface StockItem {
   item_name: string;
   supplier: string;
   unit: string;
+  rack_row?: number | null;
+  rack_level?: number | null;
   current_stock: number;
   min_stock: number;
   average_unit_price: number;
@@ -471,6 +473,9 @@ const StockManagementPage = () => {
               <th scope="col" className="px-6 py-3 border border-gray-300">
                 Supplier
               </th>
+              <th scope="col" className="px-6 py-3 border border-gray-300">
+                Rak
+              </th>
               <th
                 scope="col"
                 className="px-6 py-3 border border-gray-300 text-center"
@@ -555,6 +560,15 @@ const StockManagementPage = () => {
                   </td>
                   <td className="px-6 py-4 border border-gray-300">
                     {item.supplier || "-"}
+                  </td>
+                  <td className="px-6 py-4 border border-gray-300">
+                    {(() => {
+                      const mapRowToLetter = (row?: number | null) =>
+                        row ? String.fromCharCode("A".charCodeAt(0) + (row - 1)) : null;
+                      const letter = mapRowToLetter(item.rack_row);
+                      const level = item.rack_level ?? null;
+                      return letter && level ? `${letter}${level}` : "-";
+                    })()}
                   </td>
                   <td className="px-6 py-4 border border-gray-300 text-center">
                     <span

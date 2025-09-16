@@ -113,51 +113,53 @@ const MainLayout = () => {
               </Link>
             </li>
 
-            {/* Reports & Analytics Section */}
-            <li className="mb-2 mt-6">
-              <div className="text-xs uppercase text-gray-400 font-semibold mb-2 px-2">
-                Laporan & Analitik
-              </div>
-            </li>
-            <li className="mb-4">
-              <Link
-                to="/ritase/comprehensive"
-                className={`block p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink("/ritase/comprehensive")
-                    ? "bg-gray-700 border-l-4 border-blue-500"
-                    : ""
-                }`}
-              >
-                📊 Dashboard Ritase
-              </Link>
-            </li>
-
-            {/* Remove duplicate DO Profitability link below */}
-
-            <li className="mb-4">
-              <Link
-                to="/payments"
-                className={`block p-2 rounded hover:bg-gray-700 ${
-                  location.pathname.startsWith("/payments")
-                    ? "bg-gray-700 border-l-4 border-blue-500"
-                    : ""
-                }`}
-              >
-                💰 Payments
-              </Link>
-            </li>
-
-            <li className="mb-4">
-              <Link
-                to="/deposit-groups"
-                className={`block p-2 rounded hover:bg-gray-700 ${
-                  location.pathname.startsWith("/deposit-groups")
-                    ? "bg-gray-700 border-l-4 border-blue-500"
-                    : ""
-                }`}
-              >
-                📩 Deposit Payments
-              </Link>
+            {/* Laporan & Pembayaran Section (Dropdown) */}
+            <li className="mb-4 mt-6">
+              <details className="group">
+                <summary className="flex items-center p-2 rounded hover:bg-gray-700 cursor-pointer select-none">
+                  <span className="text-xl mr-3">📈</span>
+                  <span className={`${sidebarMinimized ? "hidden" : "block"}`}>Laporan & Pembayaran</span>
+                  <span className="ml-auto text-xs text-gray-300 group-open:hidden">▼</span>
+                  <span className="ml-auto text-xs text-gray-300 hidden group-open:inline">▲</span>
+                </summary>
+                {!sidebarMinimized && (
+                  <ul className="ml-8 mt-2 space-y-2">
+                    <li>
+                      <Link
+                        to="/ritase/comprehensive"
+                        className={`block p-2 rounded hover:bg-gray-700 ${
+                          isActiveLink("/ritase/comprehensive") ? "bg-gray-700 border-l-4 border-blue-500" : ""
+                        }`}
+                        title="Ritase"
+                      >
+                        Ritase
+                      </Link>
+                    </li>
+                    <li>
+                      <Link
+                        to="/payments"
+                        className={`block p-2 rounded hover:bg-gray-700 ${
+                          location.pathname.startsWith("/payments") ? "bg-gray-700 border-l-4 border-blue-500" : ""
+                        }`}
+                        title="Payments"
+                      >
+                        Payments
+                      </Link>
+                    </li>
+                    <li>
+                      <Link
+                        to="/deposit-groups"
+                        className={`block p-2 rounded hover:bg-gray-700 ${
+                          location.pathname.startsWith("/deposit-groups") ? "bg-gray-700 border-l-4 border-blue-500" : ""
+                        }`}
+                        title="Deposit Payments"
+                      >
+                        Deposit Payments
+                      </Link>
+                    </li>
+                  </ul>
+                )}
+              </details>
             </li>
 
             {/* Operations Section */}
@@ -217,192 +219,164 @@ const MainLayout = () => {
               </details>
             </li>
 
-            {/* Fleet Management Section */}
-            {!sidebarMinimized && (
-              <li className="mb-2 mt-6">
-                <div className="text-xs uppercase text-gray-400 font-semibold mb-2 px-2">
-                  Manajemen Armada
-                </div>
-              </li>
-            )}
-            <li className="mb-4">
-              <Link
-                to="/vehicles"
-                className={`flex items-center p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink("/vehicles") &&
-                  !location.pathname.startsWith("/vehicles/tires")
-                    ? "bg-gray-700 border-l-4 border-blue-500"
-                    : ""
-                }`}
-                title="Manajemen Kendaraan"
-              >
-                <span className="text-xl mr-3">🚛</span>
-                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
-                  Manajemen Kendaraan
-                </span>
-              </Link>
-            </li>
-            <li className="mb-4">
-              <Link
-                to="/vehicles/tires"
-                className={`flex items-center p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink("/vehicles/tires")
-                    ? "bg-gray-700 border-l-4 border-blue-500"
-                    : ""
-                }`}
-                title="Manajemen Ban"
-              >
-                <span className="text-xl mr-3">🛞</span>
-                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
-                  Manajemen Ban
-                </span>
-              </Link>
-            </li>
-            <li className="mb-4">
-              <Link
-                to="/drivers"
-                className={`flex items-center p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink("/drivers")
-                    ? "bg-gray-700 border-l-4 border-blue-500"
-                    : ""
-                }`}
-                title="Manajemen Supir"
-              >
-                <span className="text-xl mr-3">👨‍💼</span>
-                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
-                  Manajemen Supir
-                </span>
-              </Link>
-            </li>
-            <li className="mb-4">
-              <Link
-                to="/services"
-                className={`flex items-center p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink("/services")
-                    ? "bg-gray-700 border-l-4 border-blue-500"
-                    : ""
-                }`}
-                title="Riwayat Servis"
-              >
-                <span className="text-xl mr-3">🔧</span>
-                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
-                  Riwayat Servis
-                </span>
-              </Link>
+            {/* Fleet Management Section - Dropdown */}
+            <li className="mb-4 mt-6">
+              <details className="group">
+                <summary className="flex items-center p-2 rounded hover:bg-gray-700 cursor-pointer select-none">
+                  <span className="text-xl mr-3">🚛</span>
+                  <span className={`${sidebarMinimized ? "hidden" : "block"}`}>Manajemen Armada</span>
+                  <span className="ml-auto text-xs text-gray-300 group-open:hidden">▼</span>
+                  <span className="ml-auto text-xs text-gray-300 hidden group-open:inline">▲</span>
+                </summary>
+                {!sidebarMinimized && (
+                  <ul className="ml-8 mt-2 space-y-2">
+                    <li>
+                      <Link
+                        to="/vehicles"
+                        className={`block p-2 rounded hover:bg-gray-700 ${
+                          isActiveLink("/vehicles") && !location.pathname.startsWith("/vehicles/tires")
+                            ? "bg-gray-700 border-l-4 border-blue-500"
+                            : ""
+                        }`}
+                        title="Manajemen Kendaraan"
+                      >
+                        Manajemen Kendaraan
+                      </Link>
+                    </li>
+                    <li>
+                      <Link
+                        to="/vehicles/tires"
+                        className={`block p-2 rounded hover:bg-gray-700 ${
+                          isActiveLink("/vehicles/tires") ? "bg-gray-700 border-l-4 border-blue-500" : ""
+                        }`}
+                        title="Manajemen Ban"
+                      >
+                        Manajemen Ban
+                      </Link>
+                    </li>
+                    <li>
+                      <Link
+                        to="/drivers"
+                        className={`block p-2 rounded hover:bg-gray-700 ${
+                          isActiveLink("/drivers") ? "bg-gray-700 border-l-4 border-blue-500" : ""
+                        }`}
+                        title="Manajemen Supir"
+                      >
+                        Manajemen Supir
+                      </Link>
+                    </li>
+                    <li>
+                      <Link
+                        to="/services"
+                        className={`block p-2 rounded hover:bg-gray-700 ${
+                          isActiveLink("/services") ? "bg-gray-700 border-l-4 border-blue-500" : ""
+                        }`}
+                        title="Riwayat Servis"
+                      >
+                        Riwayat Servis
+                      </Link>
+                    </li>
+                  </ul>
+                )}
+              </details>
             </li>
 
-            {/* Inventory Management Section */}
-            {!sidebarMinimized && (
-              <li className="mb-2 mt-6">
-                <div className="text-xs uppercase text-gray-400 font-semibold mb-2 px-2">
-                  Inventaris
-                </div>
-              </li>
-            )}
-            <li className="mb-4">
-              <Link
-                to="/stock"
-                className={`flex items-center p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink("/stock")
-                    ? "bg-gray-700 border-l-4 border-blue-500"
-                    : ""
-                }`}
-                title="Manajemen Stok"
-              >
-                <span className="text-xl mr-3">📦</span>
-                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
-                  Manajemen Stok
-                </span>
-              </Link>
-            </li>
-            <li className="mb-4">
-              <Link
-                to="/tire-inventory"
-                className={`flex items-center p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink("/tire-inventory")
-                    ? "bg-gray-700 border-l-4 border-blue-500"
-                    : ""
-                }`}
-                title="Inventaris Ban"
-              >
-                <span className="text-xl mr-3">🛞</span>
-                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
-                  Inventaris Ban
-                </span>
-              </Link>
-            </li>
-            <li className="mb-4">
-              <Link
-                to="/vehicles/tires/removed"
-                className={`flex items-center p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink("/vehicles/tires/removed")
-                    ? "bg-gray-700 border-l-4 border-blue-500"
-                    : ""
-                }`}
-                title="Ban Bekas"
-              >
-                <span className="text-xl mr-3">🔄</span>
-                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
-                  Ban Bekas
-                </span>
-              </Link>
+            {/* Inventory Management Section - Dropdown */}
+            <li className="mb-4 mt-6">
+              <details className="group">
+                <summary className="flex items-center p-2 rounded hover:bg-gray-700 cursor-pointer select-none">
+                  <span className="text-xl mr-3">📦</span>
+                  <span className={`${sidebarMinimized ? "hidden" : "block"}`}>Inventaris</span>
+                  <span className="ml-auto text-xs text-gray-300 group-open:hidden">▼</span>
+                  <span className="ml-auto text-xs text-gray-300 hidden group-open:inline">▲</span>
+                </summary>
+                {!sidebarMinimized && (
+                  <ul className="ml-8 mt-2 space-y-2">
+                    <li>
+                      <Link
+                        to="/stock"
+                        className={`block p-2 rounded hover:bg-gray-700 ${
+                          isActiveLink("/stock") ? "bg-gray-700 border-l-4 border-blue-500" : ""
+                        }`}
+                        title="Manajemen Stok"
+                      >
+                        Stok
+                      </Link>
+                    </li>
+                    <li>
+                      <Link
+                        to="/tire-inventory"
+                        className={`block p-2 rounded hover:bg-gray-700 ${
+                          isActiveLink("/tire-inventory") ? "bg-gray-700 border-l-4 border-blue-500" : ""
+                        }`}
+                        title="Inventaris Ban"
+                      >
+                        Inventaris Ban
+                      </Link>
+                    </li>
+                    <li>
+                      <Link
+                        to="/vehicles/tires/removed"
+                        className={`block p-2 rounded hover:bg-gray-700 ${
+                          isActiveLink("/vehicles/tires/removed") ? "bg-gray-700 border-l-4 border-blue-500" : ""
+                        }`}
+                        title="Ban Bekas"
+                      >
+                        Ban Bekas
+                      </Link>
+                    </li>
+                  </ul>
+                )}
+              </details>
             </li>
 
-            {/* NEW: Accounting Section */}
-            {!sidebarMinimized && (
-              <li className="mb-2 mt-6">
-                <div className="text-xs uppercase text-gray-400 font-semibold mb-2 px-2">
-                  Akuntansi
-                </div>
-              </li>
-            )}
-            <li className="mb-4">
-              <Link
-                to="/cash"
-                className={`flex items-center p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink("/cash")
-                    ? "bg-gray-700 border-l-4 border-blue-500"
-                    : ""
-                }`}
-                title="Buku Kas"
-              >
-                <span className="text-xl mr-3">💰</span>
-                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
-                  Buku Kas
-                </span>
-              </Link>
-            </li>
-            <li className="mb-4">
-              <Link
-                to="/tempo"
-                className={`flex items-center p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink("/tempo")
-                    ? "bg-gray-700 border-l-4 border-blue-500"
-                    : ""
-                }`}
-                title="Buku Tempo"
-              >
-                <span className="text-xl mr-3">🤬</span>
-                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
-                  Buku Tempo
-                </span>
-              </Link>
-            </li>
-            <li className="mb-4">
-              <Link
-                to="/tempoDetails"
-                className={`flex items-center p-2 rounded hover:bg-gray-700 ${
-                  isActiveLink("/tempoDetails")
-                    ? "bg-gray-700 border-l-4 border-blue-500"
-                    : ""
-                }`}
-                title="Detail Tempo"
-              >
-                <span className="text-xl mr-3">🤬</span>
-                <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
-                  Detail Tempo
-                </span>
-              </Link>
+            {/* Buku Kas & Tempo Section - Dropdown */}
+            <li className="mb-4 mt-6">
+              <details className="group">
+                <summary className="flex items-center p-2 rounded hover:bg-gray-700 cursor-pointer select-none">
+                  <span className="text-xl mr-3">💼</span>
+                  <span className={`${sidebarMinimized ? "hidden" : "block"}`}>Buku Kas & Tempo</span>
+                  <span className="ml-auto text-xs text-gray-300 group-open:hidden">▼</span>
+                  <span className="ml-auto text-xs text-gray-300 hidden group-open:inline">▲</span>
+                </summary>
+                {!sidebarMinimized && (
+                  <ul className="ml-8 mt-2 space-y-2">
+                    <li>
+                      <Link
+                        to="/cash"
+                        className={`block p-2 rounded hover:bg-gray-700 ${
+                          isActiveLink("/cash") ? "bg-gray-700 border-l-4 border-blue-500" : ""
+                        }`}
+                        title="Buku Kas"
+                      >
+                        Buku Kas
+                      </Link>
+                    </li>
+                    <li>
+                      <Link
+                        to="/tempo"
+                        className={`block p-2 rounded hover:bg-gray-700 ${
+                          isActiveLink("/tempo") ? "bg-gray-700 border-l-4 border-blue-500" : ""
+                        }`}
+                        title="Buku Tempo"
+                      >
+                        Buku Tempo
+                      </Link>
+                    </li>
+                    <li>
+                      <Link
+                        to="/tempoDetails"
+                        className={`block p-2 rounded hover:bg-gray-700 ${
+                          isActiveLink("/tempoDetails") ? "bg-gray-700 border-l-4 border-blue-500" : ""
+                        }`}
+                        title="Detail Tempo"
+                      >
+                        Detail Tempo
+                      </Link>
+                    </li>
+                  </ul>
+                )}
+              </details>
             </li>
           </ul>
         </nav>
