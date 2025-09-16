@@ -89,6 +89,11 @@ app.get("/", (req, res) => {
   });
 });
 
+// Render health check expects root /health
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
 // === Existing Mobile Routes (UNCHANGED) ===
 app.use("/api", healthRoutes);
 app.use("/api/auth", authRoutes);
