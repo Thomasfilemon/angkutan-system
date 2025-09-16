@@ -1,14 +1,28 @@
 const { Pool } = require("pg");
 require("dotenv").config();
 
-const pool = new Pool({
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  max: 20,
-});
+// Prefer single DATABASE_URL (with SSL for Neon/Supabase). Fallback to discrete vars.
+let pool;
+if (process.env.DATABASE_URL) {
+  pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+    max: 20,
+  });
+} else {
+  pool = new Pool({
+    host: process.env.DB_HOST,
+    port: process.env.DB_PORT,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD || process.env.DB_PASS,
+    database: process.env.DB_NAME,
+    ssl:
+      process.env.DB_SSL === "true" || process.env.NODE_ENV === "production"
+        ? { rejectUnauthorized: false }
+        : undefined,
+    max: 20,
+  });
+}
 
 // Event listeners for pool error handling
 pool.on("error", (err, client) => {
@@ -23,8 +37,7 @@ const testConnection = async () => {
     console.log("Connected to PostgreSQL database");
     client.release();
   } catch (err) {
-    console.error("Error connecting to PostgreSQL:", err.stack);
-    process.exit(-1);
+    console.error("Error connecting to PostgreSQL:", err);
   }
 };
 
