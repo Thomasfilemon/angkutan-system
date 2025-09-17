@@ -31,6 +31,7 @@
     "jsonwebtoken": "^9.0.2",
     "moment-timezone": "^0.6.0",
     "multer": "^2.0.1",
+  "googleapis": "^140.0.0",
     "node-cron": "^4.1.0",
     "pg": "^8.16.0",
     "pg-hstore": "^2.3.4",

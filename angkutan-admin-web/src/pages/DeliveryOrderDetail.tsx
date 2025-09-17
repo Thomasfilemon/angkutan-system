@@ -183,13 +183,27 @@ const DeliveryOrderDetailPage = () => {
       const formData = new FormData();
       formData.append("actual_load_quantity", adminActualQty);
       if (adminNotes) formData.append("notes", adminNotes);
+
       Array.from(adminPhotos).forEach((file) => {
         formData.append("surat_jalan_photos", file);
       });
 
-      await apiClient.post(`/delivery-orders/${id}/admin-complete`, formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      // DEBUG: Log FormData entries to ensure files are attached
+      try {
+        // Use FormData.forEach which does not require downlevelIteration in TS
+        formData.forEach((value, key) => {
+          if (value instanceof File) {
+            console.log("formData entry:", key, value.name, value.size);
+          } else {
+            console.log("formData entry:", key, value);
+          }
+        });
+      } catch (e) {
+        console.warn("Unable to iterate FormData entries for debug", e);
+      }
+
+      // Do NOT set Content-Type manually; allow browser to set boundary
+      await apiClient.post(`/delivery-orders/${id}/admin-complete`, formData);
 
       // Refresh page data
       const response = await apiClient.get(`/delivery-orders/${id}`);
@@ -523,17 +537,19 @@ const DeliveryOrderDetailPage = () => {
                   )}
                 </span>
               </div>
-              {deliveryOrder.additional_allowance.map((amount, index) => (
-                <div key={index} className="flex justify-between">
-                  <span>
-                    Additional Allowance {index + 1}
-                    {allowanceDescriptions[index]
-                      ? ` (${allowanceDescriptions[index]})`
-                      : ""}
-                  </span>
-                  <span>Rp {amount.toLocaleString("id-ID")}</span>
-                </div>
-              ))}
+              {(deliveryOrder.additional_allowance || []).map(
+                (amount, index) => (
+                  <div key={index} className="flex justify-between">
+                    <span>
+                      Additional Allowance {index + 1}
+                      {allowanceDescriptions[index]
+                        ? ` (${allowanceDescriptions[index]})`
+                        : ""}
+                    </span>
+                    <span>Rp {amount.toLocaleString("id-ID")}</span>
+                  </div>
+                )
+              )}
               <div className="flex justify-between">
                 <span>Driver Salary:</span>
                 <span>
@@ -828,18 +844,49 @@ const DeliveryOrderDetailPage = () => {
             <div className="lg:col-span-3 bg-white shadow-md rounded-lg p-6">
               <h2 className="text-xl font-semibold mb-4">Surat Jalan Photos</h2>
               <div className="flex flex-wrap gap-4">
-                {deliveryOrder.surat_jalan_photo_url.map((url, idx) => (
-                  <div key={idx} className="max-w-xs">
-                    <img
-                      src={`${process.env.REACT_APP_BACKEND_URL || ""}/${url}`}
-                      alt={`Surat Jalan ${idx + 1}`}
-                      className="w-full h-auto rounded-lg border border-gray-300"
-                    />
-                    <div className="text-xs text-gray-500 mt-1 text-center">
-                      Surat Jalan {idx + 1}
+                {(deliveryOrder.surat_jalan_photo_url || []).map((url, idx) => {
+                  // Allow backend to return either absolute URLs or relative paths
+                  const isAbsolute =
+                    typeof url === "string" &&
+                    (url.startsWith("http") || url.startsWith("//"));
+
+                  // Prefer explicit backend URL from env; fallback to localhost:3000
+                  const backendBase =
+                    (process.env.REACT_APP_BACKEND_URL || "").replace(
+                      /\/$/,
+                      ""
+                    ) ||
+                    (window.location.hostname === "localhost"
+                      ? "http://localhost:3000"
+                      : "");
+
+                  const normalizedPath = String(url).replace(/^\/+/, "");
+                  const src = isAbsolute
+                    ? url
+                    : backendBase
+                    ? `${backendBase}/${normalizedPath}`
+                    : `/${normalizedPath}`;
+
+                  return (
+                    <div key={idx} className="max-w-xs">
+                      <img
+                        src={src}
+                        alt={`Surat Jalan ${idx + 1}`}
+                        className="w-full h-auto rounded-lg border border-gray-300"
+                        onError={(e) => {
+                          // show a tiny placeholder if image fails to load
+                          const t = e.currentTarget as HTMLImageElement;
+                          t.onerror = null;
+                          t.src =
+                            "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='120'><rect width='100%' height='100%' fill='%23f3f4f6'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' fill='%239ca3af' font-size='12'>Surat Jalan</text></svg>";
+                        }}
+                      />
+                      <div className="text-xs text-gray-500 mt-1 text-center">
+                        Surat Jalan {idx + 1}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

@@ -4,6 +4,7 @@ const router = express.Router();
 const webDOController = require("../../controllers/web/deliveryOrderController");
 const { verifyToken, checkRole } = require("../../middlewares/auth.middleware");
 const upload = require("../../middlewares/upload.middleware");
+const uploadMemory = require("../../middlewares/uploadMemory.middleware");
 
 router.use(verifyToken);
 
@@ -40,10 +41,11 @@ router.post(
 );
 
 // Admin: confirm load with surat jalan photos and complete DO in one shot
+// Use memory upload so we can stream files to Google Drive
 router.post(
   "/:id/admin-complete",
   checkRole(["admin", "owner"]),
-  upload.array("surat_jalan_photos", 5),
+  uploadMemory.array("surat_jalan_photos", 5),
   webDOController.adminConfirmLoadAndComplete
 );
 router.get(
