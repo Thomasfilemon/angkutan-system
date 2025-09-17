@@ -1510,37 +1510,14 @@ exports.adminConfirmLoadAndComplete = async (req, res, next) => {
         .json({ success: false, message: "Delivery Order not found" });
     }
 
-    // Upload each buffer to Google Drive and collect the returned public links
-    const { uploadBufferToDrive } = require("../../services/googleDrive.service");
-    const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID || null;
+    // Upload each buffer to Cloudinary and collect the returned public links
+    const { uploadFromBuffer } = require("../../services/cloudinary.service");
 
-    const driveLinks = [];
-    for (const f of suratJalanFiles) {
-      // If file is from memory storage it should have buffer
-      const buffer = f.buffer;
-      const originalname = f.originalname || f.filename || `file-${Date.now()}`;
-      const mimetype = f.mimetype || "application/octet-stream";
-      try {
-        const uploaded = await uploadBufferToDrive({
-          buffer,
-          filename: originalname,
-          mimeType: mimetype,
-          folderId,
-        });
-        // Prefer webContentLink if available, else webViewLink, else fileId path
-        if (uploaded.webContentLink) driveLinks.push(uploaded.webContentLink);
-        else if (uploaded.webViewLink) driveLinks.push(uploaded.webViewLink);
-        else if (uploaded.id) driveLinks.push(`https://drive.google.com/uc?export=view&id=${uploaded.id}`);
-      } catch (uploadErr) {
-        console.error("Drive upload error:", uploadErr);
-        // Rollback and return error
-        await transaction.rollback();
-        return res.status(500).json({
-          success: false,
-          message: `Failed to upload file ${originalname} to Google Drive: ${uploadErr.message}`,
-        });
-      }
-    }
+    const uploadPromises = suratJalanFiles.map((file) =>
+      uploadFromBuffer(file.buffer)
+    );
+    const uploadResults = await Promise.all(uploadPromises);
+    const cloudinaryLinks = uploadResults.map((result) => result.secure_url);
 
     // Merge with existing photos to avoid overwriting unintentionally
     let existingPhotos = [];
@@ -1557,7 +1534,9 @@ exports.adminConfirmLoadAndComplete = async (req, res, next) => {
       existingPhotos = [];
     }
 
-    const mergedPhotos = Array.from(new Set([...existingPhotos, ...driveLinks]));
+    const mergedPhotos = Array.from(
+      new Set([...existingPhotos, ...cloudinaryLinks])
+    );
 
     // Update DO with actual quantity and merged photos first
     await deliveryOrder.update(
