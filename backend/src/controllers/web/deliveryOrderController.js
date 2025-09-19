@@ -865,6 +865,21 @@ exports.getDeliveryOrderById = async (req, res, next) => {
     const doData = deliveryOrder.toJSON();
     const orderUnit = doData.unit || doData.purchaseOrder?.unit || "ton";
 
+    // Normalize surat_jalan_photo_url to array of forward-slash paths
+    if (doData.surat_jalan_photo_url) {
+      if (Array.isArray(doData.surat_jalan_photo_url)) {
+        doData.surat_jalan_photo_url = doData.surat_jalan_photo_url.map((p) =>
+          String(p || "").replace(/\\/g, "/")
+        );
+      } else {
+        doData.surat_jalan_photo_url = [
+          String(doData.surat_jalan_photo_url).replace(/\\/g, "/"),
+        ];
+      }
+    } else {
+      doData.surat_jalan_photo_url = [];
+    }
+
     // Calculate totals with additional allowances
     let minimalTotalAmount =
       doData.minimal_load_quantity && doData.unit_price
@@ -1441,12 +1456,21 @@ exports.adminConfirmLoadAndComplete = async (req, res, next) => {
       });
     }
 
-    // Normalize files list (support single or multiple)
-    const suratJalanFiles = Array.isArray(req.files)
-      ? req.files
-      : req.file
-      ? [req.file]
-      : [];
+    // Normalize files list (support array, fields object, or single file)
+    let suratJalanFiles = [];
+    if (Array.isArray(req.files)) {
+      // multer .array()
+      suratJalanFiles = req.files;
+    } else if (req.files && typeof req.files === "object") {
+      // multer .fields() returns object with arrays per field
+      Object.values(req.files).forEach((val) => {
+        if (Array.isArray(val)) suratJalanFiles.push(...val);
+      });
+    } else if (req.file) {
+      // multer .single()
+      suratJalanFiles = [req.file];
+    }
+
     if (!suratJalanFiles.length) {
       await transaction.rollback();
       return res.status(400).json({
@@ -1486,16 +1510,39 @@ exports.adminConfirmLoadAndComplete = async (req, res, next) => {
         .json({ success: false, message: "Delivery Order not found" });
     }
 
-    // Persist surat jalan photo URLs
-    const photoUrls = suratJalanFiles.map((f) =>
-      String(f.path || "").replace(/\\/g, "/")
+    // Upload each buffer to Cloudinary and collect the returned public links
+    const { uploadFromBuffer } = require("../../services/cloudinary.service");
+
+    const uploadPromises = suratJalanFiles.map((file) =>
+      uploadFromBuffer(file.buffer)
+    );
+    const uploadResults = await Promise.all(uploadPromises);
+    const cloudinaryLinks = uploadResults.map((result) => result.secure_url);
+
+    // Merge with existing photos to avoid overwriting unintentionally
+    let existingPhotos = [];
+    try {
+      const existing = deliveryOrder.surat_jalan_photo_url;
+      if (existing) {
+        if (Array.isArray(existing)) {
+          existingPhotos = existing.map((p) => String(p).replace(/\\/g, "/"));
+        } else {
+          existingPhotos = [String(existing).replace(/\\/g, "/")];
+        }
+      }
+    } catch (e) {
+      existingPhotos = [];
+    }
+
+    const mergedPhotos = Array.from(
+      new Set([...existingPhotos, ...cloudinaryLinks])
     );
 
-    // Update DO with actual quantity and photos first
+    // Update DO with actual quantity and merged photos first
     await deliveryOrder.update(
       {
         actual_load_quantity: parseFloat(actual_load_quantity),
-        surat_jalan_photo_url: photoUrls,
+        surat_jalan_photo_url: mergedPhotos,
       },
       { transaction }
     );

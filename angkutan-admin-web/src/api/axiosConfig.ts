@@ -8,21 +8,24 @@ const WEB_API_URL = BASE_API_URL.endsWith("/web")
   : `${BASE_API_URL}/web`;
 const AUTH_API_URL = BASE_API_URL.replace("/web", "");
 
-const safeHeaders = {
+// Default headers - do not force Content-Type here because some requests
+// (FormData multipart uploads) must let the browser set the Content-Type
+// including the boundary. We'll add an interceptor below to remove
+// Content-Type when sending FormData.
+const defaultHeaders = {
   "ngrok-skip-browser-warning": "true",
-  "Content-Type": "application/json",
 };
 
 const apiClient = axios.create({
   baseURL: WEB_API_URL,
   timeout: 20000,
-  headers: safeHeaders,
+  headers: defaultHeaders,
 });
 
 export const authClient = axios.create({
   baseURL: AUTH_API_URL,
   timeout: 20000,
-  headers: safeHeaders,
+  headers: defaultHeaders,
 });
 
 // Request interceptors
@@ -36,6 +39,34 @@ apiClient.interceptors.request.use(
     return config;
   },
   (error) => Promise.reject(error)
+);
+
+// Remove Content-Type header when sending FormData so browser can set the
+// correct multipart boundary. Also handle x-www-form-urlencoded if needed.
+apiClient.interceptors.request.use(
+  (config) => {
+    try {
+      if (config.data instanceof FormData && config.headers) {
+        // axios may have headers defined in different places; remove common keys
+        if (config.headers["Content-Type"])
+          delete config.headers["Content-Type"];
+        if (config.headers.common && config.headers.common["Content-Type"]) {
+          delete config.headers.common["Content-Type"];
+        }
+        // Some environments use lowercase header keys
+        if (config.headers["content-type"])
+          delete config.headers["content-type"];
+        if (config.headers.common && config.headers.common["content-type"]) {
+          delete config.headers.common["content-type"];
+        }
+      }
+    } catch (e) {
+      // don't block requests on interceptor errors
+      console.warn("Error in FormData request interceptor", e);
+    }
+    return config;
+  },
+  (err) => Promise.reject(err)
 );
 
 authClient.interceptors.request.use(
