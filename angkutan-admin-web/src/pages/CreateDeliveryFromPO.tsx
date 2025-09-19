@@ -452,6 +452,23 @@ const CreateDeliveryFromPO: React.FC = () => {
     }
   };
 
+  const RecenterMap = ({ markers }: { markers: MarkerType[] }) => {
+    const map = useMap();
+
+    useEffect(() => {
+      if (markers.length === 1) {
+        // Center on single marker
+        map.setView([markers[0].lat, markers[0].lng], 15);
+      } else if (markers.length > 1) {
+        // Fit bounds for multiple markers
+        const bounds = L.latLngBounds(markers.map(m => [m.lat, m.lng] as [number, number]));
+        map.fitBounds(bounds, { padding: [50, 50] });
+      }
+    }, [markers, map]);
+
+    return null;
+  };
+
   const handleInputChange = (
     index: number,
     e: React.ChangeEvent<
@@ -1512,6 +1529,7 @@ const CreateDeliveryFromPO: React.FC = () => {
                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                   attribution="© OpenStreetMap contributors"
                 />
+                <RecenterMap markers={markers} />
                 <SearchControlComponent onLocationFound={handleSearchSelect} />
                 <MapClickHandler
                   selectedLocationType={selectedLocationType}
