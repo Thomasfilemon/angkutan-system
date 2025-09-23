@@ -19,6 +19,9 @@ const setupStockItemModel = require("./stockItem.model");
 const setupStockTransactionModel = require("./stockTransaction.model");
 const setupStockBatchModel = require("./stockBatch.model");
 const setupServiceItemModel = require("./serviceItem.model");
+// Usage note models (missing before)
+const setupStockUsageNoteModel = require("./stockUsageNote.model");
+const setupStockUsageNoteItemModel = require("./stockUsageNoteItem.model");
 
 // Create model files for new Ritase tables
 const setupDeliveryOrderPaymentsModel = require("./deliveryOrderPayments.model");
@@ -41,6 +44,10 @@ const setupDepositGroupInvoiceModel = require("./depositGroupInvoice.model");
 const setupDepositGroupPaymentModel = require("./depositGroupPayment.model");
 const setupDepositGroupTopupModel = require("./depositGroupTopup.model");
 const setupTempoDetailModel = require("./tempoDetails.model");
+
+// NEW: recap note models
+const setupRecapNoteModel = require("./recapNote.model");
+const setupRecapNoteItemModel = require("./recapNoteItem.model");
 
 // Initialize Sequelize connection
 // Prefer a single DATABASE_URL (Neon/Supabase), fallback to discrete vars
@@ -108,6 +115,8 @@ db.StockBatch = setupStockBatchModel(sequelize);
 db.StockTransaction = setupStockTransactionModel(sequelize);
 db.StockBatch = setupStockBatchModel(sequelize);
 db.ServiceItem = setupServiceItemModel(sequelize);
+db.StockUsageNote = setupStockUsageNoteModel(sequelize);
+db.StockUsageNoteItem = setupStockUsageNoteItemModel(sequelize);
 
 db.DeliveryOrderPayments = setupDeliveryOrderPaymentsModel(sequelize);
 db.DeliveryOrderInvoices = setupDeliveryOrderInvoicesModel(sequelize);
@@ -130,6 +139,18 @@ db.DepositGroupInvoice = setupDepositGroupInvoiceModel(sequelize);
 db.DepositGroupPayment = setupDepositGroupPaymentModel(sequelize);
 db.DepositGroupTopup = setupDepositGroupTopupModel(sequelize);
 db.TempoDetail = setupTempoDetailModel(sequelize);
+
+db.RecapNote = setupRecapNoteModel(sequelize);
+db.RecapNoteItem = setupRecapNoteItemModel(sequelize);
+
+// Minimal associations for recap notes
+if (db.RecapNote && db.RecapNoteItem) {
+  db.RecapNote.hasMany(db.RecapNoteItem, { as: "items", foreignKey: "recap_id", onDelete: "CASCADE" });
+  db.RecapNoteItem.belongsTo(db.RecapNote, { as: "recap", foreignKey: "recap_id" });
+}
+if (db.RecapNote && db.Vehicle) {
+  db.RecapNote.belongsTo(db.Vehicle, { as: "vehicle", foreignKey: "vehicle_id" });
+}
 
 const {
   User,
@@ -301,6 +322,18 @@ ServiceItem.belongsTo(StockItem, {
   foreignKey: "stock_item_id",
   as: "stockItem",
 });
+
+// === Stock Usage Note Associations ===
+if (db.StockUsageNote && db.StockUsageNoteItem) {
+  db.StockUsageNote.hasMany(db.StockUsageNoteItem, { foreignKey: "note_id", as: "items", onDelete: "CASCADE" });
+  db.StockUsageNoteItem.belongsTo(db.StockUsageNote, { foreignKey: "note_id", as: "usageNote" });
+}
+if (db.StockUsageNote && db.Vehicle) {
+  db.StockUsageNote.belongsTo(db.Vehicle, { foreignKey: "vehicle_id", as: "vehicle" });
+}
+if (db.StockUsageNoteItem && db.StockItem) {
+  db.StockUsageNoteItem.belongsTo(db.StockItem, { foreignKey: "item_id", as: "stockItem" });
+}
 
 // === Payment-related Associations ===
 DeliveryOrder.hasMany(DeliveryOrderPayments, {

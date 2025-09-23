@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import apiClient from "../api/axiosConfig";
 import CreatableSelect from "react-select/creatable";
 import toast from "react-hot-toast";
+import { createRecap, listRecaps, addItemToRecap } from "../api/recapApi";
+import { createStockUsage, CreateStockUsagePayload } from "../api/stockUsageApi";
 
 interface CashCategory {
   id: number;
@@ -108,6 +110,74 @@ const CashManagementPage = () => {
 
   const [showDescModal, setShowDescModal] = useState(false);
   const [currentDesc, setCurrentDesc] = useState("");
+
+  // INLINE Kas Composer state (no popup)
+  const [recapNumber, setRecapNumber] = useState("");
+  const [composerType, setComposerType] = useState("stock_usage"); // stock_usage | stock_add | tire_purchase | service | cash_normal
+  const [isTempo, setIsTempo] = useState(false);
+  const [composerAccount, setComposerAccount] = useState("General");
+  const [composerSupplier, setComposerSupplier] = useState("");
+  const [composerDueDate, setComposerDueDate] = useState("");
+  const [vehicleId, setVehicleId] = useState<string>("");
+  const [itemId, setItemId] = useState<string>("");
+  const [itemName, setItemName] = useState("");
+  const [itemUnit, setItemUnit] = useState("Pcs");
+  const [itemQty, setItemQty] = useState<string>("");
+  const [unitPrice, setUnitPrice] = useState<string>("");
+  const [cashAmount, setCashAmount] = useState<string>("");
+  const [cashDesc, setCashDesc] = useState<string>("");
+
+  const ensureRecapNumber = useCallback(async () => {
+    if (recapNumber.trim() !== "") return recapNumber;
+    // Auto-create recap (default mode based on isTempo)
+    try {
+      const res = await createRecap({ payment_mode: isTempo ? "tempo" : "cash" });
+      setRecapNumber(res.recap_number);
+      toast.success(`Recap dibuat: ${res.recap_number}`);
+      return res.recap_number;
+    } catch (e) {
+      toast.error("Gagal membuat recap");
+      throw e;
+    }
+  }, [recapNumber, isTempo]);
+
+  const submitStockUsageRow = useCallback(async () => {
+    if (!vehicleId) {
+      toast.error("Vehicle ID wajib diisi");
+      return;
+    }
+    const qty = parseFloat(itemQty || "0");
+    if (!(qty > 0)) {
+      toast.error("Qty harus > 0");
+      return;
+    }
+    const recapNo = await ensureRecapNumber();
+    const payload: CreateStockUsagePayload = {
+      vehicle_id: parseInt(vehicleId, 10),
+      usage_date: new Date().toISOString().split("T")[0],
+      notes: `Composer entry: ${itemName || "Item"}`,
+      items: [
+        {
+          item_name: itemName || "Item",
+          unit: itemUnit,
+          quantity: qty,
+        },
+      ],
+      recap_number: recapNo,
+      cash_options: {
+        create_cash: true,
+        is_tempo: isTempo,
+        account: composerAccount,
+        supplier: composerSupplier || undefined,
+        due_date: isTempo ? composerDueDate || undefined : undefined,
+      },
+    };
+    await createStockUsage(payload);
+    toast.success("Stok langsung digunakan berhasil disimpan");
+    // Clear item fields for next row
+    setItemName("");
+    setItemQty("");
+  }, [vehicleId, itemName, itemUnit, itemQty, ensureRecapNumber, isTempo, composerAccount, composerSupplier, composerDueDate]);
 
   const fetchTransactions = useCallback(async () => {
     try {
@@ -300,6 +370,127 @@ const CashManagementPage = () => {
     setShowNotaModal(true);
   };
 
+  // Helpers for inline composer
+  const ensureRecap = useCallback(async () => {
+    try {
+      if (recapNumber && recapNumber.trim().length > 0) {
+        const res = await listRecaps({ page: 1, limit: 1, search: recapNumber });
+        const found = (res?.data || []).find((r: any) => r.recap_number === recapNumber);
+        if (found) return found;
+      }
+    } catch {}
+    const created = await createRecap({ payment_mode: isTempo ? "tempo" : "cash" });
+    setRecapNumber(created.recap_number);
+    return created;
+  }, [recapNumber, isTempo]);
+
+  const addCashTransaction = useCallback(async (amount: number, description: string) => {
+    const transaction_type = isTempo ? "kredit_tempo" : "kredit";
+    const payload = {
+      transaction_type,
+      category_id: "",
+      amount: amount.toString(),
+      description,
+      reference_number: recapNumber || undefined,
+      transaction_date: new Date().toISOString().split("T")[0],
+      account: composerAccount,
+      supplier: composerSupplier || undefined,
+      tanggal_jatuh_tempo: isTempo ? composerDueDate || undefined : undefined,
+      no_nota: [""],
+      date_nota: [""],
+    } as any;
+    const fd = new FormData();
+    Object.entries(payload).forEach(([k, v]) => {
+      if (v !== undefined) fd.append(k, v as string);
+    });
+    const res = await apiClient.post("/cash/transactions", fd, { headers: { "Content-Type": "multipart/form-data" } });
+    return res.data?.data || res.data;
+  }, [isTempo, recapNumber, composerAccount, composerSupplier, composerDueDate]);
+
+  const handleComposerSubmit = useCallback(async () => {
+    try {
+      if (composerType === "stock_usage") {
+        if (!vehicleId) return toast.error("Vehicle ID wajib");
+        const qty = parseFloat(itemQty || "0");
+        if (!(qty > 0)) return toast.error("Qty harus > 0");
+        const recap = await ensureRecap();
+        const payload: CreateStockUsagePayload = {
+          vehicle_id: parseInt(vehicleId, 10),
+          usage_date: new Date().toISOString().split("T")[0],
+          notes: currentDesc || `Composer: ${itemName || "Item"}`,
+          items: [
+            { item_id: itemId ? parseInt(itemId, 10) : undefined, item_name: itemName || undefined, unit: itemUnit, quantity: qty },
+          ],
+          recap_number: recap.recap_number,
+          cash_options: {
+            create_cash: true,
+            is_tempo: isTempo,
+            account: composerAccount,
+            supplier: composerSupplier || undefined,
+            due_date: isTempo ? composerDueDate || undefined : undefined,
+          },
+        };
+        await createStockUsage(payload);
+        toast.success("Stok langsung digunakan tersimpan");
+      } else if (composerType === "stock_add") {
+        const qty = parseFloat(itemQty || "0");
+        const price = parseFloat(unitPrice || "0");
+        if (!(qty > 0)) return toast.error("Qty harus > 0");
+        if (!(price >= 0)) return toast.error("Harga tidak valid");
+        const itemIdNum = itemId ? parseInt(itemId, 10) : undefined;
+        if (!itemIdNum && !itemName) return toast.error("Isi itemId atau itemName");
+        const recap = await ensureRecap();
+        let targetItemId = itemIdNum;
+        if (!targetItemId) {
+          const createRes = await apiClient.post("/stock", { item_name: itemName, unit: itemUnit, min_stock: 0 });
+          targetItemId = createRes.data?.data?.id || createRes.data?.id;
+        }
+        await apiClient.post("/stock/adjust", {
+          itemId: targetItemId,
+          adjustmentType: "add",
+          quantity: qty,
+          unit_price: price,
+          supplier: composerSupplier || undefined,
+          create_new_batch: true,
+          notes: currentDesc || `Tambah stok ${itemName || targetItemId}`,
+        });
+        if (price > 0) {
+          const cash = await addCashTransaction(qty * price, currentDesc || `Pembelian stok ${itemName || targetItemId}`);
+          await addItemToRecap(recap.id, { type: "cash", reference_id: cash.id, description: cash.description, amount: cash.amount } as any);
+        }
+        await addItemToRecap(recap.id, { type: "stock", reference_id: targetItemId!, description: currentDesc || `Stok masuk`, amount: qty * price } as any);
+        toast.success("Stok bertambah");
+      } else if (composerType === "tire_purchase") {
+        const amount = parseFloat(cashAmount || "0");
+        if (!(amount > 0)) return toast.error("Jumlah kas wajib");
+        const recap = await ensureRecap();
+        const cash = await addCashTransaction(amount, currentDesc || "Beli Ban");
+        await addItemToRecap(recap.id, { type: "tire_purchase", reference_id: cash.id, description: cash.description, amount: cash.amount } as any);
+        toast.success("Beli ban (kas) tersimpan");
+      } else if (composerType === "service") {
+        const amount = parseFloat(cashAmount || "0");
+        if (!(amount > 0)) return toast.error("Jumlah kas wajib");
+        const recap = await ensureRecap();
+        const desc = currentDesc || (vehicleId ? `Servis kendaraan ${vehicleId}` : "Servis kendaraan");
+        const cash = await addCashTransaction(amount, desc);
+        await addItemToRecap(recap.id, { type: "service", reference_id: cash.id, description: cash.description, amount: cash.amount } as any);
+        toast.success("Servis (kas) tersimpan");
+      } else if (composerType === "cash_normal") {
+        const amount = parseFloat(cashAmount || "0");
+        if (!(amount > 0)) return toast.error("Jumlah kas wajib");
+        const recap = await ensureRecap();
+        const cash = await addCashTransaction(amount, currentDesc || "Kas Biasa");
+        await addItemToRecap(recap.id, { type: "cash", reference_id: cash.id, description: cash.description, amount: cash.amount } as any);
+        toast.success("Kas biasa tersimpan");
+      }
+      await fetchTransactions();
+      setItemName(""); setItemId(""); setItemQty(""); setUnitPrice(""); setCashAmount(""); setCashDesc("");
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.response?.data?.message || "Gagal menyimpan baris");
+    }
+  }, [composerType, vehicleId, itemId, itemName, itemUnit, itemQty, unitPrice, cashAmount, currentDesc, ensureRecap, addCashTransaction, fetchTransactions, isTempo, composerAccount, composerSupplier, composerDueDate]);
+
   const resetForm = () => {
     setFormData({
       transaction_type: "debit",
@@ -353,17 +544,149 @@ const CashManagementPage = () => {
 
   return (
     <div className="p-6">
+      {/* INLINE KAS COMPOSER (moved to its own page) */}
+      {false && (
+      <div className="bg-white p-4 rounded-lg shadow mb-6">
+        <h2 className="text-lg font-semibold text-gray-800 mb-3">Kas Composer</h2>
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Recap Number</label>
+            <input type="text" value={recapNumber} onChange={(e) => setRecapNumber(e.target.value)} placeholder="Kosongkan untuk auto" className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Tempo?</label>
+            <select value={isTempo ? "yes" : "no"} onChange={(e) => setIsTempo(e.target.value === "yes")} className="w-full border border-gray-300 rounded-md px-3 py-2">
+              <option value="no">Cash</option>
+              <option value="yes">Tempo</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Account</label>
+            <CreatableSelect value={{ label: composerAccount, value: composerAccount }} options={accounts.map((a) => ({ label: a, value: a }))} onChange={(sel) => setComposerAccount(sel?.value || "General")} onCreateOption={(val) => setComposerAccount(val)} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Supplier</label>
+            <input type="text" value={composerSupplier} onChange={(e) => setComposerSupplier(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          {isTempo && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Jatuh Tempo</label>
+              <input type="date" value={composerDueDate} onChange={(e) => setComposerDueDate(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            </div>
+          )}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Jenis</label>
+            <select value={composerType} onChange={(e) => setComposerType(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2">
+              <option value="stock_usage">Stok Langsung Digunakan</option>
+              <option value="stock_add">Stok (Tambah)</option>
+              <option value="tire_purchase">Beli Ban</option>
+              <option value="service">Servis</option>
+              <option value="cash_normal">Kas Biasa</option>
+            </select>
+          </div>
+        </div>
+
+        {composerType === "stock_usage" && (
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mt-3">
+            <div>
+              <label className="block text-sm font-medium mb-1">Vehicle ID</label>
+              <input type="number" value={vehicleId} onChange={(e) => setVehicleId(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Item ID (opsional)</label>
+              <input type="number" value={itemId} onChange={(e) => setItemId(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Nama Item</label>
+              <input type="text" value={itemName} onChange={(e) => setItemName(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Unit</label>
+              <input type="text" value={itemUnit} onChange={(e) => setItemUnit(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Qty</label>
+              <input type="number" step="0.01" value={itemQty} onChange={(e) => setItemQty(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium mb-1">Keterangan</label>
+              <input type="text" value={cashDesc} onChange={(e) => setCashDesc(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            </div>
+          </div>
+        )}
+
+        {composerType === "stock_add" && (
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mt-3">
+            <div>
+              <label className="block text-sm font-medium mb-1">Item ID (opsional)</label>
+              <input type="number" value={itemId} onChange={(e) => setItemId(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Nama Item</label>
+              <input type="text" value={itemName} onChange={(e) => setItemName(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Unit</label>
+              <input type="text" value={itemUnit} onChange={(e) => setItemUnit(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Qty</label>
+              <input type="number" step="0.01" value={itemQty} onChange={(e) => setItemQty(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Harga Satuan</label>
+              <input type="number" step="0.01" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium mb-1">Keterangan</label>
+              <input type="text" value={cashDesc} onChange={(e) => setCashDesc(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            </div>
+          </div>
+        )}
+
+        {(composerType === "tire_purchase" || composerType === "service" || composerType === "cash_normal") && (
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mt-3">
+            {composerType === "service" && (
+              <div>
+                <label className="block text-sm font-medium mb-1">Vehicle ID</label>
+                <input type="number" value={vehicleId} onChange={(e) => setVehicleId(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+              </div>
+            )}
+            <div>
+              <label className="block text-sm font-medium mb-1">Jumlah</label>
+              <input type="number" step="0.01" value={cashAmount} onChange={(e) => setCashAmount(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            </div>
+            <div className="md:col-span-3">
+              <label className="block text-sm font-medium mb-1">Deskripsi</label>
+              <input type="text" value={cashDesc} onChange={(e) => setCashDesc(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" placeholder={composerType === "tire_purchase" ? "Beli ban" : composerType === "service" ? "Servis" : "Kas biasa"} />
+            </div>
+          </div>
+        )}
+
+        <div className="mt-4 flex justify-end">
+          <button onClick={handleComposerSubmit} className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded">Tambah Baris</button>
+        </div>
+      </div>
+      )}
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-gray-800">Buku Kas</h1>
-        <button
-          onClick={() => {
-            setSelectedTransactionType("");
-            setShowTransactionTypeModal(true);
-          }}
-          className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-        >
-          + Tambah Transaksi
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => navigate("/cash/composer")}
+            className="bg-indigo-500 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded"
+          >
+            Kas Composer
+          </button>
+          <button
+            onClick={() => {
+              setSelectedTransactionType("");
+              setShowTransactionTypeModal(true);
+            }}
+            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+          >
+            + Tambah Transaksi
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -1073,6 +1396,8 @@ const CashManagementPage = () => {
         </div>
       )}
 
+      {/* removed old popup composer */}
+
       {showDescModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
@@ -1183,9 +1508,7 @@ const CashManagementPage = () => {
                     </ul>
                   </div>
                 ) : (
-                  <p className="text-sm text-gray-500">
-                    Tidak ada file terlampir.
-                  </p>
+                  <p className="text-sm text-gray-500">Tidak ada file terlampir.</p>
                 )}
               </div>
               <div className="flex justify-end mt-6">

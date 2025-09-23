@@ -39,6 +39,7 @@ const legacyRitasePaymentsRoutes = require("./routes/web/ritase.payments.legacy.
 const utilsRoutes = require("./routes/utils.routes");
 const webDepositGroupRoutes = require("./routes/web/depositGroup.routes");
 const webTempoDetailRoutes = require("./routes/web/tempoDetails.routes"); // NEW: Import tempo details routes
+const webRecapRoutes = require("./routes/web/recap.routes");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -59,6 +60,14 @@ sequelize
   .authenticate()
   .then(() => console.log("✅ Database connection established successfully."))
   .catch((err) => console.error("❌ Unable to connect to the database:", err));
+
+// Optional: Auto-sync DB schema (use only in dev or when adding new tables)
+if (process.env.AUTO_SYNC === "true") {
+  sequelize
+    .sync({ alter: true })
+    .then(() => console.log("🛠  Sequelize sync completed (alter)."))
+    .catch((err) => console.error("❌ Sequelize sync failed:", err));
+}
 
 // Basic route
 app.get("/", (req, res) => {
@@ -125,6 +134,7 @@ app.use("/api/web/utils", utilsRoutes);
 app.use("/api/web/deposit-groups", webDepositGroupRoutes);
 app.use("/api/web/analytics", webAnalyticsRoutes);
 app.use("/api/web/tempo-details", webTempoDetailRoutes); // NEW: Mount tempo details routes
+app.use("/api/web/recaps", webRecapRoutes);
 
 // Error handling middleware
 app.use(errorHandler);

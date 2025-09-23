@@ -44,6 +44,7 @@ import RemovedTiresPage from "./pages/RemovedTires";
 import StockBatchesPage from "./pages/StockBatches";
 import CashManagementPage from "./pages/CashManagement";
 import TempoManagementPage from "./pages/CashTempoManagement";
+import CashComposerPage from "./pages/CashComposer";
 import StockHistoryPage from "./pages/StockHistory";
 import VehicleServiceHistory from "./pages/VehicleServiceHistory";
 import PaymentsRoutes from "./modules/payments/routes";
@@ -173,6 +174,7 @@ function App() {
           <Route path="services/:id" element={<ServiceDetailPage />} />
           <Route path="services/edit/:id" element={<ServiceEditPage />} />
           <Route path="cash" element={<CashManagementPage />} />
+          <Route path="cash/composer" element={<CashComposerPage />} />
           <Route path="tempo" element={<TempoManagementPage />} />
           <Route path="tempoDetails" element={<TempoDetailsPage />} />
           <Route path="deposit-groups" element={<DepositGroupManagement />} />

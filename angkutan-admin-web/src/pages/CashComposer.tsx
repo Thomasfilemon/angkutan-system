@@ -1,0 +1,640 @@
+import React, { useCallback, useEffect, useState } from "react";
+import CreatableSelect from "react-select/creatable";
+import toast from "react-hot-toast";
+import apiClient from "../api/axiosConfig";
+import { createRecap, listRecaps, addItemToRecap } from "../api/recapApi";
+import { createStockUsage, CreateStockUsagePayload } from "../api/stockUsageApi";
+
+export default function CashComposerPage() {
+  const [accounts, setAccounts] = useState<string[]>([]);
+  const [categories, setCategories] = useState<Array<{ id: number; category_name: string; category_type: "income" | "expense" }>>([]);
+  useEffect(() => {
+    apiClient.get("/cash/accounts").then((res) => setAccounts(res.data.data || [])).catch(() => {});
+    apiClient.get("/cash/categories").then((res) => setCategories(res.data.data || [])).catch(() => {});
+  }, []);
+
+  const [recapNumber, setRecapNumber] = useState("");
+  const [isTempo, setIsTempo] = useState(false);
+  const [composerAccount, setComposerAccount] = useState("General");
+  const [composerSupplier, setComposerSupplier] = useState("");
+  const [composerDueDate, setComposerDueDate] = useState("");
+
+  const ensureRecap = useCallback(async () => {
+    try {
+      if (recapNumber && recapNumber.trim()) {
+        const res = await listRecaps({ page: 1, limit: 1, search: recapNumber });
+        const found = (res?.data || []).find((r: any) => r.recap_number === recapNumber);
+        if (found) return found;
+      }
+    } catch {}
+    const created = await createRecap({ payment_mode: isTempo ? "tempo" : "cash" });
+    setRecapNumber(created.recap_number);
+    return created;
+  }, [recapNumber, isTempo]);
+
+  // Cash-normal extra fields
+  const [cashType, setCashType] = useState<"debit" | "kredit">("kredit");
+  const [cashCategoryId, setCashCategoryId] = useState<string>("");
+  const [referenceNumber, setReferenceNumber] = useState("");
+  const [notaNumber, setNotaNumber] = useState("");
+  const [notaDate, setNotaDate] = useState("");
+  const [cashFiles, setCashFiles] = useState<File[]>([]);
+
+  // Helper to create a cash transaction with provided fields (used for queued saves)
+  const createCashTransaction = useCallback(async (opts: {
+    transactionType: "debit" | "kredit" | "debit_tempo" | "kredit_tempo";
+    categoryId?: string;
+    amount: number;
+    description: string;
+    referenceNumber?: string;
+    notaNumber?: string;
+    notaDate?: string;
+    files?: File[];
+  }) => {
+    const fd = new FormData();
+    fd.append("transaction_type", opts.transactionType);
+    if (opts.categoryId) fd.append("category_id", opts.categoryId);
+    fd.append("amount", opts.amount.toString());
+    fd.append("description", opts.description);
+    if (opts.referenceNumber || recapNumber) fd.append("reference_number", opts.referenceNumber || recapNumber);
+    fd.append("transaction_date", new Date().toISOString().split("T")[0]);
+    fd.append("account", composerAccount);
+    if (composerSupplier) fd.append("supplier", composerSupplier);
+    if (isTempo && composerDueDate) fd.append("tanggal_jatuh_tempo", composerDueDate);
+    fd.append("no_nota", opts.notaNumber ? opts.notaNumber : "");
+    fd.append("date_nota", opts.notaDate ? opts.notaDate : "");
+    (opts.files || []).forEach((f) => fd.append("attachments", f));
+    const res = await apiClient.post("/cash/transactions", fd, { headers: { "Content-Type": "multipart/form-data" } });
+    return res.data?.data || res.data;
+  }, [composerAccount, composerDueDate, composerSupplier, isTempo, recapNumber]);
+
+  // Backward-compatible single add from current form values
+  const addCashTransaction = useCallback(async (amount: number, desc: string) => {
+    const transaction_type = cashType === "debit" ? "debit" : (isTempo ? "kredit_tempo" : "kredit");
+    return await createCashTransaction({
+      transactionType: transaction_type,
+      categoryId: cashCategoryId || undefined,
+      amount,
+      description: desc,
+      referenceNumber: referenceNumber || undefined,
+      notaNumber,
+      notaDate,
+      files: cashFiles,
+    });
+  }, [cashType, isTempo, createCashTransaction, cashCategoryId, referenceNumber, notaNumber, notaDate, cashFiles]);
+
+  // Common fields
+  const [vehicleId, setVehicleId] = useState("");
+  const [vehicles, setVehicles] = useState<Array<{ id: number; license_plate: string }>>([]);
+  useEffect(() => {
+    apiClient.get("/vehicles", { params: { page: 1, limit: 200 } }).then((res) => {
+      const body = res?.data;
+      const list = Array.isArray(body) ? body : (body?.data || body?.records || []);
+      setVehicles((list || []).map((v: any) => ({ id: v.id, license_plate: v.license_plate })));
+    }).catch(() => {});
+  }, []);
+  // Fields for "Stok Langsung Digunakan"
+  const [usageItemId, setUsageItemId] = useState("");
+  const [usageItemName, setUsageItemName] = useState("");
+  const [usageItemUnit, setUsageItemUnit] = useState("Pcs");
+  const [usageQty, setUsageQty] = useState("");
+  const [usageUnitPrice, setUsageUnitPrice] = useState("");
+  const [usageDescription, setUsageDescription] = useState("");
+
+  // Fields for "Stok (Tambah)"
+  const [itemId, setItemId] = useState("");
+  const [itemName, setItemName] = useState("");
+  const [itemUnit, setItemUnit] = useState("Pcs");
+  const [qty, setQty] = useState("");
+  const [unitPrice, setUnitPrice] = useState("");
+  const [amount, setAmount] = useState("");
+  const [description, setDescription] = useState("");
+
+  // Stock add options
+  const [createNewBatch, setCreateNewBatch] = useState(false);
+
+  // Tire purchase fields (to mirror tire creation)
+  const [tireBrand, setTireBrand] = useState("");
+  const [tireSize, setTireSize] = useState("");
+  const [tireType, setTireType] = useState("");
+  const [tireCondition, setTireCondition] = useState("new");
+  const [tireQty, setTireQty] = useState("1");
+  const [tireUnitPrice, setTireUnitPrice] = useState("");
+  const [tirePurchaseDate, setTirePurchaseDate] = useState(new Date().toISOString().split("T")[0]);
+
+  // Service fields (to mirror service creation)
+  const [serviceDate, setServiceDate] = useState(new Date().toISOString().split("T")[0]);
+  const [serviceType, setServiceType] = useState("regular");
+  const [workshopName, setWorkshopName] = useState("");
+  const [laborCost, setLaborCost] = useState("");
+
+  // Queues for batch save
+  type QueuedUsage = { vehicleId: string; itemId: string; itemName: string; itemUnit: string; qty: string; unitPrice?: string; description: string };
+  type QueuedStockAdd = { itemId: string; itemName: string; itemUnit: string; qty: string; unitPrice: string; createNewBatch: boolean; description: string };
+  type QueuedTirePurchase = { brand: string; size: string; type: string; condition: string; qty: string; unitPrice: string; date: string; description: string };
+  type QueuedService = { vehicleId: string; serviceDate: string; serviceType: string; workshopName: string; laborCost: string; description: string };
+  type QueuedCash = { cashType: "debit" | "kredit"; categoryId: string; amount: string; referenceNumber?: string; notaNumber?: string; notaDate?: string; description: string; files: File[] };
+
+  const [queuedUsages, setQueuedUsages] = useState<QueuedUsage[]>([]);
+  const [queuedStockAdds, setQueuedStockAdds] = useState<QueuedStockAdd[]>([]);
+  const [queuedTirePurchases, setQueuedTirePurchases] = useState<QueuedTirePurchase[]>([]);
+  const [queuedServices, setQueuedServices] = useState<QueuedService[]>([]);
+  const [queuedCash, setQueuedCash] = useState<QueuedCash[]>([]);
+
+  const queueStockUsage = () => {
+    if (!vehicleId) return toast.error("Vehicle ID wajib");
+    const q = parseFloat(usageQty || "0");
+    if (!(q > 0)) return toast.error("Qty harus > 0");
+    if (!usageItemId && !usageItemName) return toast.error("Isi Item ID atau Nama Item");
+    if (!usageItemUnit) return toast.error("Unit wajib");
+    setQueuedUsages((prev) => [
+      ...prev,
+      {
+        vehicleId,
+        itemId: usageItemId,
+        itemName: usageItemName,
+        itemUnit: usageItemUnit,
+        qty: usageQty,
+        unitPrice: usageUnitPrice,
+        description: usageDescription,
+      },
+    ]);
+    toast.success("Ditambahkan ke antrian");
+  };
+
+  const saveStockUsage = async () => {
+    const q = parseFloat(usageQty || "0");
+    if (!vehicleId) return toast.error("Vehicle ID wajib");
+    if (!(q > 0)) return toast.error("Qty harus > 0");
+    if (!usageItemId && !usageItemName) return toast.error("Isi Item ID atau Nama Item");
+    if (!usageItemUnit) return toast.error("Unit wajib");
+    const recap = await ensureRecap();
+    const payload: CreateStockUsagePayload = {
+      vehicle_id: parseInt(vehicleId, 10),
+      usage_date: new Date().toISOString().split("T")[0],
+      notes: usageDescription || `Composer: ${usageItemName || "Item"}`,
+      items: [ {
+        item_id: usageItemId ? parseInt(usageItemId, 10) : undefined,
+        item_name: usageItemName || undefined,
+        unit: usageItemUnit,
+        quantity: q,
+        unit_price: usageUnitPrice ? parseFloat(usageUnitPrice) : undefined,
+      } ],
+      recap_number: recap.recap_number,
+      cash_options: { create_cash: true, is_tempo: isTempo, account: composerAccount, supplier: composerSupplier || undefined, due_date: isTempo ? composerDueDate || undefined : undefined },
+    };
+    await createStockUsage(payload);
+    toast.success("Stok langsung digunakan tersimpan");
+  };
+
+  const queueStockAdd = () => {
+    const q = parseFloat(qty || "0");
+    const p = parseFloat(unitPrice || "0");
+    if (!(q > 0)) return toast.error("Qty harus > 0");
+    if (isNaN(p) || p < 0) return toast.error("Harga tidak valid");
+    if (!itemId && !itemName) return toast.error("Isi itemId atau itemName");
+    setQueuedStockAdds((prev) => [...prev, { itemId, itemName, itemUnit, qty, unitPrice, createNewBatch, description }]);
+    toast.success("Ditambahkan ke antrian");
+  };
+
+  const saveStockAdd = async () => {
+    const q = parseFloat(qty || "0");
+    const p = parseFloat(unitPrice || "0");
+    if (!(q > 0)) return toast.error("Qty harus > 0");
+    if (!(p >= 0)) return toast.error("Harga tidak valid");
+    const recap = await ensureRecap();
+    let targetItemId = itemId ? parseInt(itemId, 10) : undefined;
+    if (!targetItemId && !itemName) return toast.error("Isi itemId atau itemName");
+    if (!targetItemId) {
+      const createRes = await apiClient.post("/stock", { item_name: itemName, unit: itemUnit, min_stock: 0 });
+      targetItemId = createRes.data?.data?.id || createRes.data?.id;
+    }
+    await apiClient.post("/stock/adjust", { itemId: targetItemId, adjustmentType: "add", quantity: q, unit_price: p, supplier: composerSupplier || undefined, create_new_batch: createNewBatch, notes: description || `Tambah stok ${itemName || targetItemId}` });
+    if (p > 0) {
+      const cash = await addCashTransaction(q * p, description || `Pembelian stok ${itemName || targetItemId}`);
+      await addItemToRecap(recap.id, { type: "cash", reference_id: cash.id, description: cash.description, amount: cash.amount } as any);
+    }
+    await addItemToRecap(recap.id, { type: "stock", reference_id: targetItemId!, description: description || `Stok masuk`, amount: q * p } as any);
+    toast.success("Stok bertambah");
+  };
+
+  const queueTirePurchase = () => {
+    const q = parseInt(tireQty || "0", 10);
+    const price = parseFloat(tireUnitPrice || "0");
+    if (!tireBrand || !tireSize) return toast.error("Isi brand & ukuran");
+    if (!(q > 0)) return toast.error("Qty ban wajib");
+    if (!(price > 0)) return toast.error("Harga per ban wajib");
+    setQueuedTirePurchases((prev) => [...prev, { brand: tireBrand, size: tireSize, type: tireType, condition: tireCondition, qty: tireQty, unitPrice: tireUnitPrice, date: tirePurchaseDate, description }]);
+    toast.success("Ditambahkan ke antrian");
+  };
+
+  const saveTirePurchase = async () => {
+    const q = parseInt(tireQty || "0", 10);
+    const price = parseFloat(tireUnitPrice || "0");
+    if (!tireBrand || !tireSize) return toast.error("Isi brand & ukuran");
+    if (!(q > 0)) return toast.error("Qty ban wajib");
+    if (!(price > 0)) return toast.error("Harga per ban wajib");
+    const a = q * price;
+    const recap = await ensureRecap();
+    const desc = description || `Beli Ban ${tireBrand} ${tireSize} x ${q}`;
+    const cash = await addCashTransaction(a, desc);
+    await addItemToRecap(recap.id, { type: "tire_purchase", reference_id: cash.id, description: desc, amount: a } as any);
+    toast.success("Beli ban (kas) tersimpan");
+  };
+
+  const queueService = () => {
+    const labor = parseFloat(laborCost || "0");
+    if (!vehicleId) return toast.error("Vehicle ID wajib");
+    if (serviceType !== "regular" && isNaN(labor)) return toast.error("Biaya jasa tidak valid");
+    setQueuedServices((prev) => [...prev, { vehicleId, serviceDate, serviceType, workshopName, laborCost, description }]);
+    toast.success("Ditambahkan ke antrian");
+  };
+
+  const saveService = async () => {
+    const labor = parseFloat(laborCost || "0");
+    if (!vehicleId) return toast.error("Vehicle ID wajib");
+    if (serviceType !== "regular" && isNaN(labor)) return toast.error("Biaya jasa tidak valid");
+    const a = labor || 0;
+    const recap = await ensureRecap();
+    const desc = description || (vehicleId ? `Servis kendaraan ${vehicleId}` : "Servis kendaraan");
+    const cash = await addCashTransaction(a, desc);
+    await addItemToRecap(recap.id, { type: "service", reference_id: cash.id, description: `${desc}${workshopName ? ` @ ${workshopName}` : ""}`, amount: a } as any);
+    toast.success("Servis (kas) tersimpan");
+  };
+
+  const queueCashNormal = () => {
+    const a = parseFloat(amount || "0");
+    if (!(a > 0)) return toast.error("Jumlah kas wajib");
+    setQueuedCash((prev) => [...prev, { cashType, categoryId: cashCategoryId, amount, referenceNumber, notaNumber, notaDate, description, files: cashFiles }]);
+    toast.success("Ditambahkan ke antrian");
+  };
+
+  const saveAllQueued = async () => {
+    try {
+      const recap = await ensureRecap();
+
+      // Process usages
+      for (const u of queuedUsages) {
+        const q = parseFloat(u.qty || "0");
+        if (!(q > 0)) continue;
+        const payload: CreateStockUsagePayload = {
+          vehicle_id: parseInt(u.vehicleId, 10),
+          usage_date: new Date().toISOString().split("T")[0],
+          notes: u.description || `Composer: ${u.itemName || "Item"}`,
+          items: [ { item_id: u.itemId ? parseInt(u.itemId, 10) : undefined, item_name: u.itemName || undefined, unit: u.itemUnit, quantity: q, unit_price: u.unitPrice ? parseFloat(u.unitPrice) : undefined } ],
+          recap_number: recap.recap_number,
+          cash_options: { create_cash: true, is_tempo: isTempo, account: composerAccount, supplier: composerSupplier || undefined, due_date: isTempo ? composerDueDate || undefined : undefined },
+        };
+        await createStockUsage(payload);
+      }
+
+      // Process stock adds
+      for (const s of queuedStockAdds) {
+        const q = parseFloat(s.qty || "0");
+        const p = parseFloat(s.unitPrice || "0");
+        if (!(q > 0)) continue;
+        let targetItemId = s.itemId ? parseInt(s.itemId, 10) : undefined;
+        if (!targetItemId && !s.itemName) continue;
+        if (!targetItemId) {
+          const createRes = await apiClient.post("/stock", { item_name: s.itemName, unit: s.itemUnit, min_stock: 0 });
+          targetItemId = createRes.data?.data?.id || createRes.data?.id;
+        }
+        await apiClient.post("/stock/adjust", { itemId: targetItemId, adjustmentType: "add", quantity: q, unit_price: p, supplier: composerSupplier || undefined, create_new_batch: s.createNewBatch, notes: s.description || `Tambah stok ${s.itemName || targetItemId}` });
+        if (p > 0) {
+          const desc = s.description || `Pembelian stok ${s.itemName || targetItemId}`;
+          const txnType = isTempo ? "kredit_tempo" : "kredit";
+          const cash = await createCashTransaction({ transactionType: txnType, categoryId: cashCategoryId || undefined, amount: q * p, description: desc, referenceNumber });
+          await addItemToRecap(recap.id, { type: "cash", reference_id: cash.id, description: cash.description, amount: cash.amount } as any);
+        }
+        await addItemToRecap(recap.id, { type: "stock", reference_id: targetItemId!, description: s.description || `Stok masuk`, amount: q * p } as any);
+      }
+
+      // Process tire purchases
+      for (const t of queuedTirePurchases) {
+        const q = parseInt(t.qty || "0", 10);
+        const price = parseFloat(t.unitPrice || "0");
+        if (!t.brand || !t.size || !(q > 0) || !(price > 0)) continue;
+        const a = q * price;
+        const desc = t.description || `Beli Ban ${t.brand} ${t.size} x ${q}`;
+        const txnType = isTempo ? "kredit_tempo" : "kredit";
+        const cash = await createCashTransaction({ transactionType: txnType, amount: a, description: desc });
+        await addItemToRecap(recap.id, { type: "tire_purchase", reference_id: cash.id, description: desc, amount: a } as any);
+      }
+
+      // Process services
+      for (const sv of queuedServices) {
+        const labor = parseFloat(sv.laborCost || "0");
+        if (!sv.vehicleId) continue;
+        const a = labor || 0;
+        const desc = sv.description || (sv.vehicleId ? `Servis kendaraan ${sv.vehicleId}` : "Servis kendaraan");
+        const txnType = isTempo ? "kredit_tempo" : "kredit";
+        const cash = await createCashTransaction({ transactionType: txnType, amount: a, description: `${desc}${sv.workshopName ? ` @ ${sv.workshopName}` : ""}` });
+        await addItemToRecap(recap.id, { type: "service", reference_id: cash.id, description: `${desc}${sv.workshopName ? ` @ ${sv.workshopName}` : ""}`, amount: a } as any);
+      }
+
+      // Process plain cash
+      for (const c of queuedCash) {
+        const a = parseFloat(c.amount || "0");
+        if (!(a > 0)) continue;
+        const txnType = c.cashType === "debit" ? "debit" : (isTempo ? "kredit_tempo" : "kredit");
+        const cash = await createCashTransaction({ transactionType: txnType, categoryId: c.categoryId || undefined, amount: a, description: c.description || "Kas Biasa", referenceNumber: c.referenceNumber, notaNumber: c.notaNumber, notaDate: c.notaDate, files: c.files });
+        await addItemToRecap(recap.id, { type: "cash", reference_id: cash.id, description: cash.description, amount: cash.amount } as any);
+      }
+
+      // Clear queues
+      setQueuedUsages([]);
+      setQueuedStockAdds([]);
+      setQueuedTirePurchases([]);
+      setQueuedServices([]);
+      setQueuedCash([]);
+
+      toast.success("Semua antrian berhasil disimpan ke recap");
+    } catch (e: any) {
+      toast.error(e?.message || "Gagal menyimpan antrian");
+    }
+  };
+
+  return (
+    <div className="p-6">
+      <h1 className="text-2xl font-bold text-gray-800 mb-4">Kas Composer</h1>
+
+      <div className="bg-white p-4 rounded-lg shadow mb-6">
+        <h2 className="text-lg font-semibold text-gray-800 mb-3">Header</h2>
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Recap Number</label>
+            <input type="text" value={recapNumber} onChange={(e) => setRecapNumber(e.target.value)} placeholder="Kosongkan untuk auto" className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Tempo?</label>
+            <select value={isTempo ? "yes" : "no"} onChange={(e) => setIsTempo(e.target.value === "yes")} className="w-full border border-gray-300 rounded-md px-3 py-2">
+              <option value="no">Cash</option>
+              <option value="yes">Tempo</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Account</label>
+            <CreatableSelect value={{ label: composerAccount, value: composerAccount }} options={accounts.map((a) => ({ label: a, value: a }))} onChange={(sel) => setComposerAccount(sel?.value || "General")} onCreateOption={(val) => setComposerAccount(val)} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Supplier</label>
+            <input type="text" value={composerSupplier} onChange={(e) => setComposerSupplier(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          {isTempo && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Jatuh Tempo</label>
+              <input type="date" value={composerDueDate} onChange={(e) => setComposerDueDate(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            </div>
+          )}
+        </div>
+        <div className="mt-4 flex items-center justify-between">
+          <div className="text-sm text-gray-600">
+            Antrian: {queuedUsages.length + queuedStockAdds.length + queuedTirePurchases.length + queuedServices.length + queuedCash.length} item
+          </div>
+          <div className="flex gap-2">
+            <button onClick={saveAllQueued} className="bg-green-600 hover:bg-green-700 text-white font-bold px-4 py-2 rounded">Simpan Semua</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Stok langsung digunakan */}
+      <div className="bg-white p-4 rounded-lg shadow mb-6">
+        <h2 className="text-lg font-semibold text-gray-800 mb-3">Stok Langsung Digunakan</h2>
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+          <div>
+            <label className="block text-sm font-medium mb-1">Vehicle</label>
+            <select value={vehicleId} onChange={(e) => setVehicleId(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2">
+              <option value="">Pilih Kendaraan</option>
+              {vehicles.map((v) => (
+                <option key={v.id} value={v.id.toString()}>{v.license_plate} (#{v.id})</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Item ID (opsional)</label>
+            <input type="number" value={usageItemId} onChange={(e) => setUsageItemId(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Nama Item</label>
+            <input type="text" value={usageItemName} onChange={(e) => setUsageItemName(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Unit</label>
+            <input type="text" value={usageItemUnit} onChange={(e) => setUsageItemUnit(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Qty</label>
+            <input type="number" step="0.01" value={usageQty} onChange={(e) => setUsageQty(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Harga Satuan (opsional)</label>
+            <input type="number" step="0.01" value={usageUnitPrice} onChange={(e) => setUsageUnitPrice(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium mb-1">Keterangan</label>
+            <input type="text" value={usageDescription} onChange={(e) => setUsageDescription(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+        </div>
+        <div className="mt-3 flex items-center justify-between">
+          <div className="text-sm text-gray-600">Dalam antrian: {queuedUsages.length}</div>
+          <div className="flex gap-2">
+            <button onClick={queueStockUsage} className="bg-slate-600 hover:bg-slate-700 text-white font-bold px-4 py-2 rounded">Tambah ke Antrian</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Stok (Tambah) */}
+      <div className="bg-white p-4 rounded-lg shadow mb-6">
+        <h2 className="text-lg font-semibold text-gray-800 mb-3">Stok (Tambah)</h2>
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+          <div>
+            <label className="block text-sm font-medium mb-1">Item ID (opsional)</label>
+            <input type="number" value={itemId} onChange={(e) => setItemId(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Nama Item</label>
+            <input type="text" value={itemName} onChange={(e) => setItemName(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Unit</label>
+            <input type="text" value={itemUnit} onChange={(e) => setItemUnit(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Qty</label>
+            <input type="number" step="0.01" value={qty} onChange={(e) => setQty(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Harga Satuan</label>
+            <input type="number" step="0.01" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium mb-1">Keterangan</label>
+            <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+        </div>
+        <div className="mt-2 flex items-center gap-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={createNewBatch} onChange={(e) => setCreateNewBatch(e.target.checked)} />
+            Buat batch baru (harga berbeda)
+          </label>
+        </div>
+        <div className="mt-3 flex items-center justify-between">
+          <div className="text-sm text-gray-600">Dalam antrian: {queuedStockAdds.length}</div>
+          <div className="flex gap-2">
+            <button onClick={queueStockAdd} className="bg-slate-600 hover:bg-slate-700 text-white font-bold px-4 py-2 rounded">Tambah ke Antrian</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Beli Ban */}
+      <div className="bg-white p-4 rounded-lg shadow mb-6">
+        <h2 className="text-lg font-semibold text-gray-800 mb-3">Beli Ban</h2>
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+          <div>
+            <label className="block text-sm font-medium mb-1">Brand</label>
+            <input type="text" value={tireBrand} onChange={(e) => setTireBrand(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Ukuran</label>
+            <input type="text" value={tireSize} onChange={(e) => setTireSize(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Tipe</label>
+            <select value={tireType} onChange={(e) => setTireType(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2">
+              <option value="">Pilih</option>
+              <option value="Radial">Radial</option>
+              <option value="Bias">Bias</option>
+              <option value="Tubeless">Tubeless</option>
+              <option value="Tube Type">Tube Type</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Kondisi</label>
+            <select value={tireCondition} onChange={(e) => setTireCondition(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2">
+              <option value="new">Baru</option>
+              <option value="good">Baik</option>
+              <option value="fair">Cukup</option>
+              <option value="poor">Buruk</option>
+              <option value="damaged">Rusak</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Qty</label>
+            <input type="number" step="1" value={tireQty} onChange={(e) => setTireQty(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Harga/ban</label>
+            <input type="number" step="0.01" value={tireUnitPrice} onChange={(e) => setTireUnitPrice(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Tanggal Beli</label>
+            <input type="date" value={tirePurchaseDate} onChange={(e) => setTirePurchaseDate(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div className="md:col-span-3">
+            <label className="block text-sm font-medium mb-1">Deskripsi</label>
+            <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="Beli ban" />
+          </div>
+        </div>
+        <div className="mt-3 flex items-center justify-between">
+          <div className="text-sm text-gray-600">Dalam antrian: {queuedTirePurchases.length}</div>
+          <div className="flex gap-2">
+            <button onClick={queueTirePurchase} className="bg-slate-600 hover:bg-slate-700 text-white font-bold px-4 py-2 rounded">Tambah ke Antrian</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Servis */}
+      <div className="bg-white p-4 rounded-lg shadow mb-6">
+        <h2 className="text-lg font-semibold text-gray-800 mb-3">Servis</h2>
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+          <div>
+            <label className="block text-sm font-medium mb-1">Vehicle ID</label>
+            <input type="number" value={vehicleId} onChange={(e) => setVehicleId(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Tanggal Servis</label>
+            <input type="date" value={serviceDate} onChange={(e) => setServiceDate(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Tipe Servis</label>
+            <select value={serviceType} onChange={(e) => setServiceType(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2">
+              <option value="regular">Servis Reguler</option>
+              <option value="with_parts">Servis + Suku Cadang</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Nama Bengkel/Supplier</label>
+            <input type="text" value={workshopName} onChange={(e) => setWorkshopName(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Biaya Jasa</label>
+            <input type="number" step="0.01" value={laborCost} onChange={(e) => setLaborCost(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div className="md:col-span-3">
+            <label className="block text sm font-medium mb-1">Deskripsi</label>
+            <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="Servis" />
+          </div>
+        </div>
+        <div className="mt-3 flex items-center justify-between">
+          <div className="text-sm text-gray-600">Dalam antrian: {queuedServices.length}</div>
+          <div className="flex gap-2">
+            <button onClick={queueService} className="bg-slate-600 hover:bg-slate-700 text-white font-bold px-4 py-2 rounded">Tambah ke Antrian</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Kas Biasa */}
+      <div className="bg-white p-4 rounded-lg shadow mb-6">
+        <h2 className="text-lg font-semibold text-gray-800 mb-3">Kas Biasa</h2>
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+          <div>
+            <label className="block text-sm font-medium mb-1">Tipe</label>
+            <select value={cashType} onChange={(e) => setCashType(e.target.value as any)} className="w-full border border-gray-300 rounded-md px-3 py-2">
+              <option value="debit">Debit (Pemasukan)</option>
+              <option value="kredit">Kredit (Pengeluaran)</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Kategori</label>
+            <select value={cashCategoryId} onChange={(e) => setCashCategoryId(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2">
+              <option value="">Pilih Kategori</option>
+              {categories.filter((c) => (cashType === "debit" ? c.category_type === "income" : c.category_type === "expense")).map((c) => (
+                <option key={c.id} value={c.id.toString()}>{c.category_name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Jumlah</label>
+            <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">No. Referensi</label>
+            <input type="text" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">No. Nota</label>
+            <input type="text" value={notaNumber} onChange={(e) => setNotaNumber(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Tanggal Nota</label>
+            <input type="date" value={notaDate} onChange={(e) => setNotaDate(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div className="md:col-span-3">
+            <label className="block text-sm font-medium mb-1">Deskripsi</label>
+            <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="Kas biasa" />
+          </div>
+          <div className="md:col-span-3">
+            <label className="block text-sm font-medium mb-1">Lampiran Nota</label>
+            <input type="file" multiple accept="image/*" onChange={(e) => setCashFiles(e.target.files ? Array.from(e.target.files) : [])} className="w-full" />
+          </div>
+        </div>
+        <div className="mt-3 flex items-center justify-between">
+          <div className="text-sm text-gray-600">Dalam antrian: {queuedCash.length}</div>
+          <div className="flex gap-2">
+            <button onClick={queueCashNormal} className="bg-slate-600 hover:bg-slate-700 text-white font-bold px-4 py-2 rounded">Tambah ke Antrian</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
