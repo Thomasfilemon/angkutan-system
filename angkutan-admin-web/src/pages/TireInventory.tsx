@@ -17,6 +17,11 @@ interface TireInstance {
     tire_size: string;
     tire_type: string;
   };
+  installations?: {
+    vehicle: {
+      license_plate: string;
+    };
+  }[];
 }
 
 interface EditModalData {
@@ -32,6 +37,13 @@ interface SearchFilters {
   typeFilter: string;
 }
 
+interface Pagination {
+  currentPage: number;
+  totalPages: number;
+  totalItems: number;
+  limit: number;
+}
+
 const TireInventoryPage = () => {
   const [tires, setTires] = useState<TireInstance[]>([]);
   const [filteredTires, setFilteredTires] = useState<TireInstance[]>([]);
@@ -43,6 +55,15 @@ const TireInventoryPage = () => {
     condition: '',
     notes: ''
   });
+  const [vehicles, setVehicles] = useState<{ id: number; license_plate: string }[]>([]);
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string>('');
+  const [pagination, setPagination] = useState<Pagination>({
+    currentPage: 1,
+    totalPages: 1,
+    totalItems: 0,
+    limit: 10,
+  });
+  const [globalStats, setGlobalStats] = useState<{ totalValue: number; countsByCondition: Record<string, number> }>({ totalValue: 0, countsByCondition: {} });
 
   // ✅ ADD SEARCH FILTERS STATE
   const [filters, setFilters] = useState<SearchFilters>({
@@ -61,6 +82,18 @@ const TireInventoryPage = () => {
     types: [] as string[]
   });
 
+  const fetchVehicles = async () => {
+    try {
+      const response = await apiClient.get('/tires/vehicles');
+      const vehiclesData = response.data?.data || response.data;
+      if (Array.isArray(vehiclesData)) {
+        setVehicles(vehiclesData.map((v: any) => ({ id: v.id, license_plate: v.license_plate })));
+      }
+    } catch (err) {
+      console.error('Failed to fetch vehicles:', err);
+    }
+  };
+
   // Condition mapping
   const conditionMapping: { [key: string]: string } = {
     'new': 'Baru',
@@ -75,8 +108,56 @@ const TireInventoryPage = () => {
     'kampasa': 'Kampasa'
   };
 
+  const getStatusDisplay = (tire: TireInstance) => {
+    let text = '';
+    let subtext = '';
+    let colorClass = 'bg-gray-100 text-gray-800';
+  
+    switch (tire.status) {
+      case 'installed':
+        text = 'Terpasang';
+        colorClass = 'bg-blue-100 text-blue-800';
+        if (tire.installations && tire.installations.length > 0) {
+          subtext = tire.installations[0].vehicle.license_plate;
+        }
+        break;
+      case 'in_stock':
+        text = 'Di Stok';
+        colorClass = 'bg-green-100 text-green-800';
+        break;
+      case 'removed':
+        text = 'Stok (Bekas)';
+        colorClass = 'bg-yellow-100 text-yellow-800';
+        break;
+      default:
+        text = tire.status;
+    }
+  
+    return (
+      <div>
+        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${colorClass}`}>
+          {text}
+        </span>
+        {subtext && <div className="text-xs text-gray-600 mt-1">{subtext}</div>}
+      </div>
+    );
+  };
+
   useEffect(() => {
-    fetchAvailableTires();
+    fetchAvailableTires(1);
+    // Fetch vehicles only once
+    if (vehicles.length === 0) {
+      fetchVehicles();
+    }
+  }, [selectedVehicleId]);
+
+  useEffect(() => {
+    // This effect handles initial load and dependencies that don't include selectedVehicleId
+    const initialFetch = async () => {
+      await fetchAvailableTires();
+      await fetchVehicles();
+    };
+    initialFetch();
   }, []);
 
   // ✅ ADD FILTER EFFECT
@@ -84,22 +165,41 @@ const TireInventoryPage = () => {
     applyFilters();
   }, [tires, filters]);
 
-  const fetchAvailableTires = async () => {
+  const fetchAvailableTires = async (page = 1) => {
     try {
       setLoading(true);
-      const response = await apiClient.get('/tires/inventory-instances');
+
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: pagination.limit.toString(),
+      });
+  
+      if (selectedVehicleId) {
+        params.append('vehicleId', selectedVehicleId);
+      }
+
+      const response = await apiClient.get('/tires/inventory-instances', { params });
       
       const responseData = response.data;
-      const tiresArray = Array.isArray(responseData.data) 
-        ? responseData.data 
-        : Array.isArray(responseData) 
-        ? responseData 
-        : [];
 
-      setTires(tiresArray);
+      setTires(responseData.data || []);
+      setPagination({
+        currentPage: responseData.meta.page,
+        totalPages: responseData.meta.totalPages,
+        totalItems: responseData.meta.total,
+        limit: responseData.meta.limit,
+      });
+      if (responseData.meta?.stats) {
+        setGlobalStats({
+          totalValue: Number(responseData.meta.stats.totalValue || 0),
+          countsByCondition: responseData.meta.stats.countsByCondition || {},
+        });
+      }
       
       // ✅ EXTRACT FILTER OPTIONS
-      extractFilterOptions(tiresArray);
+      if (page === 1 && !selectedVehicleId) { 
+        extractFilterOptions(responseData.data || []);
+      }
 
     } catch (err) {
       setError('Failed to fetch available tire instances');
@@ -243,15 +343,12 @@ const TireInventoryPage = () => {
     }
   };
 
-  // ✅ UPDATE TO USE FILTERED TIRES
+  // Use global stats from backend (not per-page)
   const getConditionCount = (conditions: string[]) => {
-    return filteredTires.filter(t => conditions.includes(t.condition)).length;
+    return conditions.reduce((sum, c) => sum + (globalStats.countsByCondition[c] || 0), 0);
   };
 
-  const totalValue = filteredTires.reduce((sum, tire) => {
-    const price = parseFloat(tire.purchase_price);
-    return sum + (isNaN(price) ? 0 : price);
-  }, 0);
+  const totalValue = globalStats.totalValue || 0;
 
   if (loading) return <div className="text-center p-8">Loading individual tires...</div>;
   if (error) return <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">{error}</div>;
@@ -280,6 +377,25 @@ const TireInventoryPage = () => {
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+          {/* Vehicle Filter */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Filter Kendaraan
+            </label>
+            <select
+              value={selectedVehicleId}
+              onChange={(e) => setSelectedVehicleId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            >
+              <option value="">Semua Kendaraan</option>
+              {vehicles.map(vehicle => (
+                <option key={vehicle.id} value={vehicle.id}>
+                  {vehicle.license_plate}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Search Term */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -381,7 +497,7 @@ const TireInventoryPage = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-8 gap-4">
         <div className="bg-white p-4 rounded-lg shadow">
           <h3 className="text-sm font-medium text-gray-500">Total Ban</h3>
-          <p className="text-2xl font-bold text-blue-600">{filteredTires.length}</p>
+          <p className="text-2xl font-bold text-blue-600">{pagination.totalItems}</p>
         </div>
         <div className="bg-white p-4 rounded-lg shadow">
           <h3 className="text-sm font-medium text-gray-500">Nilai Inventaris</h3>
@@ -422,6 +538,7 @@ const TireInventoryPage = () => {
             <tr>
               <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Serial Number</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Brand & Size</th>
+              <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Kondisi</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Tapak (mm)</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Catatan</th>
@@ -442,6 +559,9 @@ const TireInventoryPage = () => {
                       {tire.tireInventory.tire_brand} {tire.tireInventory.tire_size}
                     </p>
                     <p className="text-gray-600 text-xs">{tire.tireInventory.tire_type}</p>
+                  </td>
+                  <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
+                    {getStatusDisplay(tire)}
                   </td>
                   <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
                     <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getConditionColor(tire.condition)}`}>
@@ -482,7 +602,12 @@ const TireInventoryPage = () => {
                       </button>
                       <button
                         onClick={() => handleDeleteClick(tire)}
-                        className="text-red-600 hover:text-red-800 text-xs font-medium"
+                        className={`text-xs font-medium ${
+                          tire.status === 'installed' 
+                            ? 'text-gray-400 cursor-not-allowed' 
+                            : 'text-red-600 hover:text-red-800'
+                        }`}
+                        disabled={tire.status === 'installed'}
                       >
                         Hapus
                       </button>
@@ -499,6 +624,30 @@ const TireInventoryPage = () => {
             )}
           </tbody>
         </table>
+        
+        {/* Pagination Controls */}
+        <div className="px-5 py-5 bg-white border-t flex flex-col xs:flex-row items-center xs:justify-between">
+          <span className="text-xs xs:text-sm text-gray-900">
+            Menampilkan {Math.min((pagination.currentPage - 1) * pagination.limit + 1, pagination.totalItems)} sampai {Math.min(pagination.currentPage * pagination.limit, pagination.totalItems)} dari {pagination.totalItems} Ban
+          </span>
+          <div className="inline-flex mt-2 xs:mt-0">
+            <button
+              onClick={() => fetchAvailableTires(pagination.currentPage - 1)}
+              disabled={pagination.currentPage <= 1}
+              className="text-sm bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-2 px-4 rounded-l disabled:opacity-50"
+            >
+              Prev
+            </button>
+            <button
+              onClick={() => fetchAvailableTires(pagination.currentPage + 1)}
+              disabled={pagination.currentPage >= pagination.totalPages}
+              className="text-sm bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-2 px-4 rounded-r disabled:opacity-50"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+
       </div>
 
       {/* ✅ ADD EDIT MODAL */}

@@ -1,6 +1,6 @@
 // src/controllers/web/tireController.js
 const { Vehicle, VehicleTire, TireInventory, TireInspection, TireInstance } = require('../../models');
-const { Op } = require('sequelize');
+const { Op, Sequelize } = require('sequelize');
 
 // Update tire data (pressure, temperature, etc.)
 exports.updateTireData = async (req, res, next) => {
@@ -827,23 +827,175 @@ exports.getVehicleTireStatus = async (req, res, next) => {
 };
 exports.getInventoryTireInstances = async (req, res, next) => {
   try {
-    const instances = await TireInstance.findAll({
-      where: {
-        status: 'in_stock' // We only want tires that are in stock for this inventory page
-      },
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const vehicleId = req.query.vehicleId;
+    const offset = (page - 1) * limit;
+
+    let whereClause = {};
+    let installationWhereClause = { status: 'active' };
+    let isInstallationRequired = false;
+
+    if (vehicleId) {
+      installationWhereClause.vehicle_id = vehicleId;
+      isInstallationRequired = true;
+    }
+
+    const findOptions = {
+      where: whereClause,
       include: [
         {
           model: TireInventory,
           as: 'tireInventory',
-          attributes: ['tire_brand', 'tire_size', 'tire_type']
+          attributes: ['tire_brand', 'tire_size', 'tire_type'],
+        },
+        {
+          model: VehicleTire,
+          as: 'installations',
+          required: isInstallationRequired,
+          where: installationWhereClause,
+          include: [
+            {
+              model: Vehicle,
+              as: 'vehicle',
+              attributes: ['id', 'license_plate'],
+            },
+          ],
         },
       ],
-      order: [['created_at', 'DESC']]
-    });
+    };
+
+    let total = 0;
+    let instances = [];
+
+    let stats = { totalValue: 0, countsByCondition: {}, countsByStatus: {} };
+    const allConditions = ['new','good','fair','poor','damaged','disposed','replace','meledak','bocor','kampasa'];
+
+    if (isInstallationRequired) {
+      // When filtering by vehicle, count distinct tire_instance_id directly from vehicle_tires
+      total = await VehicleTire.count({
+        where: installationWhereClause,
+        distinct: true,
+        col: 'tire_instance_id',
+      });
+
+      // Page by distinct tire_instance_id
+      const idRows = await VehicleTire.findAll({
+        attributes: [
+          [Sequelize.col('tire_instance_id'), 'tire_instance_id'],
+        ],
+        where: installationWhereClause,
+        group: ['tire_instance_id'],
+        order: [[Sequelize.col('tire_instance_id'), 'ASC']],
+        limit,
+        offset,
+        raw: true,
+      });
+      const instanceIds = idRows.map(r => r.tire_instance_id).filter(Boolean);
+
+      instances = await TireInstance.findAll({
+        where: { id: { [Op.in]: instanceIds } },
+        include: findOptions.include,
+        order: [['created_at', 'DESC']],
+      });
+
+      // Aggregate stats for all matching instances on this vehicle (active installs)
+      // Use raw SQL to ensure correct numeric sums
+      const condRows = await TireInstance.sequelize.query(
+        `SELECT ti.condition AS condition, COUNT(*)::int AS count
+         FROM vehicle_tires vt
+         JOIN tire_instances ti ON ti.id = vt.tire_instance_id
+         WHERE vt.status = 'active' AND vt.vehicle_id = :vehicleId
+         GROUP BY ti.condition`,
+        { replacements: { vehicleId: installationWhereClause.vehicle_id }, type: Sequelize.QueryTypes.SELECT }
+      );
+      const statusRows = await TireInstance.sequelize.query(
+        `SELECT ti.status AS status, COUNT(*)::int AS count
+         FROM vehicle_tires vt
+         JOIN tire_instances ti ON ti.id = vt.tire_instance_id
+         WHERE vt.status = 'active' AND vt.vehicle_id = :vehicleId
+         GROUP BY ti.status`,
+        { replacements: { vehicleId: installationWhereClause.vehicle_id }, type: Sequelize.QueryTypes.SELECT }
+      );
+      const [sumRow] = await TireInstance.sequelize.query(
+        `SELECT COALESCE(SUM(ti.purchase_price::numeric), 0) AS total_value
+         FROM vehicle_tires vt
+         JOIN tire_instances ti ON ti.id = vt.tire_instance_id
+         WHERE vt.status = 'active' AND vt.vehicle_id = :vehicleId`,
+        { replacements: { vehicleId: installationWhereClause.vehicle_id }, type: Sequelize.QueryTypes.SELECT }
+      );
+
+      const counts = {};
+      (condRows || []).forEach((row) => {
+        const condKey = row.condition || 'unknown';
+        counts[condKey] = Number(row.count) || 0;
+      });
+      const totalValue = Number(sumRow?.total_value || 0);
+      const byStatus = {};
+      (statusRows || []).forEach((row) => {
+        const key = row.status || 'unknown';
+        byStatus[key] = Number(row.count) || 0;
+      });
+      // Ensure all known conditions present
+      allConditions.forEach(c => { if (counts[c] === undefined) counts[c] = 0; });
+      stats = { totalValue, countsByCondition: counts, countsByStatus: byStatus };
+    } else {
+      // No vehicle filter: simple count without includes
+      total = await TireInstance.count();
+
+      instances = await TireInstance.findAll({
+        ...findOptions,
+        order: [['created_at', 'DESC']],
+        limit,
+        offset,
+      });
+
+      // Aggregate counts and total value across all instances using raw SQL
+      const condRows = await TireInstance.sequelize.query(
+        `SELECT ti.condition AS condition, COUNT(*)::int AS count
+         FROM tire_instances ti
+         GROUP BY ti.condition`,
+        { type: Sequelize.QueryTypes.SELECT }
+      );
+      const statusRows = await TireInstance.sequelize.query(
+        `SELECT ti.status AS status, COUNT(*)::int AS count
+         FROM tire_instances ti
+         GROUP BY ti.status`,
+        { type: Sequelize.QueryTypes.SELECT }
+      );
+      const [sumRow] = await TireInstance.sequelize.query(
+        `SELECT COALESCE(SUM(COALESCE(ti.purchase_price,'0')::numeric), 0) AS total_value
+         FROM tire_instances ti
+         WHERE ti.status IN ('in_stock','removed')`,
+        { type: Sequelize.QueryTypes.SELECT }
+      );
+
+      const counts = {};
+      (condRows || []).forEach((row) => {
+        const condKey = row.condition || 'unknown';
+        counts[condKey] = Number(row.count) || 0;
+      });
+      allConditions.forEach(c => { if (counts[c] === undefined) counts[c] = 0; });
+
+      const totalValue = Number(sumRow?.total_value || 0);
+      const byStatus = {};
+      (statusRows || []).forEach((row) => {
+        const key = row.status || 'unknown';
+        byStatus[key] = Number(row.count) || 0;
+      });
+      stats = { totalValue, countsByCondition: counts, countsByStatus: byStatus };
+    }
 
     res.json({
       success: true,
-      data: instances
+      data: instances,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        stats,
+      },
     });
   } catch (err) {
     next(err);

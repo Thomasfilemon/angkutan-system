@@ -30,6 +30,19 @@ interface CashTransaction {
   tanggal_jatuh_tempo?: string; // NEW: Added tanggal_jatuh_tempo field
 }
 
+interface RekapanTransaction extends CashTransaction {
+  parsedDetails?: {
+    mainDescription: string;
+    transactions: Array<{
+      id: number;
+      type: string;
+      description: string;
+      amount: number;
+      supplier?: string;
+    }>;
+  };
+}
+
 interface CashSummary {
   total_debit_tempo: number;
   total_kredit_tempo: number;
@@ -56,6 +69,7 @@ const TempoManagementPage = () => {
     date_to: '',
     search: '',
     account: 'All',
+    supplier: '',
   });
 
   const [pagination, setPagination] = useState({
@@ -69,6 +83,8 @@ const TempoManagementPage = () => {
   const [showTransactionTypeModal, setShowTransactionTypeModal] = useState(false);
   const [showNotaModal, setShowNotaModal] = useState(false);
   const [selectedNotaDetails, setSelectedNotaDetails] = useState<CashTransaction | null>(null);
+  const [showRekapanModal, setShowRekapanModal] = useState(false);
+  const [selectedRekapan, setSelectedRekapan] = useState<RekapanTransaction | null>(null);
   const [selectedTransactionType, setSelectedTransactionType] = useState('');
   const [editingTransaction, setEditingTransaction] = useState<CashTransaction | null>(null);
   const [formData, setFormData] = useState({
@@ -165,80 +181,79 @@ const TempoManagementPage = () => {
       return;
     }
 
-    const sumDebit = selectedTransactions
-      .filter(t => t.transaction_type === 'debit_tempo')
-      .reduce((s, t) => s + parseAmount(t.amount), 0);
-    const sumKredit = selectedTransactions
-      .filter(t => t.transaction_type === 'kredit_tempo')
-      .reduce((s, t) => s + parseAmount(t.amount), 0);
-    const calculatedNet = sumDebit - sumKredit;
-
     try {
-      if (selectedTransactions.length === 1) {
-        const transaction = selectedTransactions[0];
-        const currentType = transaction.transaction_type;
-        const newType = currentType === 'debit_tempo' ? 'debit' : 'kredit';
-        await apiClient.put(`/cash/transactions/${transaction.id}`, {
-          transaction_type: newType,
-          account: selectedLunasiAccount,
-          no_nota: transaction.no_nota || [''],
-          date_nota: transaction.date_nota || [''],
-          amount: parseAmount(transaction.amount),
-          supplier: transaction.supplier || '', // NEW: Include supplier
-          tanggal_jatuh_tempo: transaction.tanggal_jatuh_tempo || '', // NEW: Include tanggal_jatuh_tempo
-          payment_method: 'cash', // NEW: Add payment_method for lunasi
-          payment_date: new Date().toISOString().split('T')[0], // NEW: Add payment_date for lunasi
-        });
-        toast.success('Transaksi berhasil dilunasi');
-      } else {
-        if (calculatedNet === 0) {
-          for (const t of selectedTransactions) {
-            await apiClient.delete(`/cash/transactions/${t.id}`);
-          }
-          toast.success('Transaksi tempo dilunasi (net zero, no new transaction created)');
-        } else {
-          const combinedType = calculatedNet >= 0 ? 'debit' : 'kredit';
-          const combinedAmount = Math.abs(calculatedNet);
-          const combinedDescription = `Pelunasan transaksi tempo:\n${selectedTransactions
-            .map(
-              t =>
-                `- ${formatDate(t.transaction_date)}: ${t.description} (${
-                  t.transaction_type === 'debit_tempo' ? 'Debit' : 'Kredit'
-                } ${formatCurrency(parseAmount(t.amount))})`
-            )
-            .join('\n')}`;
-          const combinedAttachmentUrls = selectedTransactions.flatMap(t => t.attachment_urls || []);
-          const combinedNoNota = selectedTransactions.flatMap(t => t.no_nota || []);
-          const combinedDateNota = selectedTransactions.flatMap(t => t.date_nota || []);
-          const combinedSuppliers = selectedTransactions.map(t => t.supplier || '').filter(s => s).join(', '); // NEW: Combine suppliers
-          const lastTanggalJatuhTempo = selectedTransactions
-            .filter(t => t.tanggal_jatuh_tempo)
-            .slice(-1)[0]?.tanggal_jatuh_tempo || ''; // NEW: Take last tanggal_jatuh_tempo
+      const sumDebit = selectedTransactions
+        .filter(t => t.transaction_type === 'debit_tempo')
+        .reduce((s, t) => s + parseAmount(t.amount), 0);
+      const sumKredit = selectedTransactions
+        .filter(t => t.transaction_type === 'kredit_tempo')
+        .reduce((s, t) => s + parseAmount(t.amount), 0);
+      const calculatedNet = sumDebit - sumKredit;
 
-          const submissionData = new FormData();
-          submissionData.append('transaction_type', combinedType);
-          submissionData.append('amount', combinedAmount.toString());
-          submissionData.append('description', combinedDescription);
-          submissionData.append('transaction_date', new Date().toISOString().split('T')[0]);
-          submissionData.append('account', selectedLunasiAccount);
-          submissionData.append('attachment_urls', JSON.stringify(combinedAttachmentUrls));
-          submissionData.append('no_nota', JSON.stringify(combinedNoNota));
-          submissionData.append('date_nota', JSON.stringify(combinedDateNota));
-          submissionData.append('supplier', combinedSuppliers); // NEW: Add combined suppliers
-          submissionData.append('tanggal_jatuh_tempo', lastTanggalJatuhTempo); // NEW: Add last tanggal_jatuh_tempo
-          submissionData.append('payment_method', 'cash'); // NEW: Add payment_method for lunasi
-          submissionData.append('payment_date', new Date().toISOString().split('T')[0]); // NEW: Add payment_date for lunasi
-
-          await apiClient.post('/cash/transactions', submissionData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-          });
-
-          for (const t of selectedTransactions) {
-            await apiClient.delete(`/cash/transactions/${t.id}`);
-          }
-
-          toast.success('Transaksi tempo berhasil dilunasi dan digabung');
+      // If net is zero AND there are multiple transactions, just delete them.
+      if (calculatedNet === 0 && selectedTransactions.length > 1) {
+        for (const t of selectedTransactions) {
+          await apiClient.delete(`/cash/transactions/${t.id}`);
         }
+        toast.success('Transaksi tempo dilunasi (net zero, no new transaction created)');
+      } else {
+        // For single transactions OR non-zero net multiple transactions, create a new consolidated transaction.
+        const isSingleSettlement = selectedTransactions.length === 1;
+        const transaction = selectedTransactions[0];
+
+        const netAmount = isSingleSettlement ? parseAmount(transaction.amount) : Math.abs(calculatedNet);
+        const transactionType = (isSingleSettlement && transaction.transaction_type === 'debit_tempo') || (!isSingleSettlement && calculatedNet >= 0) ? 'debit' : 'kredit';
+
+        const descriptionPrefix = isSingleSettlement ? 'Pelunasan:' : 'Pelunasan transaksi tempo:';
+
+        const detailsDescription = selectedTransactions.map((t: any) => {
+            const date = formatDate(t.transaction_date);
+            const type = t.transaction_type === 'debit_tempo' ? 'Debit' : 'Kredit';
+            const amount = formatCurrency(parseAmount(t.amount));
+
+            if (isRekapan(t.description)) {
+              const details = parseRekapanDetails(t.description);
+              let recapString = `- ${date}: Rekapan Nota ${t.reference_number} (${type} ${amount})`;
+              if (details.transactions.length > 0) {
+                recapString += "\n  Detail Transaksi:\n";
+                const subTransactions = details.transactions
+                  .map((st: { type: string, description: string, amount: number, supplier?: string }) => `    - ${st.type || 'N/A'}: ${st.description} - ${formatCurrency(st.amount)} (Supplier: ${st.supplier || '-'})`)
+                  .join('\n');
+                recapString += subTransactions;
+              }
+              return recapString;
+            } else {
+              return `- ${date}: ${t.description} (${type} ${amount})`;
+            }
+        }).join('\n');
+        
+        const finalDescription = `${descriptionPrefix}\n${detailsDescription}`;
+
+        const combinedAttachmentUrls = selectedTransactions.flatMap(t => t.attachment_urls || []);
+        const combinedNoNota = selectedTransactions.flatMap(t => t.no_nota || []);
+        const combinedDateNota = selectedTransactions.flatMap(t => t.date_nota || []);
+        const combinedSuppliers = selectedTransactions.map(t => t.supplier || '').filter(s => s).join(', ');
+        
+        const submissionData = new FormData();
+        submissionData.append('transaction_type', transactionType);
+        submissionData.append('amount', netAmount.toString());
+        submissionData.append('description', finalDescription);
+        submissionData.append('transaction_date', new Date().toISOString().split('T')[0]);
+        submissionData.append('account', selectedLunasiAccount);
+        submissionData.append('attachment_urls', JSON.stringify(combinedAttachmentUrls));
+        submissionData.append('no_nota', JSON.stringify(combinedNoNota));
+        submissionData.append('date_nota', JSON.stringify(combinedDateNota));
+        submissionData.append('supplier', combinedSuppliers);
+        
+        await apiClient.post('/cash/transactions', submissionData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+
+        for (const t of selectedTransactions) {
+          await apiClient.delete(`/cash/transactions/${t.id}`);
+        }
+
+        toast.success(isSingleSettlement ? 'Transaksi tempo berhasil dilunasi' : 'Transaksi tempo berhasil dilunasi dan digabung');
       }
 
       setShowLunasiModal(false);
@@ -425,6 +440,47 @@ const TempoManagementPage = () => {
     setShowNotaModal(true);
   };
 
+  // Function to parse rekapan details from description field
+  const parseRekapanDetails = (description: string) => {
+    try {
+      const parsed = JSON.parse(description);
+      if (parsed.transactionDetails) {
+        return {
+          mainDescription: "Rekapan Nota Tempo",
+          transactions: parsed.transactionDetails
+        };
+      }
+    } catch (e) {
+      // Fallback to old format if JSON parsing fails
+    }
+    
+    // Fallback: return empty structure
+    return {
+      mainDescription: "Rekapan Nota Tempo",
+      transactions: []
+    };
+  };
+
+  // Function to show rekapan details
+  const handleShowRekapanDetails = (transaction: CashTransaction) => {
+    const details = parseRekapanDetails(transaction.description || '');
+    const rekapanTransaction: RekapanTransaction = {
+      ...transaction,
+      parsedDetails: details
+    };
+    setSelectedRekapan(rekapanTransaction);
+    setShowRekapanModal(true);
+  };
+
+  const isRekapan = (description: string) => {
+    try {
+      const parsed = JSON.parse(description);
+      return !!parsed.transactionDetails;
+    } catch (e) {
+      return false;
+    }
+  }
+
   const resetForm = () => {
     setFormData({
       transaction_type: 'debit_tempo',
@@ -482,6 +538,12 @@ const TempoManagementPage = () => {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-gray-800">Buku Tempo</h1>
         <div className="space-x-2">
+          <button
+            onClick={() => navigate('/tempo/composer')}
+            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+          >
+            Tempo Composer
+          </button>
           <button
             onClick={() => {
               setSelectedTransactionType('');
@@ -587,6 +649,18 @@ const TempoManagementPage = () => {
             />
           </div>
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Supplier</label>
+            <input
+              type="text"
+              placeholder="Nama supplier..."
+              value={filters.supplier}
+              onChange={(e) =>
+                setFilters((prev) => ({ ...prev, supplier: e.target.value }))
+              }
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+            />
+          </div>
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Akun</label>
             <CreatableSelect
               value={filters.account === 'All' ? { label: 'All', value: 'All' } : { label: filters.account, value: filters.account }}
@@ -615,6 +689,7 @@ const TempoManagementPage = () => {
                 date_to: '',
                 search: '',
                 account: 'All',
+                supplier: '',
               });
               setPagination((prev) => ({ ...prev, page: 1 }));
             }}
@@ -644,7 +719,7 @@ const TempoManagementPage = () => {
                   />
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Tanggal
+                  Tanggal Jatuh Tempo
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Tipe
@@ -654,6 +729,9 @@ const TempoManagementPage = () => {
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Deskripsi
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Supplier
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Debit Tempo
@@ -676,7 +754,9 @@ const TempoManagementPage = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {transactions.map((transaction) => (
+              {transactions.map((transaction) => {
+                const isTxnRekapan = isRekapan(transaction.description);
+                return (
                 <tr key={transaction.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 w-10">
                     <input
@@ -686,7 +766,7 @@ const TempoManagementPage = () => {
                     />
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {formatDate(transaction.transaction_date)}
+                    {formatDate(transaction.tanggal_jatuh_tempo || transaction.transaction_date)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span
@@ -704,11 +784,19 @@ const TempoManagementPage = () => {
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-900">
                     <div>
-                      <div className="font-medium">{transaction.description}</div>
+                      <div 
+                        className={`font-medium ${isTxnRekapan ? 'cursor-pointer text-blue-600 hover:underline' : ''}`}
+                        onClick={() => isTxnRekapan && handleShowRekapanDetails(transaction)}
+                      >
+                        {isTxnRekapan ? `Rekapan Nota ${transaction.reference_number}`: transaction.description}
+                      </div>
                       {transaction.reference_number && (
                         <div className="text-xs text-gray-500">Ref: {transaction.reference_number}</div>
                       )}
                     </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {transaction.supplier || '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
                     {transaction.transaction_type === 'debit_tempo' ? (
@@ -728,7 +816,14 @@ const TempoManagementPage = () => {
                     ) : '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {(transaction.no_nota && transaction.no_nota.length > 0) || 
+                    {isTxnRekapan ? (
+                      <button
+                        onClick={() => handleShowRekapanDetails(transaction)}
+                        className="text-green-600 hover:text-green-900 font-medium"
+                      >
+                        View Details
+                      </button>
+                    ) : (transaction.no_nota && transaction.no_nota.length > 0) || 
                      (transaction.date_nota && transaction.date_nota.length > 0) || 
                      (transaction.attachment_urls && transaction.attachment_urls.length > 0) ? (
                       <button
@@ -763,7 +858,7 @@ const TempoManagementPage = () => {
                     </div>
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         </div>
@@ -1320,6 +1415,117 @@ const TempoManagementPage = () => {
                 <button
                   onClick={() => setShowNotaModal(false)}
                   className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rekapan Detail Modal */}
+      {showRekapanModal && selectedRekapan && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold text-gray-800">Detail Rekapan Nota Tempo</h2>
+                <button
+                  onClick={() => setShowRekapanModal(false)}
+                  className="text-gray-500 hover:text-gray-700 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* Main Transaction Info */}
+              <div className="bg-gray-50 p-4 rounded-lg mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">No. Nota</label>
+                    <p className="text-lg font-semibold">{selectedRekapan.reference_number || selectedRekapan.no_nota?.[0] || '-'}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Tanggal</label>
+                    <p className="text-lg">{new Date(selectedRekapan.transaction_date).toLocaleDateString('id-ID')}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Total Amount</label>
+                    <p className="text-lg font-bold text-red-600">Rp {parseAmount(selectedRekapan.amount).toLocaleString('id-ID')}</p>
+                  </div>
+                </div>
+                {selectedRekapan.supplier && (
+                  <div className="mt-3">
+                    <label className="block text-sm font-medium text-gray-700">Supplier</label>
+                    <p className="text-lg">{selectedRekapan.supplier}</p>
+                  </div>
+                )}
+                {selectedRekapan.tanggal_jatuh_tempo && (
+                  <div className="mt-3">
+                    <label className="block text-sm font-medium text-gray-700">Tanggal Jatuh Tempo</label>
+                    <p className="text-lg">{new Date(selectedRekapan.tanggal_jatuh_tempo).toLocaleDateString('id-ID')}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Transaction Details */}
+              <div className="mb-4">
+                <h3 className="text-lg font-semibold text-gray-800 mb-3">Detail Transaksi</h3>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full bg-white border border-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">No</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipe</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Deskripsi</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Supplier</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {selectedRekapan.parsedDetails?.transactions?.map((transaction: any, index: number) => (
+                        <tr key={transaction.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm text-gray-900">{transaction.id}</td>
+                          <td className="px-4 py-3 text-sm">
+                            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                              transaction.type === 'Service' ? 'bg-blue-100 text-blue-800' :
+                              transaction.type === 'Stock Purchase' ? 'bg-green-100 text-green-800' :
+                              transaction.type === 'Stock Usage' ? 'bg-yellow-100 text-yellow-800' :
+                              transaction.type === 'Tire Purchase' ? 'bg-purple-100 text-purple-800' :
+                              transaction.type === 'Tempo' ? 'bg-orange-100 text-orange-800' :
+                              'bg-gray-100 text-gray-800'
+                            }`}>
+                              {transaction.type}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900">{transaction.description}</td>
+                          <td className="px-4 py-3 text-sm text-gray-900">{transaction.supplier || '-'}</td>
+                          <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">
+                            Rp {transaction.amount.toLocaleString('id-ID')}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-gray-50">
+                      <tr>
+                        <td colSpan={4} className="px-4 py-3 text-right text-sm font-bold text-gray-900">
+                          Total:
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-bold text-red-600">
+                          Rp {parseAmount(selectedRekapan.amount).toLocaleString('id-ID')}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setShowRekapanModal(false)}
+                  className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md"
                 >
                   Tutup
                 </button>

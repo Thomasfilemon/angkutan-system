@@ -200,52 +200,29 @@ const ServiceCreatePage = () => {
         }));
       submissionData.append("items", JSON.stringify(itemsToSubmit));
 
-      // Save service
+      // Add cash settings to let backend handle cash transaction creation
+      const cashSettings = {
+        save_to_cash: saveToCash,
+        is_tempo: isTempo,
+        account: cashAccount,
+        supplier: isTempo ? formData.workshop_name : undefined,
+        due_date: isTempo ? tanggalJatuhTempo : undefined,
+      };
+      submissionData.append("cash_settings", JSON.stringify(cashSettings));
+
+      // Add attachments if present
+      if (attachmentFiles && attachmentFiles.length > 0) {
+        Array.from(attachmentFiles).forEach((file) => {
+          submissionData.append("attachments", file);
+        });
+      }
+
+      // Save service (backend will create cash transaction automatically)
       await apiClient.post("/services", submissionData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
       });
-
-      // Save to cash if enabled
-      if (saveToCash) {
-        const totalCost =
-          parseFloat(formData.labor_cost || "0") +
-          itemsToSubmit.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
-        if (totalCost > 0) {
-          const transactionType = isTempo ? "kredit_tempo" : "kredit";
-          const description = `Servis Kendaraan: ${formData.description} - ${formData.workshop_name}`;
-
-          const cashFormData = new FormData();
-          cashFormData.append("transaction_type", transactionType);
-          cashFormData.append("amount", String(totalCost));
-          cashFormData.append("description", description);
-          cashFormData.append("transaction_date", new Date().toISOString());
-          cashFormData.append("account", cashAccount);
-          cashFormData.append("category_id", "9"); // Assuming same category as tires
-          cashFormData.append("no_nota", JSON.stringify([]));
-
-          // Add supplier (workshop_name) and tanggal_jatuh_tempo for tempo transactions
-          if (isTempo) {
-            if (formData.workshop_name) {
-              cashFormData.append("supplier", formData.workshop_name);
-            }
-            if (tanggalJatuhTempo) {
-              cashFormData.append("tanggal_jatuh_tempo", tanggalJatuhTempo);
-            }
-          }
-
-          if (attachmentFiles && attachmentFiles.length > 0) {
-            Array.from(attachmentFiles).forEach((file) => {
-              cashFormData.append("attachments", file);
-            });
-          }
-
-          await apiClient.post("/cash/transactions", cashFormData, {
-            headers: { "Content-Type": "multipart/form-data" },
-          });
-        }
-      }
 
       toast.success("Service created successfully!");
       navigate("/services");

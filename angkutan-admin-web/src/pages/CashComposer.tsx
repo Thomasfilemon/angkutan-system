@@ -40,6 +40,41 @@ export default function CashComposerPage() {
   const [notaDate, setNotaDate] = useState("");
   const [cashFiles, setCashFiles] = useState<File[]>([]);
 
+  // Rekapan detail modal state
+  const [showRekapanModal, setShowRekapanModal] = useState(false);
+  const [selectedRekapan, setSelectedRekapan] = useState<any>(null);
+
+  // Function to parse rekapan details from description field
+  const parseRekapanDetails = (description: string) => {
+    try {
+      const parsed = JSON.parse(description);
+      if (parsed.transactionDetails) {
+        return {
+          mainDescription: "Rekapan Nota",
+          transactions: parsed.transactionDetails
+        };
+      }
+    } catch (e) {
+      // Fallback to old format if JSON parsing fails
+    }
+    
+    // Fallback: return empty structure
+    return {
+      mainDescription: "Rekapan Nota",
+      transactions: []
+    };
+  };
+
+  // Function to show rekapan details
+  const showRekapanDetails = (transaction: any) => {
+    const details = parseRekapanDetails(transaction.description || '');
+    setSelectedRekapan({
+      ...transaction,
+      parsedDetails: details
+    });
+    setShowRekapanModal(true);
+  };
+
   // Helper to create a cash transaction with provided fields (used for queued saves)
   const createCashTransaction = useCallback(async (opts: {
     transactionType: "debit" | "kredit" | "debit_tempo" | "kredit_tempo";
@@ -252,14 +287,52 @@ export default function CashComposerPage() {
 
   const saveService = async () => {
     const labor = parseFloat(laborCost || "0");
-    if (!vehicleId) return toast.error("Vehicle ID wajib");
+    if (!vehicleId) return toast.error("Kendaraan wajib dipilih");
     if (serviceType !== "regular" && isNaN(labor)) return toast.error("Biaya jasa tidak valid");
+    
+    // Validate vehicle ID
+    const vehicleIdNum = parseInt(vehicleId, 10);
+    if (isNaN(vehicleIdNum)) {
+      return toast.error("ID kendaraan tidak valid");
+    }
+    
     const a = labor || 0;
     const recap = await ensureRecap();
-    const desc = description || (vehicleId ? `Servis kendaraan ${vehicleId}` : "Servis kendaraan");
-    const cash = await addCashTransaction(a, desc);
-    await addItemToRecap(recap.id, { type: "service", reference_id: cash.id, description: `${desc}${workshopName ? ` @ ${workshopName}` : ""}`, amount: a } as any);
-    toast.success("Servis (kas) tersimpan");
+    const selectedVehicle = vehicles.find(v => v.id === vehicleIdNum);
+    const desc = description || (selectedVehicle ? `Servis kendaraan ${selectedVehicle.license_plate}` : "Servis kendaraan");
+    
+    try {
+      // Create actual service record
+      const serviceData = new FormData();
+      serviceData.append('vehicle_id', vehicleIdNum.toString());
+      serviceData.append('service_date', serviceDate || new Date().toISOString().split('T')[0]);
+      serviceData.append('service_type', serviceType || 'regular');
+      serviceData.append('description', desc);
+      serviceData.append('workshop_name', workshopName || '');
+      serviceData.append('labor_cost', laborCost || '0');
+      serviceData.append('notes', `Created from Kas Composer - ${desc}`);
+      serviceData.append('items', JSON.stringify([])); // Empty items array for now
+      serviceData.append('cash_settings', JSON.stringify({ save_to_cash: true }));
+      
+      const serviceResponse = await apiClient.post('/services', serviceData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      
+      // Create cash transaction if there's a cost
+      if (a > 0) {
+        const cash = await addCashTransaction(a, desc);
+        await addItemToRecap(recap.id, { type: "service", reference_id: cash.id, description: `${desc}${workshopName ? ` @ ${workshopName}` : ""}`, amount: a } as any);
+      }
+      
+      // Add service to recap
+      await addItemToRecap(recap.id, { type: "service", reference_id: serviceResponse.data.data.id, description: desc, amount: a } as any);
+      
+      toast.success("Servis berhasil disimpan ke riwayat servis");
+    } catch (error: any) {
+      console.error("Service creation error:", error);
+      const errorMessage = error.response?.data?.message || error.message || "Gagal menyimpan servis";
+      toast.error(`Error: ${errorMessage}`);
+    }
   };
 
   const queueCashNormal = () => {
@@ -273,6 +346,18 @@ export default function CashComposerPage() {
     try {
       const recap = await ensureRecap();
 
+      // Collect all transaction details for the rekapan nota
+      const transactionDetails: Array<{
+        type: string;
+        description: string;
+        amount: number;
+        supplier?: string;
+        reference?: string;
+        details?: any;
+      }> = [];
+
+      let totalAmount = 0;
+
       // Process usages
       for (const u of queuedUsages) {
         const q = parseFloat(u.qty || "0");
@@ -283,9 +368,19 @@ export default function CashComposerPage() {
           notes: u.description || `Composer: ${u.itemName || "Item"}`,
           items: [ { item_id: u.itemId ? parseInt(u.itemId, 10) : undefined, item_name: u.itemName || undefined, unit: u.itemUnit, quantity: q, unit_price: u.unitPrice ? parseFloat(u.unitPrice) : undefined } ],
           recap_number: recap.recap_number,
-          cash_options: { create_cash: true, is_tempo: isTempo, account: composerAccount, supplier: composerSupplier || undefined, due_date: isTempo ? composerDueDate || undefined : undefined },
+          cash_options: { create_cash: false }, // Don't create individual cash transactions
         };
         await createStockUsage(payload);
+        
+        const amount = q * (parseFloat(u.unitPrice || "0") || 0);
+        totalAmount += amount;
+        transactionDetails.push({
+          type: "Stock Usage",
+          description: `${u.itemName || "Item"} - ${q} ${u.itemUnit}`,
+          amount: amount,
+          supplier: composerSupplier || undefined,
+          details: u
+        });
       }
 
       // Process stock adds
@@ -296,17 +391,29 @@ export default function CashComposerPage() {
         let targetItemId = s.itemId ? parseInt(s.itemId, 10) : undefined;
         if (!targetItemId && !s.itemName) continue;
         if (!targetItemId) {
-          const createRes = await apiClient.post("/stock", { item_name: s.itemName, unit: s.itemUnit, min_stock: 0 });
+          const createRes = await apiClient.post("/stock", { 
+            item_name: s.itemName, 
+            unit: s.itemUnit, 
+            min_stock: 0,
+            initial_stock: q,
+            unit_price: p,
+            supplier: composerSupplier || undefined,
+            notes: s.description || `Initial stock creation for ${s.itemName}`
+          });
           targetItemId = createRes.data?.data?.id || createRes.data?.id;
+        } else {
+          await apiClient.post("/stock/adjust", { itemId: targetItemId, adjustmentType: "add", quantity: q, unit_price: p, supplier: composerSupplier || undefined, create_new_batch: s.createNewBatch, notes: s.description || `Tambah stok ${s.itemName || targetItemId}` });
         }
-        await apiClient.post("/stock/adjust", { itemId: targetItemId, adjustmentType: "add", quantity: q, unit_price: p, supplier: composerSupplier || undefined, create_new_batch: s.createNewBatch, notes: s.description || `Tambah stok ${s.itemName || targetItemId}` });
-        if (p > 0) {
-          const desc = s.description || `Pembelian stok ${s.itemName || targetItemId}`;
-          const txnType = isTempo ? "kredit_tempo" : "kredit";
-          const cash = await createCashTransaction({ transactionType: txnType, categoryId: cashCategoryId || undefined, amount: q * p, description: desc, referenceNumber });
-          await addItemToRecap(recap.id, { type: "cash", reference_id: cash.id, description: cash.description, amount: cash.amount } as any);
-        }
-        await addItemToRecap(recap.id, { type: "stock", reference_id: targetItemId!, description: s.description || `Stok masuk`, amount: q * p } as any);
+        
+        const amount = q * p;
+        totalAmount += amount;
+        transactionDetails.push({
+          type: "Stock Purchase",
+          description: `${s.itemName || "Stock Item"} - ${q} ${s.itemUnit}`,
+          amount: amount,
+          supplier: composerSupplier || undefined,
+          details: s
+        });
       }
 
       // Process tire purchases
@@ -315,10 +422,14 @@ export default function CashComposerPage() {
         const price = parseFloat(t.unitPrice || "0");
         if (!t.brand || !t.size || !(q > 0) || !(price > 0)) continue;
         const a = q * price;
-        const desc = t.description || `Beli Ban ${t.brand} ${t.size} x ${q}`;
-        const txnType = isTempo ? "kredit_tempo" : "kredit";
-        const cash = await createCashTransaction({ transactionType: txnType, amount: a, description: desc });
-        await addItemToRecap(recap.id, { type: "tire_purchase", reference_id: cash.id, description: desc, amount: a } as any);
+        totalAmount += a;
+        transactionDetails.push({
+          type: "Tire Purchase",
+          description: `${t.brand} ${t.size} - ${q} pcs`,
+          amount: a,
+          supplier: composerSupplier || undefined,
+          details: t
+        });
       }
 
       // Process services
@@ -327,18 +438,89 @@ export default function CashComposerPage() {
         if (!sv.vehicleId) continue;
         const a = labor || 0;
         const desc = sv.description || (sv.vehicleId ? `Servis kendaraan ${sv.vehicleId}` : "Servis kendaraan");
-        const txnType = isTempo ? "kredit_tempo" : "kredit";
-        const cash = await createCashTransaction({ transactionType: txnType, amount: a, description: `${desc}${sv.workshopName ? ` @ ${sv.workshopName}` : ""}` });
-        await addItemToRecap(recap.id, { type: "service", reference_id: cash.id, description: `${desc}${sv.workshopName ? ` @ ${sv.workshopName}` : ""}`, amount: a } as any);
+        
+        // Create actual service record
+        const serviceData = new FormData();
+        serviceData.append('vehicle_id', parseInt(sv.vehicleId, 10).toString());
+        serviceData.append('service_date', sv.serviceDate || new Date().toISOString().split('T')[0]);
+        serviceData.append('service_type', sv.serviceType || 'regular');
+        serviceData.append('description', desc);
+        serviceData.append('workshop_name', sv.workshopName || '');
+        serviceData.append('labor_cost', sv.laborCost || '0');
+        serviceData.append('notes', `Created from Kas Composer - ${desc}`);
+        serviceData.append('items', JSON.stringify([])); // Empty items array for now
+        // Don't create individual cash transaction
+        serviceData.append('cash_settings', JSON.stringify({ save_to_cash: false }));
+        
+        await apiClient.post('/services', serviceData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        
+        totalAmount += a;
+        transactionDetails.push({
+          type: "Service",
+          description: `${desc}${sv.workshopName ? ` @ ${sv.workshopName}` : ""}`,
+          amount: a,
+          supplier: sv.workshopName || composerSupplier || undefined,
+          details: sv
+        });
       }
 
       // Process plain cash
       for (const c of queuedCash) {
         const a = parseFloat(c.amount || "0");
         if (!(a > 0)) continue;
-        const txnType = c.cashType === "debit" ? "debit" : (isTempo ? "kredit_tempo" : "kredit");
-        const cash = await createCashTransaction({ transactionType: txnType, categoryId: c.categoryId || undefined, amount: a, description: c.description || "Kas Biasa", referenceNumber: c.referenceNumber, notaNumber: c.notaNumber, notaDate: c.notaDate, files: c.files });
-        await addItemToRecap(recap.id, { type: "cash", reference_id: cash.id, description: cash.description, amount: cash.amount } as any);
+        totalAmount += a;
+        transactionDetails.push({
+          type: "Cash",
+          description: c.description || "Kas Biasa",
+          amount: a,
+          supplier: composerSupplier || undefined,
+          details: c
+        });
+      }
+
+      // Create single rekapan nota transaction
+      if (totalAmount > 0 && transactionDetails.length > 0) {
+        const txnType = isTempo ? "kredit_tempo" : "kredit";
+        const rekapanDescription = `Rekapan Nota ${recap.recap_number} - ${transactionDetails.length} transaksi`;
+        
+        // Create the main rekapan transaction
+        const rekapanTransaction = await createCashTransaction({
+          transactionType: txnType,
+          categoryId: cashCategoryId || undefined,
+          amount: totalAmount,
+          description: rekapanDescription,
+          referenceNumber: recap.recap_number,
+          notaNumber: recap.recap_number,
+          notaDate: new Date().toISOString().split('T')[0]
+        });
+
+        // Store detailed transaction info in a separate field (we'll use description field)
+        const detailedInfo = JSON.stringify({
+          transactionDetails: transactionDetails.map((t, i) => ({
+            id: i + 1,
+            type: t.type,
+            description: t.description,
+            amount: t.amount,
+            supplier: t.supplier
+          }))
+        });
+
+        // Update the transaction with detailed info in description field
+        await apiClient.put(`/cash/transactions/${rekapanTransaction.id}`, {
+          description: detailedInfo, // Store detailed info in description
+          supplier: composerSupplier || undefined,
+          tanggal_jatuh_tempo: isTempo ? composerDueDate || undefined : undefined
+        });
+
+        // Add to recap
+        await addItemToRecap(recap.id, { 
+          type: "cash", 
+          reference_id: rekapanTransaction.id, 
+          description: rekapanDescription, 
+          amount: totalAmount 
+        } as any);
       }
 
       // Clear queues
@@ -348,9 +530,9 @@ export default function CashComposerPage() {
       setQueuedServices([]);
       setQueuedCash([]);
 
-      toast.success("Semua antrian berhasil disimpan ke recap");
+      toast.success(`Rekapan Nota ${recap.recap_number} berhasil dibuat dengan ${transactionDetails.length} transaksi`);
     } catch (e: any) {
-      toast.error(e?.message || "Gagal menyimpan antrian");
+      toast.error(e?.message || "Gagal menyimpan rekapan");
     }
   };
 
@@ -548,8 +730,15 @@ export default function CashComposerPage() {
         <h2 className="text-lg font-semibold text-gray-800 mb-3">Servis</h2>
         <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
           <div>
-            <label className="block text-sm font-medium mb-1">Vehicle ID</label>
-            <input type="number" value={vehicleId} onChange={(e) => setVehicleId(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            <label className="block text-sm font-medium mb-1">Kendaraan</label>
+            <select value={vehicleId} onChange={(e) => setVehicleId(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2">
+              <option value="">Pilih Kendaraan</option>
+              {vehicles.map((vehicle) => (
+                <option key={vehicle.id} value={vehicle.id}>
+                  {vehicle.license_plate}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Tanggal Servis</label>
@@ -635,6 +824,110 @@ export default function CashComposerPage() {
           </div>
         </div>
       </div>
+
+      {/* Rekapan Detail Modal */}
+      {showRekapanModal && selectedRekapan && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold text-gray-800">Detail Rekapan Nota</h2>
+                <button
+                  onClick={() => setShowRekapanModal(false)}
+                  className="text-gray-500 hover:text-gray-700 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* Main Transaction Info */}
+              <div className="bg-gray-50 p-4 rounded-lg mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">No. Nota</label>
+                    <p className="text-lg font-semibold">{selectedRekapan.reference_number || selectedRekapan.no_nota?.[0] || '-'}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Tanggal</label>
+                    <p className="text-lg">{new Date(selectedRekapan.transaction_date).toLocaleDateString('id-ID')}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Total Amount</label>
+                    <p className="text-lg font-bold text-red-600">Rp {selectedRekapan.amount.toLocaleString('id-ID')}</p>
+                  </div>
+                </div>
+                {selectedRekapan.supplier && (
+                  <div className="mt-3">
+                    <label className="block text-sm font-medium text-gray-700">Supplier</label>
+                    <p className="text-lg">{selectedRekapan.supplier}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Transaction Details */}
+              <div className="mb-4">
+                <h3 className="text-lg font-semibold text-gray-800 mb-3">Detail Transaksi</h3>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full bg-white border border-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">No</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipe</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Deskripsi</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Supplier</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {selectedRekapan.parsedDetails?.transactions?.map((transaction: any, index: number) => (
+                        <tr key={transaction.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm text-gray-900">{transaction.id}</td>
+                          <td className="px-4 py-3 text-sm">
+                            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                              transaction.type === 'Service' ? 'bg-blue-100 text-blue-800' :
+                              transaction.type === 'Stock Purchase' ? 'bg-green-100 text-green-800' :
+                              transaction.type === 'Stock Usage' ? 'bg-yellow-100 text-yellow-800' :
+                              transaction.type === 'Tire Purchase' ? 'bg-purple-100 text-purple-800' :
+                              'bg-gray-100 text-gray-800'
+                            }`}>
+                              {transaction.type}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900">{transaction.description}</td>
+                          <td className="px-4 py-3 text-sm text-gray-900">{transaction.supplier || '-'}</td>
+                          <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">
+                            Rp {transaction.amount.toLocaleString('id-ID')}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-gray-50">
+                      <tr>
+                        <td colSpan={4} className="px-4 py-3 text-right text-sm font-bold text-gray-900">
+                          Total:
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-bold text-red-600">
+                          Rp {selectedRekapan.amount.toLocaleString('id-ID')}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setShowRekapanModal(false)}
+                  className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md"
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

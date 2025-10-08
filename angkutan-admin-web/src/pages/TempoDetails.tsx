@@ -8,6 +8,7 @@ interface CashTransaction {
   description: string;
   transaction_date: string;
   account: string;
+  reference_number?: string;
 }
 
 interface TempoDetail {
@@ -37,6 +38,33 @@ const TempoDetails: React.FC = () => {
   const [uniqueSuppliers, setUniqueSuppliers] = useState<string[]>([]);
   const [showNotaModal, setShowNotaModal] = useState(false);
   const [selectedNotaDetails, setSelectedNotaDetails] = useState<TempoDetail | null>(null);
+
+  const isRekapan = (description: string) => {
+    try {
+      const parsed = JSON.parse(description);
+      return !!parsed.transactionDetails;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  const parseRekapanDetails = (description: string) => {
+    try {
+      const parsed = JSON.parse(description);
+      if (parsed.transactionDetails) {
+        return {
+          mainDescription: "Rekapan Nota Tempo",
+          transactions: parsed.transactionDetails
+        };
+      }
+    } catch (e) {
+      // Fallback
+    }
+    return {
+      mainDescription: "Rekapan Nota Tempo",
+      transactions: []
+    };
+  };
 
   const fetchTempoDetails = async () => {
     setLoading(true);
@@ -290,6 +318,25 @@ const TempoDetails: React.FC = () => {
             <div className="mt-3">
               <h3 className="text-lg font-medium text-gray-900 mb-4">Detail Nota</h3>
               <div className="space-y-4">
+                {selectedNotaDetails.cashTransaction.description && (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-700 mb-2">Description</h4>
+                    {isRekapan(selectedNotaDetails.cashTransaction.description) ? (
+                      <div className="text-sm text-gray-800">
+                        <p className="font-semibold mb-2">Rekapan Nota {selectedNotaDetails.cashTransaction.reference_number || ''}</p>
+                        <ul className="list-disc pl-5 space-y-1">
+                          {parseRekapanDetails(selectedNotaDetails.cashTransaction.description).transactions.map((st: any, index: number) => (
+                            <li key={index}>
+                              {st.type || 'N/A'}: {st.description} - {formatCurrency(st.amount)} (Supplier: {st.supplier || '-'})
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-800 whitespace-pre-wrap">{selectedNotaDetails.cashTransaction.description}</p>
+                    )}
+                  </div>
+                )}
                 {(selectedNotaDetails.cashTransaction.no_nota && selectedNotaDetails.cashTransaction.no_nota.length > 0) ||
                 (selectedNotaDetails.cashTransaction.date_nota && selectedNotaDetails.cashTransaction.date_nota.length > 0) ? (
                   <div>

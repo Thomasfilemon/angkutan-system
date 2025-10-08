@@ -805,17 +805,38 @@ const deleteStockItem = async (req, res, next) => {
 			});
 		}
 
+		// Check for references in service items
 		const usedInServices = await ServiceItem.count({
 			where: { stock_item_id: id },
 		});
 
-		if (usedInServices > 0) {
+		// Check for references in stock usage note items
+		const usedInUsageNotes = await StockUsageNoteItem.count({
+			where: { item_id: id },
+		});
+
+		if (usedInServices > 0 || usedInUsageNotes > 0) {
 			await transaction.rollback();
+			let message = "Cannot delete stock item. It has been used in:";
+			if (usedInServices > 0) {
+				message += ` ${usedInServices} service(s)`;
+			}
+			if (usedInUsageNotes > 0) {
+				message += ` ${usedInUsageNotes} stock usage note(s)`;
+			}
+			message += ".";
+			
 			return res.status(400).json({
 				success: false,
-				message: `Cannot delete stock item. It has been used in ${usedInServices} service(s).`,
+				message: message,
 			});
 		}
+
+		// Delete related records in proper order to avoid foreign key constraints
+		await StockTransaction.destroy({
+			where: { item_id: id },
+			transaction,
+		});
 
 		await StockBatch.destroy({
 			where: { item_id: id },

@@ -28,8 +28,10 @@ CREATE TABLE driver_profiles (
   full_name VARCHAR(100) NOT NULL,
   phone VARCHAR(20) NOT NULL,
   address TEXT NOT NULL,
-  id_card_number VARCHAR(50) UNIQUE NOT NULL,
+  id_card_number VARCHAR(50) UNIQUE,
   sim_number VARCHAR(50) UNIQUE,
+  ktp_image_url TEXT,
+  sim_image_url TEXT,
   license_type VARCHAR(10),
   status driver_status NOT NULL DEFAULT 'available',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

@@ -50,10 +50,15 @@ const StockAdjustmentModal: React.FC<StockAdjustmentModalProps> = ({
     }
 
     try {
-      // PERBAIKAN: Hapus awalan '/web' dari URL
+      // Determine adjustment type based on quantity change
+      const adjustmentType = adjustmentQuantity > 0 ? "add" : "deduct";
+      const absoluteQuantity = Math.abs(adjustmentQuantity);
+      
       await apiClient.post("/stock/adjust", {
         itemId: item.id,
-        quantity: adjustmentQuantity,
+        adjustmentType: adjustmentType,
+        quantity: absoluteQuantity,
+        unit_price: item.average_unit_price || 0,
         notes: `Penyesuaian dari ${currentStock} menjadi ${newQuantity}. Catatan: ${notes}`,
       });
 

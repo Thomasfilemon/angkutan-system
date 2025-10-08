@@ -9,6 +9,8 @@ interface DriverProfile {
   full_name: string;
   phone: string;
   status: 'available' | 'busy' | 'on_leave';
+  ktp_image_url?: string | null;
+  sim_image_url?: string | null;
 }
 
 interface Driver {
@@ -29,6 +31,7 @@ const DriversPage = () => {
   const [vehicleAssignments, setVehicleAssignments] = useState<Map<number, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [viewerUrl, setViewerUrl] = useState<string | null>(null);
 
   const fetchDrivers = async () => {
     try {
@@ -136,6 +139,7 @@ const DriversPage = () => {
             <tr>
               <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Nama Lengkap</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Nomor Telepon</th>
+              <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Dokumen</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
               <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-right text-xs font-semibold text-gray-600 uppercase">Actions</th>
             </tr>
@@ -152,6 +156,44 @@ const DriversPage = () => {
                     <p className="text-gray-900">{driver.driverProfile.phone}</p>
                   </td>
                   <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm">
+                    <div className="flex items-center gap-3">
+                      {/* KTP */}
+                      {driver.driverProfile.ktp_image_url ? (
+                        <button
+                          type="button"
+                          onClick={() => setViewerUrl(driver.driverProfile.ktp_image_url || null)}
+                          title="Lihat KTP"
+                          className="border rounded hover:ring-2 hover:ring-blue-400"
+                        >
+                          <img
+                            src={driver.driverProfile.ktp_image_url}
+                            alt="KTP"
+                            className="h-10 w-16 object-cover"
+                          />
+                        </button>
+                      ) : (
+                        <span className="text-xs text-gray-400">KTP: -</span>
+                      )}
+                      {/* SIM */}
+                      {driver.driverProfile.sim_image_url ? (
+                        <button
+                          type="button"
+                          onClick={() => setViewerUrl(driver.driverProfile.sim_image_url || null)}
+                          title="Lihat SIM"
+                          className="border rounded hover:ring-2 hover:ring-blue-400"
+                        >
+                          <img
+                            src={driver.driverProfile.sim_image_url}
+                            alt="SIM"
+                            className="h-10 w-16 object-cover"
+                          />
+                        </button>
+                      ) : (
+                        <span className="text-xs text-gray-400">SIM: -</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm">
                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusDisplay.className}`}>
                       {statusDisplay.text}
                     </span>
@@ -166,6 +208,18 @@ const DriversPage = () => {
           </tbody>
         </table>
       </div>
+      {/* Simple Image Viewer Modal */}
+      {viewerUrl && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" onClick={() => setViewerUrl(null)}>
+          <div className="max-w-4xl max-h-[85vh] p-2 bg-white rounded shadow" onClick={(e) => e.stopPropagation()}>
+            <img src={viewerUrl} alt="Dokumen" className="max-h-[80vh] object-contain" />
+            <div className="text-right mt-2">
+              <a href={viewerUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline mr-4">Buka di Tab Baru</a>
+              <button className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" onClick={() => setViewerUrl(null)}>Tutup</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

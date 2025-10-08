@@ -45,6 +45,7 @@ import StockBatchesPage from "./pages/StockBatches";
 import CashManagementPage from "./pages/CashManagement";
 import TempoManagementPage from "./pages/CashTempoManagement";
 import CashComposerPage from "./pages/CashComposer";
+import TempoComposerPage from "./pages/TempoComposer";
 import StockHistoryPage from "./pages/StockHistory";
 import VehicleServiceHistory from "./pages/VehicleServiceHistory";
 import PaymentsRoutes from "./modules/payments/routes";
@@ -176,6 +177,7 @@ function App() {
           <Route path="cash" element={<CashManagementPage />} />
           <Route path="cash/composer" element={<CashComposerPage />} />
           <Route path="tempo" element={<TempoManagementPage />} />
+          <Route path="tempo/composer" element={<TempoComposerPage />} />
           <Route path="tempoDetails" element={<TempoDetailsPage />} />
           <Route path="deposit-groups" element={<DepositGroupManagement />} />
         </Route>

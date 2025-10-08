@@ -33,9 +33,19 @@ const DriverEditPage = () => {
   const handleUpdate = async (data: any) => {
     setIsLoading(true);
     try {
-      // Don't send username/password on update
-      const { username, password, ...profileData } = data;
-      await apiClient.put(`/drivers/${id}`, profileData);
+      // data can be FormData now; if not, build it
+      let body: any = data;
+      if (!(data instanceof FormData)) {
+        const { username, password, ktp_image, sim_image, ...profileData } = data;
+        const fd = new FormData();
+        Object.entries(profileData).forEach(([k, v]) => {
+          if (v !== undefined && v !== null) fd.append(k, String(v));
+        });
+        if (ktp_image) fd.append('ktp_image', ktp_image as any);
+        if (sim_image) fd.append('sim_image', sim_image as any);
+        body = fd;
+      }
+      await apiClient.put(`/drivers/${id}`, body);
       navigate('/drivers');
     } catch (err) {
       alert('Failed to update driver.');

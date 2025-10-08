@@ -126,6 +126,7 @@ const TireManagementPage = () => {
     mileage_installed: 0
   });
   const [useSpecificInstance, setUseSpecificInstance] = useState(false);
+  const [isTireStatusLoading, setIsTireStatusLoading] = useState(false);
   
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
@@ -252,7 +253,8 @@ const TireManagementPage = () => {
   const fetchVehicles = useCallback(async () => {
     try {
       const response = await apiClient.get('/tires/vehicles');
-      setVehicles(Array.isArray(response.data) ? response.data : []);
+      const vehiclesData = response.data?.data || response.data;
+      setVehicles(Array.isArray(vehiclesData) ? vehiclesData : []);
     } catch (err) {
       console.error('Failed to fetch vehicles:', err);
       throw err;
@@ -313,11 +315,16 @@ const TireManagementPage = () => {
   const handleVehicleChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const vehicleIdStr = e.target.value;
     setSelectedVehicleId(vehicleIdStr);
+    setTireStatuses([]); // Clear previous statuses immediately
+
     if (vehicleIdStr) {
       try {
+        setIsTireStatusLoading(true);
         await fetchVehicleTireStatus(parseInt(vehicleIdStr, 10));
       } catch (err) {
         setError("Gagal memuat status ban kendaraan.");
+      } finally {
+        setIsTireStatusLoading(false);
       }
     } else {
       setTireStatuses([]);
@@ -487,6 +494,23 @@ const TireManagementPage = () => {
   const renderVehicleLayout = () => {
     if (!selectedVehicle) return null;
 
+    if (isTireStatusLoading) {
+      return (
+        <div className="vehicle-layout">
+          <div className="vehicle-info">
+            <div>PLAT: {selectedVehicle.license_plate}</div>
+            <div>TIPE: {selectedVehicle.type}</div>
+            <div>BAN: Memuat...</div>
+          </div>
+          <div className="truck-layout-container skeleton">
+            <div className="skeleton-box" style={{ height: '100%', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <p>Memuat Layout Kendaraan...</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     const expectedPositions = selectedVehicle.tire_positions || 
       generateTirePositions(selectedVehicle.tire_count, selectedVehicle.spare_tire_count);
 
@@ -622,7 +646,7 @@ const TireManagementPage = () => {
         {loading ? (
           <div className="loading">Memuat...</div>
         ) : (
-          !loading && selectedVehicle && renderVehicleLayout()
+          selectedVehicle && renderVehicleLayout()
         )}
       </div>
 

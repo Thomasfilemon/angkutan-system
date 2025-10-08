@@ -9,10 +9,12 @@ interface DriverFormData {
   full_name: string;
   phone: string;
   address: string;
-  id_card_number: string;
-  sim_number: string;
+  id_card_number?: string; // optional now
+  sim_number?: string;     // optional now
   license_type: string;
   status: "available" | "busy" | "on_leave";
+  ktp_image?: File | null;
+  sim_image?: File | null;
 }
 
 interface DriverFormProps {
@@ -36,6 +38,8 @@ const DriverForm: React.FC<DriverFormProps> = ({
     address: "",
     id_card_number: "",
     sim_number: "",
+    ktp_image: null,
+    sim_image: null,
     license_type: "B1",
     status: "available",
     ...initialData,
@@ -52,7 +56,21 @@ const DriverForm: React.FC<DriverFormProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(formData);
+    // Build FormData for multipart request (text + optional images)
+    const fd = new FormData();
+    Object.entries(formData).forEach(([key, value]) => {
+      if (key === "ktp_image" || key === "sim_image") return; // handle files below
+      if (value !== undefined && value !== null) {
+        fd.append(key, String(value));
+      }
+    });
+    if (formData.ktp_image) {
+      fd.append("ktp_image", formData.ktp_image);
+    }
+    if (formData.sim_image) {
+      fd.append("sim_image", formData.sim_image);
+    }
+    onSubmit(fd as any);
   };
 
   return (
@@ -136,39 +154,31 @@ const DriverForm: React.FC<DriverFormProps> = ({
       </div>
 
       {/* --- ADDED REQUIRED AND OPTIONAL FIELDS --- */}
+      {/* KTP & SIM as images (optional) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          {/* Strict KTP Number, if it's invalid, then show red message below the field */}
-          <label className="block text-sm font-medium text-gray-700">
-            Nomor KTP (16 digit)
-          </label>
+          <label className="block text-sm font-medium text-gray-700">Foto KTP (opsional)</label>
           <input
-            type="text"
-            name="id_card_number"
-            value={formData.id_card_number}
-            onChange={handleChange}
-            required
+            type="file"
+            name="ktp_image"
+            accept="image/*"
+            onChange={(e) => {
+              const file = e.target.files && e.target.files[0] ? e.target.files[0] : null;
+              setFormData((prev) => ({ ...prev, ktp_image: file }));
+            }}
             className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
           />
-          {formData.id_card_number && formData.id_card_number.length !== 16 && (
-            <p className="text-red-500 text-sm mt-1">
-              Nomor KTP harus 16 digit.
-            </p>
-          )}
-          {/* Hilangkan Warning Setelah sudah sesuai */}
-          {formData.id_card_number && formData.id_card_number.length === 16 && (
-            <p className="text-green-500 text-sm mt-1">Nomor KTP valid.</p>
-          )}
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700">
-            Nomor SIM
-          </label>
+          <label className="block text-sm font-medium text-gray-700">Foto SIM (opsional)</label>
           <input
-            type="text"
-            name="sim_number"
-            value={formData.sim_number}
-            onChange={handleChange}
+            type="file"
+            name="sim_image"
+            accept="image/*"
+            onChange={(e) => {
+              const file = e.target.files && e.target.files[0] ? e.target.files[0] : null;
+              setFormData((prev) => ({ ...prev, sim_image: file }));
+            }}
             className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
           />
         </div>

@@ -178,6 +178,20 @@ const getDashboardMetrics = async (req, res) => {
     );
     console.log("[Debug] inventoryMetrics:", inventoryMetrics);
 
+    // 3a. Metrik Inventaris BAN
+    const tireInventoryMetrics = await sequelize.query(
+      `
+      SELECT 
+        COALESCE(SUM(purchase_price), 0) as total_tire_value
+      FROM tire_instances
+      WHERE status IN ('in_stock', 'removed')
+    `,
+      {
+        type: QueryTypes.SELECT,
+        plain: true,
+      }
+    );
+
     // Tambah Category Breakdown
     const categoryBreakdown = await sequelize.query(
       `
@@ -345,14 +359,21 @@ const getDashboardMetrics = async (req, res) => {
       inventoryMetrics: {
         totalInventoryValue: parseFloat(
           inventoryMetrics.total_inventory_value || 0
-        ),
+        ) + parseFloat(tireInventoryMetrics.total_tire_value || 0),
         totalPurchases: parseFloat(inventoryMetrics.total_purchases || 0),
         lowStockItems: parseInt(inventoryMetrics.low_stock_items || 0),
-        categoryBreakdown: categoryBreakdown.map((cat) => ({
-          category: cat.category || "Unknown",
-          value: parseFloat(cat.value || 0),
-          lowStock: parseInt(cat.low_stock || 0),
-        })),
+        categoryBreakdown: [
+          ...categoryBreakdown.map((cat) => ({
+            category: cat.category || "Unknown",
+            value: parseFloat(cat.value || 0),
+            lowStock: parseInt(cat.low_stock || 0),
+          })),
+          {
+            category: "Ban",
+            value: parseFloat(tireInventoryMetrics.total_tire_value || 0),
+            lowStock: 0, // Placeholder
+          },
+        ],
       },
       operationalMetrics: {
         activeDeliveries: parseInt(operationalMetrics.active_deliveries || 0),

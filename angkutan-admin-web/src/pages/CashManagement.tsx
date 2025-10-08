@@ -33,6 +33,19 @@ interface CashTransaction {
   last_edited_at?: string;
 }
 
+interface RekapanTransaction extends CashTransaction {
+  parsedDetails?: {
+    mainDescription: string;
+    transactions: Array<{
+      id: number;
+      type: string;
+      description: string;
+      amount: number;
+      supplier?: string;
+    }>;
+  };
+}
+
 interface CashSummary {
   total_debit: number;
   total_kredit: number;
@@ -59,6 +72,7 @@ const CashManagementPage = () => {
     date_to: "",
     search: "",
     account: "All",
+    supplier: "",
   });
 
   const [pagination, setPagination] = useState({
@@ -74,6 +88,8 @@ const CashManagementPage = () => {
   const [showNotaModal, setShowNotaModal] = useState(false);
   const [selectedNotaDetails, setSelectedNotaDetails] =
     useState<CashTransaction | null>(null);
+  const [showRekapanModal, setShowRekapanModal] = useState(false);
+  const [selectedRekapan, setSelectedRekapan] = useState<RekapanTransaction | null>(null);
   const [selectedTransactionType, setSelectedTransactionType] = useState("");
   const [editingTransaction, setEditingTransaction] =
     useState<CashTransaction | null>(null);
@@ -370,6 +386,47 @@ const CashManagementPage = () => {
     setShowNotaModal(true);
   };
 
+  // Function to parse rekapan details from description field
+  const parseRekapanDetails = (description: string) => {
+    try {
+      const parsed = JSON.parse(description);
+      if (parsed.transactionDetails) {
+        return {
+          mainDescription: "Rekapan Nota",
+          transactions: parsed.transactionDetails
+        };
+      }
+    } catch (e) {
+      // Fallback to old format if JSON parsing fails
+    }
+    
+    // Fallback: return empty structure
+    return {
+      mainDescription: "Rekapan Nota",
+      transactions: []
+    };
+  };
+
+  // Function to show rekapan details
+  const handleShowRekapanDetails = (transaction: CashTransaction) => {
+    const details = parseRekapanDetails(transaction.description || '');
+    const rekapanTransaction: RekapanTransaction = {
+      ...transaction,
+      parsedDetails: details
+    };
+    setSelectedRekapan(rekapanTransaction);
+    setShowRekapanModal(true);
+  };
+
+  const isRekapan = (description: string) => {
+    try {
+      const parsed = JSON.parse(description);
+      return !!parsed.transactionDetails;
+    } catch (e) {
+      return false;
+    }
+  }
+
   // Helpers for inline composer
   const ensureRecap = useCallback(async () => {
     try {
@@ -442,18 +499,27 @@ const CashManagementPage = () => {
         const recap = await ensureRecap();
         let targetItemId = itemIdNum;
         if (!targetItemId) {
-          const createRes = await apiClient.post("/stock", { item_name: itemName, unit: itemUnit, min_stock: 0 });
+          const createRes = await apiClient.post("/stock", { 
+            item_name: itemName, 
+            unit: itemUnit, 
+            min_stock: 0,
+            initial_stock: qty,
+            unit_price: price,
+            supplier: composerSupplier || undefined,
+            notes: currentDesc || `Initial stock creation for ${itemName}`
+          });
           targetItemId = createRes.data?.data?.id || createRes.data?.id;
+        } else {
+          await apiClient.post("/stock/adjust", {
+            itemId: targetItemId,
+            adjustmentType: "add",
+            quantity: qty,
+            unit_price: price,
+            supplier: composerSupplier || undefined,
+            create_new_batch: true,
+            notes: currentDesc || `Tambah stok ${itemName || targetItemId}`,
+          });
         }
-        await apiClient.post("/stock/adjust", {
-          itemId: targetItemId,
-          adjustmentType: "add",
-          quantity: qty,
-          unit_price: price,
-          supplier: composerSupplier || undefined,
-          create_new_batch: true,
-          notes: currentDesc || `Tambah stok ${itemName || targetItemId}`,
-        });
         if (price > 0) {
           const cash = await addCashTransaction(qty * price, currentDesc || `Pembelian stok ${itemName || targetItemId}`);
           await addItemToRecap(recap.id, { type: "cash", reference_id: cash.id, description: cash.description, amount: cash.amount } as any);
@@ -468,13 +534,9 @@ const CashManagementPage = () => {
         await addItemToRecap(recap.id, { type: "tire_purchase", reference_id: cash.id, description: cash.description, amount: cash.amount } as any);
         toast.success("Beli ban (kas) tersimpan");
       } else if (composerType === "service") {
-        const amount = parseFloat(cashAmount || "0");
-        if (!(amount > 0)) return toast.error("Jumlah kas wajib");
-        const recap = await ensureRecap();
-        const desc = currentDesc || (vehicleId ? `Servis kendaraan ${vehicleId}` : "Servis kendaraan");
-        const cash = await addCashTransaction(amount, desc);
-        await addItemToRecap(recap.id, { type: "service", reference_id: cash.id, description: cash.description, amount: cash.amount } as any);
-        toast.success("Servis (kas) tersimpan");
+        // Service creation should be done through the ServiceCreate page, not here
+        toast.error("Gunakan halaman Service untuk membuat servis kendaraan");
+        return;
       } else if (composerType === "cash_normal") {
         const amount = parseFloat(cashAmount || "0");
         if (!(amount > 0)) return toast.error("Jumlah kas wajib");
@@ -808,6 +870,20 @@ const CashManagementPage = () => {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
+              Supplier
+            </label>
+            <input
+              type="text"
+              placeholder="Nama supplier..."
+              value={filters.supplier}
+              onChange={(e) =>
+                setFilters((prev) => ({ ...prev, supplier: e.target.value }))
+              }
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
               Akun
             </label>
             <CreatableSelect
@@ -844,6 +920,7 @@ const CashManagementPage = () => {
                 date_to: "",
                 search: "",
                 account: "All",
+                supplier: "",
               });
               setPagination((prev) => ({ ...prev, page: 1 }));
             }}
@@ -896,8 +973,10 @@ const CashManagementPage = () => {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {transactions.map((transaction) => {
+                const isTxnRekapan = isRekapan(transaction.description);
                 const fullDesc = transaction.description;
                 const isLong = fullDesc.length > 100;
+
                 const truncated = isLong
                   ? fullDesc.substring(0, 100) + "..."
                   : fullDesc;
@@ -929,17 +1008,21 @@ const CashManagementPage = () => {
                       <div>
                         <div className="font-medium">
                           <span
-                            onClick={() =>
-                              isLong &&
-                              (setCurrentDesc(fullDesc), setShowDescModal(true))
-                            }
+                            onClick={() => {
+                              if (isTxnRekapan) {
+                                handleShowRekapanDetails(transaction);
+                              } else if (isLong) {
+                                setCurrentDesc(fullDesc);
+                                setShowDescModal(true);
+                              }
+                            }}
                             className={
-                              isLong
+                              isTxnRekapan || (isLong && !isTxnRekapan)
                                 ? "cursor-pointer text-blue-600 hover:underline"
                                 : ""
                             }
                           >
-                            {truncated}
+                            {isTxnRekapan ? `Rekapan Nota ${transaction.reference_number}`: truncated}
                           </span>
                         </div>
                         {transaction.reference_number && (
@@ -991,7 +1074,14 @@ const CashManagementPage = () => {
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {(transaction.no_nota &&
+                      {isTxnRekapan ? (
+                        <button
+                          onClick={() => handleShowRekapanDetails(transaction)}
+                          className="text-green-600 hover:text-green-900 font-medium"
+                        >
+                          View Details
+                        </button>
+                      ) : (transaction.no_nota &&
                         transaction.no_nota.length > 0) ||
                       (transaction.date_nota &&
                         transaction.date_nota.length > 0) ||
@@ -1515,6 +1605,110 @@ const CashManagementPage = () => {
                 <button
                   onClick={() => setShowNotaModal(false)}
                   className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rekapan Detail Modal */}
+      {showRekapanModal && selectedRekapan && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold text-gray-800">Detail Rekapan Nota</h2>
+                <button
+                  onClick={() => setShowRekapanModal(false)}
+                  className="text-gray-500 hover:text-gray-700 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* Main Transaction Info */}
+              <div className="bg-gray-50 p-4 rounded-lg mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">No. Nota</label>
+                    <p className="text-lg font-semibold">{selectedRekapan.reference_number || selectedRekapan.no_nota?.[0] || '-'}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Tanggal</label>
+                    <p className="text-lg">{new Date(selectedRekapan.transaction_date).toLocaleDateString('id-ID')}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Total Amount</label>
+                    <p className="text-lg font-bold text-red-600">Rp {selectedRekapan.amount.toLocaleString('id-ID')}</p>
+                  </div>
+                </div>
+                {selectedRekapan.supplier && (
+                  <div className="mt-3">
+                    <label className="block text-sm font-medium text-gray-700">Supplier</label>
+                    <p className="text-lg">{selectedRekapan.supplier}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Transaction Details */}
+              <div className="mb-4">
+                <h3 className="text-lg font-semibold text-gray-800 mb-3">Detail Transaksi</h3>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full bg-white border border-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">No</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipe</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Deskripsi</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Supplier</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {selectedRekapan.parsedDetails?.transactions?.map((transaction: any, index: number) => (
+                        <tr key={transaction.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm text-gray-900">{transaction.id}</td>
+                          <td className="px-4 py-3 text-sm">
+                            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                              transaction.type === 'Service' ? 'bg-blue-100 text-blue-800' :
+                              transaction.type === 'Stock Purchase' ? 'bg-green-100 text-green-800' :
+                              transaction.type === 'Stock Usage' ? 'bg-yellow-100 text-yellow-800' :
+                              transaction.type === 'Tire Purchase' ? 'bg-purple-100 text-purple-800' :
+                              'bg-gray-100 text-gray-800'
+                            }`}>
+                              {transaction.type}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900">{transaction.description}</td>
+                          <td className="px-4 py-3 text-sm text-gray-900">{transaction.supplier || '-'}</td>
+                          <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">
+                            Rp {transaction.amount.toLocaleString('id-ID')}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-gray-50">
+                      <tr>
+                        <td colSpan={4} className="px-4 py-3 text-right text-sm font-bold text-gray-900">
+                          Total:
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-bold text-red-600">
+                          Rp {selectedRekapan.amount.toLocaleString('id-ID')}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setShowRekapanModal(false)}
+                  className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md"
                 >
                   Tutup
                 </button>

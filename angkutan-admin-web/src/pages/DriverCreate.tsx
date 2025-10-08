@@ -11,6 +11,7 @@ const DriverCreatePage = () => {
   const handleCreate = async (data: any) => {
     setIsLoading(true);
     try {
+      // data is FormData now
       await apiClient.post("/drivers", data);
       navigate("/drivers");
     } catch (err) {

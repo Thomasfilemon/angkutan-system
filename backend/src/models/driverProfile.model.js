@@ -63,15 +63,13 @@ module.exports = (sequelize) => {
     },
     id_card_number: {
       type: DataTypes.STRING(50),
-      allowNull: false,
+      allowNull: true,
       unique: {
         msg: 'ID card number already exists'
       },
       validate: {
-        notEmpty: {
-          msg: 'ID card number cannot be empty'
-        },
         isIdCard(value) {
+          if (!value) return;
           const idCardRegex = /^[0-9]{16}$/;
           if (!idCardRegex.test(value)) {
             throw new Error('ID card number must be 16 digits');
@@ -91,6 +89,14 @@ module.exports = (sequelize) => {
           msg: 'SIM number must not exceed 50 characters'
         }
       }
+    },
+    ktp_image_url: {
+      type: DataTypes.STRING(255),
+      allowNull: true
+    },
+    sim_image_url: {
+      type: DataTypes.STRING(255),
+      allowNull: true
     },
     license_type: {
       type: DataTypes.STRING(10),

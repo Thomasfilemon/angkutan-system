@@ -486,6 +486,8 @@ const createService = async (req, res, next) => {
           account: cashSettings.account || "General",
           transaction_date: service_date,
           attachment_urls: attachment_urls.length > 0 ? attachment_urls : null, // ✅ UPDATED: Multiple attachments
+          supplier: cashSettings.supplier || null, // ✅ ADD: Supplier for tempo transactions
+          tanggal_jatuh_tempo: cashSettings.due_date || null, // ✅ ADD: Due date for tempo transactions
         };
 
         // Handle file attachment if present
@@ -493,7 +495,31 @@ const createService = async (req, res, next) => {
           cashTransactionData.attachment_url = req.file.path;
         }
 
-        await CashTransaction.create(cashTransactionData, { transaction });
+        const createdCashTxn = await CashTransaction.create(cashTransactionData, { transaction });
+
+        // Store cash transaction ID for response
+        service.cash_transaction_id = createdCashTxn.id || createdCashTxn.dataValues?.id;
+
+        // ✅ ADD: Create TempoDetail if this is a tempo transaction
+        if (transactionType === "kredit_tempo") {
+          // Ensure we have the transaction ID
+          const cashTxnId = createdCashTxn.id || createdCashTxn.dataValues?.id;
+          if (cashTxnId) {
+            await db.TempoDetail.create(
+              {
+                cash_transaction_id: cashTxnId,
+                due_date: cashSettings.due_date || null,
+                store_name: cashSettings.supplier || null,
+                amount: Math.max(totalServiceCost, 0.01),
+                status: "pending",
+                payment_date: null,
+                payment_method: null,
+                nota_attachment_url: attachment_urls.length > 0 ? attachment_urls : [],
+              },
+              { transaction }
+            );
+          }
+        }
       }
     }
 
