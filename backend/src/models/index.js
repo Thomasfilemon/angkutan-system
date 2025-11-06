@@ -334,6 +334,15 @@ if (db.StockUsageNote && db.Vehicle) {
 if (db.StockUsageNoteItem && db.StockItem) {
   db.StockUsageNoteItem.belongsTo(db.StockItem, { foreignKey: "item_id", as: "stockItem" });
 }
+if (db.StockUsageNote && db.RecapNoteItem) {
+  db.StockUsageNote.hasMany(db.RecapNoteItem, { foreignKey: "reference_id", as: "recapItems", constraints: false });
+  db.RecapNoteItem.belongsTo(db.StockUsageNote, { foreignKey: "reference_id", as: "stockUsageNote", constraints: false });
+}
+
+// === Recap Note Item Associations ===
+if (db.RecapNoteItem && db.CashTransaction) {
+  db.RecapNoteItem.belongsTo(db.CashTransaction, { foreignKey: "reference_id", as: "cashTransaction", constraints: false });
+}
 
 // === Payment-related Associations ===
 DeliveryOrder.hasMany(DeliveryOrderPayments, {

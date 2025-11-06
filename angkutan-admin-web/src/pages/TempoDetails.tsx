@@ -32,9 +32,14 @@ const TempoDetails: React.FC = () => {
   const [limit] = useState(10);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [totalAmount, setTotalAmount] = useState(0);
+  const [totalPending, setTotalPending] = useState(0);
+  const [totalLunas, setTotalLunas] = useState(0);
   const [search, setSearch] = useState('');
   const [storeNameFilter, setStoreNameFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [uniqueSuppliers, setUniqueSuppliers] = useState<string[]>([]);
   const [showNotaModal, setShowNotaModal] = useState(false);
   const [selectedNotaDetails, setSelectedNotaDetails] = useState<TempoDetail | null>(null);
@@ -76,6 +81,8 @@ const TempoDetails: React.FC = () => {
           search: search || undefined,
           store_name: storeNameFilter || undefined,
           status: statusFilter || undefined,
+          date_from: dateFrom || undefined,
+          date_to: dateTo || undefined,
         },
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
@@ -85,6 +92,9 @@ const TempoDetails: React.FC = () => {
       setTempoDetails(data);
       setTotal(pagination.total || data.length);
       setTotalPages(pagination.totalPages || 1);
+      setTotalAmount(response.data.totalAmount || 0);
+      setTotalPending(response.data.totalPending || 0);
+      setTotalLunas(response.data.totalLunas || 0);
     } catch (error: any) {
       console.error('Error fetching tempo details:', {
         message: error.message,
@@ -93,6 +103,9 @@ const TempoDetails: React.FC = () => {
       });
       toast.error('Failed to fetch tempo details');
       setTempoDetails([]);
+      setTotalAmount(0);
+      setTotalPending(0);
+      setTotalLunas(0);
     } finally {
       setLoading(false);
     }
@@ -137,8 +150,11 @@ const TempoDetails: React.FC = () => {
 
   useEffect(() => {
     fetchTempoDetails();
+  }, [page, search, storeNameFilter, statusFilter, dateFrom, dateTo]);
+
+  useEffect(() => {
     fetchUniqueSuppliers();
-  }, [page, search, storeNameFilter, statusFilter]);
+  }, []);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearch(e.target.value);
@@ -152,6 +168,16 @@ const TempoDetails: React.FC = () => {
 
   const handleStatusFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setStatusFilter(e.target.value === 'All' ? '' : e.target.value);
+    setPage(1);
+  };
+
+  const handleDateFromChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setDateFrom(e.target.value);
+    setPage(1);
+  };
+
+  const handleDateToChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setDateTo(e.target.value);
     setPage(1);
   };
 
@@ -182,35 +208,81 @@ const TempoDetails: React.FC = () => {
       <h1 className="text-2xl font-bold mb-6">Tempo Details Management</h1>
 
       {/* Filters and Search */}
-      <div className="mb-4 flex flex-col md:flex-row gap-4">
-        <input
-          type="text"
-          placeholder="Search by store name or ID..."
-          value={search}
-          onChange={handleSearchChange}
-          className="border p-2 rounded w-full md:w-1/3"
-        />
-        <select
-          value={storeNameFilter || 'All'}
-          onChange={handleStoreNameFilterChange}
-          className="border p-2 rounded w-full md:w-1/4"
-        >
-          <option value="All">All Suppliers</option>
-          {uniqueSuppliers.map((supplier) => (
-            <option key={supplier} value={supplier}>
-              {supplier}
-            </option>
-          ))}
-        </select>
-        <select
-          value={statusFilter || 'All'}
-          onChange={handleStatusFilterChange}
-          className="border p-2 rounded w-full md:w-1/4"
-        >
-          <option value="All">All Status</option>
-          <option value="pending">Pending</option>
-          <option value="lunas">Lunas</option>
-        </select>
+      <div className="mb-4 space-y-4">
+        <div className="flex flex-col md:flex-row gap-4">
+          <input
+            type="text"
+            placeholder="Search by store name or ID..."
+            value={search}
+            onChange={handleSearchChange}
+            className="border p-2 rounded w-full md:w-1/3"
+          />
+          <select
+            value={storeNameFilter || 'All'}
+            onChange={handleStoreNameFilterChange}
+            className="border p-2 rounded w-full md:w-1/4"
+          >
+            <option value="All">All Suppliers</option>
+            {uniqueSuppliers.map((supplier) => (
+              <option key={supplier} value={supplier}>
+                {supplier}
+              </option>
+            ))}
+          </select>
+          <select
+            value={statusFilter || 'All'}
+            onChange={handleStatusFilterChange}
+            className="border p-2 rounded w-full md:w-1/4"
+          >
+            <option value="All">All Status</option>
+            <option value="pending">Pending</option>
+            <option value="lunas">Lunas</option>
+          </select>
+        </div>
+        <div className="flex flex-col md:flex-row gap-4">
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Dari Tanggal (Due Date)</label>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={handleDateFromChange}
+              className="border p-2 rounded w-full"
+            />
+          </div>
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Sampai Tanggal (Due Date)</label>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={handleDateToChange}
+              className="border p-2 rounded w-full"
+            />
+          </div>
+        </div>
+        {/* Total Amount Display */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-sm font-medium text-gray-700">Total Amount (Filtered):</span>
+            </div>
+            <div className="text-2xl font-bold text-blue-700">{formatCurrency(totalAmount)}</div>
+            <p className="text-xs text-gray-600 mt-1">Berdasarkan filter yang aktif</p>
+          </div>
+          <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-sm font-medium text-gray-700">Belum Lunas (Pending):</span>
+            </div>
+            <div className="text-2xl font-bold text-orange-700">{formatCurrency(totalPending)}</div>
+            <p className="text-xs text-gray-600 mt-1">Jumlah yang belum dibayar</p>
+          </div>
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-sm font-medium text-gray-700">Lunas (Paid):</span>
+            </div>
+            <div className="text-2xl font-bold text-green-700">{formatCurrency(totalLunas)}</div>
+            <p className="text-xs text-gray-600 mt-1">Jumlah yang sudah dibayar</p>
+          </div>
+        </div>
       </div>
 
       {/* Table */}
@@ -255,8 +327,8 @@ const TempoDetails: React.FC = () => {
                   <td className="p-3">{formatDate(detail.payment_date)}</td>
                   <td className="p-3">{detail.payment_method || '-'}</td>
                   <td className="p-3">
-                    {(detail.cashTransaction.no_nota && detail.cashTransaction.no_nota.length > 0 && detail.cashTransaction.no_nota.some(nota => nota)) ||
-                    (detail.cashTransaction.date_nota && detail.cashTransaction.date_nota.length > 0 && detail.cashTransaction.date_nota.some(date => date)) ||
+                    {(detail.cashTransaction?.no_nota && detail.cashTransaction.no_nota.length > 0 && detail.cashTransaction.no_nota.some(nota => nota)) ||
+                    (detail.cashTransaction?.date_nota && detail.cashTransaction.date_nota.length > 0 && detail.cashTransaction.date_nota.some(date => date)) ||
                     (detail.nota_attachment_url && detail.nota_attachment_url.length > 0) ? (
                       <button
                         onClick={() => handleShowNotaDetails(detail)}
@@ -318,7 +390,7 @@ const TempoDetails: React.FC = () => {
             <div className="mt-3">
               <h3 className="text-lg font-medium text-gray-900 mb-4">Detail Nota</h3>
               <div className="space-y-4">
-                {selectedNotaDetails.cashTransaction.description && (
+                {selectedNotaDetails.cashTransaction?.description && (
                   <div>
                     <h4 className="text-sm font-medium text-gray-700 mb-2">Description</h4>
                     {isRekapan(selectedNotaDetails.cashTransaction.description) ? (
@@ -337,8 +409,8 @@ const TempoDetails: React.FC = () => {
                     )}
                   </div>
                 )}
-                {(selectedNotaDetails.cashTransaction.no_nota && selectedNotaDetails.cashTransaction.no_nota.length > 0) ||
-                (selectedNotaDetails.cashTransaction.date_nota && selectedNotaDetails.cashTransaction.date_nota.length > 0) ? (
+                {(selectedNotaDetails.cashTransaction?.no_nota && selectedNotaDetails.cashTransaction.no_nota.length > 0) ||
+                (selectedNotaDetails.cashTransaction?.date_nota && selectedNotaDetails.cashTransaction.date_nota.length > 0) ? (
                   <div>
                     <h4 className="text-sm font-medium text-gray-700 mb-2">Nota Details</h4>
                     <table className="min-w-full divide-y divide-gray-200">
@@ -353,13 +425,13 @@ const TempoDetails: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {selectedNotaDetails.cashTransaction.no_nota.map((nota, index) => (
+                        {selectedNotaDetails.cashTransaction?.no_nota?.map((nota, index) => (
                           <tr key={index}>
                             <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
                               {nota || '-'}
                             </td>
                             <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
-                              {selectedNotaDetails.cashTransaction.date_nota[index]
+                              {selectedNotaDetails.cashTransaction?.date_nota?.[index]
                                 ? formatDate(selectedNotaDetails.cashTransaction.date_nota[index])
                                 : '-'}
                             </td>

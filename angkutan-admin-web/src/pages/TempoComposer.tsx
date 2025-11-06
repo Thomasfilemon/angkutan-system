@@ -19,15 +19,21 @@ export default function TempoComposerPage() {
   const [composerSupplier, setComposerSupplier] = useState("");
   const [composerDueDate, setComposerDueDate] = useState("");
 
+  // Global loading & error helper
+  const [isSaving, setIsSaving] = useState(false);
+  const [savingText, setSavingText] = useState<string | null>(null);
+  const friendlyError = (e: any) => e?.response?.data?.message || e?.response?.data?.error || e?.message || "Terjadi kesalahan. Coba lagi.";
+
   const ensureRecap = useCallback(async () => {
+    const manual = (recapNumber || "").trim();
     try {
-      if (recapNumber && recapNumber.trim()) {
-        const res = await listRecaps({ page: 1, limit: 1, search: recapNumber });
-        const found = (res?.data || []).find((r: any) => r.recap_number === recapNumber);
+      if (manual) {
+        const res = await listRecaps({ page: 1, limit: 1, search: manual });
+        const found = (res?.data || []).find((r: any) => r.recap_number === manual);
         if (found) return found;
       }
     } catch {}
-    const created = await createRecap({ payment_mode: "tempo" });
+    const created = await createRecap({ payment_mode: "tempo", recap_number: manual || undefined });
     setRecapNumber(created.recap_number);
     return created;
   }, [recapNumber]);
@@ -114,7 +120,7 @@ export default function TempoComposerPage() {
 
   // Queue states
   const [queuedUsages, setQueuedUsages] = useState<Array<{ vehicleId: string; itemId: string; itemName: string; itemUnit: string; qty: string; unitPrice?: string; description: string }>>([]);
-  const [queuedStockAdds, setQueuedStockAdds] = useState<Array<{ itemId: string; itemName: string; itemUnit: string; qty: string; unitPrice: string; createNewBatch: boolean; description: string }>>([]);
+  const [queuedStockAdds, setQueuedStockAdds] = useState<Array<{ itemId: string; itemName: string; itemUnit: string; qty: string; unitPrice: string; createNewBatch: boolean; description: string; rackRow?: string; rackLevel?: string; merk?: string }>>([]);
   const [queuedTirePurchases, setQueuedTirePurchases] = useState<Array<{ brand: string; size: string; type: string; condition: string; qty: string; unitPrice: string; date: string; description: string }>>([]);
   const [queuedServices, setQueuedServices] = useState<Array<{ vehicleId: string; serviceDate: string; serviceType: string; workshopName: string; laborCost: string; description: string }>>([]);
   const [queuedTempo, setQueuedTempo] = useState<Array<{ tempoType: "debit_tempo" | "kredit_tempo"; categoryId: string; amount: string; referenceNumber?: string; notaNumber?: string; notaDate?: string; description: string; files: File[] }>>([]);
@@ -141,6 +147,9 @@ export default function TempoComposerPage() {
   const [stockUnitPrice, setStockUnitPrice] = useState("");
   const [stockCreateNewBatch, setStockCreateNewBatch] = useState(false);
   const [stockDescription, setStockDescription] = useState("");
+  const [stockRackRow, setStockRackRow] = useState("");
+  const [stockRackLevel, setStockRackLevel] = useState("");
+  const [stockMerk, setStockMerk] = useState(""); // NEW: Brand field
 
   // Tire purchase form
   const [tireBrand, setTireBrand] = useState("");
@@ -199,6 +208,7 @@ export default function TempoComposerPage() {
   const saveStockUsage = async () => {
     if (queuedUsages.length === 0) return;
     try {
+      setIsSaving(true); setSavingText("Menyimpan Stok Sekali Pakai...");
       const recap = await ensureRecap();
       for (const u of queuedUsages) {
         const q = parseFloat(u.qty || "0");
@@ -215,20 +225,20 @@ export default function TempoComposerPage() {
       }
       setQueuedUsages([]);
       toast.success("Semua penggunaan stok berhasil disimpan");
-    } catch (e: any) {
-      toast.error(e?.message || "Gagal menyimpan penggunaan stok");
-    }
+    } catch (e: any) { console.error("Tempo saveStockUsage error:", e); toast.error(friendlyError(e)); }
+    finally { setIsSaving(false); setSavingText(null); }
   };
 
   const queueStockAdd = () => {
     if (!stockQty || !stockUnitPrice) return toast.error("Jumlah dan harga wajib");
-    setQueuedStockAdds((prev) => [...prev, { itemId: stockItemId, itemName: stockItemName, itemUnit: stockItemUnit, qty: stockQty, unitPrice: stockUnitPrice, createNewBatch: stockCreateNewBatch, description: stockDescription }]);
+    setQueuedStockAdds((prev) => [...prev, { itemId: stockItemId, itemName: stockItemName, itemUnit: stockItemUnit, qty: stockQty, unitPrice: stockUnitPrice, createNewBatch: stockCreateNewBatch, description: stockDescription, rackRow: stockRackRow, rackLevel: stockRackLevel, merk: stockMerk }]);
     toast.success("Ditambahkan ke antrian");
   };
 
   const saveStockAdd = async () => {
     if (queuedStockAdds.length === 0) return;
     try {
+      setIsSaving(true); setSavingText("Menambah Stok...");
       const recap = await ensureRecap();
       for (const s of queuedStockAdds) {
         const q = parseFloat(s.qty || "0");
@@ -244,6 +254,8 @@ export default function TempoComposerPage() {
             initial_stock: q,
             unit_price: p,
             supplier: composerSupplier || undefined,
+            rack_row: s.rackRow ? parseInt(s.rackRow) : undefined,
+            rack_level: s.rackLevel ? parseInt(s.rackLevel) : undefined,
             notes: s.description || `Initial stock creation for ${s.itemName}`
           });
           targetItemId = createRes.data?.data?.id || createRes.data?.id;
@@ -259,9 +271,8 @@ export default function TempoComposerPage() {
       }
       setQueuedStockAdds([]);
       toast.success("Semua penambahan stok berhasil disimpan");
-    } catch (e: any) {
-      toast.error(e?.message || "Gagal menyimpan penambahan stok");
-    }
+    } catch (e: any) { console.error("Tempo saveStockAdd error:", e); toast.error(friendlyError(e)); }
+    finally { setIsSaving(false); setSavingText(null); }
   };
 
   const queueTirePurchase = () => {
@@ -354,7 +365,7 @@ export default function TempoComposerPage() {
   };
 
   const saveAllQueued = async () => {
-    try {
+    try { setIsSaving(true); setSavingText("Menyimpan Antrian Tempo...");
       const recap = await ensureRecap();
 
       // Collect all transaction details for the rekapan nota
@@ -409,6 +420,8 @@ export default function TempoComposerPage() {
             initial_stock: q,
             unit_price: p,
             supplier: composerSupplier || undefined,
+            rack_row: s.rackRow ? parseInt(s.rackRow) : undefined,
+            rack_level: s.rackLevel ? parseInt(s.rackLevel) : undefined,
             notes: s.description || `Initial stock creation for ${s.itemName}`
           });
           targetItemId = createRes.data?.data?.id || createRes.data?.id;
@@ -541,9 +554,8 @@ export default function TempoComposerPage() {
       setQueuedTempo([]);
 
       toast.success(`Rekapan Nota Tempo ${recap.recap_number} berhasil dibuat dengan ${transactionDetails.length} transaksi`);
-    } catch (e: any) {
-      toast.error(e?.message || "Gagal menyimpan rekapan tempo");
-    }
+    } catch (e: any) { console.error("Tempo saveAllQueued error:", e); toast.error(friendlyError(e)); }
+    finally { setIsSaving(false); setSavingText(null); }
   };
 
   return (
@@ -554,7 +566,7 @@ export default function TempoComposerPage() {
         <h2 className="text-lg font-semibold text-gray-800 mb-3">Header</h2>
         <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Recap Number</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">No. Nota</label>
             <input type="text" value={recapNumber} onChange={(e) => setRecapNumber(e.target.value)} placeholder="Kosongkan untuk auto" className="w-full border border-gray-300 rounded-md px-3 py-2" />
           </div>
           <div>
@@ -580,6 +592,169 @@ export default function TempoComposerPage() {
             </div>
           </div>
         </div>
+
+        {/* Queue Table */}
+        {(queuedUsages.length > 0 || queuedStockAdds.length > 0 || queuedTirePurchases.length > 0 || queuedServices.length > 0 || queuedTempo.length > 0) && (
+          <div className="bg-white p-4 rounded-lg shadow mb-6">
+            <h2 className="text-lg font-semibold text-gray-800 mb-4">Antrian Transaksi</h2>
+            <div className="overflow-x-auto">
+              <table className="min-w-full bg-white border border-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">No</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipe</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Detail</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Jumlah/Harga</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {/* Queued Usages */}
+                  {queuedUsages.map((item, idx) => (
+                    <tr key={`usage-${idx}`} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm text-gray-900">{idx + 1}</td>
+                      <td className="px-4 py-3 text-sm">
+                        <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">Stok Digunakan</span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        <div>Kendaraan: {vehicles.find(v => v.id.toString() === item.vehicleId)?.license_plate || item.vehicleId}</div>
+                        <div>Item: {item.itemName || item.itemId}</div>
+                        <div className="text-gray-500">{item.description || '-'}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right text-gray-900">
+                        <div>{item.qty} {item.itemUnit}</div>
+                        {item.unitPrice && <div className="text-gray-500">Rp {parseFloat(item.unitPrice).toLocaleString('id-ID')}</div>}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-center">
+                        <button
+                          onClick={() => setQueuedUsages(prev => prev.filter((_, i) => i !== idx))}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          Hapus
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {/* Queued Stock Adds */}
+                  {queuedStockAdds.map((item, idx) => (
+                    <tr key={`stock-${idx}`} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm text-gray-900">{queuedUsages.length + idx + 1}</td>
+                      <td className="px-4 py-3 text-sm">
+                        <span className="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">Tambah Stok</span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        <div>Item: {item.itemName || item.itemId}</div>
+                        <div className="text-gray-500">{item.description || '-'}</div>
+                        {item.rackRow && item.rackLevel && <div className="text-gray-500">Rak: {item.rackRow}-{item.rackLevel}</div>}
+                        {item.merk && <div className="text-gray-500">Merk: {item.merk}</div>}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right text-gray-900">
+                        <div>{item.qty} {item.itemUnit}</div>
+                        <div>Rp {parseFloat(item.unitPrice).toLocaleString('id-ID')}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-center">
+                        <button
+                          onClick={() => setQueuedStockAdds(prev => prev.filter((_, i) => i !== idx))}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          Hapus
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {/* Queued Tire Purchases */}
+                  {queuedTirePurchases.map((item, idx) => (
+                    <tr key={`tire-${idx}`} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm text-gray-900">{queuedUsages.length + queuedStockAdds.length + idx + 1}</td>
+                      <td className="px-4 py-3 text-sm">
+                        <span className="px-2 py-1 text-xs font-semibold rounded-full bg-purple-100 text-purple-800">Beli Ban</span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        <div>{item.brand} {item.size} - {item.type}</div>
+                        <div className="text-gray-500">{item.description || '-'}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right text-gray-900">
+                        <div>{item.qty} pcs</div>
+                        <div>Rp {parseFloat(item.unitPrice).toLocaleString('id-ID')}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-center">
+                        <button
+                          onClick={() => setQueuedTirePurchases(prev => prev.filter((_, i) => i !== idx))}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          Hapus
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {/* Queued Services */}
+                  {queuedServices.map((item, idx) => (
+                    <tr key={`service-${idx}`} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm text-gray-900">{queuedUsages.length + queuedStockAdds.length + queuedTirePurchases.length + idx + 1}</td>
+                      <td className="px-4 py-3 text-sm">
+                        <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">Servis</span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        <div>Kendaraan: {vehicles.find(v => v.id.toString() === item.vehicleId)?.license_plate || item.vehicleId}</div>
+                        <div>{item.serviceType} - {item.workshopName}</div>
+                        <div className="text-gray-500">{item.description || '-'}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right text-gray-900">
+                        <div>Rp {parseFloat(item.laborCost || "0").toLocaleString('id-ID')}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-center">
+                        <button
+                          onClick={() => setQueuedServices(prev => prev.filter((_, i) => i !== idx))}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          Hapus
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {/* Queued Tempo */}
+                  {queuedTempo.map((item, idx) => (
+                    <tr key={`tempo-${idx}`} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm text-gray-900">{queuedUsages.length + queuedStockAdds.length + queuedTirePurchases.length + queuedServices.length + idx + 1}</td>
+                      <td className="px-4 py-3 text-sm">
+                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${item.tempoType === "debit_tempo" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
+                          {item.tempoType === "debit_tempo" ? "Debit Tempo" : "Kredit Tempo"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        <div>{item.description || '-'}</div>
+                        {item.notaNumber && <div className="text-gray-500">Nota: {item.notaNumber}</div>}
+                        {item.referenceNumber && <div className="text-gray-500">Ref: {item.referenceNumber}</div>}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right text-gray-900">
+                        <div>Rp {parseFloat(item.amount || "0").toLocaleString('id-ID')}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-center">
+                        <button
+                          onClick={() => setQueuedTempo(prev => prev.filter((_, i) => i !== idx))}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          Hapus
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-gray-50">
+                  <tr>
+                    <td colSpan={3} className="px-4 py-3 text-right text-sm font-bold text-gray-900">
+                      Total Item dalam Antrian:
+                    </td>
+                    <td colSpan={2} className="px-4 py-3 text-left text-sm font-bold text-gray-900">
+                      {queuedUsages.length + queuedStockAdds.length + queuedTirePurchases.length + queuedServices.length + queuedTempo.length} item
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        )}
+
         <div className="mt-4 flex gap-2">
           <button onClick={saveAllQueued} className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded">
             Simpan Semua ke Rekapan
@@ -650,7 +825,19 @@ export default function TempoComposerPage() {
             <label className="block text-sm font-medium mb-1">Harga per Unit</label>
             <input type="number" value={stockUnitPrice} onChange={(e) => setStockUnitPrice(e.target.value)} placeholder="0" className="w-full border border-gray-300 rounded-md px-3 py-2" />
           </div>
-          <div className="md:col-span-3">
+          <div>
+            <label className="block text-sm font-medium mb-1">Rak Baris (1-4)</label>
+            <input type="number" min="1" max="4" value={stockRackRow} onChange={(e) => setStockRackRow(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Rak Tingkat (1-5)</label>
+            <input type="number" min="1" max="5" value={stockRackLevel} onChange={(e) => setStockRackLevel(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Merk</label>
+            <input type="text" value={stockMerk} onChange={(e) => setStockMerk(e.target.value)} placeholder="Merk/Brand" className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div className="md:col-span-2">
             <label className="block text-sm font-medium mb-1">Deskripsi</label>
             <input type="text" value={stockDescription} onChange={(e) => setStockDescription(e.target.value)} placeholder="Deskripsi penambahan" className="w-full border border-gray-300 rounded-md px-3 py-2" />
           </div>
@@ -884,7 +1071,9 @@ export default function TempoComposerPage() {
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {selectedRekapan.parsedDetails?.transactions?.map((transaction: any, index: number) => (
+                      {selectedRekapan.parsedDetails?.transactions
+                        ?.filter((t: any) => t.type !== 'Stock Usage') // Filter out stock_usage from general stock recap
+                        ?.map((transaction: any, index: number) => (
                         <tr key={transaction.id} className="hover:bg-gray-50">
                           <td className="px-4 py-3 text-sm text-gray-900">{transaction.id}</td>
                           <td className="px-4 py-3 text-sm">
@@ -931,6 +1120,17 @@ export default function TempoComposerPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+      {isSaving && (
+        <div className="fixed inset-0 z-50 bg-black bg-opacity-40 flex items-center justify-center">
+          <div className="bg-white rounded-md shadow p-4 flex items-center gap-3">
+            <svg className="animate-spin h-5 w-5 text-blue-600" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+            </svg>
+            <span className="text-sm text-gray-700">{savingText || 'Loading...'}</span>
           </div>
         </div>
       )}

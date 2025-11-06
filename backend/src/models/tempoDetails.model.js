@@ -2,6 +2,10 @@ const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
   const TempoDetail = sequelize.define('TempoDetail', {
+    cash_transaction_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
     id: {
       type: DataTypes.INTEGER,
       primaryKey: true,

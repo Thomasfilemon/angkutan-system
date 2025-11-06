@@ -19,15 +19,21 @@ export default function CashComposerPage() {
   const [composerSupplier, setComposerSupplier] = useState("");
   const [composerDueDate, setComposerDueDate] = useState("");
 
+  // Global loading state and error helper
+  const [isSaving, setIsSaving] = useState(false);
+  const [savingText, setSavingText] = useState<string | null>(null);
+  const friendlyError = (err: any) => err?.response?.data?.message || err?.response?.data?.error || err?.message || "Terjadi kesalahan. Coba lagi.";
+
   const ensureRecap = useCallback(async () => {
+    const manual = (recapNumber || "").trim();
     try {
-      if (recapNumber && recapNumber.trim()) {
-        const res = await listRecaps({ page: 1, limit: 1, search: recapNumber });
-        const found = (res?.data || []).find((r: any) => r.recap_number === recapNumber);
+      if (manual) {
+        const res = await listRecaps({ page: 1, limit: 1, search: manual });
+        const found = (res?.data || []).find((r: any) => r.recap_number === manual);
         if (found) return found;
       }
     } catch {}
-    const created = await createRecap({ payment_mode: isTempo ? "tempo" : "cash" });
+    const created = await createRecap({ payment_mode: isTempo ? "tempo" : "cash", recap_number: manual || undefined });
     setRecapNumber(created.recap_number);
     return created;
   }, [recapNumber, isTempo]);
@@ -144,6 +150,9 @@ export default function CashComposerPage() {
   const [unitPrice, setUnitPrice] = useState("");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
+  const [rackRow, setRackRow] = useState("");
+  const [rackLevel, setRackLevel] = useState("");
+  const [merk, setMerk] = useState(""); // NEW: Brand field
 
   // Stock add options
   const [createNewBatch, setCreateNewBatch] = useState(false);
@@ -165,7 +174,7 @@ export default function CashComposerPage() {
 
   // Queues for batch save
   type QueuedUsage = { vehicleId: string; itemId: string; itemName: string; itemUnit: string; qty: string; unitPrice?: string; description: string };
-  type QueuedStockAdd = { itemId: string; itemName: string; itemUnit: string; qty: string; unitPrice: string; createNewBatch: boolean; description: string };
+  type QueuedStockAdd = { itemId: string; itemName: string; itemUnit: string; qty: string; unitPrice: string; createNewBatch: boolean; description: string; rackRow?: string; rackLevel?: string; merk?: string };
   type QueuedTirePurchase = { brand: string; size: string; type: string; condition: string; qty: string; unitPrice: string; date: string; description: string };
   type QueuedService = { vehicleId: string; serviceDate: string; serviceType: string; workshopName: string; laborCost: string; description: string };
   type QueuedCash = { cashType: "debit" | "kredit"; categoryId: string; amount: string; referenceNumber?: string; notaNumber?: string; notaDate?: string; description: string; files: File[] };
@@ -203,23 +212,26 @@ export default function CashComposerPage() {
     if (!(q > 0)) return toast.error("Qty harus > 0");
     if (!usageItemId && !usageItemName) return toast.error("Isi Item ID atau Nama Item");
     if (!usageItemUnit) return toast.error("Unit wajib");
-    const recap = await ensureRecap();
-    const payload: CreateStockUsagePayload = {
-      vehicle_id: parseInt(vehicleId, 10),
-      usage_date: new Date().toISOString().split("T")[0],
-      notes: usageDescription || `Composer: ${usageItemName || "Item"}`,
-      items: [ {
-        item_id: usageItemId ? parseInt(usageItemId, 10) : undefined,
-        item_name: usageItemName || undefined,
-        unit: usageItemUnit,
-        quantity: q,
-        unit_price: usageUnitPrice ? parseFloat(usageUnitPrice) : undefined,
-      } ],
-      recap_number: recap.recap_number,
-      cash_options: { create_cash: true, is_tempo: isTempo, account: composerAccount, supplier: composerSupplier || undefined, due_date: isTempo ? composerDueDate || undefined : undefined },
-    };
-    await createStockUsage(payload);
-    toast.success("Stok langsung digunakan tersimpan");
+    try {
+      setIsSaving(true); setSavingText("Menyimpan Stok Sekali Pakai...");
+      const recap = await ensureRecap();
+      const payload: CreateStockUsagePayload = {
+        vehicle_id: parseInt(vehicleId, 10),
+        usage_date: new Date().toISOString().split("T")[0],
+        notes: usageDescription || `Composer: ${usageItemName || "Item"}`,
+        items: [ {
+          item_id: usageItemId ? parseInt(usageItemId, 10) : undefined,
+          item_name: usageItemName || undefined,
+          unit: usageItemUnit,
+          quantity: q,
+          unit_price: usageUnitPrice ? parseFloat(usageUnitPrice) : undefined,
+        } ],
+        recap_number: recap.recap_number,
+        cash_options: { create_cash: true, is_tempo: isTempo, account: composerAccount, supplier: composerSupplier || undefined, due_date: isTempo ? composerDueDate || undefined : undefined },
+      };
+      await createStockUsage(payload);
+      toast.success("Stok langsung digunakan tersimpan");
+    } catch (e: any) { console.error("saveStockUsage error:", e); toast.error(friendlyError(e)); } finally { setIsSaving(false); setSavingText(null); }
   };
 
   const queueStockAdd = () => {
@@ -228,7 +240,7 @@ export default function CashComposerPage() {
     if (!(q > 0)) return toast.error("Qty harus > 0");
     if (isNaN(p) || p < 0) return toast.error("Harga tidak valid");
     if (!itemId && !itemName) return toast.error("Isi itemId atau itemName");
-    setQueuedStockAdds((prev) => [...prev, { itemId, itemName, itemUnit, qty, unitPrice, createNewBatch, description }]);
+    setQueuedStockAdds((prev) => [...prev, { itemId, itemName, itemUnit, qty, unitPrice, createNewBatch, description, rackRow, rackLevel, merk }]);
     toast.success("Ditambahkan ke antrian");
   };
 
@@ -237,20 +249,39 @@ export default function CashComposerPage() {
     const p = parseFloat(unitPrice || "0");
     if (!(q > 0)) return toast.error("Qty harus > 0");
     if (!(p >= 0)) return toast.error("Harga tidak valid");
-    const recap = await ensureRecap();
-    let targetItemId = itemId ? parseInt(itemId, 10) : undefined;
-    if (!targetItemId && !itemName) return toast.error("Isi itemId atau itemName");
-    if (!targetItemId) {
-      const createRes = await apiClient.post("/stock", { item_name: itemName, unit: itemUnit, min_stock: 0 });
-      targetItemId = createRes.data?.data?.id || createRes.data?.id;
-    }
-    await apiClient.post("/stock/adjust", { itemId: targetItemId, adjustmentType: "add", quantity: q, unit_price: p, supplier: composerSupplier || undefined, create_new_batch: createNewBatch, notes: description || `Tambah stok ${itemName || targetItemId}` });
-    if (p > 0) {
-      const cash = await addCashTransaction(q * p, description || `Pembelian stok ${itemName || targetItemId}`);
-      await addItemToRecap(recap.id, { type: "cash", reference_id: cash.id, description: cash.description, amount: cash.amount } as any);
-    }
-    await addItemToRecap(recap.id, { type: "stock", reference_id: targetItemId!, description: description || `Stok masuk`, amount: q * p } as any);
-    toast.success("Stok bertambah");
+    try {
+      setIsSaving(true); setSavingText("Menambah Stok...");
+      const recap = await ensureRecap();
+      let targetItemId = itemId ? parseInt(itemId, 10) : undefined;
+      if (!targetItemId && !itemName) return toast.error("Isi itemId atau itemName");
+      if (!targetItemId) {
+        // Helper to save merk in notes as JSON
+        const saveMerkToNotes = (merk: string, otherNotes: string): string => {
+          if (!merk && !otherNotes) return '';
+          const data: any = {};
+          if (merk) data.merk = merk;
+          if (otherNotes) data.notes = otherNotes;
+          return JSON.stringify(data);
+        };
+        
+        const createRes = await apiClient.post("/stock", { 
+          item_name: itemName, 
+          unit: itemUnit, 
+          min_stock: 0,
+          rack_row: rackRow ? parseInt(rackRow) : undefined,
+          rack_level: rackLevel ? parseInt(rackLevel) : undefined,
+          notes: saveMerkToNotes(merk || '', description || '') // Save merk in notes
+        });
+        targetItemId = createRes.data?.data?.id || createRes.data?.id;
+      }
+      await apiClient.post("/stock/adjust", { itemId: targetItemId, adjustmentType: "add", quantity: q, unit_price: p, supplier: composerSupplier || undefined, create_new_batch: createNewBatch, notes: description || `Tambah stok ${itemName || targetItemId}` });
+      if (p > 0) {
+        const cash = await addCashTransaction(q * p, description || `Pembelian stok ${itemName || targetItemId}`);
+        await addItemToRecap(recap.id, { type: "cash", reference_id: cash.id, description: cash.description, amount: cash.amount } as any);
+      }
+      await addItemToRecap(recap.id, { type: "stock", reference_id: targetItemId!, description: description || `Stok masuk`, amount: q * p } as any);
+      toast.success("Stok bertambah");
+    } catch (e: any) { console.error("saveStockAdd error:", e); toast.error(friendlyError(e)); } finally { setIsSaving(false); setSavingText(null); }
   };
 
   const queueTirePurchase = () => {
@@ -269,12 +300,15 @@ export default function CashComposerPage() {
     if (!tireBrand || !tireSize) return toast.error("Isi brand & ukuran");
     if (!(q > 0)) return toast.error("Qty ban wajib");
     if (!(price > 0)) return toast.error("Harga per ban wajib");
-    const a = q * price;
-    const recap = await ensureRecap();
-    const desc = description || `Beli Ban ${tireBrand} ${tireSize} x ${q}`;
-    const cash = await addCashTransaction(a, desc);
-    await addItemToRecap(recap.id, { type: "tire_purchase", reference_id: cash.id, description: desc, amount: a } as any);
-    toast.success("Beli ban (kas) tersimpan");
+    try {
+      setIsSaving(true); setSavingText("Menyimpan Pembelian Ban...");
+      const a = q * price;
+      const recap = await ensureRecap();
+      const desc = description || `Beli Ban ${tireBrand} ${tireSize} x ${q}`;
+      const cash = await addCashTransaction(a, desc);
+      await addItemToRecap(recap.id, { type: "tire_purchase", reference_id: cash.id, description: desc, amount: a } as any);
+      toast.success("Beli ban (kas) tersimpan");
+    } catch (e: any) { console.error("saveTirePurchase error:", e); toast.error(friendlyError(e)); } finally { setIsSaving(false); setSavingText(null); }
   };
 
   const queueService = () => {
@@ -302,6 +336,7 @@ export default function CashComposerPage() {
     const desc = description || (selectedVehicle ? `Servis kendaraan ${selectedVehicle.license_plate}` : "Servis kendaraan");
     
     try {
+      setIsSaving(true); setSavingText("Menyimpan Servis...");
       // Create actual service record
       const serviceData = new FormData();
       serviceData.append('vehicle_id', vehicleIdNum.toString());
@@ -328,11 +363,7 @@ export default function CashComposerPage() {
       await addItemToRecap(recap.id, { type: "service", reference_id: serviceResponse.data.data.id, description: desc, amount: a } as any);
       
       toast.success("Servis berhasil disimpan ke riwayat servis");
-    } catch (error: any) {
-      console.error("Service creation error:", error);
-      const errorMessage = error.response?.data?.message || error.message || "Gagal menyimpan servis";
-      toast.error(`Error: ${errorMessage}`);
-    }
+    } catch (error: any) { console.error("Service creation error:", error); toast.error(friendlyError(error)); } finally { setIsSaving(false); setSavingText(null); }
   };
 
   const queueCashNormal = () => {
@@ -343,7 +374,7 @@ export default function CashComposerPage() {
   };
 
   const saveAllQueued = async () => {
-    try {
+    try { setIsSaving(true); setSavingText("Menyimpan Antrian...");
       const recap = await ensureRecap();
 
       // Collect all transaction details for the rekapan nota
@@ -391,6 +422,15 @@ export default function CashComposerPage() {
         let targetItemId = s.itemId ? parseInt(s.itemId, 10) : undefined;
         if (!targetItemId && !s.itemName) continue;
         if (!targetItemId) {
+          // Helper to save merk in notes as JSON
+          const saveMerkToNotes = (merk: string, otherNotes: string): string => {
+            if (!merk && !otherNotes) return '';
+            const data: any = {};
+            if (merk) data.merk = merk;
+            if (otherNotes) data.notes = otherNotes;
+            return JSON.stringify(data);
+          };
+          
           const createRes = await apiClient.post("/stock", { 
             item_name: s.itemName, 
             unit: s.itemUnit, 
@@ -398,11 +438,30 @@ export default function CashComposerPage() {
             initial_stock: q,
             unit_price: p,
             supplier: composerSupplier || undefined,
-            notes: s.description || `Initial stock creation for ${s.itemName}`
+            rack_row: s.rackRow ? parseInt(s.rackRow) : undefined,
+            rack_level: s.rackLevel ? parseInt(s.rackLevel) : undefined,
+            notes: saveMerkToNotes(s.merk || '', s.description || `Initial stock creation for ${s.itemName}`) // Save merk in notes
           });
           targetItemId = createRes.data?.data?.id || createRes.data?.id;
         } else {
-          await apiClient.post("/stock/adjust", { itemId: targetItemId, adjustmentType: "add", quantity: q, unit_price: p, supplier: composerSupplier || undefined, create_new_batch: s.createNewBatch, notes: s.description || `Tambah stok ${s.itemName || targetItemId}` });
+          // Helper to save merk in notes as JSON
+          const saveMerkToNotes = (merk: string, otherNotes: string): string => {
+            if (!merk && !otherNotes) return '';
+            const data: any = {};
+            if (merk) data.merk = merk;
+            if (otherNotes) data.notes = otherNotes;
+            return JSON.stringify(data);
+          };
+          
+          await apiClient.post("/stock/adjust", { 
+            itemId: targetItemId, 
+            adjustmentType: "add", 
+            quantity: q, 
+            unit_price: p, 
+            supplier: composerSupplier || undefined, 
+            create_new_batch: s.createNewBatch, 
+            notes: saveMerkToNotes(s.merk || '', s.description || `Tambah stok ${s.itemName || targetItemId}`) // Save merk in notes
+          });
         }
         
         const amount = q * p;
@@ -531,9 +590,7 @@ export default function CashComposerPage() {
       setQueuedCash([]);
 
       toast.success(`Rekapan Nota ${recap.recap_number} berhasil dibuat dengan ${transactionDetails.length} transaksi`);
-    } catch (e: any) {
-      toast.error(e?.message || "Gagal menyimpan rekapan");
-    }
+    } catch (e: any) { console.error("saveAllQueued error:", e); toast.error(friendlyError(e)); } finally { setIsSaving(false); setSavingText(null); }
   };
 
   return (
@@ -544,7 +601,7 @@ export default function CashComposerPage() {
         <h2 className="text-lg font-semibold text-gray-800 mb-3">Header</h2>
         <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Recap Number</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">No. Nota</label>
             <input type="text" value={recapNumber} onChange={(e) => setRecapNumber(e.target.value)} placeholder="Kosongkan untuk auto" className="w-full border border-gray-300 rounded-md px-3 py-2" />
           </div>
           <div>
@@ -569,6 +626,168 @@ export default function CashComposerPage() {
             </div>
           )}
         </div>
+        {/* Queue Table */}
+        {(queuedUsages.length > 0 || queuedStockAdds.length > 0 || queuedTirePurchases.length > 0 || queuedServices.length > 0 || queuedCash.length > 0) && (
+          <div className="bg-white p-4 rounded-lg shadow mb-6">
+            <h2 className="text-lg font-semibold text-gray-800 mb-4">Antrian Transaksi</h2>
+            <div className="overflow-x-auto">
+              <table className="min-w-full bg-white border border-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">No</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipe</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Detail</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Jumlah/Harga</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {/* Queued Usages */}
+                  {queuedUsages.map((item, idx) => (
+                    <tr key={`usage-${idx}`} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm text-gray-900">{idx + 1}</td>
+                      <td className="px-4 py-3 text-sm">
+                        <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">Stok Digunakan</span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        <div>Kendaraan: {vehicles.find(v => v.id.toString() === item.vehicleId)?.license_plate || item.vehicleId}</div>
+                        <div>Item: {item.itemName || item.itemId}</div>
+                        <div className="text-gray-500">{item.description || '-'}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right text-gray-900">
+                        <div>{item.qty} {item.itemUnit}</div>
+                        {item.unitPrice && <div className="text-gray-500">Rp {parseFloat(item.unitPrice).toLocaleString('id-ID')}</div>}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-center">
+                        <button
+                          onClick={() => setQueuedUsages(prev => prev.filter((_, i) => i !== idx))}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          Hapus
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {/* Queued Stock Adds */}
+                  {queuedStockAdds.map((item, idx) => (
+                    <tr key={`stock-${idx}`} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm text-gray-900">{queuedUsages.length + idx + 1}</td>
+                      <td className="px-4 py-3 text-sm">
+                        <span className="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">Tambah Stok</span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        <div>Item: {item.itemName || item.itemId}</div>
+                        <div className="text-gray-500">{item.description || '-'}</div>
+                        {item.rackRow && item.rackLevel && <div className="text-gray-500">Rak: {item.rackRow}-{item.rackLevel}</div>}
+                        {item.merk && <div className="text-gray-500">Merk: {item.merk}</div>}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right text-gray-900">
+                        <div>{item.qty} {item.itemUnit}</div>
+                        <div>Rp {parseFloat(item.unitPrice).toLocaleString('id-ID')}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-center">
+                        <button
+                          onClick={() => setQueuedStockAdds(prev => prev.filter((_, i) => i !== idx))}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          Hapus
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {/* Queued Tire Purchases */}
+                  {queuedTirePurchases.map((item, idx) => (
+                    <tr key={`tire-${idx}`} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm text-gray-900">{queuedUsages.length + queuedStockAdds.length + idx + 1}</td>
+                      <td className="px-4 py-3 text-sm">
+                        <span className="px-2 py-1 text-xs font-semibold rounded-full bg-purple-100 text-purple-800">Beli Ban</span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        <div>{item.brand} {item.size} - {item.type}</div>
+                        <div className="text-gray-500">{item.description || '-'}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right text-gray-900">
+                        <div>{item.qty} pcs</div>
+                        <div>Rp {parseFloat(item.unitPrice).toLocaleString('id-ID')}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-center">
+                        <button
+                          onClick={() => setQueuedTirePurchases(prev => prev.filter((_, i) => i !== idx))}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          Hapus
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {/* Queued Services */}
+                  {queuedServices.map((item, idx) => (
+                    <tr key={`service-${idx}`} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm text-gray-900">{queuedUsages.length + queuedStockAdds.length + queuedTirePurchases.length + idx + 1}</td>
+                      <td className="px-4 py-3 text-sm">
+                        <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">Servis</span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        <div>Kendaraan: {vehicles.find(v => v.id.toString() === item.vehicleId)?.license_plate || item.vehicleId}</div>
+                        <div>{item.serviceType} - {item.workshopName}</div>
+                        <div className="text-gray-500">{item.description || '-'}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right text-gray-900">
+                        <div>Rp {parseFloat(item.laborCost || "0").toLocaleString('id-ID')}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-center">
+                        <button
+                          onClick={() => setQueuedServices(prev => prev.filter((_, i) => i !== idx))}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          Hapus
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {/* Queued Cash */}
+                  {queuedCash.map((item, idx) => (
+                    <tr key={`cash-${idx}`} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm text-gray-900">{queuedUsages.length + queuedStockAdds.length + queuedTirePurchases.length + queuedServices.length + idx + 1}</td>
+                      <td className="px-4 py-3 text-sm">
+                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${item.cashType === "debit" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
+                          {item.cashType === "debit" ? "Debit" : "Kredit"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        <div>{item.description || '-'}</div>
+                        {item.notaNumber && <div className="text-gray-500">Nota: {item.notaNumber}</div>}
+                        {item.referenceNumber && <div className="text-gray-500">Ref: {item.referenceNumber}</div>}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right text-gray-900">
+                        <div>Rp {parseFloat(item.amount || "0").toLocaleString('id-ID')}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-center">
+                        <button
+                          onClick={() => setQueuedCash(prev => prev.filter((_, i) => i !== idx))}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          Hapus
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-gray-50">
+                  <tr>
+                    <td colSpan={3} className="px-4 py-3 text-right text-sm font-bold text-gray-900">
+                      Total Item dalam Antrian:
+                    </td>
+                    <td colSpan={2} className="px-4 py-3 text-left text-sm font-bold text-gray-900">
+                      {queuedUsages.length + queuedStockAdds.length + queuedTirePurchases.length + queuedServices.length + queuedCash.length} item
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        )}
+
         <div className="mt-4 flex items-center justify-between">
           <div className="text-sm text-gray-600">
             Antrian: {queuedUsages.length + queuedStockAdds.length + queuedTirePurchases.length + queuedServices.length + queuedCash.length} item
@@ -648,6 +867,18 @@ export default function CashComposerPage() {
           <div>
             <label className="block text-sm font-medium mb-1">Harga Satuan</label>
             <input type="number" step="0.01" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Rak Baris (1-4)</label>
+            <input type="number" min="1" max="4" value={rackRow} onChange={(e) => setRackRow(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Rak Tingkat (1-5)</label>
+            <input type="number" min="1" max="5" value={rackLevel} onChange={(e) => setRackLevel(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Merk</label>
+            <input type="text" value={merk} onChange={(e) => setMerk(e.target.value)} placeholder="Merk/Brand" className="w-full border border-gray-300 rounded-md px-3 py-2" />
           </div>
           <div className="md:col-span-2">
             <label className="block text-sm font-medium mb-1">Keterangan</label>
@@ -879,7 +1110,9 @@ export default function CashComposerPage() {
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {selectedRekapan.parsedDetails?.transactions?.map((transaction: any, index: number) => (
+                      {selectedRekapan.parsedDetails?.transactions
+                        ?.filter((t: any) => t.type !== 'Stock Usage') // Filter out stock_usage from general stock recap
+                        ?.map((transaction: any, index: number) => (
                         <tr key={transaction.id} className="hover:bg-gray-50">
                           <td className="px-4 py-3 text-sm text-gray-900">{transaction.id}</td>
                           <td className="px-4 py-3 text-sm">
@@ -925,6 +1158,17 @@ export default function CashComposerPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+      {isSaving && (
+        <div className="fixed inset-0 z-50 bg-black bg-opacity-40 flex items-center justify-center">
+          <div className="bg-white rounded-md shadow p-4 flex items-center gap-3">
+            <svg className="animate-spin h-5 w-5 text-blue-600" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+            </svg>
+            <span className="text-sm text-gray-700">{savingText || 'Loading...'}</span>
           </div>
         </div>
       )}

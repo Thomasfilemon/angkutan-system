@@ -55,6 +55,37 @@ const IconDelete = () => (
   </svg>
 );
 
+const IconEdit = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    className="h-5 w-5"
+    fill="none"
+    viewBox="0 0 24 24"
+    stroke="currentColor"
+    strokeWidth={2}
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M11 5h2m-7 6h8m-8 4h5m2.586-11.414l2.828 2.828M5 19l4.243-.707a2 2 0 00.95-.546l8.486-8.486a2 2 0 000-2.828l-1.172-1.172a2 2 0 00-2.828 0L6.193 12.757a2 2 0 00-.546.95L4.94 18.95A.5.5 0 005.5 19"
+    />
+  </svg>
+);
+
+// Helper to parse merk from notes
+const parseMerkFromNotes = (notes: string | null | undefined): string => {
+  if (!notes) return '';
+  try {
+    const parsed = JSON.parse(notes);
+    if (typeof parsed === 'object' && parsed !== null && parsed.merk) {
+      return parsed.merk;
+    }
+  } catch (e) {
+    // Not JSON, return empty
+  }
+  return '';
+};
+
 interface StockItem {
   id: number;
   item_code: string;
@@ -74,6 +105,7 @@ interface StockItem {
   is_low_stock?: boolean;
   last_edited_by?: string;
   last_edited_at?: string;
+  notes?: string; // Add notes to interface
 }
 
 // ✅ ADD SEARCH FILTERS INTERFACE
@@ -118,6 +150,9 @@ const StockManagementPage = () => {
   const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
   const [selectedItemForAdjust, setSelectedItemForAdjust] =
     useState<StockItem | null>(null);
+  const [modalDefaultMode, setModalDefaultMode] = useState<
+    "adjust" | "edit"
+  >("adjust");
 
   // ✅ ENHANCED FETCH FUNCTION
   const fetchStockItems = useCallback(async (page = 1) => {
@@ -276,8 +311,9 @@ const StockManagementPage = () => {
     }
   };
 
-  const openAdjustModal = (item: StockItem) => {
+  const openAdjustModal = (item: StockItem, mode: "adjust" | "edit" = "adjust") => {
     setSelectedItemForAdjust(item);
+    setModalDefaultMode(mode);
     setIsAdjustModalOpen(true);
   };
 
@@ -285,7 +321,13 @@ const StockManagementPage = () => {
     const updated = payload?.updated_item;
     if (!updated) return;
 
-    // Update stockItems and filteredItems
+    // For edit operations, refresh the entire data to get the latest information
+    if (payload?.adjustment_type === "edit") {
+      fetchStockItems(currentPage);
+      return;
+    }
+
+    // For quantity adjustments, update local state
     setStockItems((prev) =>
       prev.map((it) => (it.id === updated.id ? { ...it, ...updated } : it))
     );
@@ -471,6 +513,9 @@ const StockManagementPage = () => {
                 Nama Barang
               </th>
               <th scope="col" className="px-6 py-3 border border-gray-300">
+                Merk
+              </th>
+              <th scope="col" className="px-6 py-3 border border-gray-300">
                 Supplier
               </th>
               <th scope="col" className="px-6 py-3 border border-gray-300">
@@ -511,19 +556,19 @@ const StockManagementPage = () => {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={8} className="text-center p-8 text-gray-500">
+                <td colSpan={9} className="text-center p-8 text-gray-500">
                   Memuat data...
                 </td>
               </tr>
             ) : error ? (
               <tr>
-                <td colSpan={8} className="text-center p-8 text-red-500">
+                <td colSpan={9} className="text-center p-8 text-red-500">
                   {error}
                 </td>
               </tr>
             ) : filteredItems.length === 0 ? (
               <tr>
-                <td colSpan={8} className="text-center p-8 text-gray-500">
+                <td colSpan={9} className="text-center p-8 text-gray-500">
                   {stockItems.length === 0
                     ? "Tidak ada data stok"
                     : "Tidak ada item yang sesuai dengan filter"}
@@ -557,6 +602,9 @@ const StockManagementPage = () => {
                         )}
                       </div>
                     </div>
+                  </td>
+                  <td className="px-6 py-4 border border-gray-300">
+                    {parseMerkFromNotes(item.notes) || "-"}
                   </td>
                   <td className="px-6 py-4 border border-gray-300">
                     {item.supplier || "-"}
@@ -626,7 +674,7 @@ const StockManagementPage = () => {
                         <IconHistory />
                       </Link>
                       <button
-                        onClick={() => openAdjustModal(item)}
+                        onClick={() => openAdjustModal(item, "adjust")}
                         className="p-1 rounded-full hover:bg-blue-100 text-gray-500 hover:text-blue-600"
                         title="Penyesuaian Stok"
                       >
@@ -645,6 +693,13 @@ const StockManagementPage = () => {
                             d="M12 4v16m8-8H4"
                           />
                         </svg>
+                      </button>
+                      <button
+                        onClick={() => openAdjustModal(item, "edit")}
+                        className="p-1 rounded-full hover:bg-indigo-100 text-gray-500 hover:text-indigo-600"
+                        title="Edit Data Barang"
+                      >
+                        <IconEdit />
                       </button>
                       <button
                         onClick={() => handleDelete(item.id)}
@@ -671,6 +726,7 @@ const StockManagementPage = () => {
           }}
           item={selectedItemForAdjust}
           onSuccess={(payload) => handleAdjustSuccess(payload)}
+          defaultMode={modalDefaultMode}
         />
       )}
 

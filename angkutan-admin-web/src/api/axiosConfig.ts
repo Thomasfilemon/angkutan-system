@@ -89,7 +89,7 @@ authClient.interceptors.request.use(
 // ✅ UPDATE: Keep response interceptor for all EXCEPT cash and big-delivery-orders endpoints
 apiClient.interceptors.response.use(
   (response) => {
-    // Skip interceptor for endpoints that need full response with pagination/stats
+    // Skip interceptor for endpoints that need full response with pagination/stats or blob responses
     if (
       response.config.url?.includes("/cash/") ||
       response.config.url?.includes("/big-delivery-orders") ||
@@ -98,7 +98,12 @@ apiClient.interceptors.response.use(
       response.config.url?.includes("/payments") ||
       response.config.url?.includes("/delivery-orders") ||
       response.config.url?.includes("/recaps") ||
-      response.config.url?.includes("/tires")
+      response.config.url?.includes("/tires") ||
+      response.config.url?.includes("/analytics") ||
+      response.config.url?.includes("/tempo-details") ||
+      response.config.url?.includes("/stock/usage-notes") ||
+      response.config.url?.includes("/export") ||
+      response.config.responseType === "blob"
     ) {
       return response; // Return full response for these endpoints
     }

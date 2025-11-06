@@ -20,4 +20,24 @@ router.get(
   analyticsController.getExpenseAnalytics
 );
 
+// Vehicle expenditure analytics route
+router.get(
+  "/vehicles/expenditure",
+  checkRole(["admin", "owner"]),
+  analyticsController.getVehicleExpenditureAnalytics
+);
+
+// Test route to verify analytics endpoint is working
+router.get(
+  "/test",
+  checkRole(["admin", "owner"]),
+  (req, res) => {
+    res.json({
+      success: true,
+      message: "Analytics endpoint is working",
+      timestamp: new Date().toISOString()
+    });
+  }
+);
+
 module.exports = router;

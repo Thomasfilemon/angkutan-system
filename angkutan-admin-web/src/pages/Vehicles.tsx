@@ -307,6 +307,11 @@ const VehiclesPage = () => {
           Manajemen Kendaraan
         </h1>
         <div className="flex space-x-2">
+          <Link to="/vehicles/expenditure">
+            <button className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded shadow-md transition duration-200">
+              📊 Pengeluaran Stok
+            </button>
+          </Link>
           <Link to="/vehicles/create">
             <button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded shadow-md transition duration-200">
               + Tambah Kendaraan

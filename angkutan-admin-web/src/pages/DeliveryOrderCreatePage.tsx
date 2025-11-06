@@ -142,10 +142,12 @@ const MapClickHandler: React.FC<{
   onClearSelection: () => void;
 }> = ({ selectedLocationType, onLocationSelect, onClearSelection }) => {
   const map = useMap();
+  const isDraggingRef = React.useRef(false);
 
   useEffect(() => {
     const onClick = (e: L.LeafletMouseEvent) => {
       if (selectedLocationType) {
+        if (isDraggingRef.current) return; // ignore clicks while dragging
         const { lat, lng } = e.latlng;
         fetch(
           `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
@@ -166,10 +168,16 @@ const MapClickHandler: React.FC<{
       }
     };
 
+    const onDragStart = () => { isDraggingRef.current = true; };
+    const onDragEnd = () => { setTimeout(() => { isDraggingRef.current = false; }, 50); };
     map.on("click", onClick);
+    map.on("dragstart", onDragStart);
+    map.on("dragend", onDragEnd);
 
     return () => {
       map.off("click", onClick);
+      map.off("dragstart", onDragStart);
+      map.off("dragend", onDragEnd);
     };
   }, [map, selectedLocationType, onLocationSelect, onClearSelection]);
 
@@ -204,6 +212,8 @@ const DeliveryOrderCreatePage: React.FC = () => {
     load: boolean;
     unload: boolean;
   }>({ load: false, unload: false });
+  const [drivingDistanceKm, setDrivingDistanceKm] = useState<number | null>(null);
+  const [drivingDurationMin, setDrivingDurationMin] = useState<number | null>(null);
 
   const [customerSuggestions, setCustomerSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -315,11 +325,71 @@ const DeliveryOrderCreatePage: React.FC = () => {
     });
 
     setSelectedLocationType(null);
+
+    // If both coordinates exist, update driving estimate
+    setTimeout(() => {
+      updateDrivingEstimate();
+    }, 0);
   };
 
   const handleSearchSelect = (lat: number, lng: number, label: string) => {
     if (selectedLocationType) {
       setLocationWithType(lat, lng, label, selectedLocationType);
+    }
+  };
+
+  // Straight-line distance between load & unload for current form (km)
+  const getDistanceKm = (): number | null => {
+    const fd = formDataList[currentFormIndex];
+    const lat1 = parseFloat(fd?.load_latitude || "");
+    const lon1 = parseFloat(fd?.load_longitude || "");
+    const lat2 = parseFloat(fd?.unload_latitude || "");
+    const lon2 = parseFloat(fd?.unload_longitude || "");
+    if ([lat1, lon1, lat2, lon2].some((v) => isNaN(v))) return null;
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const R = 6371; // km
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  // Recompute driving estimate when switching form index
+  useEffect(() => {
+    updateDrivingEstimate();
+  }, [currentFormIndex]);
+
+  // Fetch estimated driving distance using OSRM public API
+  const updateDrivingEstimate = async () => {
+    const fd = formDataList[currentFormIndex];
+    const lat1 = parseFloat(fd?.load_latitude || "");
+    const lon1 = parseFloat(fd?.load_longitude || "");
+    const lat2 = parseFloat(fd?.unload_latitude || "");
+    const lon2 = parseFloat(fd?.unload_longitude || "");
+    if ([lat1, lon1, lat2, lon2].some((v) => isNaN(v))) {
+      setDrivingDistanceKm(null);
+      setDrivingDurationMin(null);
+      return;
+    }
+    try {
+      const url = `https://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=false&alternatives=false&steps=false`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const route = data?.routes?.[0];
+      if (route) {
+        setDrivingDistanceKm(route.distance / 1000);
+        setDrivingDurationMin(route.duration / 60);
+      } else {
+        setDrivingDistanceKm(null);
+        setDrivingDurationMin(null);
+      }
+    } catch {
+      setDrivingDistanceKm(null);
+      setDrivingDurationMin(null);
     }
   };
 
@@ -1879,6 +1949,25 @@ const DeliveryOrderCreatePage: React.FC = () => {
                     💡 Click a "Set Location" button, then use the search bar or
                     click the map.
                   </p>
+                  {(() => {
+                    const straight = getDistanceKm();
+                    const driving = drivingDistanceKm;
+                    const duration = drivingDurationMin;
+                    if (straight == null && driving == null) return null;
+                    return (
+                      <div className="space-y-1">
+                        {straight != null && (
+                          <p>Estimated straight-line: <span className="font-semibold">{straight.toFixed(2)} km</span></p>
+                        )}
+                        {driving != null && (
+                          <p>
+                            Estimated driving: <span className="font-semibold">{driving.toFixed(2)} km</span>
+                            {duration != null && <span> (~{Math.round(duration)} min)</span>}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
                   {selectedLocationType && (
                     <p className="text-blue-600 mt-2">
                       🎯 Ready to set {selectedLocationType} location for form{" "}

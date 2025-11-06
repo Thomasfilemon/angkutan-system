@@ -81,13 +81,28 @@ exports.listRecaps = async (req, res, next) => {
 exports.getRecapDetail = async (req, res, next) => {
 	try {
 		const { id } = req.params;
+		const { exclude_stock_usage } = req.query; // NEW: Filter parameter
 		const recap = await RecapNote.findByPk(id, {
 			include: [
 				{ model: Vehicle, as: "vehicle", attributes: ["id", "license_plate"] },
-				{ model: RecapNoteItem, as: "items" },
+				{ 
+					model: RecapNoteItem, 
+					as: "items",
+					...(exclude_stock_usage === 'true' ? {
+						where: {
+							type: { [Op.ne]: 'stock_usage' }
+						}
+					} : {})
+				},
 			],
 		});
 		if (!recap) return res.status(404).json({ success: false, message: "Recap not found" });
+		
+		// If exclude_stock_usage is true, also filter items in memory (in case include where didn't work)
+		if (exclude_stock_usage === 'true' && recap.items) {
+			recap.items = recap.items.filter(item => item.type !== 'stock_usage');
+		}
+		
 		return res.json({ success: true, data: recap });
 	} catch (err) {
 		return next(err);
@@ -167,14 +182,27 @@ exports.payRecap = async (req, res, next) => {
 			for (const it of cashItems) {
 				if (remaining <= 0) break;
 				const tx = await CashTransaction.findByPk(it.reference_id, { transaction: t });
-				if (tx && ["debit_tempo", "kredit_tempo"].includes(tx.transaction_type)) {
-					const tempo = await TempoDetail.findOne({ where: { cash_transaction_id: tx.id }, transaction: t });
-					if (tempo && tempo.status !== "lunas") {
-						const cover = Math.min(parseFloat(tempo.amount), remaining);
-						await tempo.update({ status: cover >= parseFloat(tempo.amount) ? "lunas" : "pending", payment_date: new Date(), payment_method: "recap" }, { transaction: t });
-						remaining -= cover;
-					}
-				}
+                if (tx && ["debit_tempo", "kredit_tempo"].includes(tx.transaction_type)) {
+                    let tempo = await TempoDetail.findOne({ where: { cash_transaction_id: tx.id }, transaction: t });
+                    // If tempo detail was never created (legacy data), create it now
+                    if (!tempo) {
+                        tempo = await TempoDetail.create({
+                            cash_transaction_id: tx.id,
+                            due_date: tx.tanggal_jatuh_tempo || tx.transaction_date || new Date(),
+                            store_name: tx.supplier || "Unknown",
+                            amount: parseFloat(tx.amount),
+                            status: "pending",
+                            payment_date: null,
+                            payment_method: null,
+                            nota_attachment_url: tx.attachment_urls || [],
+                        }, { transaction: t });
+                    }
+                    if (tempo.status !== "lunas") {
+                        const cover = Math.min(parseFloat(tempo.amount), remaining);
+                        await tempo.update({ status: cover >= parseFloat(tempo.amount) ? "lunas" : "pending", payment_date: new Date(), payment_method: "recap" }, { transaction: t });
+                        remaining -= cover;
+                    }
+                }
 			}
 		}
 

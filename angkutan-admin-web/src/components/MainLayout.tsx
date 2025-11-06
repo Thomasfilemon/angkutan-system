@@ -16,6 +16,7 @@ const MainLayout = () => {
     if (path.startsWith("/vehicles/tires")) return "Manajemen Ban";
     if (path.startsWith("/vehicles")) return "Manajemen Kendaraan";
     if (path.startsWith("/drivers")) return "Manajemen Supir";
+    if (path.startsWith("/stock/usage-recap")) return "Stok Skali Lewat Recap";
     if (path.startsWith("/stock")) return "Manajemen Stok";
     if (path.startsWith("/services")) return "Riwayat Servis";
     if (path.startsWith("/cash")) return "Buku Kas";
@@ -301,6 +302,17 @@ const MainLayout = () => {
                         title="Manajemen Stok"
                       >
                         Stok
+                      </Link>
+                    </li>
+                    <li>
+                      <Link
+                        to="/stock/usage-recap"
+                        className={`block p-2 rounded hover:bg-gray-700 ${
+                          isActiveLink("/stock/usage-recap") ? "bg-gray-700 border-l-4 border-blue-500" : ""
+                        }`}
+                        title="Stok Skali Lewat Recap"
+                      >
+                        Stok Skali Lewat Recap
                       </Link>
                     </li>
                     <li>

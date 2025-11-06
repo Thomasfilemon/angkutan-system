@@ -14,9 +14,29 @@ const DriverCreatePage = () => {
       // data is FormData now
       await apiClient.post("/drivers", data);
       navigate("/drivers");
-    } catch (err) {
+    } catch (err: any) {
       // Error handling with user feedback
-      alert("Failed to create driver");
+      let errorMessage = "Failed to create driver";
+      
+      if (err.response?.data) {
+        const errorData = err.response.data;
+        
+        // Handle validation errors (array of error messages)
+        if (errorData.errors && Array.isArray(errorData.errors)) {
+          errorMessage = "Validation failed:\n\n" + errorData.errors.join("\n");
+        } else if (errorData.message) {
+          errorMessage = errorData.message;
+          if (errorData.details) {
+            errorMessage += "\n\n" + errorData.details;
+          }
+        } else if (errorData.error) {
+          errorMessage = errorData.error;
+        }
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      alert(errorMessage);
       console.error("Error creating driver:", err);
       setIsLoading(false);
     }

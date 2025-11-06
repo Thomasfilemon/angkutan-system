@@ -680,6 +680,26 @@ const cancelService = async (req, res, next) => {
       },
       { transaction }
     );
+
+    // Cascade delete related cash transaction (if created)
+    if (service.service_number) {
+      const cash = await CashTransaction.findOne({ where: { reference_number: service.service_number }, transaction });
+      if (cash) {
+        // Unlink recap cash items and adjust paid amounts
+        const recapItems = await db.RecapNoteItem.findAll({ where: { type: 'cash', reference_id: cash.id }, transaction });
+        for (const ri of recapItems) {
+          const recap = await db.RecapNote.findByPk(ri.recap_id, { transaction });
+          if (recap) {
+            const newPaid = Math.max(0, parseFloat(recap.paid_amount || 0) - parseFloat(ri.amount || 0));
+            const newStatus = newPaid >= parseFloat(recap.total_amount || 0) ? 'paid' : (newPaid > 0 ? 'partial' : 'open');
+            await recap.update({ paid_amount: newPaid, status: newStatus }, { transaction });
+          }
+          await ri.destroy({ transaction });
+        }
+        await db.TempoDetail.destroy({ where: { cash_transaction_id: cash.id }, transaction });
+        await cash.destroy({ transaction });
+      }
+    }
     await transaction.commit();
 
     res.json({

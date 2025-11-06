@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
-import axios from "../api/axiosConfig";
+import apiClient from "../api/axiosConfig";
+import { useAuth } from "../components/AuthContext";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -34,24 +35,29 @@ interface DashboardMetrics {
   totalExpenses: number;
   revenueBuckets?: { paid: number; partial: number; completed: number };
   depositRevenue?: { topup: number; sisa_paid: number };
-  driverExpenses: {
+  driverExpenses?: {
     totalUangJalan: number;
     totalGajiDriver: number;
     totalOtherDriverExpenses: number;
   };
-  vehicleExpenses: {
+  vehicleExpenses?: {
     totalServiceCost: number;
   };
-  officeExpenses: {
+  officeExpenses?: {
     totalOfficeExpenses: number;
   };
-  inventoryMetrics: {
+  stockUsage?: {
+    totalStockUsageCost: number;
+    serviceStockUsageCost: number;
+    directUsageCost: number;
+  };
+  inventoryMetrics?: {
     totalInventoryValue: number;
     totalPurchases: number;
     lowStockItems: number;
     categoryBreakdown?: { category: string; value: number; lowStock: number }[];
   };
-  operationalMetrics: {
+  operationalMetrics?: {
     activeDeliveries: number;
     completedDeliveries: number;
     totalVehicles: number;
@@ -61,6 +67,7 @@ interface DashboardMetrics {
 }
 
 const Dashboard = () => {
+  const { token, user } = useAuth();
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -139,6 +146,16 @@ const Dashboard = () => {
       setLoading(true);
       setError(null);
 
+      // Debug authentication
+      console.log("[Dashboard] Auth state:", { token: !!token, user, hasToken: !!localStorage.getItem('token') });
+
+      // Check if user is authenticated
+      if (!token) {
+        setError("Anda harus login untuk mengakses dashboard");
+        setLoading(false);
+        return;
+      }
+
       let url = `/analytics/dashboard`;
       const params = new URLSearchParams();
 
@@ -158,8 +175,10 @@ const Dashboard = () => {
       url += `?${params.toString()}`;
 
       try {
-        const res = await axios.get(url);
-        setMetrics(res.data);
+        const res = await apiClient.get(url);
+        // Handle response like other pages - check for nested data structure
+        const responseData = res.data?.data || res.data;
+        setMetrics(responseData);
       } catch (err: any) {
         setError(
           err?.response?.data?.error || err.message || "Gagal memuat data"
@@ -169,7 +188,7 @@ const Dashboard = () => {
       }
     };
     fetchMetrics();
-  }, [timeRange, customStartDate, customEndDate, filterType, selectedVehicle]);
+  }, [timeRange, customStartDate, customEndDate, filterType, selectedVehicle, token]);
 
   // --- Fetch vehicle options with debounce ---
   useEffect(() => {
@@ -178,11 +197,11 @@ const Dashboard = () => {
       try {
         setVehicleFetchLoading(true);
         setVehicleFetchError(null);
-        const res = await axios.get(
+        const res = await apiClient.get(
           `/vehicles?limit=20&page=1${vehicleSearch ? `&search=${encodeURIComponent(vehicleSearch)}` : ""}`
         );
-        // axios interceptor unwraps .data to the array
-        const vehicles = res.data as any[];
+        // Handle response like other pages
+        const vehicles = res.data?.data || res.data;
         if (!active) return;
         setVehicleOptions(
           (vehicles || []).map((v: any) => ({
@@ -400,7 +419,7 @@ const Dashboard = () => {
               color="blue"
               note="Profitabilitas bisnis"
             />
-            <OperationalCard metrics={metrics.operationalMetrics} />
+            {metrics.operationalMetrics && <OperationalCard metrics={metrics.operationalMetrics} />}
           </div>
 
           {/* --- BAGIAN 2: Rincian Pengeluaran & Profit --- */}
@@ -416,6 +435,7 @@ const Dashboard = () => {
                       "Uang Jalan",
                       "Gaji Driver",
                       "Servis Kendaraan",
+                      "Stok Langsung",
                       "Biaya Lain Driver",
                       "Biaya Kantor",
                     ],
@@ -423,16 +443,18 @@ const Dashboard = () => {
                       {
                         label: "Total Pengeluaran (Rp)",
                         data: [
-                          metrics.driverExpenses.totalUangJalan,
-                          metrics.driverExpenses.totalGajiDriver,
-                          metrics.vehicleExpenses.totalServiceCost,
-                          metrics.driverExpenses.totalOtherDriverExpenses,
-                          metrics.officeExpenses.totalOfficeExpenses,
+                          metrics.driverExpenses?.totalUangJalan || 0,
+                          metrics.driverExpenses?.totalGajiDriver || 0,
+                          metrics.vehicleExpenses?.totalServiceCost || 0,
+                          metrics.stockUsage?.directUsageCost || 0,
+                          metrics.driverExpenses?.totalOtherDriverExpenses || 0,
+                          metrics.officeExpenses?.totalOfficeExpenses || 0,
                         ],
                         backgroundColor: [
                           "#EF4444",
                           "#F97316",
                           "#F59E0B",
+                          "#60A5FA",
                           "#EAB308",
                           "#84CC16",
                         ],
@@ -482,65 +504,65 @@ const Dashboard = () => {
             </div>
 
             {/* Daily Trend Line */}
-            <div className="bg-white p-6 rounded-lg shadow-md">
-              <h3 className="text-xl font-semibold text-gray-800 mb-4">
-                Tren Harian Operasional
-              </h3>
-              <div className="h-80">
-                <Line
-                  data={{
-                    labels: (metrics?.operationalMetrics.dailyTrend ?? []).map(
-                      (item) => new Date(item.date).toLocaleDateString("id-ID")
-                    ),
-                    datasets: [
-                      {
-                        label: "Aktif",
-                        data: (
-                          metrics?.operationalMetrics.dailyTrend ?? []
-                        ).map((item) => item.active),
-                        borderColor: "#3B82F6",
-                        fill: true,
-                      },
-                      {
-                        label: "Selesai",
-                        data: (
-                          metrics?.operationalMetrics.dailyTrend ?? []
-                        ).map((item) => item.completed),
-                        borderColor: "#10B981",
-                        fill: true,
-                      },
-                    ],
-                  }}
-                  options={chartOptions.line} // Tambah options.line mirip bar
-                />
+            {metrics.operationalMetrics?.dailyTrend && (
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-xl font-semibold text-gray-800 mb-4">
+                  Tren Harian Operasional
+                </h3>
+                <div className="h-80">
+                  <Line
+                    data={{
+                      labels: metrics.operationalMetrics.dailyTrend.map(
+                        (item) => new Date(item.date).toLocaleDateString("id-ID")
+                      ),
+                      datasets: [
+                        {
+                          label: "Aktif",
+                          data: metrics.operationalMetrics.dailyTrend.map((item) => item.active),
+                          borderColor: "#3B82F6",
+                          fill: true,
+                        },
+                        {
+                          label: "Selesai",
+                          data: metrics.operationalMetrics.dailyTrend.map((item) => item.completed),
+                          borderColor: "#10B981",
+                          fill: true,
+                        },
+                      ],
+                    }}
+                    options={chartOptions.line} // Tambah options.line mirip bar
+                  />
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* --- BAGIAN 3: ANALITIK INVENTARIS & SUKU CADANG --- */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <MetricCard
-              title="Nilai Inventaris"
-              value={metrics.inventoryMetrics.totalInventoryValue}
-              type="currency"
-              color="purple"
-              note="Total nilai stok saat ini"
-            />
-            <MetricCard
-              title="Pembelian Suku Cadang"
-              value={metrics.inventoryMetrics.totalPurchases}
-              type="currency"
-              color="indigo"
-              note="Pengeluaran untuk stok baru"
-            />
-            <MetricCard
-              title="Stok Menipis"
-              value={metrics.inventoryMetrics.lowStockItems}
-              type="number"
-              color="yellow"
-              note="Item di bawah batas minimum"
-            />
-          </div>
+          {metrics.inventoryMetrics && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <MetricCard
+                title="Nilai Inventaris"
+                value={metrics.inventoryMetrics.totalInventoryValue}
+                type="currency"
+                color="purple"
+                note="Total nilai stok saat ini"
+              />
+              <MetricCard
+                title="Pembelian Suku Cadang"
+                value={metrics.inventoryMetrics.totalPurchases}
+                type="currency"
+                color="indigo"
+                note="Pengeluaran untuk stok baru"
+              />
+              <MetricCard
+                title="Stok Menipis"
+                value={metrics.inventoryMetrics.lowStockItems}
+                type="number"
+                color="yellow"
+                note="Item di bawah batas minimum"
+              />
+            </div>
+          )}
         </>
       )}
     </div>
@@ -592,7 +614,7 @@ const MetricCard = ({
 const OperationalCard = ({
   metrics,
 }: {
-  metrics: DashboardMetrics["operationalMetrics"];
+  metrics: NonNullable<DashboardMetrics["operationalMetrics"]>;
 }) => (
   <div className="bg-white p-6 rounded-lg shadow-md transition hover:shadow-lg">
     <h3 className="text-lg font-semibold text-gray-700 mb-4">

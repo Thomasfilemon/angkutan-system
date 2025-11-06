@@ -10,6 +10,10 @@ const {
 	StockUsageNote,
 	StockUsageNoteItem,
 	Vehicle,
+	CashTransaction,
+	TempoDetail,
+	RecapNote,
+	RecapNoteItem,
 } = db;
 const { Op } = require("sequelize");
 
@@ -497,16 +501,34 @@ const adjustStock = async (req, res, next) => {
 			supplier,
 			notes,
 			create_new_batch,
+			// Edit mode fields
+			item_name,
+			rack_row,
+			rack_level,
+			min_stock,
+			item_notes,
 		} = req.body;
 
 		// Editor info (set by auth middleware)
 		const editor = req.user?.username || null;
 
-		if (!itemId || !adjustmentType || !quantity || parseFloat(quantity) <= 0) {
+		// Check if this is an edit operation (no quantity change)
+		const isEditMode = adjustmentType === "edit";
+		
+		if (!itemId || !adjustmentType) {
 			await transaction.rollback();
 			return res.status(400).json({
 				success: false,
-				message: "Item ID, adjustment type, and positive quantity are required",
+				message: "Item ID and adjustment type are required",
+			});
+		}
+
+		// For non-edit operations, quantity is required
+		if (!isEditMode && (!quantity || parseFloat(quantity) <= 0)) {
+			await transaction.rollback();
+			return res.status(400).json({
+				success: false,
+				message: "Positive quantity is required for stock adjustments",
 			});
 		}
 
@@ -517,6 +539,90 @@ const adjustStock = async (req, res, next) => {
 				success: false,
 				message: "Stock item not found",
 			});
+		}
+
+		// Handle edit mode - update item properties without changing quantity
+		if (isEditMode) {
+			const updateData = {};
+			let hasChanges = false;
+
+			// Check which fields have changed
+			if (item_name && item_name !== stockItem.item_name) {
+				updateData.item_name = item_name;
+				hasChanges = true;
+			}
+			if (rack_row !== undefined && parseInt(rack_row) !== stockItem.rack_row) {
+				updateData.rack_row = rack_row ? parseInt(rack_row) : null;
+				hasChanges = true;
+			}
+			if (rack_level !== undefined && parseInt(rack_level) !== stockItem.rack_level) {
+				updateData.rack_level = rack_level ? parseInt(rack_level) : null;
+				hasChanges = true;
+			}
+			if (min_stock !== undefined && parseFloat(min_stock) !== parseFloat(stockItem.min_stock)) {
+				updateData.min_stock = parseFloat(min_stock);
+				hasChanges = true;
+			}
+			if (item_notes !== undefined && item_notes !== stockItem.notes) {
+				updateData.notes = item_notes;
+				hasChanges = true;
+			}
+
+			if (hasChanges) {
+				// Add audit fields
+				updateData.last_edited_by = editor;
+				updateData.last_edited_at = new Date();
+				updateData.updated_at = new Date();
+
+				await stockItem.update(updateData, { transaction });
+
+				// Create a log entry for the edit
+				await StockTransaction.create({
+					item_id: itemId,
+					batch_id: null,
+					transaction_type: "adjustment",
+					quantity: 0,
+					unit_price: 0,
+					total_amount: 0,
+					reference_type: "edit",
+					notes: `Edit item properties. ${notes || 'yang diedit disini tidak merubah data di buku kas ataupun tempo'}`,
+				}, { transaction });
+
+				await transaction.commit();
+
+				// Return updated item
+				const updatedItem = await StockItem.findByPk(itemId, {
+					include: [
+						{
+							model: StockBatch,
+							as: "batches",
+						},
+					],
+				});
+
+				return res.json({
+					success: true,
+					message: "Stock item updated successfully",
+					data: {
+						item_id: itemId,
+						adjustment_type: "edit",
+						quantity: 0,
+						updated_item: updatedItem ? updatedItem.toJSON() : null,
+					},
+				});
+			} else {
+				await transaction.rollback();
+				return res.json({
+					success: true,
+					message: "No changes detected",
+					data: {
+						item_id: itemId,
+						adjustment_type: "edit",
+						quantity: 0,
+						updated_item: stockItem.toJSON(),
+					},
+				});
+			}
 		}
 
 		const adjustmentQuantity = parseFloat(quantity);
@@ -1378,22 +1484,345 @@ const createUsageNote = async (req, res, next) => {
 
 const listUsageNotes = async (req, res, next) => {
 	try {
-		const { page = 1, limit = 10, search, date_from, date_to, vehicle_id } = req.query;
+		const { page = 1, limit = 10, search, date_from, date_to, vehicle_id, supplier } = req.query;
 		const offset = (page - 1) * limit;
 		const where = {};
 		if (vehicle_id) where.vehicle_id = vehicle_id;
 		if (date_from && date_to) where.usage_date = { [Op.between]: [new Date(date_from), new Date(date_to)] };
 		if (search) where.note_number = { [Op.iLike]: `%${search}%` };
 
+		// If supplier filter is provided, find matching usage note IDs first
+		let supplierFilteredIds = null;
+		if (supplier) {
+			const supplierPattern = `%${supplier}%`;
+			
+			// Find recap notes with matching supplier
+			const matchingRecapNotes = await RecapNote.findAll({
+				where: {
+					supplier: { [Op.iLike]: supplierPattern }
+				},
+				attributes: ["id"],
+				raw: true
+			});
+			const matchingRecapIds = matchingRecapNotes.map(r => r.id);
+			
+			// Find recap items linked to these recaps (stock_usage type)
+			const matchingRecapItems = matchingRecapIds.length > 0 ? await RecapNoteItem.findAll({
+				where: {
+					recap_id: { [Op.in]: matchingRecapIds },
+					type: "stock_usage"
+				},
+				attributes: ["reference_id"],
+				raw: true
+			}) : [];
+			const usageNoteIdsFromRecap = matchingRecapItems.map(item => item.reference_id).filter(id => id);
+			
+			// Find cash transactions with matching supplier by note_number
+			const matchingCashByNote = await CashTransaction.findAll({
+				where: {
+					supplier: { [Op.iLike]: supplierPattern },
+					reference_number: { [Op.like]: "USG-%" }
+				},
+				attributes: ["reference_number"],
+				raw: true
+			});
+			const matchingNoteNumbers = matchingCashByNote.map(ct => ct.reference_number).filter(n => n);
+			const matchingUsageNotes = matchingNoteNumbers.length > 0 ? await StockUsageNote.findAll({
+				where: {
+					note_number: { [Op.in]: matchingNoteNumbers }
+				},
+				attributes: ["id"],
+				raw: true
+			}) : [];
+			const usageNoteIdsFromCash = matchingUsageNotes.map(n => n.id);
+			
+			// Find cash transactions by recap_number
+			const matchingCashByRecap = await CashTransaction.findAll({
+				where: {
+					supplier: { [Op.iLike]: supplierPattern },
+					reference_number: { [Op.like]: "RCP-%" }
+				},
+				attributes: ["reference_number"],
+				raw: true
+			});
+			const matchingRecapNumbers = matchingCashByRecap.map(ct => ct.reference_number).filter(n => n);
+			const recapsWithSupplier = matchingRecapNumbers.length > 0 ? await RecapNote.findAll({
+				where: {
+					recap_number: { [Op.in]: matchingRecapNumbers }
+				},
+				attributes: ["id"],
+				raw: true
+			}) : [];
+			const recapIdsFromCash = recapsWithSupplier.map(r => r.id);
+			const recapItemsFromCash = recapIdsFromCash.length > 0 ? await RecapNoteItem.findAll({
+				where: {
+					recap_id: { [Op.in]: recapIdsFromCash },
+					type: "stock_usage"
+				},
+				attributes: ["reference_id"],
+				raw: true
+			}) : [];
+			const usageNoteIdsFromRecapCash = recapItemsFromCash.map(item => item.reference_id).filter(id => id);
+			
+			// Find cash items in recaps (RecapNoteItem with type='cash')
+			const allRecapIds = [...new Set([...matchingRecapIds, ...recapIdsFromCash])];
+			const recapCashItems = allRecapIds.length > 0 ? await RecapNoteItem.findAll({
+				where: {
+					recap_id: { [Op.in]: allRecapIds },
+					type: "cash"
+				},
+				include: [{
+					model: CashTransaction,
+					as: "cashTransaction",
+					where: {
+						supplier: { [Op.iLike]: supplierPattern }
+					},
+					attributes: ["id"],
+					required: true
+				}],
+				attributes: ["recap_id"]
+			}) : [];
+			const recapIdsFromCashItems = [...new Set(recapCashItems.map(item => {
+				const plain = item.get ? item.get({ plain: true }) : item;
+				return plain.recap_id || item.recap_id;
+			}).filter(id => id))];
+			const recapItemsFromCashItems = recapIdsFromCashItems.length > 0 ? await RecapNoteItem.findAll({
+				where: {
+					recap_id: { [Op.in]: recapIdsFromCashItems },
+					type: "stock_usage"
+				},
+				attributes: ["reference_id"],
+				raw: true
+			}) : [];
+			const usageNoteIdsFromCashItems = recapItemsFromCashItems.map(item => item.reference_id).filter(id => id);
+			
+			// Combine all matching usage note IDs
+			supplierFilteredIds = [...new Set([
+				...usageNoteIdsFromRecap,
+				...usageNoteIdsFromCash,
+				...usageNoteIdsFromRecapCash,
+				...usageNoteIdsFromCashItems
+			])].filter(id => id);
+			
+			console.log(`[listUsageNotes] Supplier filter "${supplier}" matched ${supplierFilteredIds.length} usage notes`);
+			
+			// If no matches found, return empty result
+			if (supplierFilteredIds.length === 0) {
+				return res.json({ 
+					success: true, 
+					data: [], 
+					pagination: { totalItems: 0, totalPages: 0, currentPage: parseInt(page) } 
+				});
+			}
+			
+			// Add filter to where clause
+			where.id = { [Op.in]: supplierFilteredIds };
+		}
+
+		// First get usage notes with vehicle
 		const result = await StockUsageNote.findAndCountAll({
 			where,
-			include: [{ model: Vehicle, as: "vehicle", attributes: ["id", "license_plate"] }],
+			include: [
+				{ model: Vehicle, as: "vehicle", attributes: ["id", "license_plate"] },
+				{ 
+					model: StockUsageNoteItem, 
+					as: "items", 
+					attributes: ["id", "item_id", "quantity", "unit_price", "total_price"],
+					include: [{
+						model: StockItem,
+						as: "stockItem",
+						attributes: ["id", "item_name", "item_code", "unit"],
+						required: false
+					}]
+				}
+			],
 			order: [["usage_date", "DESC"], ["created_at", "DESC"]],
 			limit: parseInt(limit),
 			offset,
 		});
-		return res.json({ success: true, data: result.rows, pagination: { totalItems: result.count, totalPages: Math.ceil(result.count / limit), currentPage: parseInt(page) } });
+
+		console.log(`[listUsageNotes] Found ${result.rows.length} usage notes`);
+
+		// Get recap items for these usage notes
+		const usageNoteIds = result.rows.map(note => note.id);
+		const usageNoteNumbers = result.rows.map(note => note.note_number);
+		console.log(`[listUsageNotes] Looking for recap items for usage note IDs:`, usageNoteIds);
+		
+		const recapItems = usageNoteIds.length > 0 ? await RecapNoteItem.findAll({
+			where: {
+				type: "stock_usage",
+				reference_id: { [Op.in]: usageNoteIds }
+			},
+			include: [{
+				model: RecapNote,
+				as: "recap",
+				attributes: ["id", "recap_number", "recap_date", "payment_mode", "supplier", "status", "total_amount", "paid_amount"]
+			}]
+		}) : [];
+		
+		// Get recap IDs to find cash transactions linked to recaps
+		const recapIds = [...new Set(recapItems.map(item => item.recap_id).filter(id => id))];
+		
+		// Get cash transactions for these usage notes by note_number
+		const cashTransactionsByNote = usageNoteNumbers.length > 0 ? await CashTransaction.findAll({
+			where: {
+				reference_number: { [Op.in]: usageNoteNumbers }
+			},
+			attributes: ["id", "reference_number", "supplier"],
+			raw: true
+		}) : [];
+		
+		// Also get cash transactions linked to recaps via recap_number
+		const recapNumbers = [...new Set(recapItems.map(item => item.recap?.recap_number).filter(n => n))];
+		const cashTransactionsByRecap = recapNumbers.length > 0 ? await CashTransaction.findAll({
+			where: {
+				reference_number: { [Op.in]: recapNumbers }
+			},
+			attributes: ["id", "reference_number", "supplier"],
+			raw: true
+		}) : [];
+		
+		// Also get cash items from recaps (items with type 'cash' in the same recap)
+		const recapCashItems = recapIds.length > 0 ? await RecapNoteItem.findAll({
+			where: {
+				recap_id: { [Op.in]: recapIds },
+				type: "cash"
+			},
+			include: [{
+				model: CashTransaction,
+				as: "cashTransaction",
+				attributes: ["id", "supplier"],
+				required: false
+			}],
+			attributes: ["recap_id", "reference_id"]
+		}) : [];
+		
+		// Create maps: note_number -> supplier, recap_number -> supplier, recap_id -> supplier
+		const supplierMapByNote = {};
+		cashTransactionsByNote.forEach(ct => {
+			if (ct.supplier) {
+				supplierMapByNote[ct.reference_number] = ct.supplier;
+			}
+		});
+		
+		const supplierMapByRecap = {};
+		cashTransactionsByRecap.forEach(ct => {
+			if (ct.supplier) {
+				supplierMapByRecap[ct.reference_number] = ct.supplier;
+			}
+		});
+		
+		const supplierMapByRecapId = {};
+		recapCashItems.forEach(item => {
+			const plainItem = item.get ? item.get({ plain: true }) : item;
+			let cashTxn = plainItem.cashTransaction || item.cashTransaction;
+			// Ensure cashTransaction is also plain object
+			if (cashTxn && cashTxn.get) {
+				cashTxn = cashTxn.get({ plain: true });
+			}
+			if (cashTxn && cashTxn.supplier) {
+				supplierMapByRecapId[plainItem.recap_id || item.recap_id] = cashTxn.supplier;
+			}
+		});
+		
+		console.log(`[listUsageNotes] Found ${cashTransactionsByNote.length} cash transactions by note_number`);
+		console.log(`[listUsageNotes] Found ${cashTransactionsByRecap.length} cash transactions by recap_number`);
+		console.log(`[listUsageNotes] Found ${recapCashItems.length} recap cash items`);
+
+		console.log(`[listUsageNotes] Found ${recapItems.length} recap items`);
+
+		// Group recap items by reference_id - ensure both are treated as numbers for matching
+		const recapItemsMap = {};
+		recapItems.forEach(item => {
+			// Convert reference_id to number to match note.id
+			const refId = parseInt(item.reference_id, 10);
+			if (!isNaN(refId)) {
+				if (!recapItemsMap[refId]) {
+					recapItemsMap[refId] = [];
+				}
+				recapItemsMap[refId].push(item);
+			}
+		});
+		
+		console.log(`[listUsageNotes] Recap items map:`, Object.keys(recapItemsMap).map(key => ({
+			reference_id: key,
+			reference_id_type: typeof key,
+			count: recapItemsMap[key].length,
+			recap_number: recapItemsMap[key][0]?.recap?.recap_number
+		})));
+		
+		console.log(`[listUsageNotes] Usage note IDs:`, usageNoteIds.map(id => ({ id, type: typeof id })));
+
+		// Attach recap items to usage notes and convert to plain objects
+		const notesWithRecaps = result.rows.map(note => {
+			const plainNote = note.get({ plain: true });
+			const matchingRecapItems = recapItemsMap[note.id] || [];
+			
+			// Get supplier from multiple sources: cash transaction by note_number, by recap_number, or from recap cash items
+			const supplierFromNote = supplierMapByNote[plainNote.note_number];
+			const recapNumber = matchingRecapItems[0]?.recap?.recap_number;
+			const supplierFromRecap = recapNumber ? supplierMapByRecap[recapNumber] : null;
+			const recapId = matchingRecapItems[0]?.recap?.id;
+			const supplierFromRecapCash = recapId ? supplierMapByRecapId[recapId] : null;
+			
+			// Use first available supplier
+			const supplierFromCash = supplierFromNote || supplierFromRecap || supplierFromRecapCash;
+			
+			// Convert recap items to plain objects
+			const plainRecapItems = matchingRecapItems.map(item => {
+				const plainItem = item.get({ plain: true });
+				if (item.recap) {
+					plainItem.recap = item.recap.get({ plain: true });
+					// Override supplier from cash transaction if recap supplier is null
+					if (!plainItem.recap.supplier && supplierFromCash) {
+						plainItem.recap.supplier = supplierFromCash;
+					}
+					console.log(`[listUsageNotes] Note ${plainNote.note_number} recap:`, {
+						recap_number: plainItem.recap.recap_number,
+						supplier: plainItem.recap.supplier,
+						supplier_from_cash: supplierFromCash,
+						status: plainItem.recap.status
+					});
+				}
+				return plainItem;
+			});
+			
+			// Explicitly attach recapItems to the plain object - use Object.assign to ensure it's included
+			const finalNote = Object.assign({}, plainNote, {
+				recapItems: plainRecapItems
+			});
+			
+			// Double-check that recapItems is in the object
+			if (!finalNote.hasOwnProperty('recapItems')) {
+				console.error(`[listUsageNotes] ERROR: recapItems not in finalNote for note ${plainNote.note_number}!`);
+			}
+			
+			if (finalNote.recapItems && finalNote.recapItems.length > 0) {
+				console.log(`[listUsageNotes] Note ${finalNote.note_number} (id: ${note.id}) has ${finalNote.recapItems.length} recap items`);
+				console.log(`[listUsageNotes] Final note keys:`, Object.keys(finalNote));
+				console.log(`[listUsageNotes] Final note recapItems:`, JSON.stringify(finalNote.recapItems[0], null, 2));
+			} else {
+				console.log(`[listUsageNotes] Note ${finalNote.note_number} (id: ${note.id}) has NO recap items. Map keys:`, Object.keys(recapItemsMap));
+				console.log(`[listUsageNotes] Map check for id ${note.id}:`, recapItemsMap[note.id]);
+			}
+			
+			return finalNote;
+		});
+
+		// Log final response structure for debugging
+		if (notesWithRecaps.length > 0) {
+			const firstNote = notesWithRecaps[0];
+			console.log(`[listUsageNotes] Final response - first note keys:`, Object.keys(firstNote));
+			console.log(`[listUsageNotes] Final response - first note has recapItems:`, !!firstNote.recapItems);
+			console.log(`[listUsageNotes] Final response - first note recapItems length:`, firstNote.recapItems?.length || 0);
+			if (firstNote.recapItems && firstNote.recapItems.length > 0) {
+				console.log(`[listUsageNotes] Final response - first note recapItems:`, JSON.stringify(firstNote.recapItems[0], null, 2));
+			}
+		}
+		
+		return res.json({ success: true, data: notesWithRecaps, pagination: { totalItems: result.count, totalPages: Math.ceil(result.count / limit), currentPage: parseInt(page) } });
 	} catch (err) {
+		console.error("Error in listUsageNotes:", err);
 		return next(err);
 	}
 };
@@ -1414,6 +1843,70 @@ const getUsageNoteDetail = async (req, res, next) => {
 	}
 };
 
+// Delete usage note with cascade cleanup (reverse stock, remove cash/recap)
+const deleteUsageNote = async (req, res, next) => {
+  const t = await sequelize.transaction();
+  try {
+    const { id } = req.params;
+    const note = await StockUsageNote.findByPk(id, { transaction: t });
+    if (!note) {
+      await t.rollback();
+      return res.status(404).json({ success: false, message: "Usage note not found" });
+    }
+
+    // Reverse stock transactions for this note
+    const txns = await StockTransaction.findAll({ where: { reference_type: "usage_note", reference_id: id }, transaction: t });
+    for (const st of txns) {
+      if (st.transaction_type === "out" && st.batch_id) {
+        const batch = await StockBatch.findByPk(st.batch_id, { transaction: t });
+        if (batch) {
+          await batch.update({ quantity: parseFloat(batch.quantity) + parseFloat(st.quantity) }, { transaction: t });
+        }
+      }
+      await st.destroy({ transaction: t });
+    }
+
+    // Remove recap links for this note and adjust totals
+    const suItems = await RecapNoteItem.findAll({ where: { type: "stock_usage", reference_id: id }, transaction: t });
+    for (const ri of suItems) {
+      const recap = await RecapNote.findByPk(ri.recap_id, { transaction: t });
+      if (recap) {
+        const newTotal = Math.max(0, parseFloat(recap.total_amount || 0) - parseFloat(ri.amount || 0));
+        await recap.update({ total_amount: newTotal, status: parseFloat(recap.paid_amount || 0) >= newTotal ? "paid" : (parseFloat(recap.paid_amount || 0) > 0 ? "partial" : "open") }, { transaction: t });
+      }
+      await ri.destroy({ transaction: t });
+    }
+
+    // Remove associated cash transaction by reference_number
+    if (note.note_number) {
+      const cash = await CashTransaction.findOne({ where: { reference_number: note.note_number }, transaction: t });
+      if (cash) {
+        const recapCashItems = await RecapNoteItem.findAll({ where: { type: "cash", reference_id: cash.id }, transaction: t });
+        for (const ci of recapCashItems) {
+          const recap = await RecapNote.findByPk(ci.recap_id, { transaction: t });
+          if (recap) {
+            const newPaid = Math.max(0, parseFloat(recap.paid_amount || 0) - parseFloat(ci.amount || 0));
+            const newStatus = newPaid >= parseFloat(recap.total_amount || 0) ? "paid" : (newPaid > 0 ? "partial" : "open");
+            await recap.update({ paid_amount: newPaid, status: newStatus }, { transaction: t });
+          }
+          await ci.destroy({ transaction: t });
+        }
+        await TempoDetail.destroy({ where: { cash_transaction_id: cash.id }, transaction: t });
+        await cash.destroy({ transaction: t });
+      }
+    }
+
+    await StockUsageNoteItem.destroy({ where: { note_id: id }, transaction: t });
+    await note.destroy({ transaction: t });
+    await t.commit();
+    return res.json({ success: true, message: "Usage note deleted" });
+  } catch (err) {
+    await t.rollback();
+    console.error("Error in deleteUsageNote:", err);
+    return next(err);
+  }
+};
+
 module.exports = {
 	getAllStockItems,
 	createStockItem,
@@ -1430,4 +1923,5 @@ module.exports = {
 	createUsageNote,
 	listUsageNotes,
 	getUsageNoteDetail,
+	deleteUsageNote,
 };

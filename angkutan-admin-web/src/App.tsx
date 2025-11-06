@@ -48,11 +48,13 @@ import CashComposerPage from "./pages/CashComposer";
 import TempoComposerPage from "./pages/TempoComposer";
 import StockHistoryPage from "./pages/StockHistory";
 import VehicleServiceHistory from "./pages/VehicleServiceHistory";
+import VehicleExpenditureAnalytics from "./pages/VehicleExpenditureAnalytics";
 import PaymentsRoutes from "./modules/payments/routes";
 import InvoiceDetail from "./pages/Ritase/InvoiceDetail";
 import DepositGroupManagement from "./pages/DepositGroupManagement";
 import DOProfitabilityReport from './pages/Ritase/DOProfitabilityReport'; // Import the new page
 import TempoDetailsPage from "./pages/TempoDetails";
+import StockUsageRecapPage from "./pages/StockUsageRecapPage";
 import { Toaster } from "react-hot-toast";
 
 import ComprehensiveRitaseTable from "./pages/Ritase/ComprehensiveRitaseTable";
@@ -107,6 +109,7 @@ function App() {
           <Route path="vehicles" element={<VehiclesPage />} />
           <Route path="vehicles/create" element={<VehicleCreatePage />} />
           <Route path="vehicles/edit/:id" element={<VehicleEditPage />} />
+          <Route path="vehicles/expenditure" element={<VehicleExpenditureAnalytics />} />
           {/* Tire Management Routes */}
           <Route path="vehicles/tires" element={<TireManagementPage />} />
 
@@ -157,6 +160,7 @@ function App() {
           <Route path="stock" element={<StockManagementPage />} />
           <Route path="stock/create" element={<StockCreatePage />} />
           <Route path="stock/edit/:id" element={<StockCreatePage />} />
+          <Route path="stock/usage-recap" element={<StockUsageRecapPage />} />
 
           {/* === PERBAIKAN DI SINI === */}
           {/* Path dibuat relatif dengan menghapus '/' di awal */}

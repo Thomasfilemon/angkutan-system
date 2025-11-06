@@ -11,7 +11,13 @@ stockRouter.use(verifyToken);
 stockRouter.get('/categories', stockController.getStockCategories);
 // Suppliers distinct list for autocomplete
 stockRouter.get('/suppliers', stockController.getDistinctSuppliers);
-stockRouter.get('/:id/batches', stockController.getStockBatches);
+
+// Usage notes (stok yang langsung digunakan) - MUST come BEFORE /:id routes
+stockRouter.post('/usage-notes', stockController.createUsageNote);
+stockRouter.get('/usage-notes', stockController.listUsageNotes);
+stockRouter.get('/usage-notes/:id', stockController.getUsageNoteDetail);
+stockRouter.delete('/usage-notes/:id', stockController.deleteUsageNote);
+
 // Stock items routes
 stockRouter.get('/batches/:batchId/history', stockController.getStockBatchHistory);
 stockRouter.get('/', stockController.getAllStockItems);
@@ -24,11 +30,6 @@ stockRouter.put('/:id', stockController.updateStockItem);
 stockRouter.delete('/:id', stockController.deleteStockItem); // Add this line
 stockRouter.post('/:id/add-stock', stockController.addStock);
 stockRouter.get('/:id/history', stockController.getStockItemHistory);
-
-// Usage notes (stok yang langsung digunakan)
-stockRouter.post('/usage-notes', stockController.createUsageNote);
-stockRouter.get('/usage-notes', stockController.listUsageNotes);
-stockRouter.get('/usage-notes/:id', stockController.getUsageNoteDetail);
 
 
 module.exports = stockRouter;

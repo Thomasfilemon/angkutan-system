@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../api/axiosConfig';
 import { toast } from 'react-toastify';
@@ -68,9 +68,10 @@ const TempoManagementPage = () => {
     date_from: '',
     date_to: '',
     search: '',
-    account: 'All',
+    account: '', // Changed: account is now required, starts empty
     supplier: '',
   });
+  const [selectedAccount, setSelectedAccount] = useState<string>(""); // New: track selected account for display
 
   const [pagination, setPagination] = useState({
     page: 1,
@@ -102,13 +103,34 @@ const TempoManagementPage = () => {
   });
 
   const [accounts, setAccounts] = useState<string[]>([]);
-  const [selectedAccount, setSelectedAccount] = useState<string>(formData.account);
+  const [showCreateAccountModal, setShowCreateAccountModal] = useState(false);
+  const [newAccountName, setNewAccountName] = useState("");
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
   const [showLunasiModal, setShowLunasiModal] = useState(false);
   const [selectedTransactions, setSelectedTransactions] = useState<CashTransaction[]>([]);
   const [selectedLunasiAccount, setSelectedLunasiAccount] = useState<string>('');
   const [net, setNet] = useState<number>(0);
   const [newType, setNewType] = useState<string>('');
+  // Debounced search input to prevent immediate fetch
+  const [searchInput, setSearchInput] = useState<string>('');
+  const [supplierInput, setSupplierInput] = useState<string>('');
+  const [typeInput, setTypeInput] = useState<string>('');
+  const [categoryInput, setCategoryInput] = useState<string>('');
+  const [dateFromInput, setDateFromInput] = useState<string>('');
+  const [dateToInput, setDateToInput] = useState<string>('');
+  const [accountInput, setAccountInput] = useState<string>('');
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => { setSearchInput(filters.search || ''); }, []);
+  // Manual search only; trigger via button
+  useEffect(() => {
+    setSearchInput(filters.search || '');
+    setSupplierInput(filters.supplier || '');
+    setTypeInput(filters.transaction_type || '');
+    setCategoryInput(filters.category_id || '');
+    setDateFromInput(filters.date_from || '');
+    setDateToInput(filters.date_to || '');
+    setAccountInput(filters.account || '');
+  }, []);
 
   const parseAmount = (amount: number | string): number => {
     if (typeof amount === 'string') {
@@ -128,6 +150,104 @@ const TempoManagementPage = () => {
     };
     fetchAccounts();
   }, []);
+
+  const handleCreateAccount = async () => {
+    if (!newAccountName.trim()) {
+      alert('Nama akun tidak boleh kosong!');
+      return;
+    }
+
+    // Validate account name (max 20 chars)
+    if (newAccountName.length > 20) {
+      alert('Nama akun maksimal 20 karakter!');
+      return;
+    }
+
+    // Check if account already exists
+    if (accounts.includes(newAccountName.trim())) {
+      alert('Akun dengan nama tersebut sudah ada!');
+      return;
+    }
+
+    try {
+      const transactionDate = new Date().toISOString().split('T')[0];
+      const accountName = newAccountName.trim();
+
+      // Create two transactions: debit_tempo 0.01 and kredit_tempo 0.01 to register the account
+      // This ensures the account stays in the list even if one transaction is deleted
+      // Net balance = 0, so it won't affect financial calculations
+
+      // Create debit_tempo transaction
+      const debitPayload = {
+        transaction_type: 'debit_tempo',
+        category_id: '',
+        amount: '0.01',
+        description: 'Inisialisasi Akun',
+        reference_number: '',
+        transaction_date: transactionDate,
+        account: accountName,
+        no_nota: [''],
+        date_nota: [''],
+      };
+
+      const debitFormData = new FormData();
+      Object.entries(debitPayload).forEach(([k, v]) => {
+        if (v !== null && v !== undefined) {
+          if (Array.isArray(v)) {
+            debitFormData.append(k, JSON.stringify(v));
+          } else {
+            debitFormData.append(k, v.toString());
+          }
+        }
+      });
+
+      // Create kredit_tempo transaction
+      const kreditPayload = {
+        transaction_type: 'kredit_tempo',
+        category_id: '',
+        amount: '0.01',
+        description: 'Inisialisasi Akun',
+        reference_number: '',
+        transaction_date: transactionDate,
+        account: accountName,
+        no_nota: [''],
+        date_nota: [''],
+      };
+
+      const kreditFormData = new FormData();
+      Object.entries(kreditPayload).forEach(([k, v]) => {
+        if (v !== null && v !== undefined) {
+          if (Array.isArray(v)) {
+            kreditFormData.append(k, JSON.stringify(v));
+          } else {
+            kreditFormData.append(k, v.toString());
+          }
+        }
+      });
+
+      // Create both transactions
+      await apiClient.post('/cash/transactions', debitFormData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      await apiClient.post('/cash/transactions', kreditFormData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      // Refresh accounts list
+      const accountsResponse = await apiClient.get('/cash/accounts');
+      const accountsList = accountsResponse.data?.data || accountsResponse.data || [];
+      setAccounts(accountsList);
+      
+      setNewAccountName('');
+      setShowCreateAccountModal(false);
+      alert('Akun berhasil dibuat!');
+    } catch (err: any) {
+      console.error('Failed to create account:', err);
+      console.error('Error details:', err.response?.data);
+      alert('Gagal membuat akun: ' + (err?.response?.data?.message || err.message));
+    }
+  };
 
   useEffect(() => {
     if (selectedTransactions.length > 0) {
@@ -268,15 +388,27 @@ const TempoManagementPage = () => {
   };
 
   const fetchTransactions = useCallback(async () => {
+    // Don't fetch if no account is selected
+    if (!filters.account) {
+      setLoading(false);
+      setTransactions([]);
+      setSummary({ total_debit_tempo: 0, total_kredit_tempo: 0, saldo: 0 });
+      setPagination((prev) => ({ ...prev, total: 0 }));
+      return;
+    }
+
     try {
       setLoading(true);
+      if (abortRef.current) abortRef.current.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
       const params = new URLSearchParams({
         page: pagination.page.toString(),
         limit: pagination.limit.toString(),
         ...Object.fromEntries(Object.entries(filters).filter(([_, v]) => v !== '')),
       });
 
-      const response = await apiClient.get(`/cash/tempo-transactions?${params}`);
+      const response = await apiClient.get(`/cash/tempo-transactions?${params}`, { signal: controller.signal });
 
       setTransactions(response.data.data || []);
       setSummary(
@@ -287,7 +419,8 @@ const TempoManagementPage = () => {
         total: response.data.pagination?.total || 0,
         totalPages: response.data.pagination?.totalPages || 0,
       }));
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
       setError('Failed to fetch tempo transactions.');
       console.error(err);
     } finally {
@@ -539,6 +672,13 @@ const TempoManagementPage = () => {
         <h1 className="text-3xl font-bold text-gray-800">Buku Tempo</h1>
         <div className="space-x-2">
           <button
+            onClick={() => setShowCreateAccountModal(true)}
+            className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"
+            title="Buat Akun Baru"
+          >
+            + Akun
+          </button>
+          <button
             onClick={() => navigate('/tempo/composer')}
             className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
           >
@@ -570,7 +710,62 @@ const TempoManagementPage = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      {/* Account Selection View - Show if no account selected */}
+      {!filters.account && (
+        <div className="bg-white p-8 rounded-lg shadow mb-6">
+          <h2 className="text-2xl font-bold text-gray-800 mb-4">Pilih Buku Tempo</h2>
+          <p className="text-gray-600 mb-6">Pilih akun untuk melihat transaksi tempo dan mengelola buku tempo</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {accounts.map((account) => (
+              <button
+                key={account}
+                onClick={() => {
+                  setSelectedAccount(account);
+                  setFilters((prev) => ({ ...prev, account }));
+                  setAccountInput(account);
+                  setPagination((prev) => ({ ...prev, page: 1 }));
+                }}
+                className="bg-green-50 hover:bg-green-100 border-2 border-green-200 rounded-lg p-6 text-center transition-all hover:shadow-md"
+              >
+                <div className="text-2xl mb-2">📖</div>
+                <div className="font-semibold text-gray-800 text-lg">{account}</div>
+                <div className="text-sm text-gray-500 mt-1">Buku Tempo</div>
+              </button>
+            ))}
+            {accounts.length === 0 && (
+              <div className="col-span-full text-center py-8 text-gray-500">
+                Belum ada akun. Klik tombol "+ Akun" untuk membuat akun baru.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Main Content - Show only when account is selected */}
+      {filters.account && (
+        <>
+          {/* Account Header */}
+          <div className="bg-green-50 border-l-4 border-green-500 p-4 rounded-lg mb-6">
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-xl font-bold text-gray-800">Buku Tempo: {selectedAccount || filters.account}</h2>
+                <p className="text-sm text-gray-600 mt-1">Transaksi tempo untuk akun ini</p>
+              </div>
+              <button
+                onClick={() => {
+                  setFilters((prev) => ({ ...prev, account: "" }));
+                  setSelectedAccount("");
+                  setAccountInput("");
+                  setPagination((prev) => ({ ...prev, page: 1 }));
+                }}
+                className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm"
+              >
+                Ganti Akun
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-white p-4 rounded-lg shadow border-l-4 border-green-500">
           <h3 className="text-lg font-semibold text-gray-700">Total Debit Tempo</h3>
           <p className="text-2xl font-bold text-green-600">{formatCurrency(summary.total_debit_tempo)}</p>
@@ -596,8 +791,8 @@ const TempoManagementPage = () => {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Tipe</label>
             <select
-              value={filters.transaction_type}
-              onChange={(e) => setFilters((prev) => ({ ...prev, transaction_type: e.target.value }))}
+              value={typeInput}
+              onChange={(e) => setTypeInput(e.target.value)}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             >
               <option value="">Semua Tipe</option>
@@ -608,8 +803,8 @@ const TempoManagementPage = () => {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Kategori</label>
             <select
-              value={filters.category_id}
-              onChange={(e) => setFilters((prev) => ({ ...prev, category_id: e.target.value }))}
+              value={categoryInput}
+              onChange={(e) => setCategoryInput(e.target.value)}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             >
               <option value="">Pilih Kategori</option>
@@ -624,8 +819,8 @@ const TempoManagementPage = () => {
             <label className="block text-sm font-medium text-gray-700 mb-1">Dari Tanggal</label>
             <input
               type="date"
-              value={filters.date_from}
-              onChange={(e) => setFilters((prev) => ({ ...prev, date_from: e.target.value }))}
+              value={dateFromInput}
+              onChange={(e) => setDateFromInput(e.target.value)}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             />
           </div>
@@ -633,8 +828,8 @@ const TempoManagementPage = () => {
             <label className="block text-sm font-medium text-gray-700 mb-1">Sampai Tanggal</label>
             <input
               type="date"
-              value={filters.date_to}
-              onChange={(e) => setFilters((prev) => ({ ...prev, date_to: e.target.value }))}
+              value={dateToInput}
+              onChange={(e) => setDateToInput(e.target.value)}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             />
           </div>
@@ -643,8 +838,9 @@ const TempoManagementPage = () => {
             <input
               type="text"
               placeholder="Deskripsi atau referensi..."
-              value={filters.search}
-              onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             />
           </div>
@@ -653,30 +849,32 @@ const TempoManagementPage = () => {
             <input
               type="text"
               placeholder="Nama supplier..."
-              value={filters.supplier}
-              onChange={(e) =>
-                setFilters((prev) => ({ ...prev, supplier: e.target.value }))
-              }
+              value={supplierInput}
+              onChange={(e) => setSupplierInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Akun</label>
-            <CreatableSelect
-              value={filters.account === 'All' ? { label: 'All', value: 'All' } : { label: filters.account, value: filters.account }}
-              options={[
-                { label: 'All', value: 'All' },
-                ...accounts.map(account => ({ label: account, value: account }))
-              ]}
-              onChange={(selected) => {
-                const newAccount = selected?.value || 'All';
-                setFilters(prev => ({ ...prev, account: newAccount }));
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={() => {
+                setFilters(prev => ({
+                  ...prev,
+                  transaction_type: typeInput,
+                  category_id: categoryInput,
+                  date_from: dateFromInput,
+                  date_to: dateToInput,
+                  search: searchInput,
+                  supplier: supplierInput,
+                  account: filters.account, // Keep current account
+                }));
+                setPagination(prev => ({ ...prev, page: 1 }));
               }}
-              onCreateOption={(inputValue) => {
-                setFilters(prev => ({ ...prev, account: inputValue }));
-              }}
-              className="w-full"
-            />
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded"
+            >
+              Search
+            </button>
           </div>
         </div>
         <div className="mt-4 flex gap-2">
@@ -688,9 +886,16 @@ const TempoManagementPage = () => {
                 date_from: '',
                 date_to: '',
                 search: '',
-                account: 'All',
+                account: filters.account, // Keep current account
                 supplier: '',
               });
+              // Clear queued local inputs as well
+              setTypeInput('');
+              setCategoryInput('');
+              setDateFromInput('');
+              setDateToInput('');
+              setSearchInput('');
+              setSupplierInput('');
               setPagination((prev) => ({ ...prev, page: 1 }));
             }}
             className="bg-gray-500 hover:bg-gray-700 text-white px-4 py-2 rounded"
@@ -728,6 +933,12 @@ const TempoManagementPage = () => {
                   Kategori
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  No. Nota
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Tgl Nota
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Deskripsi
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -741,9 +952,6 @@ const TempoManagementPage = () => {
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Saldo
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Nota
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Akun
@@ -782,6 +990,28 @@ const TempoManagementPage = () => {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     {transaction.category?.category_name || '-'}
                   </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {(() => {
+                      const v = isTxnRekapan ? (transaction.reference_number || transaction.no_nota?.[0]) : (transaction.no_nota && transaction.no_nota[0]);
+                      const hasDetails = isTxnRekapan || (transaction.no_nota?.length || transaction.date_nota?.length || transaction.attachment_urls?.length);
+                      return hasDetails ? (
+                        <button onClick={() => isTxnRekapan ? handleShowRekapanDetails(transaction) : handleShowNotaDetails(transaction)} className="text-blue-600 hover:underline">
+                          {v || '-'}
+                        </button>
+                      ) : (v || '-');
+                    })()}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {(() => {
+                      const d = transaction.date_nota && transaction.date_nota[0] ? formatDate(transaction.date_nota[0]) : (isTxnRekapan ? formatDate(transaction.transaction_date) : '-');
+                      const hasDetails = isTxnRekapan || (transaction.no_nota?.length || transaction.date_nota?.length || transaction.attachment_urls?.length);
+                      return hasDetails ? (
+                        <button onClick={() => isTxnRekapan ? handleShowRekapanDetails(transaction) : handleShowNotaDetails(transaction)} className="text-blue-600 hover:underline">
+                          {d}
+                        </button>
+                      ) : d;
+                    })()}
+                  </td>
                   <td className="px-6 py-4 text-sm text-gray-900">
                     <div>
                       <div 
@@ -815,25 +1045,7 @@ const TempoManagementPage = () => {
                       </span>
                     ) : '-'}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {isTxnRekapan ? (
-                      <button
-                        onClick={() => handleShowRekapanDetails(transaction)}
-                        className="text-green-600 hover:text-green-900 font-medium"
-                      >
-                        View Details
-                      </button>
-                    ) : (transaction.no_nota && transaction.no_nota.length > 0) || 
-                     (transaction.date_nota && transaction.date_nota.length > 0) || 
-                     (transaction.attachment_urls && transaction.attachment_urls.length > 0) ? (
-                      <button
-                        onClick={() => handleShowNotaDetails(transaction)}
-                        className="text-blue-600 hover:text-blue-900 font-medium"
-                      >
-                        Details
-                      </button>
-                    ) : '-'}
-                  </td>
+                  
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{transaction.account}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
                     <div className="flex justify-center space-x-2">
@@ -953,6 +1165,8 @@ const TempoManagementPage = () => {
           </div>
         )}
       </div>
+        </>
+      )}
 
       {showTransactionTypeModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
@@ -1007,15 +1221,13 @@ const TempoManagementPage = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Akun *</label>
                   <CreatableSelect
-                    value={{ label: selectedAccount, value: selectedAccount }}
+                    value={{ label: formData.account, value: formData.account }}
                     options={accounts.map(account => ({ label: account, value: account }))}
                     onChange={(selected) => {
                       const newAccount = selected?.value || 'General';
-                      setSelectedAccount(newAccount);
                       setFormData(prev => ({ ...prev, account: newAccount }));
                     }}
                     onCreateOption={(inputValue) => {
-                      setSelectedAccount(inputValue);
                       setFormData(prev => ({ ...prev, account: inputValue }));
                     }}
                     className="w-full"
@@ -1484,7 +1696,9 @@ const TempoManagementPage = () => {
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {selectedRekapan.parsedDetails?.transactions?.map((transaction: any, index: number) => (
+                      {selectedRekapan.parsedDetails?.transactions
+                        ?.filter((t: any) => t.type !== 'Stock Usage') // Filter out stock_usage from general stock recap
+                        ?.map((transaction: any, index: number) => (
                         <tr key={transaction.id} className="hover:bg-gray-50">
                           <td className="px-4 py-3 text-sm text-gray-900">{transaction.id}</td>
                           <td className="px-4 py-3 text-sm">
@@ -1529,6 +1743,68 @@ const TempoManagementPage = () => {
                 >
                   Tutup
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Account Modal */}
+      {showCreateAccountModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div className="mt-3">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-medium text-gray-900">
+                  Buat Akun Baru
+                </h3>
+                <button
+                  onClick={() => {
+                    setShowCreateAccountModal(false);
+                    setNewAccountName('');
+                  }}
+                  className="text-gray-500 hover:text-gray-700 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nama Akun *
+                  </label>
+                  <input
+                    type="text"
+                    value={newAccountName}
+                    onChange={(e) => setNewAccountName(e.target.value)}
+                    placeholder="Masukkan nama akun (max 20 karakter)"
+                    maxLength={20}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2"
+                    autoFocus
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    {newAccountName.length}/20 karakter
+                  </p>
+                </div>
+                <div className="flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCreateAccountModal(false);
+                      setNewAccountName('');
+                    }}
+                    className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCreateAccount}
+                    className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md"
+                  >
+                    Buat Akun
+                  </button>
+                </div>
               </div>
             </div>
           </div>

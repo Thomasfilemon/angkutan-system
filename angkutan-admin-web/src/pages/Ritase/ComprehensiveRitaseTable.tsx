@@ -380,6 +380,26 @@ const ComprehensiveRitaseTable: React.FC = () => {
         responseType: "blob",
       });
 
+      // Check if response is actually an error (JSON blob)
+      if (response.headers["content-type"]?.includes("application/json")) {
+        const text = await response.data.text();
+        const errorData = JSON.parse(text);
+        toast.error(errorData.message || "Export failed: No data found");
+        return;
+      }
+
+      // Check if status is not OK
+      if (response.status !== 200) {
+        const text = await response.data.text();
+        try {
+          const errorData = JSON.parse(text);
+          toast.error(errorData.message || "Export failed");
+        } catch {
+          toast.error("Export failed with status " + response.status);
+        }
+        return;
+      }
+
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement("a");
       link.href = url;
@@ -392,11 +412,33 @@ const ComprehensiveRitaseTable: React.FC = () => {
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.URL.revokeObjectURL(url);
       setShowExportModal(false);
       toast.success("Export successful!");
-    } catch (error) {
+    } catch (error: any) {
       console.error("Export failed:", error);
-      toast.error("Export failed—check console!");
+      
+      // Handle blob error responses
+      if (error?.response?.data instanceof Blob) {
+        try {
+          const text = await error.response.data.text();
+          const errorData = JSON.parse(text);
+          toast.error(errorData.message || "Export failed");
+          return;
+        } catch (parseError) {
+          console.error("Failed to parse error blob:", parseError);
+        }
+      }
+      
+      const errorMessage = error?.response?.data?.message || error?.message || "Export failed";
+      const errorDetails = error?.response?.data?.details || "";
+      toast.error(`Export failed: ${errorMessage}${errorDetails ? ` - ${errorDetails}` : ""}`);
+      
+      // Log full error for debugging
+      if (error?.response) {
+        console.error("Response status:", error.response.status);
+        console.error("Response data:", error.response.data);
+      }
     }
   };
 

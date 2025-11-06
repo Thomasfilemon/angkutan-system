@@ -1,5 +1,18 @@
 const db = require("../../models");
-const { CashTransaction, CashCategory, TempoDetail } = db;
+const {
+  CashTransaction,
+  CashCategory,
+  TempoDetail,
+  VehicleService,
+  ServiceItem,
+  StockTransaction,
+  StockBatch,
+  StockUsageNote,
+  StockUsageNoteItem,
+  RecapNoteItem,
+  RecapNote,
+  sequelize,
+} = db;
 const { Op } = require("sequelize");
 
 const parseCategoryId = (id) => {
@@ -416,8 +429,9 @@ exports.createCashTransaction = async (req, res, next) => {
       await TempoDetail.create(
         {
           cash_transaction_id: cashTransaction.id,
-          due_date: tanggal_jatuh_tempo || null,
-          store_name: supplier || null,
+          // Ensure NOT NULL constraints are respected
+          due_date: tanggal_jatuh_tempo || transaction_date || new Date().toISOString().split("T")[0],
+          store_name: supplier || "Unknown",
           amount: parsedAmount,
           status: "pending",
           payment_date: null,
@@ -593,6 +607,11 @@ exports.updateCashTransaction = async (req, res, next) => {
         .json({ success: false, message: "Account cannot be empty" });
     }
 
+    // Preserve original type before update to know if this was a tempo transaction
+    const wasTempoType = ["debit_tempo", "kredit_tempo"].includes(
+      cashTransaction.transaction_type
+    );
+
     // Update CashTransaction
     const newTransactionType =
       transaction_type || cashTransaction.transaction_type;
@@ -667,7 +686,7 @@ exports.updateCashTransaction = async (req, res, next) => {
       );
     } else if (
       isSettled &&
-      ["debit_tempo", "kredit_tempo"].includes(cashTransaction.transaction_type)
+      wasTempoType
     ) {
       await TempoDetail.create(
         {
@@ -875,9 +894,7 @@ exports.deleteCashTransaction = async (req, res, next) => {
       });
     }
 
-    const cashTransaction = await CashTransaction.findByPk(parseInt(id), {
-      transaction,
-    });
+    const cashTransaction = await CashTransaction.findByPk(parseInt(id), { transaction });
 
     if (!cashTransaction) {
       await transaction.rollback();
@@ -887,11 +904,92 @@ exports.deleteCashTransaction = async (req, res, next) => {
       });
     }
 
-    await TempoDetail.destroy({
-      where: { cash_transaction_id: id },
-      transaction,
-    });
+    // Preserve linked tempo detail if this was a tempo transaction
+    if (["debit_tempo", "kredit_tempo"].includes(cashTransaction.transaction_type)) {
+      const existingTempo = await TempoDetail.findOne({ where: { cash_transaction_id: id }, transaction });
+      if (existingTempo) {
+        // Mark as settled and detach from cash transaction to preserve history
+        await existingTempo.update({
+          status: existingTempo.status === "lunas" ? "lunas" : "lunas",
+          payment_date: existingTempo.payment_date || new Date(),
+          payment_method: existingTempo.payment_method || "settlement",
+          cash_transaction_id: null,
+        }, { transaction });
+      }
+    } else {
+      // If not a tempo transaction, remove any accidental link records
+      await TempoDetail.destroy({ where: { cash_transaction_id: id }, transaction });
+    }
 
+    // Best-effort: unlink from recap cash items and update recap paid_amount
+    const recapCashItems = await RecapNoteItem.findAll({ where: { type: "cash", reference_id: id }, transaction });
+    for (const item of recapCashItems) {
+      const recap = await RecapNote.findByPk(item.recap_id, { transaction });
+      if (recap) {
+        const newPaid = Math.max(0, parseFloat(recap.paid_amount || 0) - parseFloat(item.amount || 0));
+        const newStatus = newPaid >= parseFloat(recap.total_amount || 0) ? "paid" : (newPaid > 0 ? "partial" : "open");
+        await recap.update({ paid_amount: newPaid, status: newStatus }, { transaction });
+      }
+      await item.destroy({ transaction });
+    }
+
+    // Cascade by reference_number
+    const ref = cashTransaction.reference_number || "";
+    if (typeof ref === "string" && ref.length > 0) {
+      // If this cash originated from a Service
+      if (/^SRV-/.test(ref)) {
+        const service = await VehicleService.findOne({ where: { service_number: ref }, transaction });
+        if (service) {
+          // Restore stock used by this service (reverse service stock transactions)
+          const serviceTxns = await StockTransaction.findAll({ where: { reference_type: "service", reference_id: service.id }, transaction });
+          for (const st of serviceTxns) {
+            if (st.batch_id && st.transaction_type === "out") {
+              const batch = await StockBatch.findByPk(st.batch_id, { transaction });
+              if (batch) {
+                await batch.update({ quantity: parseFloat(batch.quantity) + parseFloat(st.quantity) }, { transaction });
+              }
+            }
+            await st.destroy({ transaction });
+          }
+          // Clean up service items then service itself
+          await ServiceItem.destroy({ where: { service_id: service.id }, transaction });
+          await service.destroy({ transaction });
+        }
+      }
+
+      // If this cash originated from direct stock usage note
+      if (/^USG-/.test(ref)) {
+        const note = await StockUsageNote.findOne({ where: { note_number: ref }, transaction });
+        if (note) {
+          // Reverse stock transactions associated to this usage note
+          const usageTxns = await StockTransaction.findAll({ where: { reference_type: "usage_note", reference_id: note.id }, transaction });
+          for (const st of usageTxns) {
+            if (st.batch_id && st.transaction_type === "out") {
+              const batch = await StockBatch.findByPk(st.batch_id, { transaction });
+              if (batch) {
+                await batch.update({ quantity: parseFloat(batch.quantity) + parseFloat(st.quantity) }, { transaction });
+              }
+            }
+            await st.destroy({ transaction });
+          }
+          // Remove recap link items for this usage note and update recap totals
+          const recapItems = await RecapNoteItem.findAll({ where: { type: "stock_usage", reference_id: note.id }, transaction });
+          for (const item of recapItems) {
+            const recap = await RecapNote.findByPk(item.recap_id, { transaction });
+            if (recap) {
+              const newTotal = Math.max(0, parseFloat(recap.total_amount || 0) - parseFloat(item.amount || 0));
+              await recap.update({ total_amount: newTotal, status: parseFloat(recap.paid_amount || 0) >= newTotal ? "paid" : (parseFloat(recap.paid_amount || 0) > 0 ? "partial" : "open") }, { transaction });
+            }
+            await item.destroy({ transaction });
+          }
+          // Delete usage note items and the note itself
+          await StockUsageNoteItem.destroy({ where: { note_id: note.id }, transaction });
+          await note.destroy({ transaction });
+        }
+      }
+    }
+
+    // Finally delete the cash transaction
     await cashTransaction.destroy({ transaction });
     await transaction.commit();
 

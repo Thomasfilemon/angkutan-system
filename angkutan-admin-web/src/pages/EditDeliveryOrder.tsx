@@ -1,6 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import apiClient from "../api/axiosConfig";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import { GeoSearchControl, OpenStreetMapProvider } from "leaflet-geosearch";
+import "leaflet-geosearch/dist/geosearch.css";
 
 interface DeliveryOrderData {
   id: number;
@@ -27,6 +32,103 @@ interface AdditionalAllowance {
   amount: number;
   description: string;
 }
+// Leaflet icons (consistent with create page)
+const DefaultIcon = L.Icon.Default as any;
+DefaultIcon.mergeOptions({
+  iconRetinaUrl: require("leaflet/dist/images/marker-icon-2x.png"),
+  iconUrl: require("leaflet/dist/images/marker-icon.png"),
+  shadowUrl: require("leaflet/dist/images/marker-shadow.png"),
+});
+
+const loadIcon = new L.Icon({
+  iconUrl:
+    "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png",
+  shadowUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png",
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+});
+
+const unloadIcon = new L.Icon({
+  iconUrl:
+    "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png",
+  shadowUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png",
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+});
+
+// Map search control
+const SearchControlComponent = ({
+  onLocationFound,
+}: {
+  onLocationFound: (lat: number, lng: number, label: string) => void;
+}) => {
+  const map = useMap();
+  useEffect(() => {
+    const provider = new OpenStreetMapProvider();
+    const searchControl = new (GeoSearchControl as any)({
+      provider: provider,
+      style: "bar",
+      showMarker: false,
+      autoClose: true,
+      keepResult: true,
+    });
+    const onShowLocation = (e: any) => onLocationFound(e.location.y, e.location.x, e.location.label);
+    map.addControl(searchControl);
+    map.on("geosearch/showlocation", onShowLocation);
+    return () => {
+      map.removeControl(searchControl);
+      map.off("geosearch/showlocation", onShowLocation);
+    };
+  }, [map, onLocationFound]);
+  return null;
+};
+
+// Map click handler
+const MapClickHandler: React.FC<{
+  armed: "load" | "unload" | null;
+  onPick: (lat: number, lng: number, address: string) => void;
+  disarm: () => void;
+}> = ({ armed, onPick, disarm }) => {
+  const map = useMap();
+  const isDraggingRef = useRef(false);
+  useEffect(() => {
+    const onClick = (e: L.LeafletMouseEvent) => {
+      if (!armed) return;
+      if (isDraggingRef.current) return; // ignore clicks triggered by drag
+      const { lat, lng } = e.latlng;
+      fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
+        .then((r) => r.json())
+        .then((d) => {
+          const address = d.display_name || `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
+          onPick(lat, lng, address);
+          disarm();
+        })
+        .catch(() => {
+          const address = `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
+          onPick(lat, lng, address);
+          disarm();
+        });
+    };
+    const onDragStart = () => { isDraggingRef.current = true; };
+    const onDragEnd = () => { setTimeout(() => { isDraggingRef.current = false; }, 50); };
+    map.on("click", onClick);
+    map.on("dragstart", onDragStart);
+    map.on("dragend", onDragEnd);
+    return () => {
+      map.off("click", onClick);
+      map.off("dragstart", onDragStart);
+      map.off("dragend", onDragEnd);
+    };
+  }, [map, armed, onPick, disarm]);
+  return null;
+};
+
 
 const STATUS_OPTIONS = [
   { value: "assigned", label: "Ditugaskan" },
@@ -60,6 +162,11 @@ const EditDeliveryOrder: React.FC = () => {
     amount: 0,
     description: "",
   });
+
+  // Map selection state
+  const [armedPick, setArmedPick] = useState<"load" | "unload" | null>(null);
+  const [markers, setMarkers] = useState<{ lat: number; lng: number; title: string; type: "load" | "unload" }[]>([]);
+  const defaultCenter = { lat: -6.2088, lng: 106.8456 };
 
   const [formData, setFormData] = useState({
     customer_name: "",
@@ -259,6 +366,19 @@ const EditDeliveryOrder: React.FC = () => {
     }
   };
 
+  const applyPickedLocation = (lat: number, lng: number, address: string) => {
+    if (!armedPick) return;
+    if (armedPick === "load") {
+      setFormData((prev) => ({ ...prev, load_location: address }));
+    } else {
+      setFormData((prev) => ({ ...prev, unload_location: address }));
+    }
+    setMarkers((prev) => [
+      ...prev.filter((m) => m.type !== armedPick),
+      { lat, lng, title: `${armedPick === "load" ? "Load" : "Unload"}: ${address}` , type: armedPick },
+    ]);
+  };
+
   const handleCancel = async () => {
     if (!cancellationReason.trim()) {
       setError("Cancellation reason is required");
@@ -376,6 +496,35 @@ const EditDeliveryOrder: React.FC = () => {
         onSubmit={handleSubmit}
         className="bg-white shadow-lg rounded-lg p-8 border border-gray-100"
       >
+        {/* Map selector */}
+        <div className="mb-8">
+          <h3 className="text-lg font-semibold mb-3">Location Map</h3>
+          <div className="flex gap-2 mb-3">
+            <button type="button" onClick={() => setArmedPick("load")} className={`px-3 py-2 rounded border ${armedPick === "load" ? "bg-blue-600 text-white" : "bg-white text-gray-800"}`}>
+              Set Load on Map
+            </button>
+            <button type="button" onClick={() => setArmedPick("unload")} className={`px-3 py-2 rounded border ${armedPick === "unload" ? "bg-red-600 text-white" : "bg-white text-gray-800"}`}>
+              Set Unload on Map
+            </button>
+            {armedPick && <span className="text-sm text-blue-600 self-center">Click on the map to set {armedPick} location</span>}
+          </div>
+          <div className="h-80 w-full">
+            <MapContainer
+              center={markers.length > 0 ? [markers[markers.length - 1].lat, markers[markers.length - 1].lng] : [defaultCenter.lat, defaultCenter.lng]}
+              zoom={13}
+              style={{ height: "100%", width: "100%" }}
+            >
+              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
+              <SearchControlComponent onLocationFound={(lat, lng, label) => applyPickedLocation(lat, lng, label)} />
+              <MapClickHandler armed={armedPick} onPick={applyPickedLocation} disarm={() => setArmedPick(null)} />
+              {markers.map((m, i) => (
+                <Marker key={i} position={[m.lat, m.lng]} icon={m.type === "load" ? loadIcon : unloadIcon}>
+                  <Popup>{m.title}</Popup>
+                </Marker>
+              ))}
+            </MapContainer>
+          </div>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Customer Name */}
           <div>

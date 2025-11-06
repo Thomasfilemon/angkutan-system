@@ -44,6 +44,7 @@ interface FormItem {
     unit: string;
     rack_row?: string;
     rack_level?: string;
+    merk?: string; // NEW: Brand field
     current_stock: string;
     min_stock: string;
     unit_price: string;
@@ -54,6 +55,28 @@ interface FormItem {
     originalStock?: number;
     createNewBatch?: boolean; // NEW: Flag for creating new batch
 }
+
+// Helper functions to parse and save merk in notes as JSON
+const parseNotesForMerk = (notes: string): { merk: string; otherNotes: string } => {
+    if (!notes) return { merk: '', otherNotes: '' };
+    try {
+        const parsed = JSON.parse(notes);
+        if (typeof parsed === 'object' && parsed !== null) {
+            return { merk: parsed.merk || '', otherNotes: parsed.notes || parsed.otherNotes || '' };
+        }
+    } catch (e) {
+        // Not JSON, treat as plain text
+    }
+    return { merk: '', otherNotes: notes };
+};
+
+const saveMerkToNotes = (merk: string, otherNotes: string): string => {
+    if (!merk && !otherNotes) return '';
+    const data: any = {};
+    if (merk) data.merk = merk;
+    if (otherNotes) data.notes = otherNotes;
+    return JSON.stringify(data);
+};
 
 const StockCreatePage = () => {
     const navigate = useNavigate();
@@ -71,6 +94,7 @@ const StockCreatePage = () => {
         unit: 'Pcs',
         rack_row: '',
         rack_level: '',
+        merk: '', // NEW: Brand field
         current_stock: '',
         min_stock: '',
         unit_price: '',
@@ -173,10 +197,11 @@ const StockCreatePage = () => {
                 unit: item.unit || 'Pcs',
                 rack_row: item.rack_row?.toString() || '',
                 rack_level: item.rack_level?.toString() || '',
+                merk: parseNotesForMerk(item.notes || '').merk, // Extract merk
                 current_stock: item.current_stock?.toString() || '0',
                 min_stock: item.min_stock?.toString() || '',
                 unit_price: item.average_unit_price?.toString() || '',
-                notes: item.notes || '',
+                notes: parseNotesForMerk(item.notes || '').otherNotes, // Extract other notes
                 isNew: false,
                 adjustmentType: 'add',
                 adjustmentAmount: '0',
@@ -270,25 +295,27 @@ const StockCreatePage = () => {
     const handleItemSelect = async (index: number, itemId: number | null) => {
     const newItems = [...formItems];
     if (itemId === null) {
-        newItems[index] = {
-            id: null,
-            category_id: '',
-            item_code: '',
-            item_name: '',
-            supplier: '',
-            unit: 'Pcs',
-            rack_row: '',
-            rack_level: '',
-            current_stock: '',
-            min_stock: '',
-            unit_price: '',
-            notes: '',
-            isNew: true,
-            adjustmentType: 'add',
-            adjustmentAmount: '0',
-            originalStock: 0,
-            createNewBatch: false
-        };
+            const emptyItem: FormItem = {
+                id: null,
+                category_id: '',
+                item_code: '',
+                item_name: '',
+                supplier: '',
+                unit: 'Pcs',
+                rack_row: '',
+                rack_level: '',
+                merk: '',
+                current_stock: '',
+                min_stock: '',
+                unit_price: '',
+                notes: '',
+                isNew: true,
+                adjustmentType: 'add',
+                adjustmentAmount: '0',
+                originalStock: 0,
+                createNewBatch: false
+            };
+            newItems[index] = emptyItem;
     } else {
         try {
             setLoading(true);
@@ -324,6 +351,9 @@ const StockCreatePage = () => {
             
             console.log('Selected item details:', selectedItem);
             
+            // Parse merk from notes
+            const { merk, otherNotes } = parseNotesForMerk(selectedItem.notes || '');
+            
             newItems[index] = {
                 id: selectedItem.id,
                 category_id: selectedItem.category_id?.toString() || '',
@@ -333,10 +363,11 @@ const StockCreatePage = () => {
                 unit: selectedItem.unit || 'Pcs',
                 rack_row: selectedItem.rack_row?.toString() || '',
                 rack_level: selectedItem.rack_level?.toString() || '',
+                merk: merk, // Extract merk from notes
                 current_stock: selectedItem.current_stock?.toString() || '0',
                 min_stock: selectedItem.min_stock?.toString() || '',
                 unit_price: (selectedItem.average_unit_price || selectedItem.unit_price)?.toString() || '',
-                notes: selectedItem.notes || '',
+                notes: otherNotes, // Store other notes separately
                 isNew: false,
                 adjustmentType: 'add',
                 adjustmentAmount: '0',
@@ -439,7 +470,7 @@ const StockCreatePage = () => {
                         min_stock: parseFloat(formItem.min_stock) || 0,
                         unit_price: parseFloat(formItem.unit_price) || 0,
                         initial_stock: adjustmentAmount,
-                        notes: formItem.notes
+                        notes: saveMerkToNotes(formItem.merk || '', formItem.notes || '') // Save merk in notes as JSON
                     };
 
                     await apiClient.post('/stock', submitData);
@@ -457,7 +488,7 @@ const StockCreatePage = () => {
                         quantity: adjustmentAmount,
                         unit_price: parseFloat(formItem.unit_price) || 0,
                         supplier: formItem.supplier,
-                        notes: formItem.notes,
+                        notes: saveMerkToNotes(formItem.merk || '', formItem.notes || ''), // Save merk in notes as JSON
                         create_new_batch: formItem.createNewBatch || false
                     };
 
@@ -687,6 +718,22 @@ const StockCreatePage = () => {
                                         />
                                     </div>
 
+                                    <div className="mb-4">
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Merk
+                                        </label>
+                                        <input
+                                            type="text"
+                                            name="merk"
+                                            value={item.merk || ''}
+                                            onChange={(e) => handleInputChange(index, e)}
+                                            placeholder="Masukkan merk/brand"
+                                            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="mb-4">
                                         <label className="block text-sm font-medium text-gray-700 mb-2">
                                             Satuan *

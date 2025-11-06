@@ -19,6 +19,10 @@ const getDateRange = (timeRange) => {
     case "year":
       startDate = now.clone().subtract(1, "year").startOf("day");
       break;
+    case "all":
+      // For "all time", set start date to a very early date (e.g., 10 years ago)
+      startDate = now.clone().subtract(10, "years").startOf("day");
+      break;
     default:
       startDate = now.clone().subtract(1, "month").startOf("day");
   }
@@ -27,6 +31,297 @@ const getDateRange = (timeRange) => {
     startDate: startDate.toISOString(),
     endDate: endDate.toISOString(),
   };
+};
+
+// Get vehicle expenditure analytics (pengeluaran per mobil)
+const getVehicleExpenditureAnalytics = async (req, res) => {
+  try {
+    console.log("[VehicleExpenditure] Request query:", req.query);
+    
+    const {
+      timeRange = "all",
+      startDate: customStartDate,
+      endDate: customEndDate,
+      vehicleId,
+    } = req.query;
+
+    let startDate, endDate;
+
+    if (customStartDate && customEndDate) {
+      startDate = moment
+        .tz(customStartDate, "Asia/Jakarta")
+        .startOf("day")
+        .toISOString();
+      endDate = moment
+        .tz(customEndDate, "Asia/Jakarta")
+        .endOf("day")
+        .toISOString();
+    } else {
+      const range = getDateRange(timeRange);
+      startDate = range.startDate;
+      endDate = range.endDate;
+    }
+
+    const vehicleIdInt = vehicleId ? parseInt(vehicleId, 10) : null;
+    
+    console.log("[VehicleExpenditure] Date range:", { startDate, endDate, vehicleIdInt });
+
+    // First, let's get all vehicles to make sure we have data
+    const allVehicles = await sequelize.query(
+      `SELECT id, license_plate, type FROM vehicles ORDER BY id`,
+      { type: QueryTypes.SELECT }
+    );
+    console.log("[VehicleExpenditure] All vehicles:", allVehicles);
+
+    // Get stock usage from services per vehicle
+    console.log("[VehicleExpenditure] Executing services query...");
+    const stockUsageFromServices = await sequelize.query(
+      `
+      SELECT 
+        v.id as vehicle_id,
+        v.license_plate,
+        v.type as vehicle_type,
+        COALESCE(SUM(st.total_amount), 0) as total_stock_usage_cost,
+        COUNT(DISTINCT vs.id) as service_count,
+        COUNT(DISTINCT st.item_id) as unique_items_used,
+        COALESCE(SUM(st.quantity), 0) as total_quantity_used
+      FROM vehicles v
+      LEFT JOIN vehicle_services vs ON v.id = vs.vehicle_id 
+        AND vs.service_date BETWEEN :startDate AND :endDate
+        AND (vs.status IS NULL OR vs.status <> 'cancelled')
+      LEFT JOIN stock_transactions st ON vs.id = st.reference_id 
+        AND st.reference_type = 'service'
+        AND st.transaction_type = 'out'
+      WHERE (:vehicleId IS NULL OR v.id = :vehicleId)
+      GROUP BY v.id, v.license_plate, v.type
+      ORDER BY total_stock_usage_cost DESC
+      `,
+      {
+        replacements: { startDate, endDate, vehicleId: vehicleIdInt },
+        type: QueryTypes.SELECT,
+      }
+    );
+    console.log("[VehicleExpenditure] Services query result:", stockUsageFromServices);
+
+    // Get stock usage from direct usage notes per vehicle
+    console.log("[VehicleExpenditure] Executing usage notes query...");
+    const stockUsageFromNotes = await sequelize.query(
+      `
+      SELECT 
+        v.id as vehicle_id,
+        v.license_plate,
+        v.type as vehicle_type,
+        COALESCE(SUM(suni.total_price), 0) as total_direct_usage_cost,
+        COUNT(DISTINCT sun.id) as usage_note_count,
+        COUNT(DISTINCT suni.item_id) as unique_items_used
+      FROM vehicles v
+      LEFT JOIN stock_usage_notes sun ON v.id = sun.vehicle_id 
+        AND sun.usage_date BETWEEN :startDate AND :endDate
+      LEFT JOIN stock_usage_note_items suni ON sun.id = suni.note_id
+      WHERE (:vehicleId IS NULL OR v.id = :vehicleId)
+      GROUP BY v.id, v.license_plate, v.type
+      ORDER BY total_direct_usage_cost DESC
+      `,
+      {
+        replacements: { startDate, endDate, vehicleId: vehicleIdInt },
+        type: QueryTypes.SELECT,
+      }
+    );
+    console.log("[VehicleExpenditure] Usage notes query result:", stockUsageFromNotes);
+
+    // Get delivery orders with deposits per vehicle (count per quantity in DO when deposit exists)
+    console.log("[VehicleExpenditure] Executing delivery orders with deposits query...");
+    const deliveryOrdersWithDeposits = await sequelize.query(
+      `
+      SELECT 
+        v.id as vehicle_id,
+        v.license_plate,
+        v.type as vehicle_type,
+        COALESCE(SUM(
+          CASE 
+            WHEN dgm.id IS NOT NULL THEN 
+              -- When deposit exists, count per actual_load_quantity (or minimal if actual is null)
+              COALESCE(do.actual_load_quantity, do.minimal_load_quantity, 0)
+            ELSE 
+              0
+          END
+        ), 0) as total_do_quantity,
+        COUNT(DISTINCT CASE WHEN dgm.id IS NOT NULL THEN do.id END) as do_count_with_deposit,
+        COALESCE(SUM(
+          CASE 
+            WHEN dgm.id IS NOT NULL THEN 
+              -- When deposit exists, calculate value based on actual quantity
+              COALESCE(do.actual_load_quantity, do.minimal_load_quantity, 0) * COALESCE(do.unit_price, 0)
+            ELSE 
+              0
+          END
+        ), 0) as total_do_value
+      FROM vehicles v
+      LEFT JOIN delivery_orders do ON v.id = do.vehicle_id 
+        AND do.completed_at BETWEEN :startDate AND :endDate
+        AND do.status = 'completed'
+      LEFT JOIN deposit_group_members dgm ON do.id = dgm.delivery_order_id
+      WHERE (:vehicleId IS NULL OR v.id = :vehicleId)
+      GROUP BY v.id, v.license_plate, v.type
+      ORDER BY total_do_quantity DESC
+      `,
+      {
+        replacements: { startDate, endDate, vehicleId: vehicleIdInt },
+        type: QueryTypes.SELECT,
+      }
+    );
+    console.log("[VehicleExpenditure] Delivery orders with deposits query result:", deliveryOrdersWithDeposits);
+
+    // Combine the data
+    const vehicleMap = new Map();
+    
+    // Add service-based stock usage
+    stockUsageFromServices.forEach(vehicle => {
+      vehicleMap.set(vehicle.vehicle_id, {
+        vehicle_id: vehicle.vehicle_id,
+        license_plate: vehicle.license_plate,
+        vehicle_type: vehicle.vehicle_type,
+        service_stock_cost: parseFloat(vehicle.total_stock_usage_cost),
+        service_count: parseInt(vehicle.service_count),
+        service_unique_items: parseInt(vehicle.unique_items_used),
+        service_quantity_used: parseFloat(vehicle.total_quantity_used),
+        direct_usage_cost: 0,
+        usage_note_count: 0,
+        direct_unique_items: 0,
+        do_count_with_deposit: 0,
+        total_do_quantity: 0,
+        total_do_value: 0,
+        total_stock_expenditure: parseFloat(vehicle.total_stock_usage_cost)
+      });
+    });
+
+    // Add direct usage data
+    stockUsageFromNotes.forEach(vehicle => {
+      const existing = vehicleMap.get(vehicle.vehicle_id);
+      if (existing) {
+        existing.direct_usage_cost = parseFloat(vehicle.total_direct_usage_cost);
+        existing.usage_note_count = parseInt(vehicle.usage_note_count);
+        existing.direct_unique_items = parseInt(vehicle.unique_items_used);
+        existing.total_stock_expenditure = existing.service_stock_cost + existing.direct_usage_cost;
+      } else {
+        vehicleMap.set(vehicle.vehicle_id, {
+          vehicle_id: vehicle.vehicle_id,
+          license_plate: vehicle.license_plate,
+          vehicle_type: vehicle.vehicle_type,
+          service_stock_cost: 0,
+          service_count: 0,
+          service_unique_items: 0,
+          service_quantity_used: 0,
+          direct_usage_cost: parseFloat(vehicle.total_direct_usage_cost),
+          usage_note_count: parseInt(vehicle.usage_note_count),
+          direct_unique_items: parseInt(vehicle.unique_items_used),
+          do_count_with_deposit: 0,
+          total_do_quantity: 0,
+          total_do_value: 0,
+          total_stock_expenditure: parseFloat(vehicle.total_direct_usage_cost)
+        });
+      }
+    });
+
+    // Add delivery orders with deposits data (count per quantity when deposit exists)
+    deliveryOrdersWithDeposits.forEach(vehicle => {
+      const existing = vehicleMap.get(vehicle.vehicle_id);
+      if (existing) {
+        // Add delivery order metrics to existing vehicle data
+        existing.do_count_with_deposit = parseInt(vehicle.do_count_with_deposit) || 0;
+        existing.total_do_quantity = parseFloat(vehicle.total_do_quantity) || 0;
+        existing.total_do_value = parseFloat(vehicle.total_do_value) || 0;
+      } else {
+        vehicleMap.set(vehicle.vehicle_id, {
+          vehicle_id: vehicle.vehicle_id,
+          license_plate: vehicle.license_plate,
+          vehicle_type: vehicle.vehicle_type,
+          service_stock_cost: 0,
+          service_count: 0,
+          service_unique_items: 0,
+          service_quantity_used: 0,
+          direct_usage_cost: 0,
+          usage_note_count: 0,
+          direct_unique_items: 0,
+          do_count_with_deposit: parseInt(vehicle.do_count_with_deposit) || 0,
+          total_do_quantity: parseFloat(vehicle.total_do_quantity) || 0,
+          total_do_value: parseFloat(vehicle.total_do_value) || 0,
+          total_stock_expenditure: 0
+        });
+      }
+    });
+
+    const vehicleExpenditureData = Array.from(vehicleMap.values());
+    console.log("[VehicleExpenditure] Combined vehicle data:", vehicleExpenditureData);
+
+    // Ensure all vehicles are in the map, even if they have no data
+    allVehicles.forEach(vehicle => {
+      if (!vehicleMap.has(vehicle.id)) {
+        vehicleMap.set(vehicle.id, {
+          vehicle_id: vehicle.id,
+          license_plate: vehicle.license_plate,
+          vehicle_type: vehicle.type,
+          service_stock_cost: 0,
+          service_count: 0,
+          service_unique_items: 0,
+          service_quantity_used: 0,
+          direct_usage_cost: 0,
+          usage_note_count: 0,
+          direct_unique_items: 0,
+          do_count_with_deposit: 0,
+          total_do_quantity: 0,
+          total_do_value: 0,
+          total_stock_expenditure: 0
+        });
+      } else {
+        // Ensure existing entries have DO fields
+        const existing = vehicleMap.get(vehicle.id);
+        if (existing.do_count_with_deposit === undefined) {
+          existing.do_count_with_deposit = 0;
+          existing.total_do_quantity = 0;
+          existing.total_do_value = 0;
+        }
+      }
+    });
+
+    // Get the final vehicle data (updated after fallback)
+    const finalVehicleData = Array.from(vehicleMap.values());
+    console.log("[VehicleExpenditure] Final vehicle data:", finalVehicleData);
+
+    // Calculate summary metrics
+    const totalStockExpenditure = finalVehicleData.reduce((sum, v) => sum + v.total_stock_expenditure, 0);
+    const totalVehicles = finalVehicleData.length;
+    const vehiclesWithStockUsage = finalVehicleData.filter(v => v.total_stock_expenditure > 0).length;
+
+    const responseData = {
+      summary: {
+        total_stock_expenditure: totalStockExpenditure,
+        total_vehicles: totalVehicles,
+        vehicles_with_stock_usage: vehiclesWithStockUsage,
+        average_expenditure_per_vehicle: totalVehicles > 0 ? totalStockExpenditure / totalVehicles : 0
+      },
+      vehicles: finalVehicleData,
+      timeRange: {
+        startDate,
+        endDate
+      }
+    };
+
+    console.log("[VehicleExpenditure] Final response data:", responseData);
+
+    res.json({
+      success: true,
+      data: responseData
+    });
+
+  } catch (error) {
+    console.error("Error in getVehicleExpenditureAnalytics:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch vehicle expenditure analytics",
+      details: error.message,
+    });
+  }
 };
 
 const getDashboardMetrics = async (req, res) => {
@@ -144,6 +439,7 @@ const getDashboardMetrics = async (req, res) => {
           SELECT COALESCE(SUM(vs.total_cost), 0)
           FROM vehicle_services vs
           WHERE vs.service_date BETWEEN :startDate AND :endDate
+            AND (vs.status IS NULL OR vs.status <> 'cancelled')
             AND (:vehicleId IS NULL OR vs.vehicle_id = :vehicleId)
         ) as total_service_cost,
         (
@@ -178,7 +474,42 @@ const getDashboardMetrics = async (req, res) => {
     );
     console.log("[Debug] inventoryMetrics:", inventoryMetrics);
 
-    // 3a. Metrik Inventaris BAN
+    // 3a. Stock Usage Metrics (Stok Skali Lwat)
+  const stockUsageMetrics = await sequelize.query(
+      `
+      SELECT 
+        COALESCE(SUM(st.total_amount), 0) as total_stock_usage_cost,
+        COALESCE(SUM(CASE WHEN st.reference_type = 'service' THEN st.total_amount ELSE 0 END), 0) as service_stock_usage_cost,
+        COALESCE(SUM(CASE WHEN st.reference_type = 'usage_note' THEN st.total_amount ELSE 0 END), 0) as direct_usage_cost,
+        COUNT(DISTINCT st.item_id) as unique_items_used,
+        COALESCE(SUM(st.quantity), 0) as total_quantity_used,
+        COUNT(DISTINCT CASE WHEN st.reference_type = 'service' THEN st.reference_id END) as services_with_stock,
+        COUNT(DISTINCT CASE WHEN st.reference_type = 'usage_note' THEN st.reference_id END) as usage_notes_count
+      FROM stock_transactions st
+      WHERE st.transaction_type = 'out' 
+        AND st.transaction_date BETWEEN :startDate AND :endDate
+        AND st.reference_type IN ('service', 'usage_note')
+        AND NOT EXISTS (
+          SELECT 1 FROM vehicle_services vs
+          WHERE vs.id = st.reference_id
+            AND st.reference_type = 'service'
+            AND vs.status = 'cancelled'
+        )
+        AND (:vehicleId IS NULL OR st.reference_id IN (
+          SELECT vs.id FROM vehicle_services vs WHERE vs.vehicle_id = :vehicleId
+          UNION
+          SELECT sun.id FROM stock_usage_notes sun WHERE sun.vehicle_id = :vehicleId
+        ))
+      `,
+      {
+        replacements: { startDate, endDate, vehicleId: vehicleIdInt },
+        type: QueryTypes.SELECT,
+        plain: true,
+      }
+    );
+    console.log("[Debug] stockUsageMetrics:", stockUsageMetrics);
+
+    // 3b. Metrik Inventaris BAN
     const tireInventoryMetrics = await sequelize.query(
       `
       SELECT 
@@ -321,12 +652,15 @@ const getDashboardMetrics = async (req, res) => {
     const totalOfficeExpenses = parseFloat(
       otherExpenses.total_office_expenses || 0
     );
+    const directStockUsageCost = parseFloat(stockUsageMetrics.direct_usage_cost || 0);
 
     const totalExpenses =
       totalUangJalan +
       totalGajiDriver +
       totalOtherDriverExpenses +
       totalServiceCost +
+      // add direct stock usage (stok sekali lewat) as an explicit operating expense
+      directStockUsageCost +
       totalOfficeExpenses;
     const netIncome = grossIncome - totalExpenses;
 
@@ -353,6 +687,12 @@ const getDashboardMetrics = async (req, res) => {
       vehicleExpenses: {
         totalServiceCost,
       },
+      // explicit stock usage metrics for dashboard consumption
+      stockUsage: {
+        totalStockUsageCost: parseFloat(stockUsageMetrics.total_stock_usage_cost || 0),
+        serviceStockUsageCost: parseFloat(stockUsageMetrics.service_stock_usage_cost || 0),
+        directUsageCost: directStockUsageCost,
+      },
       officeExpenses: {
         totalOfficeExpenses,
       },
@@ -374,6 +714,13 @@ const getDashboardMetrics = async (req, res) => {
             lowStock: 0, // Placeholder
           },
         ],
+      },
+      stockUsageMetrics: {
+        totalStockUsageCost: parseFloat(stockUsageMetrics.total_stock_usage_cost || 0),
+        uniqueItemsUsed: parseInt(stockUsageMetrics.unique_items_used || 0),
+        totalQuantityUsed: parseFloat(stockUsageMetrics.total_quantity_used || 0),
+        servicesWithStock: parseInt(stockUsageMetrics.services_with_stock || 0),
+        usageNotesCount: parseInt(stockUsageMetrics.usage_notes_count || 0),
       },
       operationalMetrics: {
         activeDeliveries: parseInt(operationalMetrics.active_deliveries || 0),
@@ -510,4 +857,5 @@ const getExpenseAnalytics = async (req, res, next) => {
 module.exports = {
   getDashboardMetrics,
   getExpenseAnalytics,
+  getVehicleExpenditureAnalytics,
 };
