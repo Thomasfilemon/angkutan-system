@@ -120,7 +120,6 @@ const TempoManagementPage = () => {
   const [dateToInput, setDateToInput] = useState<string>('');
   const [accountInput, setAccountInput] = useState<string>('');
   const abortRef = useRef<AbortController | null>(null);
-  useEffect(() => { setSearchInput(filters.search || ''); }, []);
   // Manual search only; trigger via button
   useEffect(() => {
     setSearchInput(filters.search || '');
@@ -130,6 +129,7 @@ const TempoManagementPage = () => {
     setDateFromInput(filters.date_from || '');
     setDateToInput(filters.date_to || '');
     setAccountInput(filters.account || '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const parseAmount = (amount: number | string): number => {

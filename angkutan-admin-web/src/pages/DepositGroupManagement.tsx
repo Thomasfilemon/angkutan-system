@@ -568,7 +568,7 @@ const DepositGroupManagement: React.FC = () => {
       const invoice = res.data?.data || res.data;
       toast.success("Invoice selisih berhasil dibuat.");
 
-      setPrintedSelisihDoIds((prev) => new Set(prev).add(doItem.id));
+      setPrintedSelisihDoIds((prev: Set<number>) => new Set(prev).add(doItem.id));
 
       if (invoice?.id) {
         window.open(
