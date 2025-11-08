@@ -44,6 +44,8 @@ const DepositGroupInvoiceList: React.FC = () => {
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(amount || 0);
 
+  const [payingInvoiceId, setPayingInvoiceId] = useState<number | null>(null);
+
   const handlePay = async (invoiceId: number, remaining: number) => {
     const input = window.prompt("Masukkan jumlah pembayaran (Rp)", String(remaining));
     if (input === null) return;
@@ -52,12 +54,20 @@ const DepositGroupInvoiceList: React.FC = () => {
       toast.error("Jumlah tidak valid");
       return;
     }
+    if (amount > remaining) {
+      toast.error("Jumlah pembayaran tidak boleh melebihi sisa tagihan");
+      return;
+    }
     try {
+      setPayingInvoiceId(invoiceId);
       await paymentsApi.recordDepositGroupPayment(invoiceId, { payment_amount: amount });
       toast.success("Pembayaran dicatat");
-      fetchInvoices();
+      await fetchInvoices();
     } catch (err: any) {
-      toast.error(err.response?.data?.message || "Gagal mencatat pembayaran");
+      toast.error(err.response?.data?.message || err.response?.data?.error || "Gagal mencatat pembayaran");
+      console.error("Payment error:", err);
+    } finally {
+      setPayingInvoiceId(null);
     }
   };
 
@@ -142,10 +152,10 @@ const DepositGroupInvoiceList: React.FC = () => {
                       </a>
                       <button
                         onClick={() => handlePay(inv.id, inv.remaining_amount)}
-                        className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
-                        disabled={inv.remaining_amount <= 0}
+                        className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={inv.remaining_amount <= 0 || payingInvoiceId === inv.id}
                       >
-                        Pay
+                        {payingInvoiceId === inv.id ? "Processing..." : "Pay"}
                       </button>
                     </div>
                   </td>

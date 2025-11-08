@@ -238,6 +238,27 @@ module.exports = {
           .json({ error: "Group already has an active invoice" });
       }
 
+      // Validate that all delivery orders are completed before finalizing
+      const incompleteDOs = [];
+      for (const member of group.members || []) {
+        const doItem = member.deliveryOrder;
+        if (!doItem) {
+          incompleteDOs.push(`DO ID ${member.delivery_order_id} (not found)`);
+          continue;
+        }
+        if (doItem.status !== 'completed') {
+          incompleteDOs.push(`DO ${doItem.do_number || doItem.id} (status: ${doItem.status})`);
+        }
+      }
+      
+      if (incompleteDOs.length > 0) {
+        await transaction.rollback();
+        return res.status(400).json({
+          error: "Cannot finalize deposit group: some delivery orders are not completed",
+          incomplete_delivery_orders: incompleteDOs
+        });
+      }
+
       // Compute gross from actual quantities (fallback to minimal if actual not set)
       let grossAmount = 0;
       for (const member of group.members || []) {

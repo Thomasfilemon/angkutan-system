@@ -546,13 +546,22 @@ const getDashboardMetrics = async (req, res) => {
     const depositRevenue = await sequelize.query(
       `
       -- Top-ups that occurred in period (cash-in)
+      -- Filter by vehicle: only count topups for groups that have at least one delivery order from the filtered vehicle
       SELECT 
         COALESCE(SUM(dgt.amount), 0) AS topup_amount
       FROM deposit_group_topups dgt
+      JOIN deposit_groups dg ON dg.id = dgt.group_id
       WHERE dgt.created_at BETWEEN :startDate AND :endDate
+        AND (:vehicleId IS NULL OR EXISTS (
+          SELECT 1 
+          FROM deposit_group_members dgm
+          JOIN delivery_orders dord ON dord.id = dgm.delivery_order_id
+          WHERE dgm.group_id = dg.id
+            AND dord.vehicle_id = :vehicleId
+        ))
       `,
       {
-        replacements: { startDate, endDate },
+        replacements: { startDate, endDate, vehicleId: vehicleIdInt },
         type: QueryTypes.SELECT,
         plain: true,
       }
@@ -562,15 +571,24 @@ const getDashboardMetrics = async (req, res) => {
       `
       -- Sisa pembayaran deposit (net invoice after deposit) actually paid in period,
       -- but only count if the invoice is fully paid (status = 'paid')
+      -- Filter by vehicle: only count payments for invoices belonging to groups with at least one delivery order from the filtered vehicle
       SELECT 
         COALESCE(SUM(dgp.payment_amount), 0) AS sisa_paid_amount
       FROM deposit_group_payments dgp
       JOIN deposit_group_invoices dgi ON dgi.id = dgp.invoice_id
+      JOIN deposit_groups dg ON dg.id = dgi.group_id
       WHERE dgp.payment_date BETWEEN :startDate AND :endDate
         AND dgi.status = 'paid'
+        AND (:vehicleId IS NULL OR EXISTS (
+          SELECT 1 
+          FROM deposit_group_members dgm
+          JOIN delivery_orders dord ON dord.id = dgm.delivery_order_id
+          WHERE dgm.group_id = dg.id
+            AND dord.vehicle_id = :vehicleId
+        ))
       `,
       {
-        replacements: { startDate, endDate },
+        replacements: { startDate, endDate, vehicleId: vehicleIdInt },
         type: QueryTypes.SELECT,
         plain: true,
       }

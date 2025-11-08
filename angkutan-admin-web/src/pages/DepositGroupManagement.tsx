@@ -455,7 +455,13 @@ const DepositGroupManagement: React.FC = () => {
         window.open('/payments/deposit-group-invoices', '_blank');
       }
     } catch (err: any) {
-      toast.error(err.response?.data?.error || "Failed to finalize group");
+      const errorMsg = err.response?.data?.error || err.response?.data?.message || "Failed to finalize group";
+      const incompleteDOs = err.response?.data?.incomplete_delivery_orders;
+      if (incompleteDOs && Array.isArray(incompleteDOs)) {
+        toast.error(`${errorMsg}: ${incompleteDOs.join(', ')}`);
+      } else {
+        toast.error(errorMsg);
+      }
     } finally {
       setIsLoading(false);
     }

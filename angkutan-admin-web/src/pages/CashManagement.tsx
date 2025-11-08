@@ -887,7 +887,7 @@ const CashManagementPage = () => {
             + Akun
           </button>
           <button
-            onClick={() => navigate("/cash/composer")}
+            onClick={() => navigate(`/cash/composer${filters.account ? `?account=${encodeURIComponent(filters.account)}` : ''}`)}
             className="bg-indigo-500 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded"
           >
             Kas Composer

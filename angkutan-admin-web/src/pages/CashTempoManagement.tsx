@@ -679,7 +679,7 @@ const TempoManagementPage = () => {
             + Akun
           </button>
           <button
-            onClick={() => navigate('/tempo/composer')}
+            onClick={() => navigate(`/tempo/composer${filters.account ? `?account=${encodeURIComponent(filters.account)}` : ''}`)}
             className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
           >
             Tempo Composer

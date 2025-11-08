@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import CreatableSelect from "react-select/creatable";
 import toast from "react-hot-toast";
 import apiClient from "../api/axiosConfig";
@@ -6,18 +7,38 @@ import { createRecap, listRecaps, addItemToRecap } from "../api/recapApi";
 import { createStockUsage, CreateStockUsagePayload } from "../api/stockUsageApi";
 
 export default function CashComposerPage() {
+  const [searchParams] = useSearchParams();
+  const accountFromUrl = searchParams.get("account");
+  
   const [accounts, setAccounts] = useState<string[]>([]);
   const [categories, setCategories] = useState<Array<{ id: number; category_name: string; category_type: "income" | "expense" }>>([]);
+  const [supplierOptions, setSupplierOptions] = useState<string[]>([]);
+  
   useEffect(() => {
-    apiClient.get("/cash/accounts").then((res) => setAccounts(res.data.data || [])).catch(() => {});
+    apiClient.get("/cash/accounts").then((res) => {
+      const accountsList = res.data.data || [];
+      setAccounts(accountsList);
+      // Auto-select account from URL if provided and exists
+      if (accountFromUrl && accountsList.includes(accountFromUrl)) {
+        setComposerAccount(accountFromUrl);
+      }
+    }).catch(() => {});
     apiClient.get("/cash/categories").then((res) => setCategories(res.data.data || [])).catch(() => {});
-  }, []);
+    // Fetch suppliers
+    apiClient.get("/stock/suppliers").then((res) => {
+      const payload: unknown = res.data;
+      const list: string[] = (Array.isArray(payload) ? payload : [])
+        .map((s: unknown) => String(s).toUpperCase());
+      setSupplierOptions(Array.from(new Set(list)));
+    }).catch(() => {});
+  }, [accountFromUrl]);
 
   const [recapNumber, setRecapNumber] = useState("");
   const [isTempo, setIsTempo] = useState(false);
-  const [composerAccount, setComposerAccount] = useState("General");
+  const [composerAccount, setComposerAccount] = useState(accountFromUrl || "General");
   const [composerSupplier, setComposerSupplier] = useState("");
   const [composerDueDate, setComposerDueDate] = useState("");
+  const [composerTransactionDate, setComposerTransactionDate] = useState(new Date().toISOString().split("T")[0]);
 
   // Global loading state and error helper
   const [isSaving, setIsSaving] = useState(false);
@@ -90,6 +111,7 @@ export default function CashComposerPage() {
     referenceNumber?: string;
     notaNumber?: string;
     notaDate?: string;
+    transactionDate?: string;
     files?: File[];
   }) => {
     const fd = new FormData();
@@ -98,7 +120,7 @@ export default function CashComposerPage() {
     fd.append("amount", opts.amount.toString());
     fd.append("description", opts.description);
     if (opts.referenceNumber || recapNumber) fd.append("reference_number", opts.referenceNumber || recapNumber);
-    fd.append("transaction_date", new Date().toISOString().split("T")[0]);
+    fd.append("transaction_date", opts.transactionDate || composerTransactionDate || new Date().toISOString().split("T")[0]);
     fd.append("account", composerAccount);
     if (composerSupplier) fd.append("supplier", composerSupplier);
     if (isTempo && composerDueDate) fd.append("tanggal_jatuh_tempo", composerDueDate);
@@ -107,7 +129,7 @@ export default function CashComposerPage() {
     (opts.files || []).forEach((f) => fd.append("attachments", f));
     const res = await apiClient.post("/cash/transactions", fd, { headers: { "Content-Type": "multipart/form-data" } });
     return res.data?.data || res.data;
-  }, [composerAccount, composerDueDate, composerSupplier, isTempo, recapNumber]);
+  }, [composerAccount, composerDueDate, composerSupplier, isTempo, recapNumber, composerTransactionDate]);
 
   // Backward-compatible single add from current form values
   const addCashTransaction = useCallback(async (amount: number, desc: string) => {
@@ -120,9 +142,10 @@ export default function CashComposerPage() {
       referenceNumber: referenceNumber || undefined,
       notaNumber,
       notaDate,
+      transactionDate: composerTransactionDate,
       files: cashFiles,
     });
-  }, [cashType, isTempo, createCashTransaction, cashCategoryId, referenceNumber, notaNumber, notaDate, cashFiles]);
+  }, [cashType, isTempo, createCashTransaction, cashCategoryId, referenceNumber, notaNumber, notaDate, composerTransactionDate, cashFiles]);
 
   // Common fields
   const [vehicleId, setVehicleId] = useState("");
@@ -177,7 +200,7 @@ export default function CashComposerPage() {
   type QueuedStockAdd = { itemId: string; itemName: string; itemUnit: string; qty: string; unitPrice: string; createNewBatch: boolean; description: string; rackRow?: string; rackLevel?: string; merk?: string };
   type QueuedTirePurchase = { brand: string; size: string; type: string; condition: string; qty: string; unitPrice: string; date: string; description: string };
   type QueuedService = { vehicleId: string; serviceDate: string; serviceType: string; workshopName: string; laborCost: string; description: string };
-  type QueuedCash = { cashType: "debit" | "kredit"; categoryId: string; amount: string; referenceNumber?: string; notaNumber?: string; notaDate?: string; description: string; files: File[] };
+  type QueuedCash = { cashType: "debit" | "kredit"; categoryId: string; amount: string; referenceNumber?: string; notaNumber?: string; notaDate?: string; transactionDate?: string; description: string; files: File[] };
 
   const [queuedUsages, setQueuedUsages] = useState<QueuedUsage[]>([]);
   const [queuedStockAdds, setQueuedStockAdds] = useState<QueuedStockAdd[]>([]);
@@ -369,7 +392,7 @@ export default function CashComposerPage() {
   const queueCashNormal = () => {
     const a = parseFloat(amount || "0");
     if (!(a > 0)) return toast.error("Jumlah kas wajib");
-    setQueuedCash((prev) => [...prev, { cashType, categoryId: cashCategoryId, amount, referenceNumber, notaNumber, notaDate, description, files: cashFiles }]);
+    setQueuedCash((prev) => [...prev, { cashType, categoryId: cashCategoryId, amount, referenceNumber, notaNumber, notaDate, transactionDate: composerTransactionDate, description, files: cashFiles }]);
     toast.success("Ditambahkan ke antrian");
   };
 
@@ -530,6 +553,18 @@ export default function CashComposerPage() {
         const a = parseFloat(c.amount || "0");
         if (!(a > 0)) continue;
         totalAmount += a;
+        const txnType = c.cashType === "debit" ? "debit" : (isTempo ? "kredit_tempo" : "kredit");
+        await createCashTransaction({
+          transactionType: txnType,
+          categoryId: c.categoryId || undefined,
+          amount: a,
+          description: c.description || "Kas Biasa",
+          referenceNumber: c.referenceNumber || undefined,
+          notaNumber: c.notaNumber,
+          notaDate: c.notaDate,
+          transactionDate: c.transactionDate,
+          files: c.files,
+        });
         transactionDetails.push({
           type: "Cash",
           description: c.description || "Kas Biasa",
@@ -544,6 +579,16 @@ export default function CashComposerPage() {
         const txnType = isTempo ? "kredit_tempo" : "kredit";
         const rekapanDescription = `Rekapan Nota ${recap.recap_number} - ${transactionDetails.length} transaksi`;
         
+        // Use the earliest transaction date from queued items, or composer transaction date if none
+        let rekapanTransactionDate = composerTransactionDate || new Date().toISOString().split('T')[0];
+        // Find earliest date from queued cash items
+        if (queuedCash.length > 0) {
+          const dates = queuedCash.map(c => c.transactionDate).filter(d => d) as string[];
+          if (dates.length > 0) {
+            rekapanTransactionDate = dates.sort()[0];
+          }
+        }
+        
         // Create the main rekapan transaction
         const rekapanTransaction = await createCashTransaction({
           transactionType: txnType,
@@ -552,7 +597,8 @@ export default function CashComposerPage() {
           description: rekapanDescription,
           referenceNumber: recap.recap_number,
           notaNumber: recap.recap_number,
-          notaDate: new Date().toISOString().split('T')[0]
+          notaDate: rekapanTransactionDate,
+          transactionDate: rekapanTransactionDate
         });
 
         // Store detailed transaction info in a separate field (we'll use description field)
@@ -617,7 +663,15 @@ export default function CashComposerPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Supplier</label>
-            <input type="text" value={composerSupplier} onChange={(e) => setComposerSupplier(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            <CreatableSelect
+              value={composerSupplier ? { label: composerSupplier, value: composerSupplier } : null}
+              options={supplierOptions.map((s) => ({ label: s, value: s }))}
+              onChange={(sel) => setComposerSupplier(sel?.value || "")}
+              onCreateOption={(val) => setComposerSupplier(val.toUpperCase())}
+              isClearable
+              isSearchable
+              placeholder="Cari atau buat supplier..."
+            />
           </div>
           {isTempo && (
             <div>
@@ -625,6 +679,11 @@ export default function CashComposerPage() {
               <input type="date" value={composerDueDate} onChange={(e) => setComposerDueDate(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
             </div>
           )}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal Transaksi *</label>
+            <input type="date" value={composerTransactionDate} onChange={(e) => setComposerTransactionDate(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            <p className="text-xs text-gray-500 mt-1">Default: tanggal sekarang. Ubah jika nota lawas.</p>
+          </div>
         </div>
         {/* Queue Table */}
         {(queuedUsages.length > 0 || queuedStockAdds.length > 0 || queuedTirePurchases.length > 0 || queuedServices.length > 0 || queuedCash.length > 0) && (
@@ -757,6 +816,10 @@ export default function CashComposerPage() {
                       <td className="px-4 py-3 text-sm text-gray-900">
                         <div>{item.description || '-'}</div>
                         {item.notaNumber && <div className="text-gray-500">Nota: {item.notaNumber}</div>}
+                        {item.notaDate && <div className="text-gray-500">Tgl Nota: {new Date(item.notaDate).toLocaleDateString('id-ID')}</div>}
+                        {item.transactionDate && item.transactionDate !== composerTransactionDate && (
+                          <div className="text-blue-600 font-medium">Tgl Transaksi: {new Date(item.transactionDate).toLocaleDateString('id-ID')}</div>
+                        )}
                         {item.referenceNumber && <div className="text-gray-500">Ref: {item.referenceNumber}</div>}
                       </td>
                       <td className="px-4 py-3 text-sm text-right text-gray-900">
@@ -1037,9 +1100,17 @@ export default function CashComposerPage() {
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Tanggal Nota</label>
-            <input type="date" value={notaDate} onChange={(e) => setNotaDate(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            <input type="date" value={notaDate} onChange={(e) => {
+              const newNotaDate = e.target.value;
+              setNotaDate(newNotaDate);
+              // Auto-update transaction date if nota date is different and transaction date is today
+              const today = new Date().toISOString().split("T")[0];
+              if (newNotaDate && newNotaDate !== composerTransactionDate && composerTransactionDate === today) {
+                setComposerTransactionDate(newNotaDate);
+              }
+            }} className="w-full border border-gray-300 rounded-md px-3 py-2" />
           </div>
-          <div className="md:col-span-3">
+          <div className="md:col-span-2">
             <label className="block text-sm font-medium mb-1">Deskripsi</label>
             <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="Kas biasa" />
           </div>

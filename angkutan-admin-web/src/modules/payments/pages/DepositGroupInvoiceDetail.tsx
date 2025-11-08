@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { paymentsApi } from '../api';
+import toast from 'react-hot-toast';
 
 interface InvoiceDetail {
   id: number;
@@ -24,25 +25,53 @@ const DepositGroupInvoiceDetail: React.FC = () => {
   const [data, setData] = useState<InvoiceDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isPaying, setIsPaying] = useState(false);
+
+  const fetchDetail = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await paymentsApi.fetchDepositGroupInvoiceDetail(Number(invoiceId));
+      setData(res.data?.data || res.data);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to fetch invoice');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchDetail = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const res = await paymentsApi.fetchDepositGroupInvoiceDetail(Number(invoiceId));
-        setData(res.data?.data || res.data);
-      } catch (err: any) {
-        setError(err.response?.data?.message || 'Failed to fetch invoice');
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchDetail();
   }, [invoiceId]);
 
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount || 0);
+
+  const handlePay = async () => {
+    if (!data) return;
+    const input = window.prompt("Masukkan jumlah pembayaran (Rp)", String(data.remaining_amount));
+    if (input === null) return;
+    const amount = parseFloat(input);
+    if (isNaN(amount) || amount <= 0) {
+      toast.error("Jumlah tidak valid");
+      return;
+    }
+    if (amount > data.remaining_amount) {
+      toast.error("Jumlah pembayaran tidak boleh melebihi sisa tagihan");
+      return;
+    }
+    try {
+      setIsPaying(true);
+      await paymentsApi.recordDepositGroupPayment(data.id, { payment_amount: amount });
+      toast.success("Pembayaran dicatat");
+      await fetchDetail(); // Refresh data
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.response?.data?.error || "Gagal mencatat pembayaran");
+      console.error("Payment error:", err);
+    } finally {
+      setIsPaying(false);
+    }
+  };
 
   if (loading) return <div className="p-6">Loading...</div>;
   if (error) return <div className="p-6 text-red-600">{error}</div>;
@@ -62,7 +91,18 @@ const DepositGroupInvoiceDetail: React.FC = () => {
           <h1 className="text-2xl font-bold">Deposit Group Invoice</h1>
           <div className="text-sm text-gray-600">{data.group?.name || '-'}</div>
         </div>
-        <button onClick={() => window.print()} className="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200">Print</button>
+        <div className="flex gap-2">
+          {data.remaining_amount > 0 && data.status !== 'paid' && (
+            <button
+              onClick={handlePay}
+              disabled={isPaying}
+              className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isPaying ? "Processing..." : "Pay"}
+            </button>
+          )}
+          <button onClick={() => window.print()} className="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200">Print</button>
+        </div>
       </div>
 
       <div id="print-area">
