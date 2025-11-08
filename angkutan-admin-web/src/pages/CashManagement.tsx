@@ -1875,10 +1875,9 @@ const CashManagementPage = () => {
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                       {selectedRekapan.parsedDetails?.transactions
-                        ?.filter((t: any) => t.type !== 'Stock Usage') // Filter out stock_usage from general stock recap
                         ?.map((transaction: any, index: number) => (
-                        <tr key={transaction.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 text-sm text-gray-900">{transaction.id}</td>
+                        <tr key={index} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm text-gray-900">{index + 1}</td>
                           <td className="px-4 py-3 text-sm">
                             <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
                               transaction.type === 'Service' ? 'bg-blue-100 text-blue-800' :
@@ -1893,7 +1892,7 @@ const CashManagementPage = () => {
                           <td className="px-4 py-3 text-sm text-gray-900">{transaction.description}</td>
                           <td className="px-4 py-3 text-sm text-gray-900">{transaction.supplier || '-'}</td>
                           <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">
-                            Rp {transaction.amount.toLocaleString('id-ID')}
+                            Rp {typeof transaction.amount === 'number' ? transaction.amount.toLocaleString('id-ID') : parseFloat(transaction.amount || 0).toLocaleString('id-ID')}
                           </td>
                         </tr>
                       ))}

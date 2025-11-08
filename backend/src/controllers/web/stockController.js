@@ -1381,8 +1381,12 @@ const createUsageNote = async (req, res, next) => {
 		const { recap_number, cash_options } = req.body;
 		let recapRecord = null;
 		let totalNoteAmount = 0;
-		// compute total from created items
-		const createdItems = await StockUsageNoteItem.findAll({ where: { note_id: note.id }, transaction: t });
+		// compute total from created items and fetch item details for transactionDetails
+		const createdItems = await StockUsageNoteItem.findAll({ 
+			where: { note_id: note.id },
+			include: [{ model: db.StockItem, as: 'stockItem', attributes: ['item_name', 'unit'], required: false }],
+			transaction: t 
+		});
 		for (const it of createdItems) totalNoteAmount += parseFloat(it.total_price || 0);
 
 		if (recap_number) {
@@ -1425,7 +1429,21 @@ const createUsageNote = async (req, res, next) => {
 			if (!cashCategory) {
 				cashCategory = await CashCategory.create({ category_name: "Pengeluaran Mobil", category_type: "expense", description: "Auto-created for stock usage" }, { transaction: t });
 			}
-			const description = `Stok langsung digunakan ${note.note_number} - Vehicle ${vehicle_id}`;
+			
+			// Build transactionDetails for rekapan nota preview
+			const transactionDetails = createdItems.map((item) => ({
+				type: "Stock Usage",
+				description: `${item.stockItem?.item_name || 'Item'} - ${item.quantity} ${item.stockItem?.unit || ''}`,
+				amount: parseFloat(item.total_price || 0),
+				supplier: cash_options?.supplier || null,
+			}));
+			
+			// Create description with transactionDetails for rekapan nota support
+			const descriptionObj = {
+				transactionDetails: transactionDetails
+			};
+			const description = JSON.stringify(descriptionObj);
+			
 			const cashTxn = await CashTransaction.create(
 				{
 					transaction_type,
