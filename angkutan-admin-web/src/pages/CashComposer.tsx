@@ -62,10 +62,14 @@ export default function CashComposerPage() {
   // Cash-normal extra fields
   const [cashType, setCashType] = useState<"debit" | "kredit">("kredit");
   const [cashCategoryId, setCashCategoryId] = useState<string>("");
-  const [referenceNumber, setReferenceNumber] = useState("");
-  const [notaNumber, setNotaNumber] = useState("");
-  const [notaDate, setNotaDate] = useState("");
+  const [cashItemName, setCashItemName] = useState(""); // Nama Item (replaces referenceNumber for kas biasa)
+  const [cashUnit, setCashUnit] = useState("Pcs"); // Unit
+  const [cashMerk, setCashMerk] = useState(""); // Merk/Brand
+  const [cashQty, setCashQty] = useState(""); // Qty
+  const [cashUnitPrice, setCashUnitPrice] = useState(""); // Harga Satuan
+  // notaNumber and notaDate removed - they come from header (recapNumber and composerTransactionDate)
   const [cashFiles, setCashFiles] = useState<File[]>([]);
+  const [cashDescription, setCashDescription] = useState(""); // Keterangan
 
   // Rekapan detail modal state
   const [showRekapanModal, setShowRekapanModal] = useState(false);
@@ -108,18 +112,49 @@ export default function CashComposerPage() {
     categoryId?: string;
     amount: number;
     description: string;
-    referenceNumber?: string;
+    itemName?: string;
+    unit?: string;
+    merk?: string;
+    qty?: string;
+    unitPrice?: string;
     notaNumber?: string;
     notaDate?: string;
     transactionDate?: string;
     files?: File[];
+    referenceNumberOverride?: string; // Optional override for reference_number (e.g., for rekapan)
   }) => {
     const fd = new FormData();
     fd.append("transaction_type", opts.transactionType);
     if (opts.categoryId) fd.append("category_id", opts.categoryId);
     fd.append("amount", opts.amount.toString());
-    fd.append("description", opts.description);
-    if (opts.referenceNumber || recapNumber) fd.append("reference_number", opts.referenceNumber || recapNumber);
+    
+    // Build description with item details as JSON if item details exist
+    let finalDescription = opts.description;
+    if (opts.itemName || opts.unit || opts.merk || opts.qty || opts.unitPrice) {
+      const itemDetails: any = {};
+      if (opts.itemName) itemDetails.itemName = opts.itemName;
+      if (opts.unit) itemDetails.unit = opts.unit;
+      if (opts.merk) itemDetails.merk = opts.merk;
+      if (opts.qty) itemDetails.qty = opts.qty;
+      if (opts.unitPrice) itemDetails.unitPrice = opts.unitPrice;
+      
+      // Store as JSON in description, with human-readable description as fallback
+      finalDescription = JSON.stringify({
+        type: "kas_biasa_item",
+        description: opts.description || `${opts.itemName || 'Item'} - ${opts.qty || 0} ${opts.unit || 'Pcs'}`,
+        itemDetails: itemDetails
+      });
+    }
+    
+    fd.append("description", finalDescription);
+    // Use referenceNumberOverride if provided (for rekapan), otherwise itemName, otherwise recapNumber
+    if (opts.referenceNumberOverride) {
+      fd.append("reference_number", opts.referenceNumberOverride);
+    } else if (opts.itemName) {
+      fd.append("reference_number", opts.itemName);
+    } else if (recapNumber) {
+      fd.append("reference_number", recapNumber);
+    }
     fd.append("transaction_date", opts.transactionDate || composerTransactionDate || new Date().toISOString().split("T")[0]);
     fd.append("account", composerAccount);
     if (composerSupplier) fd.append("supplier", composerSupplier);
@@ -139,13 +174,16 @@ export default function CashComposerPage() {
       categoryId: cashCategoryId || undefined,
       amount,
       description: desc,
-      referenceNumber: referenceNumber || undefined,
-      notaNumber,
-      notaDate,
+      itemName: cashItemName || undefined,
+      unit: cashUnit || undefined,
+      merk: cashMerk || undefined,
+      qty: cashQty || undefined,
+      unitPrice: cashUnitPrice || undefined,
+      // notaNumber and notaDate come from header (recapNumber and composerTransactionDate) - not per item
       transactionDate: composerTransactionDate,
       files: cashFiles,
     });
-  }, [cashType, isTempo, createCashTransaction, cashCategoryId, referenceNumber, notaNumber, notaDate, composerTransactionDate, cashFiles]);
+  }, [cashType, isTempo, createCashTransaction, cashCategoryId, cashItemName, cashUnit, cashMerk, cashQty, cashUnitPrice, composerTransactionDate, cashFiles]);
 
   // Common fields
   const [vehicleId, setVehicleId] = useState("");
@@ -161,6 +199,7 @@ export default function CashComposerPage() {
   const [usageItemId, setUsageItemId] = useState("");
   const [usageItemName, setUsageItemName] = useState("");
   const [usageItemUnit, setUsageItemUnit] = useState("Pcs");
+  const [usageMerk, setUsageMerk] = useState(""); // Merk/Brand for stock usage
   const [usageQty, setUsageQty] = useState("");
   const [usageUnitPrice, setUsageUnitPrice] = useState("");
   const [usageDescription, setUsageDescription] = useState("");
@@ -196,11 +235,24 @@ export default function CashComposerPage() {
   const [laborCost, setLaborCost] = useState("");
 
   // Queues for batch save
-  type QueuedUsage = { vehicleId: string; itemId: string; itemName: string; itemUnit: string; qty: string; unitPrice?: string; description: string };
+  type QueuedUsage = { vehicleId: string; itemId: string; itemName: string; itemUnit: string; merk?: string; qty: string; unitPrice?: string; description: string };
   type QueuedStockAdd = { itemId: string; itemName: string; itemUnit: string; qty: string; unitPrice: string; createNewBatch: boolean; description: string; rackRow?: string; rackLevel?: string; merk?: string };
   type QueuedTirePurchase = { brand: string; size: string; type: string; condition: string; qty: string; unitPrice: string; date: string; description: string };
   type QueuedService = { vehicleId: string; serviceDate: string; serviceType: string; workshopName: string; laborCost: string; description: string };
-  type QueuedCash = { cashType: "debit" | "kredit"; categoryId: string; amount: string; referenceNumber?: string; notaNumber?: string; notaDate?: string; transactionDate?: string; description: string; files: File[] };
+  type QueuedCash = { 
+    cashType: "debit" | "kredit"; 
+    categoryId: string; 
+    amount: string; 
+    itemName?: string; 
+    unit?: string; 
+    merk?: string; 
+    qty?: string; 
+    unitPrice?: string; 
+    // notaNumber and notaDate removed - they come from header (recap)
+    transactionDate?: string; 
+    description: string; 
+    files: File[] 
+  };
 
   const [queuedUsages, setQueuedUsages] = useState<QueuedUsage[]>([]);
   const [queuedStockAdds, setQueuedStockAdds] = useState<QueuedStockAdd[]>([]);
@@ -221,12 +273,21 @@ export default function CashComposerPage() {
         itemId: usageItemId,
         itemName: usageItemName,
         itemUnit: usageItemUnit,
+        merk: usageMerk || undefined,
         qty: usageQty,
         unitPrice: usageUnitPrice,
         description: usageDescription,
       },
     ]);
     toast.success("Ditambahkan ke antrian");
+    // Clear form after queueing
+    setUsageItemId("");
+    setUsageItemName("");
+    setUsageItemUnit("Pcs");
+    setUsageMerk("");
+    setUsageQty("");
+    setUsageUnitPrice("");
+    setUsageDescription("");
   };
 
   const saveStockUsage = async () => {
@@ -238,10 +299,20 @@ export default function CashComposerPage() {
     try {
       setIsSaving(true); setSavingText("Menyimpan Stok Sekali Pakai...");
       const recap = await ensureRecap();
+      
+      // Helper to save merk in notes as JSON
+      const saveMerkToNotes = (merk: string, otherNotes: string): string => {
+        if (!merk && !otherNotes) return '';
+        const data: any = {};
+        if (merk) data.merk = merk;
+        if (otherNotes) data.notes = otherNotes;
+        return JSON.stringify(data);
+      };
+      
       const payload: CreateStockUsagePayload = {
         vehicle_id: parseInt(vehicleId, 10),
         usage_date: new Date().toISOString().split("T")[0],
-        notes: usageDescription || `Composer: ${usageItemName || "Item"}`,
+        notes: saveMerkToNotes(usageMerk, usageDescription || `Composer: ${usageItemName || "Item"}`),
         items: [ {
           item_id: usageItemId ? parseInt(usageItemId, 10) : undefined,
           item_name: usageItemName || undefined,
@@ -390,10 +461,46 @@ export default function CashComposerPage() {
   };
 
   const queueCashNormal = () => {
-    const a = parseFloat(amount || "0");
-    if (!(a > 0)) return toast.error("Jumlah kas wajib");
-    setQueuedCash((prev) => [...prev, { cashType, categoryId: cashCategoryId, amount, referenceNumber, notaNumber, notaDate, transactionDate: composerTransactionDate, description, files: cashFiles }]);
+    // Calculate amount from qty * unitPrice if both are provided, otherwise use manual amount
+    let calculatedAmount = parseFloat(amount || "0");
+    if (cashQty && cashUnitPrice) {
+      const qty = parseFloat(cashQty);
+      const unitPrice = parseFloat(cashUnitPrice);
+      if (qty > 0 && unitPrice >= 0) {
+        calculatedAmount = qty * unitPrice;
+      }
+    }
+    
+    if (!(calculatedAmount > 0)) return toast.error("Jumlah kas wajib (isi Qty × Harga Satuan atau Jumlah manual)");
+    if (!cashItemName) return toast.error("Nama Item wajib");
+    
+    // Note: notaNumber and notaDate are NOT stored per item - they come from header (recap)
+    setQueuedCash((prev) => [...prev, { 
+      cashType, 
+      categoryId: cashCategoryId, 
+      amount: calculatedAmount.toString(), 
+      itemName: cashItemName,
+      unit: cashUnit,
+      merk: cashMerk,
+      qty: cashQty,
+      unitPrice: cashUnitPrice,
+      // notaNumber and notaDate removed - will use from header (recapNumber and composerTransactionDate)
+      transactionDate: composerTransactionDate, 
+      description: cashDescription || description, 
+      files: cashFiles 
+    }]);
     toast.success("Ditambahkan ke antrian");
+    
+    // Clear form fields after queueing
+    setCashItemName("");
+    setCashUnit("Pcs");
+    setCashMerk("");
+    setCashQty("");
+    setCashUnitPrice("");
+    setAmount("");
+    setCashDescription("");
+    setCashFiles([]);
+    // Don't clear notaNumber and notaDate - they are header fields, not per-item
   };
 
   const saveAllQueued = async () => {
@@ -407,6 +514,7 @@ export default function CashComposerPage() {
         amount: number;
         supplier?: string;
         reference?: string;
+        merk?: string;
         details?: any;
       }> = [];
 
@@ -416,10 +524,20 @@ export default function CashComposerPage() {
       for (const u of queuedUsages) {
         const q = parseFloat(u.qty || "0");
         if (!(q > 0)) continue;
+        
+        // Helper to save merk in notes as JSON
+        const saveMerkToNotes = (merk: string, otherNotes: string): string => {
+          if (!merk && !otherNotes) return '';
+          const data: any = {};
+          if (merk) data.merk = merk;
+          if (otherNotes) data.notes = otherNotes;
+          return JSON.stringify(data);
+        };
+        
         const payload: CreateStockUsagePayload = {
           vehicle_id: parseInt(u.vehicleId, 10),
           usage_date: new Date().toISOString().split("T")[0],
-          notes: u.description || `Composer: ${u.itemName || "Item"}`,
+          notes: saveMerkToNotes(u.merk || "", u.description || `Composer: ${u.itemName || "Item"}`),
           items: [ { item_id: u.itemId ? parseInt(u.itemId, 10) : undefined, item_name: u.itemName || undefined, unit: u.itemUnit, quantity: q, unit_price: u.unitPrice ? parseFloat(u.unitPrice) : undefined } ],
           recap_number: recap.recap_number,
           cash_options: { create_cash: false }, // Don't create individual cash transactions
@@ -428,11 +546,19 @@ export default function CashComposerPage() {
         
         const amount = q * (parseFloat(u.unitPrice || "0") || 0);
         totalAmount += amount;
+        
+        // Build description with merk if available
+        let displayDesc = `${u.itemName || "Item"} - ${q} ${u.itemUnit}`;
+        if (u.merk) {
+          displayDesc = `${u.itemName || "Item"} (Merk: ${u.merk}) - ${q} ${u.itemUnit}`;
+        }
+        
         transactionDetails.push({
           type: "Stock Usage",
-          description: `${u.itemName || "Item"} - ${q} ${u.itemUnit}`,
+          description: displayDesc,
           amount: amount,
           supplier: composerSupplier || undefined,
+          merk: u.merk || undefined, // Include merk in details
           details: u
         });
       }
@@ -548,26 +674,31 @@ export default function CashComposerPage() {
         });
       }
 
-      // Process plain cash
+      // Process plain cash - DON'T create individual transactions, only collect details for rekapan
+      // Individual cash items will be part of the rekapan transaction only
+      const allCashFiles: File[] = []; // Collect all files from cash items for rekapan
       for (const c of queuedCash) {
         const a = parseFloat(c.amount || "0");
         if (!(a > 0)) continue;
         totalAmount += a;
-        const txnType = c.cashType === "debit" ? "debit" : (isTempo ? "kredit_tempo" : "kredit");
-        await createCashTransaction({
-          transactionType: txnType,
-          categoryId: c.categoryId || undefined,
-          amount: a,
-          description: c.description || "Kas Biasa",
-          referenceNumber: c.referenceNumber || undefined,
-          notaNumber: c.notaNumber,
-          notaDate: c.notaDate,
-          transactionDate: c.transactionDate,
-          files: c.files,
-        });
+        
+        // Collect files for rekapan transaction
+        if (c.files && c.files.length > 0) {
+          allCashFiles.push(...c.files);
+        }
+        
+        // Build display description from item details
+        let displayDesc = c.description || "Kas Biasa";
+        if (c.itemName) {
+          const parts = [c.itemName];
+          if (c.qty && c.unit) parts.push(`${c.qty} ${c.unit}`);
+          if (c.merk) parts.push(`Merk: ${c.merk}`);
+          displayDesc = parts.join(" - ");
+        }
+        
         transactionDetails.push({
           type: "Cash",
-          description: c.description || "Kas Biasa",
+          description: displayDesc,
           amount: a,
           supplier: composerSupplier || undefined,
           details: c
@@ -579,26 +710,22 @@ export default function CashComposerPage() {
         const txnType = isTempo ? "kredit_tempo" : "kredit";
         const rekapanDescription = `Rekapan Nota ${recap.recap_number} - ${transactionDetails.length} transaksi`;
         
-        // Use the earliest transaction date from queued items, or composer transaction date if none
-        let rekapanTransactionDate = composerTransactionDate || new Date().toISOString().split('T')[0];
-        // Find earliest date from queued cash items
-        if (queuedCash.length > 0) {
-          const dates = queuedCash.map(c => c.transactionDate).filter(d => d) as string[];
-          if (dates.length > 0) {
-            rekapanTransactionDate = dates.sort()[0];
-          }
-        }
+        // Use transaction date from header (composerTransactionDate)
+        // No nota and tanggal nota come from header (recapNumber and composerTransactionDate)
+        const rekapanTransactionDate = composerTransactionDate || new Date().toISOString().split('T')[0];
+        const rekapanNotaDate = composerTransactionDate || new Date().toISOString().split('T')[0];
         
-        // Create the main rekapan transaction
+        // Create the main rekapan transaction with all collected files
         const rekapanTransaction = await createCashTransaction({
           transactionType: txnType,
           categoryId: cashCategoryId || undefined,
           amount: totalAmount,
           description: rekapanDescription,
-          referenceNumber: recap.recap_number,
-          notaNumber: recap.recap_number,
-          notaDate: rekapanTransactionDate,
-          transactionDate: rekapanTransactionDate
+          referenceNumberOverride: recap.recap_number, // Use recap number as reference
+          notaNumber: recap.recap_number, // Use recap number as nota number from header
+          notaDate: rekapanNotaDate, // Use transaction date from header as nota date
+          transactionDate: rekapanTransactionDate,
+          files: allCashFiles.length > 0 ? allCashFiles : undefined // Include all collected files
         });
 
         // Store detailed transaction info in a separate field (we'll use description field)
@@ -647,8 +774,9 @@ export default function CashComposerPage() {
         <h2 className="text-lg font-semibold text-gray-800 mb-3">Header</h2>
         <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">No. Nota</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">No. Nota *</label>
             <input type="text" value={recapNumber} onChange={(e) => setRecapNumber(e.target.value)} placeholder="Kosongkan untuk auto" className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            <p className="text-xs text-gray-500 mt-1">Akan digunakan untuk semua item dalam rekapan</p>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Tempo?</label>
@@ -680,9 +808,9 @@ export default function CashComposerPage() {
             </div>
           )}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal Transaksi *</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal Transaksi / Tanggal Nota *</label>
             <input type="date" value={composerTransactionDate} onChange={(e) => setComposerTransactionDate(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
-            <p className="text-xs text-gray-500 mt-1">Default: tanggal sekarang. Ubah jika nota lawas.</p>
+            <p className="text-xs text-gray-500 mt-1">Akan digunakan sebagai tanggal transaksi dan tanggal nota untuk semua item</p>
           </div>
         </div>
         {/* Queue Table */}
@@ -711,6 +839,7 @@ export default function CashComposerPage() {
                       <td className="px-4 py-3 text-sm text-gray-900">
                         <div>Kendaraan: {vehicles.find(v => v.id.toString() === item.vehicleId)?.license_plate || item.vehicleId}</div>
                         <div>Item: {item.itemName || item.itemId}</div>
+                        {item.merk && <div className="text-gray-500">Merk: {item.merk}</div>}
                         <div className="text-gray-500">{item.description || '-'}</div>
                       </td>
                       <td className="px-4 py-3 text-sm text-right text-gray-900">
@@ -814,16 +943,30 @@ export default function CashComposerPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-900">
-                        <div>{item.description || '-'}</div>
-                        {item.notaNumber && <div className="text-gray-500">Nota: {item.notaNumber}</div>}
-                        {item.notaDate && <div className="text-gray-500">Tgl Nota: {new Date(item.notaDate).toLocaleDateString('id-ID')}</div>}
-                        {item.transactionDate && item.transactionDate !== composerTransactionDate && (
-                          <div className="text-blue-600 font-medium">Tgl Transaksi: {new Date(item.transactionDate).toLocaleDateString('id-ID')}</div>
+                        {item.itemName && (
+                          <div className="font-medium">{item.itemName}</div>
                         )}
-                        {item.referenceNumber && <div className="text-gray-500">Ref: {item.referenceNumber}</div>}
+                        {item.qty && item.unit && (
+                          <div className="text-gray-600">Qty: {item.qty} {item.unit}</div>
+                        )}
+                        {item.merk && (
+                          <div className="text-gray-600">Merk: {item.merk}</div>
+                        )}
+                        {item.unitPrice && (
+                          <div className="text-gray-600">Harga: Rp {parseFloat(item.unitPrice).toLocaleString('id-ID')}</div>
+                        )}
+                        {item.description && (
+                          <div className="text-gray-500 mt-1">{item.description}</div>
+                        )}
+                        {/* Nota info will be shown at rekapan level, not per item */}
                       </td>
                       <td className="px-4 py-3 text-sm text-right text-gray-900">
-                        <div>Rp {parseFloat(item.amount || "0").toLocaleString('id-ID')}</div>
+                        <div className="font-bold">Rp {parseFloat(item.amount || "0").toLocaleString('id-ID')}</div>
+                        {item.qty && item.unitPrice && (
+                          <div className="text-xs text-gray-500">
+                            ({item.qty} × Rp {parseFloat(item.unitPrice).toLocaleString('id-ID')})
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-sm text-center">
                         <button
@@ -885,6 +1028,10 @@ export default function CashComposerPage() {
           <div>
             <label className="block text-sm font-medium mb-1">Unit</label>
             <input type="text" value={usageItemUnit} onChange={(e) => setUsageItemUnit(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Merk</label>
+            <input type="text" value={usageMerk} onChange={(e) => setUsageMerk(e.target.value)} placeholder="Merk/Brand" className="w-full border border-gray-300 rounded-md px-3 py-2" />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Qty</label>
@@ -1071,14 +1218,14 @@ export default function CashComposerPage() {
         <h2 className="text-lg font-semibold text-gray-800 mb-3">Kas Biasa</h2>
         <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
           <div>
-            <label className="block text-sm font-medium mb-1">Tipe</label>
+            <label className="block text-sm font-medium mb-1">Tipe *</label>
             <select value={cashType} onChange={(e) => setCashType(e.target.value as any)} className="w-full border border-gray-300 rounded-md px-3 py-2">
               <option value="debit">Debit (Pemasukan)</option>
               <option value="kredit">Kredit (Pengeluaran)</option>
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Kategori</label>
+            <label className="block text-sm font-medium mb-1">Kategori *</label>
             <select value={cashCategoryId} onChange={(e) => setCashCategoryId(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2">
               <option value="">Pilih Kategori</option>
               {categories.filter((c) => (cashType === "debit" ? c.category_type === "income" : c.category_type === "expense")).map((c) => (
@@ -1087,32 +1234,54 @@ export default function CashComposerPage() {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Jumlah</label>
-            <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            <label className="block text-sm font-medium mb-1">Nama Item *</label>
+            <input type="text" value={cashItemName} onChange={(e) => setCashItemName(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="Nama item" />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">No. Referensi</label>
-            <input type="text" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            <label className="block text-sm font-medium mb-1">Unit</label>
+            <input type="text" value={cashUnit} onChange={(e) => setCashUnit(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="Pcs, Liter, dll" />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">No. Nota</label>
-            <input type="text" value={notaNumber} onChange={(e) => setNotaNumber(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            <label className="block text-sm font-medium mb-1">Merk</label>
+            <input type="text" value={cashMerk} onChange={(e) => setCashMerk(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="Merk/Brand" />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Tanggal Nota</label>
-            <input type="date" value={notaDate} onChange={(e) => {
-              const newNotaDate = e.target.value;
-              setNotaDate(newNotaDate);
-              // Auto-update transaction date if nota date is different and transaction date is today
-              const today = new Date().toISOString().split("T")[0];
-              if (newNotaDate && newNotaDate !== composerTransactionDate && composerTransactionDate === today) {
-                setComposerTransactionDate(newNotaDate);
+            <label className="block text-sm font-medium mb-1">Qty</label>
+            <input type="number" step="0.01" value={cashQty} onChange={(e) => {
+              setCashQty(e.target.value);
+              // Auto-calculate amount if both qty and unitPrice are filled
+              if (e.target.value && cashUnitPrice) {
+                const qty = parseFloat(e.target.value);
+                const unitPrice = parseFloat(cashUnitPrice);
+                if (qty > 0 && unitPrice >= 0) {
+                  setAmount((qty * unitPrice).toString());
+                }
               }
-            }} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            }} className="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="0" />
           </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Harga Satuan</label>
+            <input type="number" step="0.01" value={cashUnitPrice} onChange={(e) => {
+              setCashUnitPrice(e.target.value);
+              // Auto-calculate amount if both qty and unitPrice are filled
+              if (e.target.value && cashQty) {
+                const qty = parseFloat(cashQty);
+                const unitPrice = parseFloat(e.target.value);
+                if (qty > 0 && unitPrice >= 0) {
+                  setAmount((qty * unitPrice).toString());
+                }
+              }
+            }} className="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="0" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Jumlah (auto atau manual)</label>
+            <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="Qty × Harga Satuan" />
+            <p className="text-xs text-gray-500 mt-1">Otomatis: Qty × Harga Satuan</p>
+          </div>
+          {/* No. Nota and Tanggal Nota removed - they come from header (No. Nota field and Tanggal Transaksi) */}
           <div className="md:col-span-2">
-            <label className="block text-sm font-medium mb-1">Deskripsi</label>
-            <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="Kas biasa" />
+            <label className="block text-sm font-medium mb-1">Keterangan</label>
+            <input type="text" value={cashDescription} onChange={(e) => setCashDescription(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="Keterangan tambahan" />
           </div>
           <div className="md:col-span-3">
             <label className="block text-sm font-medium mb-1">Lampiran Nota</label>
@@ -1176,6 +1345,7 @@ export default function CashComposerPage() {
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">No</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipe</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Deskripsi</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Merk</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Supplier</th>
                         <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
                       </tr>
@@ -1198,6 +1368,7 @@ export default function CashComposerPage() {
                             </span>
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-900">{transaction.description}</td>
+                          <td className="px-4 py-3 text-sm text-gray-900">{transaction.merk || '-'}</td>
                           <td className="px-4 py-3 text-sm text-gray-900">{transaction.supplier || '-'}</td>
                           <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">
                             Rp {transaction.amount.toLocaleString('id-ID')}
@@ -1207,7 +1378,7 @@ export default function CashComposerPage() {
                     </tbody>
                     <tfoot className="bg-gray-50">
                       <tr>
-                        <td colSpan={4} className="px-4 py-3 text-right text-sm font-bold text-gray-900">
+                        <td colSpan={5} className="px-4 py-3 text-right text-sm font-bold text-gray-900">
                           Total:
                         </td>
                         <td className="px-4 py-3 text-right text-sm font-bold text-red-600">

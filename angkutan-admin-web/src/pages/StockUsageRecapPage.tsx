@@ -82,6 +82,18 @@ const StockUsageRecapPage = () => {
 		}
 	};
 
+	// Helper function to parse merk from notes (stored as JSON)
+	const parseMerkFromNotes = (notes?: string): string => {
+		if (!notes) return "-";
+		try {
+			const parsed = JSON.parse(notes);
+			return parsed.merk || "-";
+		} catch {
+			// If not JSON, return "-"
+			return "-";
+		}
+	};
+
 	// Fetch vehicles for filter
 	useEffect(() => {
 		apiClient.get("/vehicles", { params: { page: 1, limit: 200 } }).then((res) => {
@@ -314,6 +326,9 @@ const StockUsageRecapPage = () => {
 								Supplier
 							</th>
 							<th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">
+								Merk
+							</th>
+							<th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">
 								Harga Satuan
 							</th>
 							<th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">
@@ -382,6 +397,9 @@ const StockUsageRecapPage = () => {
 									</td>
 									<td className="px-5 py-3 border-b border-gray-200 text-sm text-gray-900">
 										{recap?.supplier || "-"}
+									</td>
+									<td className="px-5 py-3 border-b border-gray-200 text-sm text-gray-900">
+										{parseMerkFromNotes(note.notes)}
 									</td>
 									<td className="px-5 py-3 border-b border-gray-200 text-sm text-right">
 										{unitPrice > 0 ? formatCurrency(unitPrice) : "-"}

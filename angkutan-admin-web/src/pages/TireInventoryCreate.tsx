@@ -1,6 +1,6 @@
 // src/pages/TireInventoryCreate.tsx
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import apiClient from '../api/axiosConfig';
 import { toast } from 'react-hot-toast';
 import CreatableSelect from 'react-select/creatable';
@@ -16,6 +16,8 @@ interface TireInventoryData {
 }
 
 const TireInventoryCreatePage = () => {
+  const [searchParams] = useSearchParams();
+  const accountFromUrl = searchParams.get("account");
   const [formData, setFormData] = useState<TireInventoryData>({
     tire_brand: '',
     tire_size: '',
@@ -36,7 +38,7 @@ const TireInventoryCreatePage = () => {
   const [supplier, setSupplier] = useState('');
 
   const [accounts, setAccounts] = useState<string[]>([]);
-  const [selectedAccount, setSelectedAccount] = useState<string>('General');
+  const [selectedAccount, setSelectedAccount] = useState<string>(accountFromUrl || 'General');
   const [accountInput, setAccountInput] = useState('');
 
   // Fetch accounts
@@ -44,13 +46,19 @@ const TireInventoryCreatePage = () => {
     const fetchAccounts = async () => {
       try {
         const response = await apiClient.get('/cash/accounts');
-        setAccounts(response.data.data || []);
+        const accountsList = response.data.data || [];
+        setAccounts(accountsList);
+        // Auto-select account from URL if provided and exists
+        if (accountFromUrl && accountsList.includes(accountFromUrl)) {
+          setSelectedAccount(accountFromUrl);
+          setAccountInput(accountFromUrl);
+        }
       } catch (err) {
         console.error('Failed to fetch accounts:', err);
       }
     };
     fetchAccounts();
-  }, []);
+  }, [accountFromUrl]);
 
   // ✅ Condition mapping for display
   const conditionOptions = [

@@ -1,6 +1,6 @@
 // src/pages/StockCreate.tsx
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import CreatableSelect from 'react-select/creatable';
 import apiClient from '../api/axiosConfig';
 
@@ -81,6 +81,8 @@ const saveMerkToNotes = (merk: string, otherNotes: string): string => {
 const StockCreatePage = () => {
     const navigate = useNavigate();
     const { id } = useParams<{ id: string }>();
+    const [searchParams] = useSearchParams();
+    const accountFromUrl = searchParams.get("account");
     const isEdit = Boolean(id);
     const [loading, setLoading] = useState(false);
     const [categories, setCategories] = useState<StockCategory[]>([]);
@@ -111,23 +113,28 @@ const StockCreatePage = () => {
     const [notaFile, setNotaFile] = useState<File | null>(null);
     // State declarations
     const [accounts, setAccounts] = useState<string[]>([]);
-    const [selectedAccount, setSelectedAccount] = useState<string>('General');
+    const [selectedAccount, setSelectedAccount] = useState<string>(accountFromUrl || 'General');
     const [supplierOptions, setSupplierOptions] = useState<string[]>([]);
     const [lastSupplier, setLastSupplier] = useState<string | null>(null);
     const [tanggalJatuhTempo, setTanggalJatuhTempo] = useState('');
 
     // Fetch accounts
     useEffect(() => {
-    const fetchAccounts = async () => {
-        try {
-        const response = await apiClient.get('/cash/accounts');
-        setAccounts(response.data.data || []);
-        } catch (err) {
-        console.error('Failed to fetch accounts:', err);
-        }
-    };
-    fetchAccounts();
-    }, []);
+        const fetchAccounts = async () => {
+            try {
+                const response = await apiClient.get('/cash/accounts');
+                const accountsList = response.data.data || [];
+                setAccounts(accountsList);
+                // Auto-select account from URL if provided and exists
+                if (accountFromUrl && accountsList.includes(accountFromUrl)) {
+                    setSelectedAccount(accountFromUrl);
+                }
+            } catch (err) {
+                console.error('Failed to fetch accounts:', err);
+            }
+        };
+        fetchAccounts();
+    }, [accountFromUrl]);
 
     const fetchSuppliers = async () => {
         try {

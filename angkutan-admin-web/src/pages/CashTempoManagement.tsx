@@ -101,6 +101,13 @@ const TempoManagementPage = () => {
     supplier: '', // NEW: Added supplier to formData
     tanggal_jatuh_tempo: '', // NEW: Added tanggal_jatuh_tempo to formData
   });
+  
+  // Additional fields for tempo biasa item details
+  const [itemName, setItemName] = useState("");
+  const [itemUnit, setItemUnit] = useState("Pcs");
+  const [itemMerk, setItemMerk] = useState("");
+  const [itemQty, setItemQty] = useState("");
+  const [itemUnitPrice, setItemUnitPrice] = useState("");
 
   const [accounts, setAccounts] = useState<string[]>([]);
   const [showCreateAccountModal, setShowCreateAccountModal] = useState(false);
@@ -482,30 +489,63 @@ const TempoManagementPage = () => {
       return;
     }
 
-    const submissionData = new FormData();
-    const parsedAmount = parseAmount(formData.amount);
-
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      toast.error('Jumlah harus berupa angka yang valid dan lebih besar dari 0');
+    // Calculate amount from qty * unitPrice if both are provided, otherwise use manual amount
+    let calculatedAmount = parseAmount(formData.amount);
+    if (itemQty && itemUnitPrice) {
+      const qty = parseFloat(itemQty);
+      const unitPrice = parseFloat(itemUnitPrice);
+      if (qty > 0 && unitPrice >= 0) {
+        calculatedAmount = qty * unitPrice;
+      }
+    }
+    
+    if (isNaN(calculatedAmount) || calculatedAmount <= 0) {
+      toast.error('Jumlah tempo wajib (isi Qty × Harga Satuan atau Jumlah manual)');
+      return;
+    }
+    if (!itemName) {
+      toast.error('Nama Item wajib');
       return;
     }
 
-    Object.entries({
-      ...formData,
-      amount: parsedAmount,
-      supplier: formData.supplier || '', // NEW: Include supplier
-      tanggal_jatuh_tempo: formData.tanggal_jatuh_tempo || '', // NEW: Include tanggal_jatuh_tempo
-    }).forEach(([key, value]) => {
-      if (key === 'no_nota' || key === 'date_nota') return;
-      if (typeof value === 'string' || typeof value === 'number') {
-        submissionData.append(key, value.toString());
-      } else if (Array.isArray(value)) {
-        submissionData.append(key, JSON.stringify(value));
-      }
-    });
+    const submissionData = new FormData();
 
+    // Build description with item details as JSON if item details exist
+    let finalDescription = formData.description;
+    if (itemName || itemUnit || itemMerk || itemQty || itemUnitPrice) {
+      const itemDetails: any = {};
+      if (itemName) itemDetails.itemName = itemName;
+      if (itemUnit) itemDetails.unit = itemUnit;
+      if (itemMerk) itemDetails.merk = itemMerk;
+      if (itemQty) itemDetails.qty = itemQty;
+      if (itemUnitPrice) itemDetails.unitPrice = itemUnitPrice;
+      
+      // Store as JSON in description, with human-readable description as fallback
+      finalDescription = JSON.stringify({
+        type: "tempo_biasa_item",
+        description: formData.description || `${itemName || 'Item'} - ${itemQty || 0} ${itemUnit || 'Pcs'}`,
+        itemDetails: itemDetails
+      });
+    }
+
+    submissionData.append('transaction_type', formData.transaction_type);
+    if (formData.category_id) submissionData.append('category_id', formData.category_id);
+    submissionData.append('amount', calculatedAmount.toString());
+    submissionData.append('description', finalDescription);
+    
+    // Use itemName as reference_number if provided
+    if (itemName) {
+      submissionData.append('reference_number', itemName);
+    } else if (formData.reference_number) {
+      submissionData.append('reference_number', formData.reference_number);
+    }
+    
+    submissionData.append('transaction_date', formData.transaction_date);
+    submissionData.append('account', formData.account);
     submissionData.append('no_nota', JSON.stringify(formData.no_nota));
     submissionData.append('date_nota', JSON.stringify(formData.date_nota));
+    if (formData.supplier) submissionData.append('supplier', formData.supplier);
+    if (formData.tanggal_jatuh_tempo) submissionData.append('tanggal_jatuh_tempo', formData.tanggal_jatuh_tempo);
 
     attachmentFiles.forEach((file) => {
       submissionData.append('attachments', file);
@@ -523,6 +563,7 @@ const TempoManagementPage = () => {
       }
 
       setShowModal(false);
+      resetForm();
       fetchTransactions();
     } catch (err) {
       console.error('Error saving transaction:', err);
@@ -538,11 +579,25 @@ const TempoManagementPage = () => {
 
   const handleEdit = (transaction: CashTransaction) => {
     setEditingTransaction(transaction);
+    
+    // Parse item details from description if it's a tempo_biasa_item
+    let parsedDescription = transaction.description;
+    let parsedItemDetails: any = {};
+    try {
+      const parsed = JSON.parse(transaction.description);
+      if (parsed.type === "tempo_biasa_item" && parsed.itemDetails) {
+        parsedItemDetails = parsed.itemDetails;
+        parsedDescription = parsed.description || transaction.description;
+      }
+    } catch (e) {
+      // Not JSON, use as is
+    }
+    
     setFormData({
       transaction_type: transaction.transaction_type,
       category_id: transaction.category_id?.toString() || '',
       amount: transaction.amount.toString(),
-      description: transaction.description,
+      description: parsedDescription,
       reference_number: transaction.reference_number || '',
       transaction_date: transaction.transaction_date,
       account: transaction.account || 'General',
@@ -551,6 +606,14 @@ const TempoManagementPage = () => {
       supplier: transaction.supplier || '', // NEW: Include supplier
       tanggal_jatuh_tempo: transaction.tanggal_jatuh_tempo || '', // NEW: Include tanggal_jatuh_tempo
     });
+    
+    // Set item details fields if they exist
+    setItemName(parsedItemDetails.itemName || transaction.reference_number || "");
+    setItemUnit(parsedItemDetails.unit || "Pcs");
+    setItemMerk(parsedItemDetails.merk || "");
+    setItemQty(parsedItemDetails.qty || "");
+    setItemUnitPrice(parsedItemDetails.unitPrice || "");
+    
     setAttachmentFiles([]);
     setShowModal(true);
   };
@@ -615,19 +678,27 @@ const TempoManagementPage = () => {
   }
 
   const resetForm = () => {
+    // Use selected account from filters if available, otherwise default to "General"
+    const defaultAccount = filters.account || selectedAccount || "General";
     setFormData({
       transaction_type: 'debit_tempo',
       category_id: '',
       amount: '',
       description: '',
       reference_number: '',
-      account: 'General',
+      account: defaultAccount,
       transaction_date: new Date().toISOString().split('T')[0],
       no_nota: [''],
       date_nota: [''],
       supplier: '', // NEW: Reset supplier
       tanggal_jatuh_tempo: '', // NEW: Reset tanggal_jatuh_tempo
     });
+    // Reset item details fields
+    setItemName("");
+    setItemUnit("Pcs");
+    setItemMerk("");
+    setItemQty("");
+    setItemUnitPrice("");
     setAttachmentFiles([]);
     setIsSpecialCategory(false);
   };
@@ -640,11 +711,14 @@ const TempoManagementPage = () => {
       setEditingTransaction(null);
       setShowModal(true);
     } else if (selectedTransactionType === 'kas_stok_barang') {
-      navigate('/stock/create');
+      const accountParam = filters.account || selectedAccount || "";
+      navigate(`/stock/create${accountParam ? `?account=${encodeURIComponent(accountParam)}` : ""}`);
     } else if (selectedTransactionType === 'kas_stok_ban') {
-      navigate('/tire-inventory/create');
+      const accountParam = filters.account || selectedAccount || "";
+      navigate(`/tire-inventory/create${accountParam ? `?account=${encodeURIComponent(accountParam)}` : ""}`);
     } else if (selectedTransactionType === 'kas_servis') {
-      navigate('/services/create');
+      const accountParam = filters.account || selectedAccount || "";
+      navigate(`/services/create${accountParam ? `?account=${encodeURIComponent(accountParam)}` : ""}`);
     }
   };
 
@@ -1301,7 +1375,86 @@ const TempoManagementPage = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Jumlah *</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Nama Item *</label>
+                      <input
+                        type="text"
+                        value={itemName}
+                        onChange={(e) => setItemName(e.target.value)}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                        placeholder="Nama item"
+                        required={!isSpecialCategory}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Unit</label>
+                      <input
+                        type="text"
+                        value={itemUnit}
+                        onChange={(e) => setItemUnit(e.target.value)}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                        placeholder="Pcs, Liter, dll"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Merk</label>
+                      <input
+                        type="text"
+                        value={itemMerk}
+                        onChange={(e) => setItemMerk(e.target.value)}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                        placeholder="Merk/Brand"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Qty</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={itemQty}
+                        onChange={(e) => {
+                          setItemQty(e.target.value);
+                          // Auto-calculate amount if both qty and unitPrice are filled
+                          if (e.target.value && itemUnitPrice) {
+                            const qty = parseFloat(e.target.value);
+                            const unitPrice = parseFloat(itemUnitPrice);
+                            if (qty > 0 && unitPrice >= 0) {
+                              setFormData((prev) => ({
+                                ...prev,
+                                amount: (qty * unitPrice).toString(),
+                              }));
+                            }
+                          }
+                        }}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                        placeholder="0"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Harga Satuan</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={itemUnitPrice}
+                        onChange={(e) => {
+                          setItemUnitPrice(e.target.value);
+                          // Auto-calculate amount if both qty and unitPrice are filled
+                          if (e.target.value && itemQty) {
+                            const qty = parseFloat(itemQty);
+                            const unitPrice = parseFloat(e.target.value);
+                            if (qty > 0 && unitPrice >= 0) {
+                              setFormData((prev) => ({
+                                ...prev,
+                                amount: (qty * unitPrice).toString(),
+                              }));
+                            }
+                          }
+                        }}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                        placeholder="0"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Jumlah (auto atau manual) *</label>
                       <input
                         type="text"
                         value={formData.amount}
@@ -1310,29 +1463,19 @@ const TempoManagementPage = () => {
                           setFormData((prev) => ({ ...prev, amount: value }));
                         }}
                         className="w-full border border-gray-300 rounded-md px-3 py-2"
-                        placeholder="0,00"
+                        placeholder="Qty × Harga Satuan"
                         required={!isSpecialCategory}
                       />
+                      <p className="text-xs text-gray-500 mt-1">Otomatis: Qty × Harga Satuan</p>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Deskripsi *</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Keterangan</label>
                       <textarea
                         value={formData.description}
                         onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
                         className="w-full border border-gray-300 rounded-md px-3 py-2"
                         rows={3}
-                        placeholder="Deskripsi transaksi..."
-                        required={!isSpecialCategory}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Nomor Referensi</label>
-                      <input
-                        type="text"
-                        value={formData.reference_number}
-                        onChange={(e) => setFormData((prev) => ({ ...prev, reference_number: e.target.value }))}
-                        className="w-full border border-gray-300 rounded-md px-3 py-2"
-                        placeholder="Nomor referensi (opsional)"
+                        placeholder="Keterangan tambahan"
                       />
                     </div>
                     <div>

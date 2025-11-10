@@ -105,6 +105,13 @@ const CashManagementPage = () => {
     no_nota: [""] as string[],
     date_nota: [""] as string[],
   });
+  
+  // Additional fields for kas biasa item details (form fields)
+  const [formItemName, setFormItemName] = useState("");
+  const [formItemUnit, setFormItemUnit] = useState("Pcs");
+  const [formItemMerk, setFormItemMerk] = useState("");
+  const [formItemQty, setFormItemQty] = useState("");
+  const [formItemUnitPrice, setFormItemUnitPrice] = useState("");
 
   const [accounts, setAccounts] = useState<string[]>([]);
   const abortRef = useRef<AbortController | null>(null);
@@ -428,17 +435,55 @@ const CashManagementPage = () => {
       return;
     }
 
+    // Calculate amount from qty * unitPrice if both are provided, otherwise use manual amount
+    let calculatedAmount = parseFloat(formData.amount || "0");
+    if (formItemQty && formItemUnitPrice) {
+      const qty = parseFloat(formItemQty);
+      const unitPrice = parseFloat(formItemUnitPrice);
+      if (qty > 0 && unitPrice >= 0) {
+        calculatedAmount = qty * unitPrice;
+      }
+    }
+    
+    if (!(calculatedAmount > 0)) {
+      toast.error("Jumlah kas wajib (isi Qty × Harga Satuan atau Jumlah manual)");
+      return;
+    }
+
     const submissionData = new FormData();
 
-    Object.entries(formData).forEach(([key, value]) => {
-      if (key === "no_nota" || key === "date_nota") return;
-      if (typeof value === "string" || typeof value === "number") {
-        submissionData.append(key, value.toString());
-      } else if (Array.isArray(value)) {
-        submissionData.append(key, JSON.stringify(value));
-      }
-    });
+    // Build description with item details as JSON if item details exist
+    let finalDescription = formData.description;
+    if (formItemName || formItemUnit || formItemMerk || formItemQty || formItemUnitPrice) {
+      const itemDetails: any = {};
+      if (formItemName) itemDetails.itemName = formItemName;
+      if (formItemUnit) itemDetails.unit = formItemUnit;
+      if (formItemMerk) itemDetails.merk = formItemMerk;
+      if (formItemQty) itemDetails.qty = formItemQty;
+      if (formItemUnitPrice) itemDetails.unitPrice = formItemUnitPrice;
+      
+      // Store as JSON in description, with human-readable description as fallback
+      finalDescription = JSON.stringify({
+        type: "kas_biasa_item",
+        description: formData.description || `${formItemName || 'Item'} - ${formItemQty || 0} ${formItemUnit || 'Pcs'}`,
+        itemDetails: itemDetails
+      });
+    }
 
+    submissionData.append("transaction_type", formData.transaction_type);
+    if (formData.category_id) submissionData.append("category_id", formData.category_id);
+    submissionData.append("amount", calculatedAmount.toString());
+    submissionData.append("description", finalDescription);
+    
+    // Use formItemName as reference_number if provided
+    if (formItemName) {
+      submissionData.append("reference_number", formItemName);
+    } else if (formData.reference_number) {
+      submissionData.append("reference_number", formData.reference_number);
+    }
+    
+    submissionData.append("transaction_date", formData.transaction_date);
+    submissionData.append("account", formData.account);
     submissionData.append("no_nota", JSON.stringify(formData.no_nota));
     submissionData.append("date_nota", JSON.stringify(formData.date_nota));
 
@@ -474,6 +519,9 @@ const CashManagementPage = () => {
       } else {
         toast.success("Transaksi berhasil disimpan");
       }
+      
+      // Reset form fields
+      resetForm();
       fetchTransactions();
     } catch (err) {
       console.error("Error saving transaction:", err);
@@ -491,11 +539,25 @@ const CashManagementPage = () => {
 
   const handleEdit = (transaction: CashTransaction) => {
     setEditingTransaction(transaction);
+    
+    // Parse item details from description if it's a kas_biasa_item
+    let parsedDescription = transaction.description;
+    let parsedItemDetails: any = {};
+    try {
+      const parsed = JSON.parse(transaction.description);
+      if (parsed.type === "kas_biasa_item" && parsed.itemDetails) {
+        parsedItemDetails = parsed.itemDetails;
+        parsedDescription = parsed.description || transaction.description;
+      }
+    } catch (e) {
+      // Not JSON, use as is
+    }
+    
     setFormData({
       transaction_type: transaction.transaction_type,
       category_id: transaction.category_id?.toString() || "",
       amount: transaction.amount.toString(),
-      description: transaction.description,
+      description: parsedDescription,
       reference_number: transaction.reference_number || "",
       transaction_date: transaction.transaction_date,
       account: transaction.account || "General",
@@ -508,6 +570,14 @@ const CashManagementPage = () => {
           ? transaction.date_nota
           : [""],
     });
+    
+    // Set item details fields if they exist
+    setFormItemName(parsedItemDetails.itemName || transaction.reference_number || "");
+    setFormItemUnit(parsedItemDetails.unit || "Pcs");
+    setFormItemMerk(parsedItemDetails.merk || "");
+    setFormItemQty(parsedItemDetails.qty || "");
+    setFormItemUnitPrice(parsedItemDetails.unitPrice || "");
+    
     setAttachmentFiles([]);
     setShowModal(true);
   };
@@ -700,17 +770,25 @@ const CashManagementPage = () => {
   }, [composerType, vehicleId, itemId, itemName, itemUnit, itemQty, unitPrice, cashAmount, currentDesc, ensureRecap, addCashTransaction, fetchTransactions, isTempo, composerAccount, composerSupplier, composerDueDate]);
 
   const resetForm = () => {
+    // Use selected account from filters if available, otherwise default to "General"
+    const defaultAccount = filters.account || selectedAccount || "General";
     setFormData({
       transaction_type: "debit",
       category_id: "",
       amount: "",
       description: "",
       reference_number: "",
-      account: "General",
+      account: defaultAccount,
       transaction_date: new Date().toISOString().split("T")[0],
       no_nota: [""],
       date_nota: [""],
     });
+    // Reset item details fields
+    setFormItemName("");
+    setFormItemUnit("Pcs");
+    setFormItemMerk("");
+    setFormItemQty("");
+    setFormItemUnitPrice("");
     setAttachmentFiles([]);
     setIsSpecialCategory(false);
   };
@@ -723,11 +801,14 @@ const CashManagementPage = () => {
       setEditingTransaction(null);
       setShowModal(true);
     } else if (selectedTransactionType === "kas_stok_barang") {
-      navigate("/stock/create");
+      const accountParam = filters.account || selectedAccount || "";
+      navigate(`/stock/create${accountParam ? `?account=${encodeURIComponent(accountParam)}` : ""}`);
     } else if (selectedTransactionType === "kas_stok_ban") {
-      navigate("/tire-inventory/create");
+      const accountParam = filters.account || selectedAccount || "";
+      navigate(`/tire-inventory/create${accountParam ? `?account=${encodeURIComponent(accountParam)}` : ""}`);
     } else if (selectedTransactionType === "kas_servis") {
-      navigate("/services/create");
+      const accountParam = filters.account || selectedAccount || "";
+      navigate(`/services/create${accountParam ? `?account=${encodeURIComponent(accountParam)}` : ""}`);
     }
   };
 
@@ -1469,7 +1550,96 @@ const CashManagementPage = () => {
                   <>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Jumlah *
+                        Nama Item *
+                      </label>
+                      <input
+                        type="text"
+                        value={formItemName}
+                        onChange={(e) => setFormItemName(e.target.value)}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                        placeholder="Nama item"
+                        required={!isSpecialCategory}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Unit
+                      </label>
+                      <input
+                        type="text"
+                        value={formItemUnit}
+                        onChange={(e) => setFormItemUnit(e.target.value)}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                        placeholder="Pcs, Liter, dll"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Merk
+                      </label>
+                      <input
+                        type="text"
+                        value={formItemMerk}
+                        onChange={(e) => setFormItemMerk(e.target.value)}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                        placeholder="Merk/Brand"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Qty
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={formItemQty}
+                        onChange={(e) => {
+                          setFormItemQty(e.target.value);
+                          // Auto-calculate amount if both qty and unitPrice are filled
+                          if (e.target.value && formItemUnitPrice) {
+                            const qty = parseFloat(e.target.value);
+                            const unitPrice = parseFloat(formItemUnitPrice);
+                            if (qty > 0 && unitPrice >= 0) {
+                              setFormData((prev) => ({
+                                ...prev,
+                                amount: (qty * unitPrice).toString(),
+                              }));
+                            }
+                          }
+                        }}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                        placeholder="0"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Harga Satuan
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={formItemUnitPrice}
+                        onChange={(e) => {
+                          setFormItemUnitPrice(e.target.value);
+                          // Auto-calculate amount if both qty and unitPrice are filled
+                          if (e.target.value && formItemQty) {
+                            const qty = parseFloat(formItemQty);
+                            const unitPrice = parseFloat(e.target.value);
+                            if (qty > 0 && unitPrice >= 0) {
+                              setFormData((prev) => ({
+                                ...prev,
+                                amount: (qty * unitPrice).toString(),
+                              }));
+                            }
+                          }
+                        }}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                        placeholder="0"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Jumlah (auto atau manual) *
                       </label>
                       <input
                         type="number"
@@ -1482,13 +1652,14 @@ const CashManagementPage = () => {
                           }))
                         }
                         className="w-full border border-gray-300 rounded-md px-3 py-2"
-                        placeholder="0"
+                        placeholder="Qty × Harga Satuan"
                         required={!isSpecialCategory}
                       />
+                      <p className="text-xs text-gray-500 mt-1">Otomatis: Qty × Harga Satuan</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Deskripsi *
+                        Keterangan
                       </label>
                       <textarea
                         value={formData.description}
@@ -1500,25 +1671,7 @@ const CashManagementPage = () => {
                         }
                         className="w-full border border-gray-300 rounded-md px-3 py-2"
                         rows={3}
-                        placeholder="Deskripsi transaksi..."
-                        required={!isSpecialCategory}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Nomor Referensi
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.reference_number}
-                        onChange={(e) =>
-                          setFormData((prev) => ({
-                            ...prev,
-                            reference_number: e.target.value,
-                          }))
-                        }
-                        className="w-full border border-gray-300 rounded-md px-3 py-2"
-                        placeholder="Nomor referensi (opsional)"
+                        placeholder="Keterangan tambahan"
                       />
                     </div>
                     <div>

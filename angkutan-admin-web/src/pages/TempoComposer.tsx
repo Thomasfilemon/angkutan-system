@@ -62,10 +62,14 @@ export default function TempoComposerPage() {
   // Tempo-specific fields
   const [tempoType, setTempoType] = useState<"debit_tempo" | "kredit_tempo">("kredit_tempo");
   const [tempoCategoryId, setTempoCategoryId] = useState<string>("");
-  const [referenceNumber, setReferenceNumber] = useState("");
-  const [notaNumber, setNotaNumber] = useState("");
-  const [notaDate, setNotaDate] = useState("");
+  const [tempoItemName, setTempoItemName] = useState(""); // Nama Item (replaces referenceNumber for tempo biasa)
+  const [tempoUnit, setTempoUnit] = useState("Pcs"); // Unit
+  const [tempoMerk, setTempoMerk] = useState(""); // Merk/Brand
+  const [tempoQty, setTempoQty] = useState(""); // Qty
+  const [tempoUnitPrice, setTempoUnitPrice] = useState(""); // Harga Satuan
+  // notaNumber and notaDate removed - they come from header (recapNumber and composerTransactionDate)
   const [tempoFiles, setTempoFiles] = useState<File[]>([]);
+  const [tempoDescription, setTempoDescription] = useState(""); // Keterangan
 
   // Rekapan detail modal state
   const [showRekapanModal, setShowRekapanModal] = useState(false);
@@ -108,7 +112,12 @@ export default function TempoComposerPage() {
     categoryId?: string;
     amount: number;
     description: string;
-    referenceNumber?: string;
+    itemName?: string;
+    unit?: string;
+    merk?: string;
+    qty?: string;
+    unitPrice?: string;
+    referenceNumberOverride?: string; // Optional override for reference_number (e.g., for rekapan)
     notaNumber?: string;
     notaDate?: string;
     transactionDate?: string;
@@ -117,12 +126,38 @@ export default function TempoComposerPage() {
     const formData = new FormData();
     formData.append("transaction_type", opts.transactionType);
     formData.append("amount", opts.amount.toString());
-    formData.append("description", opts.description);
+    
+    // Build description with item details as JSON if item details exist
+    let finalDescription = opts.description;
+    if (opts.itemName || opts.unit || opts.merk || opts.qty || opts.unitPrice) {
+      const itemDetails: any = {};
+      if (opts.itemName) itemDetails.itemName = opts.itemName;
+      if (opts.unit) itemDetails.unit = opts.unit;
+      if (opts.merk) itemDetails.merk = opts.merk;
+      if (opts.qty) itemDetails.qty = opts.qty;
+      if (opts.unitPrice) itemDetails.unitPrice = opts.unitPrice;
+      
+      // Store as JSON in description, with human-readable description as fallback
+      finalDescription = JSON.stringify({
+        type: "tempo_biasa_item",
+        description: opts.description || `${opts.itemName || 'Item'} - ${opts.qty || 0} ${opts.unit || 'Pcs'}`,
+        itemDetails: itemDetails
+      });
+    }
+    
+    formData.append("description", finalDescription);
     formData.append("account", composerAccount);
     formData.append("transaction_date", opts.transactionDate || composerTransactionDate || new Date().toISOString().split("T")[0]);
     
     if (opts.categoryId) formData.append("category_id", opts.categoryId);
-    if (opts.referenceNumber) formData.append("reference_number", opts.referenceNumber);
+    // Use referenceNumberOverride if provided (for rekapan), otherwise itemName, otherwise recapNumber
+    if (opts.referenceNumberOverride) {
+      formData.append("reference_number", opts.referenceNumberOverride);
+    } else if (opts.itemName) {
+      formData.append("reference_number", opts.itemName);
+    } else if (recapNumber) {
+      formData.append("reference_number", recapNumber);
+    }
     if (opts.notaNumber) formData.append("no_nota", JSON.stringify([opts.notaNumber]));
     if (opts.notaDate) formData.append("date_nota", JSON.stringify([opts.notaDate]));
     if (composerSupplier) formData.append("supplier", composerSupplier);
@@ -138,14 +173,27 @@ export default function TempoComposerPage() {
       headers: { "Content-Type": "multipart/form-data" },
     });
     return response.data.data;
-  }, [composerAccount, composerSupplier, composerDueDate, composerTransactionDate]);
+  }, [composerAccount, composerSupplier, composerDueDate, composerTransactionDate, recapNumber]);
 
   // Queue states
-  const [queuedUsages, setQueuedUsages] = useState<Array<{ vehicleId: string; itemId: string; itemName: string; itemUnit: string; qty: string; unitPrice?: string; description: string }>>([]);
+  const [queuedUsages, setQueuedUsages] = useState<Array<{ vehicleId: string; itemId: string; itemName: string; itemUnit: string; merk?: string; qty: string; unitPrice?: string; description: string }>>([]);
   const [queuedStockAdds, setQueuedStockAdds] = useState<Array<{ itemId: string; itemName: string; itemUnit: string; qty: string; unitPrice: string; createNewBatch: boolean; description: string; rackRow?: string; rackLevel?: string; merk?: string }>>([]);
   const [queuedTirePurchases, setQueuedTirePurchases] = useState<Array<{ brand: string; size: string; type: string; condition: string; qty: string; unitPrice: string; date: string; description: string }>>([]);
   const [queuedServices, setQueuedServices] = useState<Array<{ vehicleId: string; serviceDate: string; serviceType: string; workshopName: string; laborCost: string; description: string }>>([]);
-  const [queuedTempo, setQueuedTempo] = useState<Array<{ tempoType: "debit_tempo" | "kredit_tempo"; categoryId: string; amount: string; referenceNumber?: string; notaNumber?: string; notaDate?: string; transactionDate?: string; description: string; files: File[] }>>([]);
+  const [queuedTempo, setQueuedTempo] = useState<Array<{ 
+    tempoType: "debit_tempo" | "kredit_tempo"; 
+    categoryId: string; 
+    amount: string; 
+    itemName?: string; 
+    unit?: string; 
+    merk?: string; 
+    qty?: string; 
+    unitPrice?: string; 
+    // notaNumber and notaDate removed - they come from header (recap)
+    transactionDate?: string; 
+    description: string; 
+    files: File[] 
+  }>>([]);
 
   // Form states for each section
   const [vehicles, setVehicles] = useState<Array<{ id: number; license_plate: string }>>([]);
@@ -157,6 +205,7 @@ export default function TempoComposerPage() {
   const [usageItemId, setUsageItemId] = useState("");
   const [usageItemName, setUsageItemName] = useState("");
   const [usageItemUnit, setUsageItemUnit] = useState("");
+  const [usageMerk, setUsageMerk] = useState(""); // Merk/Brand for stock usage
   const [usageQty, setUsageQty] = useState("");
   const [usageUnitPrice, setUsageUnitPrice] = useState("");
   const [usageDescription, setUsageDescription] = useState("");
@@ -191,9 +240,8 @@ export default function TempoComposerPage() {
   const [laborCost, setLaborCost] = useState("");
   const [serviceDescription, setServiceDescription] = useState("");
 
-  // Tempo form
-  const [amount, setAmount] = useState("");
-  const [description, setDescription] = useState("");
+  // Tempo form (replaced with detailed fields)
+  // amount and description are now calculated/derived from item fields
 
   useEffect(() => {
     const fetchVehicles = async () => {
@@ -223,8 +271,17 @@ export default function TempoComposerPage() {
 
   const queueStockUsage = () => {
     if (!usageVehicleId || !usageQty) return toast.error("Kendaraan dan jumlah wajib");
-    setQueuedUsages((prev) => [...prev, { vehicleId: usageVehicleId, itemId: usageItemId, itemName: usageItemName, itemUnit: usageItemUnit, qty: usageQty, unitPrice: usageUnitPrice, description: usageDescription }]);
+    setQueuedUsages((prev) => [...prev, { vehicleId: usageVehicleId, itemId: usageItemId, itemName: usageItemName, itemUnit: usageItemUnit, merk: usageMerk || undefined, qty: usageQty, unitPrice: usageUnitPrice, description: usageDescription }]);
     toast.success("Ditambahkan ke antrian");
+    // Clear form after queueing
+    setUsageVehicleId("");
+    setUsageItemId("");
+    setUsageItemName("");
+    setUsageItemUnit("");
+    setUsageMerk("");
+    setUsageQty("");
+    setUsageUnitPrice("");
+    setUsageDescription("");
   };
 
   const saveStockUsage = async () => {
@@ -235,10 +292,20 @@ export default function TempoComposerPage() {
       for (const u of queuedUsages) {
         const q = parseFloat(u.qty || "0");
         if (!(q > 0)) continue;
+        
+        // Helper to save merk in notes as JSON
+        const saveMerkToNotes = (merk: string, otherNotes: string): string => {
+          if (!merk && !otherNotes) return '';
+          const data: any = {};
+          if (merk) data.merk = merk;
+          if (otherNotes) data.notes = otherNotes;
+          return JSON.stringify(data);
+        };
+        
         const payload: CreateStockUsagePayload = {
           vehicle_id: parseInt(u.vehicleId, 10),
           usage_date: new Date().toISOString().split("T")[0],
-          notes: u.description || `Tempo Composer: ${u.itemName || "Item"}`,
+          notes: saveMerkToNotes(u.merk || "", u.description || `Tempo Composer: ${u.itemName || "Item"}`),
           items: [ { item_id: u.itemId ? parseInt(u.itemId, 10) : undefined, item_name: u.itemName || undefined, unit: u.itemUnit, quantity: q, unit_price: u.unitPrice ? parseFloat(u.unitPrice) : undefined } ],
           recap_number: recap.recap_number,
           cash_options: { create_cash: true, is_tempo: true, account: composerAccount, supplier: composerSupplier || undefined, due_date: composerDueDate || undefined },
@@ -286,7 +353,13 @@ export default function TempoComposerPage() {
         }
         if (p > 0) {
           const desc = s.description || `Pembelian stok ${s.itemName || targetItemId}`;
-          const cash = await createTempoTransaction({ transactionType: "kredit_tempo", categoryId: tempoCategoryId || undefined, amount: q * p, description: desc, referenceNumber });
+          const cash = await createTempoTransaction({ 
+            transactionType: "kredit_tempo", 
+            categoryId: tempoCategoryId || undefined, 
+            amount: q * p, 
+            description: desc,
+            itemName: s.itemName || undefined // Use stock item name as reference
+          });
           await addItemToRecap(recap.id, { type: "cash", reference_id: cash.id, description: cash.description, amount: cash.amount } as any);
         }
         await addItemToRecap(recap.id, { type: "stock", reference_id: targetItemId!, description: s.description || `Stok masuk`, amount: q * p } as any);
@@ -380,11 +453,52 @@ export default function TempoComposerPage() {
   };
 
   const queueTempoNormal = () => {
-    const a = parseFloat(amount || "0");
-    if (!(a > 0)) return toast.error("Jumlah tempo wajib");
-    setQueuedTempo((prev) => [...prev, { tempoType, categoryId: tempoCategoryId, amount, referenceNumber, notaNumber, notaDate, transactionDate: composerTransactionDate, description, files: tempoFiles }]);
-    toast.success("Ditambahkan ke antrian");
-  };
+    // Calculate amount from qty * unitPrice if both are provided, otherwise use manual amount
+    // For tempo, we need to get amount from a state variable - let's use a local state
+    let calculatedAmount = 0;
+    if (tempoQty && tempoUnitPrice) {
+      const qty = parseFloat(tempoQty);
+      const unitPrice = parseFloat(tempoUnitPrice);
+      if (qty > 0 && unitPrice >= 0) {
+        calculatedAmount = qty * unitPrice;
+      }
+    }
+    
+    if (!(calculatedAmount > 0)) {
+      // Try to get from a tempoAmount state if exists, otherwise show error
+      toast.error("Jumlah tempo wajib (isi Qty × Harga Satuan)");
+      return;
+    }
+    if (!tempoItemName) {
+      toast.error("Nama Item wajib");
+      return;
+    }
+    
+    // Note: notaNumber and notaDate are NOT stored per item - they come from header (recap)
+    setQueuedTempo((prev) => [...prev, { 
+      tempoType, 
+      categoryId: tempoCategoryId, 
+      amount: calculatedAmount.toString(), 
+            itemName: tempoItemName,
+            unit: tempoUnit,
+            merk: tempoMerk,
+            qty: tempoQty,
+            unitPrice: tempoUnitPrice,
+            transactionDate: composerTransactionDate, 
+            description: tempoDescription, 
+            files: tempoFiles 
+          }]);
+          toast.success("Ditambahkan ke antrian");
+          
+          // Clear form fields after queueing
+          setTempoItemName("");
+          setTempoUnit("Pcs");
+          setTempoMerk("");
+          setTempoQty("");
+          setTempoUnitPrice("");
+          setTempoDescription("");
+          setTempoFiles([]);
+        };
 
   const saveAllQueued = async () => {
     try { setIsSaving(true); setSavingText("Menyimpan Antrian Tempo...");
@@ -397,6 +511,7 @@ export default function TempoComposerPage() {
         amount: number;
         supplier?: string;
         reference?: string;
+        merk?: string;
         details?: any;
       }> = [];
 
@@ -406,10 +521,20 @@ export default function TempoComposerPage() {
       for (const u of queuedUsages) {
         const q = parseFloat(u.qty || "0");
         if (!(q > 0)) continue;
+        
+        // Helper to save merk in notes as JSON
+        const saveMerkToNotes = (merk: string, otherNotes: string): string => {
+          if (!merk && !otherNotes) return '';
+          const data: any = {};
+          if (merk) data.merk = merk;
+          if (otherNotes) data.notes = otherNotes;
+          return JSON.stringify(data);
+        };
+        
         const payload: CreateStockUsagePayload = {
           vehicle_id: parseInt(u.vehicleId, 10),
           usage_date: new Date().toISOString().split("T")[0],
-          notes: u.description || `Tempo Composer: ${u.itemName || "Item"}`,
+          notes: saveMerkToNotes(u.merk || "", u.description || `Tempo Composer: ${u.itemName || "Item"}`),
           items: [ { item_id: u.itemId ? parseInt(u.itemId, 10) : undefined, item_name: u.itemName || undefined, unit: u.itemUnit, quantity: q, unit_price: u.unitPrice ? parseFloat(u.unitPrice) : undefined } ],
           recap_number: recap.recap_number,
           cash_options: { create_cash: false }, // Don't create individual cash transactions
@@ -418,11 +543,19 @@ export default function TempoComposerPage() {
         
         const amount = q * (parseFloat(u.unitPrice || "0") || 0);
         totalAmount += amount;
+        
+        // Build description with merk if available
+        let displayDesc = `${u.itemName || "Item"} - ${q} ${u.itemUnit}`;
+        if (u.merk) {
+          displayDesc = `${u.itemName || "Item"} (Merk: ${u.merk}) - ${q} ${u.itemUnit}`;
+        }
+        
         transactionDetails.push({
           type: "Stock Usage",
-          description: `${u.itemName || "Item"} - ${q} ${u.itemUnit}`,
+          description: displayDesc,
           amount: amount,
           supplier: composerSupplier || undefined,
+          merk: u.merk || undefined, // Include merk in details
           details: u
         });
       }
@@ -512,25 +645,31 @@ export default function TempoComposerPage() {
         });
       }
 
-      // Process plain tempo
+      // Process plain tempo - DON'T create individual transactions, only collect details for rekapan
+      // Individual tempo items will be part of the rekapan transaction only
+      const allTempoFiles: File[] = []; // Collect all files from tempo items for rekapan
       for (const c of queuedTempo) {
         const a = parseFloat(c.amount || "0");
         if (!(a > 0)) continue;
         totalAmount += a;
-        await createTempoTransaction({
-          transactionType: c.tempoType,
-          categoryId: c.categoryId || undefined,
-          amount: a,
-          description: c.description || "Tempo Biasa",
-          referenceNumber: c.referenceNumber || undefined,
-          notaNumber: c.notaNumber,
-          notaDate: c.notaDate,
-          transactionDate: c.transactionDate,
-          files: c.files,
-        });
+        
+        // Collect files for rekapan transaction
+        if (c.files && c.files.length > 0) {
+          allTempoFiles.push(...c.files);
+        }
+        
+        // Build display description from item details
+        let displayDesc = c.description || "Tempo Biasa";
+        if (c.itemName) {
+          const parts = [c.itemName];
+          if (c.qty && c.unit) parts.push(`${c.qty} ${c.unit}`);
+          if (c.merk) parts.push(`Merk: ${c.merk}`);
+          displayDesc = parts.join(" - ");
+        }
+        
         transactionDetails.push({
           type: "Tempo",
-          description: c.description || "Tempo Biasa",
+          description: displayDesc,
           amount: a,
           supplier: composerSupplier || undefined,
           details: c
@@ -541,26 +680,22 @@ export default function TempoComposerPage() {
       if (totalAmount > 0 && transactionDetails.length > 0) {
         const rekapanDescription = `Rekapan Nota Tempo ${recap.recap_number} - ${transactionDetails.length} transaksi`;
         
-        // Use the earliest transaction date from queued items, or composer transaction date if none
-        let rekapanTransactionDate = composerTransactionDate || new Date().toISOString().split('T')[0];
-        // Find earliest date from queued tempo items
-        if (queuedTempo.length > 0) {
-          const dates = queuedTempo.map(c => c.transactionDate).filter(d => d) as string[];
-          if (dates.length > 0) {
-            rekapanTransactionDate = dates.sort()[0];
-          }
-        }
+        // Use transaction date from header (composerTransactionDate)
+        // No nota and tanggal nota come from header (recapNumber and composerTransactionDate)
+        const rekapanTransactionDate = composerTransactionDate || new Date().toISOString().split('T')[0];
+        const rekapanNotaDate = composerTransactionDate || new Date().toISOString().split('T')[0];
         
-        // Create the main rekapan transaction with short description
+        // Create the main rekapan transaction with all collected files
         const rekapanTransaction = await createTempoTransaction({
           transactionType: "kredit_tempo",
           categoryId: tempoCategoryId || undefined,
           amount: totalAmount,
           description: rekapanDescription,
-          referenceNumber: recap.recap_number,
-          notaNumber: recap.recap_number,
-          notaDate: rekapanTransactionDate,
-          transactionDate: rekapanTransactionDate
+          referenceNumberOverride: recap.recap_number, // Use recap number as reference
+          notaNumber: recap.recap_number, // Use recap number as nota number from header
+          notaDate: rekapanNotaDate, // Use transaction date from header as nota date
+          transactionDate: rekapanTransactionDate,
+          files: allTempoFiles.length > 0 ? allTempoFiles : undefined // Include all collected files
         });
 
         // Store detailed transaction info in a separate field (we'll use notes field)
@@ -672,6 +807,7 @@ export default function TempoComposerPage() {
                       <td className="px-4 py-3 text-sm text-gray-900">
                         <div>Kendaraan: {vehicles.find(v => v.id.toString() === item.vehicleId)?.license_plate || item.vehicleId}</div>
                         <div>Item: {item.itemName || item.itemId}</div>
+                        {item.merk && <div className="text-gray-500">Merk: {item.merk}</div>}
                         <div className="text-gray-500">{item.description || '-'}</div>
                       </td>
                       <td className="px-4 py-3 text-sm text-right text-gray-900">
@@ -766,36 +902,57 @@ export default function TempoComposerPage() {
                     </tr>
                   ))}
                   {/* Queued Tempo */}
-                  {queuedTempo.map((item, idx) => (
-                    <tr key={`tempo-${idx}`} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm text-gray-900">{queuedUsages.length + queuedStockAdds.length + queuedTirePurchases.length + queuedServices.length + idx + 1}</td>
-                      <td className="px-4 py-3 text-sm">
-                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${item.tempoType === "debit_tempo" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
-                          {item.tempoType === "debit_tempo" ? "Debit Tempo" : "Kredit Tempo"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-900">
-                        <div>{item.description || '-'}</div>
-                        {item.notaNumber && <div className="text-gray-500">Nota: {item.notaNumber}</div>}
-                        {item.notaDate && <div className="text-gray-500">Tgl Nota: {new Date(item.notaDate).toLocaleDateString('id-ID')}</div>}
-                        {item.transactionDate && item.transactionDate !== composerTransactionDate && (
-                          <div className="text-blue-600 font-medium">Tgl Transaksi: {new Date(item.transactionDate).toLocaleDateString('id-ID')}</div>
-                        )}
-                        {item.referenceNumber && <div className="text-gray-500">Ref: {item.referenceNumber}</div>}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-right text-gray-900">
-                        <div>Rp {parseFloat(item.amount || "0").toLocaleString('id-ID')}</div>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-center">
-                        <button
-                          onClick={() => setQueuedTempo(prev => prev.filter((_, i) => i !== idx))}
-                          className="text-red-600 hover:text-red-900"
-                        >
-                          Hapus
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {queuedTempo.map((item, idx) => {
+                    // Build display description from item details
+                    let displayDesc = item.description || "Tempo Biasa";
+                    if (item.itemName) {
+                      const parts = [item.itemName];
+                      if (item.qty && item.unit) parts.push(`${item.qty} ${item.unit}`);
+                      if (item.merk) parts.push(`Merk: ${item.merk}`);
+                      if (item.unitPrice) parts.push(`@ Rp ${parseFloat(item.unitPrice || "0").toLocaleString('id-ID')}`);
+                      displayDesc = parts.join(" - ");
+                    }
+                    
+                    return (
+                      <tr key={`tempo-${idx}`} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-sm text-gray-900">{queuedUsages.length + queuedStockAdds.length + queuedTirePurchases.length + queuedServices.length + idx + 1}</td>
+                        <td className="px-4 py-3 text-sm">
+                          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${item.tempoType === "debit_tempo" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
+                            {item.tempoType === "debit_tempo" ? "Debit Tempo" : "Kredit Tempo"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-900">
+                          <div className="font-medium">{item.itemName || displayDesc}</div>
+                          {item.itemName && (
+                            <div className="text-gray-500 text-xs mt-1">
+                              {item.qty && item.unit && <span>{item.qty} {item.unit}</span>}
+                              {item.merk && <span className="ml-2">• {item.merk}</span>}
+                              {item.unitPrice && <span className="ml-2">• @ Rp {parseFloat(item.unitPrice || "0").toLocaleString('id-ID')}</span>}
+                            </div>
+                          )}
+                          {item.description && item.itemName && (
+                            <div className="text-gray-500 text-xs mt-1">{item.description}</div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-right text-gray-900">
+                          <div className="font-semibold">Rp {parseFloat(item.amount || "0").toLocaleString('id-ID')}</div>
+                          {item.qty && item.unitPrice && (
+                            <div className="text-gray-500 text-xs">
+                              ({item.qty} × Rp {parseFloat(item.unitPrice || "0").toLocaleString('id-ID')})
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-center">
+                          <button
+                            onClick={() => setQueuedTempo(prev => prev.filter((_, i) => i !== idx))}
+                            className="text-red-600 hover:text-red-900"
+                          >
+                            Hapus
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
                 <tfoot className="bg-gray-50">
                   <tr>
@@ -837,12 +994,16 @@ export default function TempoComposerPage() {
             <input type="text" value={usageItemName} onChange={(e) => setUsageItemName(e.target.value)} placeholder="Nama item" className="w-full border border-gray-300 rounded-md px-3 py-2" />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Jumlah</label>
-            <input type="number" value={usageQty} onChange={(e) => setUsageQty(e.target.value)} placeholder="0" className="w-full border border-gray-300 rounded-md px-3 py-2" />
-          </div>
-          <div>
             <label className="block text-sm font-medium mb-1">Unit</label>
             <input type="text" value={usageItemUnit} onChange={(e) => setUsageItemUnit(e.target.value)} placeholder="pcs" className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Merk</label>
+            <input type="text" value={usageMerk} onChange={(e) => setUsageMerk(e.target.value)} placeholder="Merk/Brand" className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Jumlah</label>
+            <input type="number" value={usageQty} onChange={(e) => setUsageQty(e.target.value)} placeholder="0" className="w-full border border-gray-300 rounded-md px-3 py-2" />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Harga per Unit</label>
@@ -1030,40 +1191,54 @@ export default function TempoComposerPage() {
             <label className="block text-sm font-medium mb-1">Kategori</label>
             <select value={tempoCategoryId} onChange={(e) => setTempoCategoryId(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2">
               <option value="">Pilih kategori</option>
-              {categories.map((cat) => (
+              {categories.filter(cat => cat.category_type === "expense").map((cat) => (
                 <option key={cat.id} value={cat.id}>{cat.category_name}</option>
               ))}
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Jumlah</label>
-            <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            <label className="block text-sm font-medium mb-1">Nama Item *</label>
+            <input type="text" value={tempoItemName} onChange={(e) => setTempoItemName(e.target.value)} placeholder="Nama item" className="w-full border border-gray-300 rounded-md px-3 py-2" required />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">No. Referensi</label>
-            <input type="text" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            <label className="block text-sm font-medium mb-1">Unit</label>
+            <input type="text" value={tempoUnit} onChange={(e) => setTempoUnit(e.target.value)} placeholder="Pcs, Liter, dll" className="w-full border border-gray-300 rounded-md px-3 py-2" />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">No. Nota</label>
-            <input type="text" value={notaNumber} onChange={(e) => setNotaNumber(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            <label className="block text-sm font-medium mb-1">Merk</label>
+            <input type="text" value={tempoMerk} onChange={(e) => setTempoMerk(e.target.value)} placeholder="Merk/Brand" className="w-full border border-gray-300 rounded-md px-3 py-2" />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Tanggal Nota</label>
-            <input type="date" value={notaDate} onChange={(e) => {
-              const newNotaDate = e.target.value;
-              setNotaDate(newNotaDate);
-              // Auto-update transaction date if nota date is different and transaction date is today
-              const today = new Date().toISOString().split("T")[0];
-              if (newNotaDate && newNotaDate !== composerTransactionDate && composerTransactionDate === today) {
-                setComposerTransactionDate(newNotaDate);
-              }
-            }} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            <label className="block text-sm font-medium mb-1">Qty</label>
+            <input type="number" step="0.01" value={tempoQty} onChange={(e) => setTempoQty(e.target.value)} placeholder="0" className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Harga Satuan</label>
+            <input type="number" step="0.01" value={tempoUnitPrice} onChange={(e) => setTempoUnitPrice(e.target.value)} placeholder="0" className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Jumlah (auto)</label>
+            <input 
+              type="number" 
+              step="0.01" 
+              value={tempoQty && tempoUnitPrice ? (parseFloat(tempoQty || "0") * parseFloat(tempoUnitPrice || "0")).toString() : ""} 
+              readOnly
+              placeholder="Qty × Harga Satuan"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 bg-gray-100" 
+            />
+            <p className="text-xs text-gray-500 mt-1">Otomatis: Qty × Harga Satuan</p>
           </div>
           <div className="md:col-span-2">
-            <label className="block text-sm font-medium mb-1">Deskripsi</label>
-            <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="Tempo biasa" />
+            <label className="block text-sm font-medium mb-1">Keterangan</label>
+            <textarea 
+              value={tempoDescription} 
+              onChange={(e) => setTempoDescription(e.target.value)} 
+              className="w-full border border-gray-300 rounded-md px-3 py-2" 
+              rows={2}
+              placeholder="Keterangan tambahan" 
+            />
           </div>
-          <div className="md:col-span-3">
+          <div className="md:col-span-2">
             <label className="block text-sm font-medium mb-1">Lampiran Nota</label>
             <input type="file" multiple accept="image/*" onChange={(e) => setTempoFiles(e.target.files ? Array.from(e.target.files) : [])} className="w-full" />
           </div>
@@ -1131,6 +1306,7 @@ export default function TempoComposerPage() {
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">No</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipe</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Deskripsi</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Merk</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Supplier</th>
                         <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
                       </tr>
@@ -1153,6 +1329,7 @@ export default function TempoComposerPage() {
                             </span>
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-900">{transaction.description}</td>
+                          <td className="px-4 py-3 text-sm text-gray-900">{transaction.merk || '-'}</td>
                           <td className="px-4 py-3 text-sm text-gray-900">{transaction.supplier || '-'}</td>
                           <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">
                             Rp {typeof transaction.amount === 'number' ? transaction.amount.toLocaleString('id-ID') : parseFloat(transaction.amount || 0).toLocaleString('id-ID')}
@@ -1162,7 +1339,7 @@ export default function TempoComposerPage() {
                     </tbody>
                     <tfoot className="bg-gray-50">
                       <tr>
-                        <td colSpan={4} className="px-4 py-3 text-right text-sm font-bold text-gray-900">
+                        <td colSpan={5} className="px-4 py-3 text-right text-sm font-bold text-gray-900">
                           Total:
                         </td>
                         <td className="px-4 py-3 text-right text-sm font-bold text-red-600">

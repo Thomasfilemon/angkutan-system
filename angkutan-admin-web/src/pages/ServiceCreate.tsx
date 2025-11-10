@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import apiClient from "../api/axiosConfig";
 import CreatableSelect from "react-select/creatable";
 import AsyncSelect from "react-select/async";
@@ -36,6 +36,8 @@ interface SelectOption {
 
 const ServiceCreatePage = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const accountFromUrl = searchParams.get("account");
   const [loading, setLoading] = useState(false);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [serviceItems, setServiceItems] = useState<ServiceItem[]>([]);
@@ -53,7 +55,7 @@ const ServiceCreatePage = () => {
   });
   const [saveToCash, setSaveToCash] = useState(true);
   const [isTempo, setIsTempo] = useState(false);
-  const [cashAccount, setCashAccount] = useState("General");
+  const [cashAccount, setCashAccount] = useState(accountFromUrl || "General");
   const [accounts, setAccounts] = useState<string[]>([]);
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(false);
   const [tanggalJatuhTempo, setTanggalJatuhTempo] = useState("");
@@ -64,7 +66,12 @@ const ServiceCreatePage = () => {
       setIsLoadingAccounts(true);
       try {
         const response = await apiClient.get("/cash/accounts");
-        setAccounts(response.data.data || []);
+        const accountsList = response.data.data || [];
+        setAccounts(accountsList);
+        // Auto-select account from URL if provided and exists
+        if (accountFromUrl && accountsList.includes(accountFromUrl)) {
+          setCashAccount(accountFromUrl);
+        }
       } catch (err) {
         console.error("Failed to fetch accounts:", err);
       } finally {
@@ -73,7 +80,7 @@ const ServiceCreatePage = () => {
     };
 
     fetchAccounts();
-  }, []);
+  }, [accountFromUrl]);
 
   useEffect(() => {
     fetchVehicles();
