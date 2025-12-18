@@ -357,22 +357,11 @@ const MainLayout = () => {
                       <Link
                         to="/cash"
                         className={`block p-2 rounded hover:bg-gray-700 ${
-                          isActiveLink("/cash") ? "bg-gray-700 border-l-4 border-blue-500" : ""
+                          (isActiveLink("/cash") || isActiveLink("/tempo")) ? "bg-gray-700 border-l-4 border-blue-500" : ""
                         }`}
                         title="Buku Kas"
                       >
                         Buku Kas
-                      </Link>
-                    </li>
-                    <li>
-                      <Link
-                        to="/tempo"
-                        className={`block p-2 rounded hover:bg-gray-700 ${
-                          isActiveLink("/tempo") ? "bg-gray-700 border-l-4 border-blue-500" : ""
-                        }`}
-                        title="Buku Tempo"
-                      >
-                        Buku Tempo
                       </Link>
                     </li>
                     <li>

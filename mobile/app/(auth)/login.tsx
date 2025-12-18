@@ -15,7 +15,6 @@ import {
 import { useRouter } from "expo-router";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { useAuth } from "../../src/contexts/AuthContext";
-import * as Notifications from 'expo-notifications';
 
 export default function LoginScreen() {
   const [username, setUsername] = useState("");
@@ -64,16 +63,7 @@ export default function LoginScreen() {
     try {
       console.log("🔄 Attempting login with:", { username: username.trim() });
 
-      // --- GET EXPO PUSH TOKEN ---
-      const { status: permissionStatus } = await Notifications.requestPermissionsAsync();
-      let expoPushToken = null;
-
-      if (permissionStatus === 'granted') {
-        const tokenData = await Notifications.getExpoPushTokenAsync();
-        expoPushToken = tokenData.data;
-      }
-
-      // --- LOGIN + SEND PUSH TOKEN TO BACKEND ---
+      // --- LOGIN (push token is handled inside signIn) ---
       const result = await signIn(username.trim(), password);
 
       console.log("📥 Login result:", result);

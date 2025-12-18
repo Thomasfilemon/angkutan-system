@@ -11,6 +11,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import apiClient from "../services/api";
 import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 
 interface User {
   id: string;
@@ -68,23 +69,49 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     })();
   }, []);
 
+  // Helper function to get Expo push token (only works in development builds, not Expo Go)
+  const getExpoPushToken = async (): Promise<string | null> => {
+    try {
+      // Check if we're running in Expo Go (push notifications not supported)
+      const isExpoGo = Constants.appOwnership === 'expo';
+      
+      if (isExpoGo) {
+        console.log('Push notifications not available in Expo Go. Use a development build for full functionality.');
+        return null;
+      }
+
+      // Request permissions
+      const { status } = await Notifications.requestPermissionsAsync();
+      
+      if (status !== 'granted') {
+        console.log('Notification permissions not granted');
+        return null;
+      }
+
+      // Get push token with projectId
+      const tokenData = await Notifications.getExpoPushTokenAsync({
+        projectId: Constants.expoConfig?.extra?.eas?.projectId,
+      });
+      
+      return tokenData.data;
+    } catch (error: any) {
+      // Gracefully handle errors (e.g., in Expo Go or when notifications aren't available)
+      console.warn('Failed to get Expo push token:', error.message);
+      return null;
+    }
+  };
+
   // Update signIn function
   const signIn = async (username: string, password: string) => {
     try {
-      // --- GET EXPO PUSH TOKEN ---
-      const { status } = await Notifications.requestPermissionsAsync();
-      let expoPushToken = null;
-
-      if (status === 'granted') {
-        const tokenData = await Notifications.getExpoPushTokenAsync();
-        expoPushToken = tokenData.data;
-      }
+      // --- GET EXPO PUSH TOKEN (only if available) ---
+      const expoPushToken = await getExpoPushToken();
 
       // --- LOGIN + SEND PUSH TOKEN TO BACKEND ---
       const { data } = await apiClient.post("/auth/mobile/login", {
         username,
         password,
-        expoPushToken, // <-- Send token to backend
+        expoPushToken, // <-- Send token to backend (null if not available)
       });
 
       const { token: newToken, user: userData } = data;

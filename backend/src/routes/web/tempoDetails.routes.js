@@ -9,6 +9,7 @@ router.use(verifyToken);
 // Tempo details routes
 router.get('/', tempoDetailController.getAllTempoDetails);
 router.get('/unique-suppliers', tempoDetailController.getUniqueSuppliers);
+router.post('/bulk-settle', tempoDetailController.bulkSettleTempoDetails);
 router.delete('/:id', tempoDetailController.deleteTempoDetail);
 
 module.exports = router;

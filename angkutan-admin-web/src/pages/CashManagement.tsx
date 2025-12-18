@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import apiClient from "../api/axiosConfig";
 import CreatableSelect from "react-select/creatable";
 import toast from "react-hot-toast";
@@ -15,7 +15,7 @@ interface CashCategory {
 
 interface CashTransaction {
   id: number;
-  transaction_type: "debit" | "kredit";
+  transaction_type: "debit" | "kredit" | "debit_tempo" | "kredit_tempo";
   category_id?: number;
   amount: number;
   description: string;
@@ -29,6 +29,7 @@ interface CashTransaction {
   no_nota?: string[];
   date_nota?: string[];
   supplier?: string | null;
+  tanggal_jatuh_tempo?: string;
   last_edited_by?: string;
   last_edited_at?: string;
   // Synthetic summary row fields
@@ -54,6 +55,8 @@ interface RekapanTransaction extends CashTransaction {
 interface CashSummary {
   total_debit: number;
   total_kredit: number;
+  total_debit_tempo?: number;
+  total_kredit_tempo?: number;
   saldo: number;
 }
 
@@ -69,6 +72,7 @@ const CashManagementPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [isSpecialCategory, setIsSpecialCategory] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [filters, setFilters] = useState({
     transaction_type: "",
@@ -79,6 +83,7 @@ const CashManagementPage = () => {
     account: "", // Changed: account is now required, starts empty
     supplier: "",
     item_name: "",
+    payment_type: "all", // New: filter for cash/tempo/all
   });
   const [selectedAccount, setSelectedAccount] = useState<string>(""); // New: track selected account for display
 
@@ -101,7 +106,7 @@ const CashManagementPage = () => {
   const [editingTransaction, setEditingTransaction] =
     useState<CashTransaction | null>(null);
   const [formData, setFormData] = useState({
-    transaction_type: "debit" as "debit" | "kredit",
+    transaction_type: "debit" as "debit" | "kredit" | "debit_tempo" | "kredit_tempo",
     category_id: "",
     amount: "",
     description: "",
@@ -110,6 +115,8 @@ const CashManagementPage = () => {
     transaction_date: new Date().toISOString().split("T")[0],
     no_nota: [""] as string[],
     date_nota: [""] as string[],
+    supplier: "",
+    tanggal_jatuh_tempo: "",
   });
   
   // Additional fields for kas biasa item details (form fields)
@@ -146,6 +153,16 @@ const CashManagementPage = () => {
     setItemNameInput((filters as any).item_name || "");
   }, []);
   // Manual search trigger via button (no debounce)
+
+  // Read account from URL params and set it
+  useEffect(() => {
+    const accountFromUrl = searchParams.get("account");
+    if (accountFromUrl) {
+      setFilters((prev) => ({ ...prev, account: accountFromUrl }));
+      setSelectedAccount(accountFromUrl);
+      setAccountInput(accountFromUrl);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const fetchAccounts = async () => {
@@ -363,28 +380,61 @@ const CashManagementPage = () => {
       if (abortRef.current) abortRef.current.abort();
       const controller = new AbortController();
       abortRef.current = controller;
+      
+      // Fetch both cash and tempo transactions based on payment_type filter
+      const { payment_type, ...otherFilters } = filters;
       const params = new URLSearchParams({
         page: pagination.page.toString(),
         limit: pagination.limit.toString(),
         ...Object.fromEntries(
-          Object.entries(filters).filter(([_, v]) => v !== "")
+          Object.entries(otherFilters).filter(([_, v]) => v !== "" && v !== "all")
         ),
       });
 
-      const response = await apiClient.get(`/cash/transactions?${params}`, { signal: controller.signal });
+      let allTransactions: CashTransaction[] = [];
+      let combinedSummary: CashSummary = { total_debit: 0, total_kredit: 0, saldo: 0 };
+      let totalCount = 0;
 
-      setTransactions(response.data.data || []);
-      setSummary(
-        response.data.summary || { total_debit: 0, total_kredit: 0, saldo: 0 }
-      );
+      // Fetch cash transactions if payment_type is "all" or "cash"
+      if (payment_type === "all" || payment_type === "cash") {
+        const cashResponse = await apiClient.get(`/cash/transactions?${params}`, { signal: controller.signal });
+        const cashData = cashResponse.data.data || [];
+        allTransactions = [...allTransactions, ...cashData];
+        if (cashResponse.data.summary) {
+          combinedSummary.total_debit += cashResponse.data.summary.total_debit || 0;
+          combinedSummary.total_kredit += cashResponse.data.summary.total_kredit || 0;
+        }
+        totalCount += cashResponse.data.pagination?.total || 0;
+      }
+
+      // Fetch tempo transactions if payment_type is "all" or "tempo"
+      if (payment_type === "all" || payment_type === "tempo") {
+        const tempoResponse = await apiClient.get(`/cash/tempo-transactions?${params}`, { signal: controller.signal });
+        const tempoData = tempoResponse.data.data || [];
+        allTransactions = [...allTransactions, ...tempoData];
+        if (tempoResponse.data.summary) {
+          combinedSummary.total_debit_tempo = (combinedSummary.total_debit_tempo || 0) + (tempoResponse.data.summary.total_debit_tempo || 0);
+          combinedSummary.total_kredit_tempo = (combinedSummary.total_kredit_tempo || 0) + (tempoResponse.data.summary.total_kredit_tempo || 0);
+        }
+        totalCount += tempoResponse.data.pagination?.total || 0;
+      }
+
+      // Sort by created_at descending
+      allTransactions.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+      // Calculate combined saldo
+      combinedSummary.saldo = combinedSummary.total_debit + (combinedSummary.total_debit_tempo || 0) - combinedSummary.total_kredit - (combinedSummary.total_kredit_tempo || 0);
+
+      setTransactions(allTransactions);
+      setSummary(combinedSummary);
       setPagination((prev) => ({
         ...prev,
-        total: response.data.pagination?.total || 0,
-        totalPages: response.data.pagination?.totalPages || 0,
+        total: totalCount,
+        totalPages: Math.ceil(totalCount / pagination.limit),
       }));
     } catch (err: any) {
       if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
-      setError("Failed to fetch cash transactions.");
+      setError("Failed to fetch transactions.");
       console.error(err);
     } finally {
       setLoading(false);
@@ -529,6 +579,12 @@ const CashManagementPage = () => {
     submissionData.append("account", formData.account);
     submissionData.append("no_nota", JSON.stringify(formData.no_nota));
     submissionData.append("date_nota", JSON.stringify(formData.date_nota));
+    if (formData.supplier) {
+      submissionData.append("supplier", formData.supplier);
+    }
+    if (formData.tanggal_jatuh_tempo) {
+      submissionData.append("tanggal_jatuh_tempo", formData.tanggal_jatuh_tempo);
+    }
 
     attachmentFiles.forEach((file) => {
       submissionData.append("attachments", file);
@@ -612,6 +668,8 @@ const CashManagementPage = () => {
         Array.isArray(transaction.date_nota) && transaction.date_nota.length > 0
           ? transaction.date_nota
           : [""],
+      supplier: transaction.supplier || "",
+      tanggal_jatuh_tempo: transaction.tanggal_jatuh_tempo || "",
     });
     
     // Set item details fields if they exist
@@ -935,6 +993,8 @@ const CashManagementPage = () => {
       transaction_date: new Date().toISOString().split("T")[0],
       no_nota: [""],
       date_nota: [""],
+      supplier: "",
+      tanggal_jatuh_tempo: "",
     });
     // Reset item details fields
     setFormItemName("");
@@ -1137,6 +1197,12 @@ const CashManagementPage = () => {
             Kas Composer
           </button>
           <button
+            onClick={() => navigate(`/tempo/composer${filters.account ? `?account=${encodeURIComponent(filters.account)}` : ''}`)}
+            className="bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded"
+          >
+            Tempo Composer
+          </button>
+          <button
             onClick={() => {
               setSelectedTransactionType("");
               setShowTransactionTypeModal(true);
@@ -1213,14 +1279,24 @@ const CashManagementPage = () => {
         <div className="bg-white p-4 rounded-lg shadow border-l-4 border-green-500">
           <h3 className="text-lg font-semibold text-gray-700">Total Debit</h3>
           <p className="text-2xl font-bold text-green-600">
-            {formatCurrency(summary.total_debit)}
+            {formatCurrency(summary.total_debit + (summary.total_debit_tempo || 0))}
           </p>
+          {summary.total_debit_tempo && summary.total_debit_tempo > 0 && (
+            <p className="text-xs text-gray-500 mt-1">
+              Cash: {formatCurrency(summary.total_debit)} | Tempo: {formatCurrency(summary.total_debit_tempo)}
+            </p>
+          )}
         </div>
         <div className="bg-white p-4 rounded-lg shadow border-l-4 border-red-500">
           <h3 className="text-lg font-semibold text-gray-700">Total Kredit</h3>
           <p className="text-2xl font-bold text-red-600">
-            {formatCurrency(summary.total_kredit)}
+            {formatCurrency(summary.total_kredit + (summary.total_kredit_tempo || 0))}
           </p>
+          {summary.total_kredit_tempo && summary.total_kredit_tempo > 0 && (
+            <p className="text-xs text-gray-500 mt-1">
+              Cash: {formatCurrency(summary.total_kredit)} | Tempo: {formatCurrency(summary.total_kredit_tempo)}
+            </p>
+          )}
         </div>
         <div className="bg-white p-4 rounded-lg shadow border-l-4 border-blue-500">
           <h3 className="text-lg font-semibold text-gray-700">Saldo</h3>
@@ -1241,7 +1317,24 @@ const CashManagementPage = () => {
       </div>
 
       <div className="bg-white p-4 rounded-lg shadow mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Cash/Tempo
+            </label>
+            <select
+              value={filters.payment_type}
+              onChange={(e) => {
+                setFilters((prev) => ({ ...prev, payment_type: e.target.value }));
+                setPagination((prev) => ({ ...prev, page: 1 }));
+              }}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+            >
+              <option value="all">Semua</option>
+              <option value="cash">Cash</option>
+              <option value="tempo">Tempo</option>
+            </select>
+          </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Tipe
@@ -1254,6 +1347,8 @@ const CashManagementPage = () => {
               <option value="">Semua Tipe</option>
               <option value="debit">Debit</option>
               <option value="kredit">Kredit</option>
+              <option value="debit_tempo">Debit Tempo</option>
+              <option value="kredit_tempo">Kredit Tempo</option>
             </select>
           </div>
           <div>
@@ -1377,6 +1472,7 @@ const CashManagementPage = () => {
                 account: filters.account, // Keep current account
                 supplier: "",
                 item_name: "",
+                payment_type: filters.payment_type, // Keep current payment_type
               });
               // Clear queued local inputs as well
               setTypeInput("");
@@ -1402,6 +1498,9 @@ const CashManagementPage = () => {
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Tanggal
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Cash/Tempo
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Tipe
@@ -1444,6 +1543,7 @@ const CashManagementPage = () => {
                 if (transaction.is_summary) {
                   return (
                     <tr key="summary-row" className="bg-gray-50 font-semibold">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">-</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">-</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">Grand Total</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">-</td>
@@ -1489,12 +1589,23 @@ const CashManagementPage = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
                         className={`px-2 py-1 text-xs font-medium rounded-full ${
-                          transaction.transaction_type === "debit"
+                          transaction.transaction_type.includes("tempo")
+                            ? "bg-purple-100 text-purple-800"
+                            : "bg-blue-100 text-blue-800"
+                        }`}
+                      >
+                        {transaction.transaction_type.includes("tempo") ? "Tempo" : "Cash"}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span
+                        className={`px-2 py-1 text-xs font-medium rounded-full ${
+                          transaction.transaction_type === "debit" || transaction.transaction_type === "debit_tempo"
                             ? "bg-green-100 text-green-800"
                             : "bg-red-100 text-red-800"
                         }`}
                       >
-                        {transaction.transaction_type === "debit"
+                        {transaction.transaction_type === "debit" || transaction.transaction_type === "debit_tempo"
                           ? "Debit"
                           : "Kredit"}
                       </span>
@@ -1802,6 +1913,34 @@ const CashManagementPage = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Cash/Tempo *
+                  </label>
+                  <select
+                    value={formData.transaction_type.includes("tempo") ? "tempo" : "cash"}
+                    onChange={(e) => {
+                      const paymentType = e.target.value;
+                      const currentType = formData.transaction_type;
+                      let newType: "debit" | "kredit" | "debit_tempo" | "kredit_tempo";
+                      if (paymentType === "tempo") {
+                        newType = currentType === "debit" ? "debit_tempo" : "kredit_tempo";
+                      } else {
+                        newType = currentType === "debit_tempo" ? "debit" : "kredit";
+                      }
+                      setFormData((prev) => ({
+                        ...prev,
+                        transaction_type: newType,
+                        category_id: "",
+                      }));
+                      setIsSpecialCategory(false);
+                    }}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 mb-2"
+                  >
+                    <option value="cash">Cash</option>
+                    <option value="tempo">Tempo</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
                     Tipe Transaksi *
                   </label>
                   <select
@@ -1809,7 +1948,7 @@ const CashManagementPage = () => {
                     onChange={(e) => {
                       setFormData((prev) => ({
                         ...prev,
-                        transaction_type: e.target.value as "debit" | "kredit",
+                        transaction_type: e.target.value as "debit" | "kredit" | "debit_tempo" | "kredit_tempo",
                         category_id: "",
                       }));
                       setIsSpecialCategory(false);
@@ -1817,8 +1956,17 @@ const CashManagementPage = () => {
                     className="w-full border border-gray-300 rounded-md px-3 py-2"
                     required
                   >
-                    <option value="debit">Debit (Pemasukan)</option>
-                    <option value="kredit">Kredit (Pengeluaran)</option>
+                    {formData.transaction_type.includes("tempo") ? (
+                      <>
+                        <option value="debit_tempo">Debit Tempo (Pemasukan)</option>
+                        <option value="kredit_tempo">Kredit Tempo (Pengeluaran)</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="debit">Debit (Pemasukan)</option>
+                        <option value="kredit">Kredit (Pengeluaran)</option>
+                      </>
+                    )}
                   </select>
                 </div>
                 <div>
@@ -1834,9 +1982,9 @@ const CashManagementPage = () => {
                     {categories
                       .filter(
                         (cat) =>
-                          (formData.transaction_type === "debit" &&
+                          ((formData.transaction_type === "debit" || formData.transaction_type === "debit_tempo") &&
                             cat.category_type === "income") ||
-                          (formData.transaction_type === "kredit" &&
+                          ((formData.transaction_type === "kredit" || formData.transaction_type === "kredit_tempo") &&
                             cat.category_type === "expense")
                       )
                       .map((category) => (
@@ -2002,6 +2150,42 @@ const CashManagementPage = () => {
                         required={!isSpecialCategory}
                       />
                     </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Supplier
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.supplier}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            supplier: e.target.value,
+                          }))
+                        }
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                        placeholder="Nama supplier (opsional)"
+                      />
+                    </div>
+                    {formData.transaction_type.includes("tempo") && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Tanggal Jatuh Tempo *
+                        </label>
+                        <input
+                          type="date"
+                          value={formData.tanggal_jatuh_tempo}
+                          onChange={(e) =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              tanggal_jatuh_tempo: e.target.value,
+                            }))
+                          }
+                          className="w-full border border-gray-300 rounded-md px-3 py-2"
+                          required={formData.transaction_type.includes("tempo")}
+                        />
+                      </div>
+                    )}
                     <div className="mt-2">
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Upload Nota

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import CreatableSelect from "react-select/creatable";
 import toast from "react-hot-toast";
 import apiClient from "../api/axiosConfig";
@@ -9,6 +9,7 @@ import CurrencyInput from "../components/CurrencyInput";
 
 export default function TempoComposerPage() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const accountFromUrl = searchParams.get("account");
   
   const [accounts, setAccounts] = useState<string[]>([]);
@@ -808,6 +809,17 @@ export default function TempoComposerPage() {
       setQueuedTempo([]);
 
       toast.success(`Rekapan Nota Tempo ${recap.recap_number} berhasil dibuat dengan ${transactionDetails.length} transaksi`);
+      
+      // Redirect to cash page with account parameter after successful save
+      if (composerAccount) {
+        setTimeout(() => {
+          navigate(`/cash?account=${encodeURIComponent(composerAccount)}`);
+        }, 1000); // Small delay to show the success message
+      } else {
+        setTimeout(() => {
+          navigate('/cash');
+        }, 1000);
+      }
     } catch (e: any) { console.error("Tempo saveAllQueued error:", e); toast.error(friendlyError(e)); }
     finally { setIsSaving(false); setSavingText(null); }
   };

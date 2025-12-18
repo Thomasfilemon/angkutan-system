@@ -180,7 +180,7 @@ function App() {
           <Route path="services/edit/:id" element={<ServiceEditPage />} />
           <Route path="cash" element={<CashManagementPage />} />
           <Route path="cash/composer" element={<CashComposerPage />} />
-          <Route path="tempo" element={<TempoManagementPage />} />
+          <Route path="tempo" element={<CashManagementPage />} />
           <Route path="tempo/composer" element={<TempoComposerPage />} />
           <Route path="tempoDetails" element={<TempoDetailsPage />} />
           <Route path="deposit-groups" element={<DepositGroupManagement />} />
