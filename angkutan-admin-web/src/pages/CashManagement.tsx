@@ -31,6 +31,11 @@ interface CashTransaction {
   supplier?: string | null;
   last_edited_by?: string;
   last_edited_at?: string;
+  // Synthetic summary row fields
+  is_summary?: boolean;
+  total_debit?: number;
+  total_kredit?: number;
+  saldo?: number;
 }
 
 interface RekapanTransaction extends CashTransaction {
@@ -73,6 +78,7 @@ const CashManagementPage = () => {
     search: "",
     account: "", // Changed: account is now required, starts empty
     supplier: "",
+    item_name: "",
   });
   const [selectedAccount, setSelectedAccount] = useState<string>(""); // New: track selected account for display
 
@@ -123,6 +129,12 @@ const CashManagementPage = () => {
   const [dateFromInput, setDateFromInput] = useState<string>("");
   const [dateToInput, setDateToInput] = useState<string>("");
   const [accountInput, setAccountInput] = useState<string>("");
+  const [itemNameInput, setItemNameInput] = useState<string>("");
+  const [matchNotice, setMatchNotice] = useState<string>("");
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+  const [showItemEditor, setShowItemEditor] = useState(false);
+  const [itemEditorTransaction, setItemEditorTransaction] = useState<CashTransaction | null>(null);
+  const [itemRows, setItemRows] = useState<Array<{ id: number; type: string; description: string; supplier?: string; amount: number }>>([]);
   useEffect(() => {
     setSearchInput(filters.search || "");
     setSupplierInput(filters.supplier || "");
@@ -131,6 +143,7 @@ const CashManagementPage = () => {
     setDateFromInput(filters.date_from || "");
     setDateToInput(filters.date_to || "");
     setAccountInput(filters.account || "");
+    setItemNameInput((filters as any).item_name || "");
   }, []);
   // Manual search trigger via button (no debounce)
 
@@ -248,6 +261,7 @@ const CashManagementPage = () => {
 
   const [showDescModal, setShowDescModal] = useState(false);
   const [currentDesc, setCurrentDesc] = useState("");
+  const [currentDescTotal, setCurrentDescTotal] = useState<number | null>(null);
   const [showCreateAccountModal, setShowCreateAccountModal] = useState(false);
   const [newAccountName, setNewAccountName] = useState("");
 
@@ -390,6 +404,35 @@ const CashManagementPage = () => {
     fetchTransactions();
     fetchCategories();
   }, [fetchTransactions, fetchCategories]);
+
+  // Build a small notice showing how many matches exist for current search terms
+  useEffect(() => {
+    const term = (searchInput || "").trim();
+    const itemTerm = (itemNameInput || "").trim();
+    if ((!term && !itemTerm) || transactions.length === 0) {
+      setMatchNotice("");
+      return;
+    }
+    const toLower = (s: string) => (s || "").toLowerCase();
+    const t = toLower(term);
+    const it = toLower(itemTerm);
+    const count = transactions.filter((tr) => {
+      const desc = toLower(tr.description || "");
+      const ref = toLower(tr.reference_number || "");
+      let ok = false;
+      if (t) ok = ok || desc.includes(t) || ref.includes(t);
+      if (it) ok = ok || desc.includes(it) || ref.includes(it);
+      return ok;
+    }).length;
+    if (count > 0) {
+      const parts: string[] = [];
+      if (term) parts.push(`"${term}"`);
+      if (itemTerm) parts.push(`"${itemTerm}"`);
+      setMatchNotice(`Ditemukan ${count} transaksi yang memuat ${parts.join(" & ")}. Klik No. Nota/Deskripsi untuk melihat detail.`);
+    } else {
+      setMatchNotice("");
+    }
+  }, [transactions, searchInput, itemNameInput]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -614,7 +657,54 @@ const CashManagementPage = () => {
     } catch (e) {
       // Fallback to old format if JSON parsing fails
     }
-    
+
+    // Try to parse Pelunasan text block that contains 'Detail Transaksi'
+    const detailsIdx = description ? description.indexOf("Detail Transaksi") : -1;
+    if (detailsIdx !== -1) {
+      const section = description.slice(detailsIdx).split(/\r?\n/);
+      const items: Array<{ id: number; type: string; description: string; amount: number; supplier?: string }> = [];
+      let lineNo = 0;
+      for (const raw of section) {
+        const line = (raw || "").trim();
+        if (!line.startsWith("-")) continue;
+        // Extract amount (Rp 1.000.000,00 or Rp 1.000.000)
+        const amountMatch = line.match(/Rp\s*([0-9\.\,]+)/i);
+        const supplierMatch = line.match(/Supplier:\s*([^\)]+)/i);
+        let amount = 0;
+        if (amountMatch) {
+          const num = amountMatch[1].replace(/\./g, "").replace(/,/g, ".");
+          const parsed = parseFloat(num);
+          if (!isNaN(parsed)) amount = parsed;
+        }
+        // Remove prefix '-' and amount and supplier to get description
+        let descText = line.replace(/^-+\s*/, "");
+        if (amountMatch) {
+          descText = descText.replace(amountMatch[0], "").trim();
+        }
+        if (supplierMatch) {
+          descText = descText.replace(supplierMatch[0], "").trim();
+        }
+        // Extract a 'type' prefix if present before ':'
+        let type = "Item";
+        const typeMatch = descText.match(/^([^:]+):\s*(.*)$/);
+        if (typeMatch) {
+          type = typeMatch[1].trim();
+          descText = typeMatch[2].trim();
+        }
+        items.push({
+          id: ++lineNo,
+          type,
+          description: descText,
+          amount,
+          supplier: supplierMatch ? supplierMatch[1].trim() : undefined,
+        });
+      }
+      return {
+        mainDescription: "Pelunasan",
+        transactions: items,
+      };
+    }
+
     // Fallback: return empty structure
     return {
       mainDescription: "Rekapan Nota",
@@ -641,6 +731,69 @@ const CashManagementPage = () => {
       return false;
     }
   }
+
+  const isSettlementText = (description: string) => {
+    if (!description) return false;
+    return /Pelunasan/i.test(description) && /Detail Transaksi/i.test(description);
+  }
+  const formatIDR = (n: number) => `Rp ${Number(n || 0).toLocaleString('id-ID')}`;
+  const openItemEditor = (txn: CashTransaction) => {
+    const details = parseRekapanDetails(txn.description || '');
+    const rows = (details.transactions || []).map((t: any, idx: number) => ({
+      id: idx + 1,
+      type: String(t.type || 'Item'),
+      description: String(t.description || ''),
+      supplier: t.supplier ? String(t.supplier) : undefined,
+      amount: Number(t.amount || 0),
+    }));
+    setItemRows(rows);
+    setItemEditorTransaction(txn);
+    setShowItemEditor(true);
+  };
+  const saveItemEditor = async () => {
+    if (!itemEditorTransaction) return;
+    const total = itemRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    const isSettle = isSettlementText(itemEditorTransaction.description || '');
+    try {
+      if (isSettle) {
+        const lines = [
+          'Pelunasan:',
+          'Detail Transaksi:',
+          ...itemRows.map(r => {
+            const tail = `${formatIDR(r.amount)}${r.supplier ? ` (Supplier: ${r.supplier})` : ''}`;
+            return `- ${r.type}: ${r.description} - ${tail}`;
+          }),
+          `Total Item: ${formatIDR(total)}`,
+        ];
+        await apiClient.put(`/cash/transactions/${itemEditorTransaction.id}`, {
+          description: lines.join('\n'),
+          amount: total,
+        });
+      } else {
+        const payload = {
+          transactionDetails: itemRows.map((r, idx) => ({
+            id: idx + 1,
+            type: r.type,
+            description: r.description,
+            amount: r.amount,
+            supplier: r.supplier || undefined,
+          })),
+        };
+        await apiClient.put(`/cash/transactions/${itemEditorTransaction.id}`, {
+          description: JSON.stringify(payload),
+          amount: total,
+        });
+      }
+      setShowItemEditor(false);
+      setItemEditorTransaction(null);
+      setItemRows([]);
+      await fetchTransactions();
+      toast.success('Item berhasil diperbarui');
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.response?.data?.message || 'Gagal menyimpan perubahan item');
+    }
+  };
 
   // Helpers for inline composer
   const ensureRecap = useCallback(async () => {
@@ -830,6 +983,16 @@ const CashManagementPage = () => {
 
   if (loading)
     return <div className="text-center p-8">Loading cash transactions...</div>;
+
+  const visibleTransactions = (() => {
+    const itemTerm = (itemNameInput || "").trim().toLowerCase();
+    if (!itemTerm) return transactions;
+    return transactions.filter((tr) => {
+      const desc = (tr.description || "").toLowerCase();
+      const ref = (tr.reference_number || "").toLowerCase();
+      return desc.includes(itemTerm) || ref.includes(itemTerm);
+    });
+  })();
 
   return (
     <div className="p-6">
@@ -1150,6 +1313,19 @@ const CashManagementPage = () => {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
+              Nama Barang
+            </label>
+            <input
+              type="text"
+              placeholder="Cari nama barang di transaksi composer/rekapan..."
+              value={itemNameInput}
+              onChange={(e) => setItemNameInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
               Supplier
             </label>
             <input
@@ -1173,6 +1349,7 @@ const CashManagementPage = () => {
                   date_to: dateToInput,
                   search: searchInput,
                   supplier: supplierInput,
+                  item_name: itemNameInput,
                   account: filters.account, // Keep current account
                 }));
                 setPagination((prev) => ({ ...prev, page: 1 }));
@@ -1183,6 +1360,11 @@ const CashManagementPage = () => {
             </button>
           </div>
         </div>
+        {matchNotice && (
+          <div className="mt-3 text-sm text-gray-700 bg-gray-100 border border-gray-200 rounded px-3 py-2">
+            {matchNotice}
+          </div>
+        )}
         <div className="mt-4 flex gap-2">
           <button
             onClick={() => {
@@ -1194,6 +1376,7 @@ const CashManagementPage = () => {
                 search: "",
                 account: filters.account, // Keep current account
                 supplier: "",
+                item_name: "",
               });
               // Clear queued local inputs as well
               setTypeInput("");
@@ -1202,6 +1385,7 @@ const CashManagementPage = () => {
               setDateToInput("");
               setSearchInput("");
               setSupplierInput("");
+              setItemNameInput("");
               setPagination((prev) => ({ ...prev, page: 1 }));
             }}
             className="bg-gray-500 hover:bg-gray-700 text-white px-4 py-2 rounded"
@@ -1255,15 +1439,49 @@ const CashManagementPage = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {transactions.map((transaction) => {
+              {visibleTransactions.map((transaction) => {
+                // Render summary row (synthetic) if present
+                if (transaction.is_summary) {
+                  return (
+                    <tr key="summary-row" className="bg-gray-50 font-semibold">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">-</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">Grand Total</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">-</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">-</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">-</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">-</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">Grand Total</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-green-700">
+                        {formatCurrency(transaction.total_debit || 0)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-red-700">
+                        {formatCurrency(transaction.total_kredit || 0)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                        <span className={(transaction.saldo || 0) >= 0 ? "text-blue-700" : "text-red-700"}>
+                          {formatCurrency(transaction.saldo || 0)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">-</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">-</td>
+                    </tr>
+                  );
+                }
                 const isTxnRekapan = isRekapan(transaction.description);
+                const isTxnSettlement = isSettlementText(transaction.description);
                 const fullDesc = transaction.description;
                 const isLong = fullDesc.length > 100;
 
                 const truncated = isLong
                   ? fullDesc.substring(0, 100) + "..."
                   : fullDesc;
+                const autoExpand =
+                  (itemNameInput || "").trim() !== "" &&
+                  fullDesc.toLowerCase().includes((itemNameInput || "").toLowerCase());
+                const expanded =
+                  expandedRows.has(transaction.id) || autoExpand;
                 return (
+                  <>
                   <tr key={transaction.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {formatDate(transaction.transaction_date)}
@@ -1324,6 +1542,27 @@ const CashManagementPage = () => {
                                 handleShowRekapanDetails(transaction);
                               } else if (isLong) {
                                 setCurrentDesc(fullDesc);
+                                // Compute total from "Detail Transaksi" section if present
+                                const computeDetailTotal = (text: string): number | null => {
+                                  const marker = "Detail Transaksi";
+                                  const idx = text.indexOf(marker);
+                                  if (idx === -1) return null;
+                                  const section = text.slice(idx);
+                                  const re = /Rp\s*([0-9\.,]+)/g;
+                                  let match;
+                                  let total = 0;
+                                  let found = false;
+                                  while ((match = re.exec(section)) !== null) {
+                                    const raw = match[1].replace(/\./g, "").replace(/,/g, ".");
+                                    const val = parseFloat(raw);
+                                    if (!isNaN(val)) {
+                                      found = true;
+                                      total += val;
+                                    }
+                                  }
+                                  return found ? total : null;
+                                };
+                                setCurrentDescTotal(computeDetailTotal(fullDesc));
                                 setShowDescModal(true);
                               }
                             }}
@@ -1336,6 +1575,33 @@ const CashManagementPage = () => {
                             {isTxnRekapan ? `Rekapan Nota ${transaction.reference_number}`: truncated}
                           </span>
                         </div>
+                        {(isTxnRekapan || isTxnSettlement) && (
+                          <div className="mt-1">
+                            <button
+                              className="text-xs text-indigo-600 hover:underline"
+                              onClick={() => {
+                                setExpandedRows(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(transaction.id)) next.delete(transaction.id);
+                                  else next.add(transaction.id);
+                                  return next;
+                                });
+                              }}
+                            >
+                              {expanded ? "Sembunyikan Item" : "Tampilkan Item"}
+                            </button>
+                          </div>
+                        )}
+                        {(isTxnRekapan || isTxnSettlement) && (
+                          <div className="mt-1">
+                            <button
+                              className="text-xs text-blue-600 hover:underline"
+                              onClick={() => openItemEditor(transaction)}
+                            >
+                              Edit Item
+                            </button>
+                          </div>
+                        )}
                         {transaction.reference_number && (
                           <div className="text-xs text-gray-500">
                             Ref: {transaction.reference_number}
@@ -1404,6 +1670,48 @@ const CashManagementPage = () => {
                       </div>
                     </td>
                   </tr>
+                  {(isTxnRekapan || isTxnSettlement) && expanded && (
+                    <tr>
+                      <td colSpan={12} className="px-6 pb-4">
+                        {(() => {
+                          const details = parseRekapanDetails(transaction.description || "");
+                          const items = Array.isArray(details.transactions) ? details.transactions : [];
+                          const term = (itemNameInput || "").toLowerCase();
+                          const filtered = term ? items.filter((it: any) => (it.description || "").toLowerCase().includes(term)) : items;
+                          if (filtered.length === 0) {
+                            return <div className="text-xs text-gray-500">Tidak ada item yang cocok.</div>;
+                          }
+                          return (
+                            <div className="overflow-x-auto border rounded bg-gray-50">
+                              <table className="min-w-full text-xs">
+                                <thead className="bg-gray-100">
+                                  <tr>
+                                    <th className="px-3 py-2 text-left">No</th>
+                                    <th className="px-3 py-2 text-left">Tipe</th>
+                                    <th className="px-3 py-2 text-left">Deskripsi</th>
+                                    <th className="px-3 py-2 text-left">Supplier</th>
+                                    <th className="px-3 py-2 text-right">Amount</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {filtered.map((it: any, idx: number) => (
+                                    <tr key={idx} className="border-t">
+                                      <td className="px-3 py-2">{idx + 1}</td>
+                                      <td className="px-3 py-2">{it.type}</td>
+                                      <td className="px-3 py-2">{it.description}</td>
+                                      <td className="px-3 py-2">{it.supplier || "-"}</td>
+                                      <td className="px-3 py-2 text-right">Rp {Number(it.amount || 0).toLocaleString('id-ID')}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          );
+                        })()}
+                      </td>
+                    </tr>
+                  )}
+                  </>
                 );
               })}
             </tbody>
@@ -1641,20 +1949,23 @@ const CashManagementPage = () => {
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Jumlah (auto atau manual) *
                       </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={formData.amount}
-                        onChange={(e) =>
-                          setFormData((prev) => ({
-                            ...prev,
-                            amount: e.target.value,
-                          }))
-                        }
-                        className="w-full border border-gray-300 rounded-md px-3 py-2"
-                        placeholder="Qty × Harga Satuan"
-                        required={!isSpecialCategory}
-                      />
+                      {/* Currency input for amount with thousand separators */}
+                      {(() => {
+                        const CurrencyInput = require("../components/CurrencyInput").default;
+                        return (
+                          <CurrencyInput
+                            value={formData.amount}
+                            onChange={(numeric: string) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                amount: numeric,
+                              }))
+                            }
+                            className="w-full border border-gray-300 rounded-md px-3 py-2"
+                            placeholder="Rp 0"
+                          />
+                        );
+                      })()}
                       <p className="text-xs text-gray-500 mt-1">Otomatis: Qty × Harga Satuan</p>
                     </div>
                     <div>
@@ -1966,6 +2277,118 @@ const CashManagementPage = () => {
                   className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
                 >
                   Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showItemEditor && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-10 mx-auto p-6 border w-full max-w-3xl shadow-lg rounded-md bg-white">
+            <div className="mt-2">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Edit Item Transaksi</h3>
+              <div className="mb-3 text-xs text-gray-600 bg-yellow-50 border border-yellow-200 rounded px-3 py-2">
+                Catatan: Perubahan harga di sini tidak mengubah data harga di Inventaris. Perbarui juga di menu Inventaris agar dashboard menampilkan data yang akurat.
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full bg-white border border-gray-200 text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left">No</th>
+                      <th className="px-3 py-2 text-left">Tipe</th>
+                      <th className="px-3 py-2 text-left">Deskripsi</th>
+                      <th className="px-3 py-2 text-left">Supplier</th>
+                      <th className="px-3 py-2 text-right">Amount</th>
+                      <th className="px-3 py-2 text-center">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {itemRows.map((row, idx) => (
+                      <tr key={row.id} className="border-t">
+                        <td className="px-3 py-2">{idx + 1}</td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="text"
+                            value={row.type}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setItemRows(prev => prev.map((r, i) => i === idx ? { ...r, type: v } : r));
+                            }}
+                            className="w-28 border border-gray-300 rounded px-2 py-1"
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="text"
+                            value={row.description}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setItemRows(prev => prev.map((r, i) => i === idx ? { ...r, description: v } : r));
+                            }}
+                            className="w-full border border-gray-300 rounded px-2 py-1"
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="text"
+                            value={row.supplier || ''}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setItemRows(prev => prev.map((r, i) => i === idx ? { ...r, supplier: v } : r));
+                            }}
+                            className="w-40 border border-gray-300 rounded px-2 py-1"
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={row.amount}
+                            onChange={(e) => {
+                              const v = parseFloat(e.target.value || '0');
+                              setItemRows(prev => prev.map((r, i) => i === idx ? { ...r, amount: isNaN(v) ? 0 : v } : r));
+                            }}
+                            className="w-32 border border-gray-300 rounded px-2 py-1 text-right"
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <button
+                            className="text-red-600 hover:underline"
+                            onClick={() => setItemRows(prev => prev.filter((_, i) => i !== idx))}
+                          >
+                            Hapus
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex justify-between items-center mt-3">
+                <button
+                  className="text-sm text-indigo-600 hover:underline"
+                  onClick={() => setItemRows(prev => [...prev, { id: prev.length + 1, type: 'Item', description: '', amount: 0 }])}
+                >
+                  + Tambah Item
+                </button>
+                <div className="text-sm font-semibold">
+                  Total: {formatIDR(itemRows.reduce((s, r) => s + (Number(r.amount) || 0), 0))}
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 mt-4">
+                <button
+                  className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded"
+                  onClick={() => { setShowItemEditor(false); setItemEditorTransaction(null); }}
+                >
+                  Batal
+                </button>
+                <button
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded"
+                  onClick={saveItemEditor}
+                >
+                  Simpan
                 </button>
               </div>
             </div>

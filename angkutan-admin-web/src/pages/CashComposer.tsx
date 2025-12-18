@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
 import apiClient from "../api/axiosConfig";
 import { createRecap, listRecaps, addItemToRecap } from "../api/recapApi";
 import { createStockUsage, CreateStockUsagePayload } from "../api/stockUsageApi";
+import CurrencyInput from "../components/CurrencyInput";
 
 export default function CashComposerPage() {
   const [searchParams] = useSearchParams();
@@ -227,6 +228,7 @@ export default function CashComposerPage() {
   const [tireQty, setTireQty] = useState("1");
   const [tireUnitPrice, setTireUnitPrice] = useState("");
   const [tirePurchaseDate, setTirePurchaseDate] = useState(new Date().toISOString().split("T")[0]);
+  const [tireSerialNumber, setTireSerialNumber] = useState("");
 
   // Service fields (to mirror service creation)
   const [serviceDate, setServiceDate] = useState(new Date().toISOString().split("T")[0]);
@@ -237,7 +239,7 @@ export default function CashComposerPage() {
   // Queues for batch save
   type QueuedUsage = { vehicleId: string; itemId: string; itemName: string; itemUnit: string; merk?: string; qty: string; unitPrice?: string; description: string };
   type QueuedStockAdd = { itemId: string; itemName: string; itemUnit: string; qty: string; unitPrice: string; createNewBatch: boolean; description: string; rackRow?: string; rackLevel?: string; merk?: string };
-  type QueuedTirePurchase = { brand: string; size: string; type: string; condition: string; qty: string; unitPrice: string; date: string; description: string };
+  type QueuedTirePurchase = { brand: string; size: string; type: string; condition: string; qty: string; unitPrice: string; date: string; description: string; serialNumber?: string };
   type QueuedService = { vehicleId: string; serviceDate: string; serviceType: string; workshopName: string; laborCost: string; description: string };
   type QueuedCash = { 
     cashType: "debit" | "kredit"; 
@@ -384,7 +386,7 @@ export default function CashComposerPage() {
     if (!tireBrand || !tireSize) return toast.error("Isi brand & ukuran");
     if (!(q > 0)) return toast.error("Qty ban wajib");
     if (!(price > 0)) return toast.error("Harga per ban wajib");
-    setQueuedTirePurchases((prev) => [...prev, { brand: tireBrand, size: tireSize, type: tireType, condition: tireCondition, qty: tireQty, unitPrice: tireUnitPrice, date: tirePurchaseDate, description }]);
+    setQueuedTirePurchases((prev) => [...prev, { brand: tireBrand, size: tireSize, type: tireType, condition: tireCondition, qty: tireQty, unitPrice: tireUnitPrice, date: tirePurchaseDate, description, serialNumber: tireSerialNumber }]);
     toast.success("Ditambahkan ke antrian");
   };
 
@@ -398,9 +400,48 @@ export default function CashComposerPage() {
       setIsSaving(true); setSavingText("Menyimpan Pembelian Ban...");
       const a = q * price;
       const recap = await ensureRecap();
-      const desc = description || `Beli Ban ${tireBrand} ${tireSize} x ${q}`;
+      let desc = description || `Beli Ban ${tireBrand} ${tireSize} x ${q}`;
+      if ((tireSerialNumber || "").trim()) desc += ` (SN: ${tireSerialNumber.trim()})`;
       const cash = await addCashTransaction(a, desc);
       await addItemToRecap(recap.id, { type: "tire_purchase", reference_id: cash.id, description: desc, amount: a } as any);
+
+      // Create/Update tire inventory and instances so it appears in inventory
+      try {
+        // 1) Find or create tire inventory
+        const allInv = await apiClient.get('/tires/tire-inventory/all');
+        const match = (allInv.data?.data || []).find((inv: any) => 
+          (inv.tire_brand || '').toLowerCase() === (tireBrand || '').toLowerCase() &&
+          (inv.tire_size || '').toLowerCase() === (tireSize || '').toLowerCase() &&
+          (inv.tire_type || '').toLowerCase() === (tireType || '').toLowerCase()
+        );
+        let inventoryId = match?.id;
+        if (!inventoryId) {
+          const createRes = await apiClient.post('/tires/tire-inventory', {
+            tire_brand: tireBrand,
+            tire_size: tireSize,
+            tire_type: tireType || 'radial',
+            unit_price: price,
+            min_stock: 0,
+          });
+          inventoryId = createRes.data?.data?.id || createRes.data?.id;
+        }
+        // 2) Create tire instances for provided serial numbers (comma/space/newline separated)
+        const serials = (tireSerialNumber || '')
+          .split(/[\s,;\n]+/)
+          .map(s => s.trim())
+          .filter(Boolean);
+        if (inventoryId && serials.length > 0) {
+          await apiClient.post('/tires/tire-instances', {
+            tire_inventory_id: inventoryId,
+            serial_numbers: serials,
+            purchase_price: price,
+            purchase_date: tirePurchaseDate || new Date().toISOString().split('T')[0],
+            condition: 'new',
+          });
+        }
+      } catch (err) {
+        console.warn('Warning: failed to sync tire inventory/instances', err);
+      }
       toast.success("Beli ban (kas) tersimpan");
     } catch (e: any) { console.error("saveTirePurchase error:", e); toast.error(friendlyError(e)); } finally { setIsSaving(false); setSavingText(null); }
   };
@@ -631,13 +672,49 @@ export default function CashComposerPage() {
         if (!t.brand || !t.size || !(q > 0) || !(price > 0)) continue;
         const a = q * price;
         totalAmount += a;
+        const itemDesc = t.serialNumber ? `${t.brand} ${t.size} - ${q} pcs (SN: ${t.serialNumber})` : `${t.brand} ${t.size} - ${q} pcs`;
         transactionDetails.push({
           type: "Tire Purchase",
-          description: `${t.brand} ${t.size} - ${q} pcs`,
+          description: itemDesc,
           amount: a,
           supplier: composerSupplier || undefined,
           details: t
         });
+        // Also sync to tire inventory (create inventory if missing, then instances for provided serials)
+        try {
+          const allInv = await apiClient.get('/tires/tire-inventory/all');
+          const match = (allInv.data?.data || []).find((inv: any) => 
+            (inv.tire_brand || '').toLowerCase() === (t.brand || '').toLowerCase() &&
+            (inv.tire_size || '').toLowerCase() === (t.size || '').toLowerCase() &&
+            (inv.tire_type || '').toLowerCase() === (t.type || '').toLowerCase()
+          );
+          let inventoryId = match?.id;
+          if (!inventoryId) {
+            const createRes = await apiClient.post('/tires/tire-inventory', {
+              tire_brand: t.brand,
+              tire_size: t.size,
+              tire_type: t.type || 'radial',
+              unit_price: price,
+              min_stock: 0,
+            });
+            inventoryId = createRes.data?.data?.id || createRes.data?.id;
+          }
+          const serials = (t.serialNumber || '')
+            .split(/[\s,;\n]+/)
+            .map((s: string) => s.trim())
+            .filter((s: string) => !!s);
+          if (inventoryId && serials.length > 0) {
+            await apiClient.post('/tires/tire-instances', {
+              tire_inventory_id: inventoryId,
+              serial_numbers: serials,
+              purchase_price: price,
+              purchase_date: t.date || new Date().toISOString().split('T')[0],
+              condition: 'new',
+            });
+          }
+        } catch (err) {
+          console.warn('Warning: failed to sync tire inventory/instances (batch)', err);
+        }
       }
 
       // Process services
@@ -812,6 +889,12 @@ export default function CashComposerPage() {
             <input type="date" value={composerTransactionDate} onChange={(e) => setComposerTransactionDate(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
             <p className="text-xs text-gray-500 mt-1">Akan digunakan sebagai tanggal transaksi dan tanggal nota untuk semua item</p>
           </div>
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Total Antrian</label>
+            <div className="text-lg font-semibold text-blue-600">
+              {queuedUsages.length + queuedStockAdds.length + queuedTirePurchases.length + queuedServices.length + queuedCash.length} item
+            </div>
+          </div>
         </div>
         {/* Queue Table */}
         {(queuedUsages.length > 0 || queuedStockAdds.length > 0 || queuedTirePurchases.length > 0 || queuedServices.length > 0 || queuedCash.length > 0) && (
@@ -892,6 +975,7 @@ export default function CashComposerPage() {
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-900">
                         <div>{item.brand} {item.size} - {item.type}</div>
+                        {item.serialNumber && <div className="text-gray-600">SN: {item.serialNumber}</div>}
                         <div className="text-gray-500">{item.description || '-'}</div>
                       </td>
                       <td className="px-4 py-3 text-sm text-right text-gray-900">
@@ -988,6 +1072,22 @@ export default function CashComposerPage() {
                       {queuedUsages.length + queuedStockAdds.length + queuedTirePurchases.length + queuedServices.length + queuedCash.length} item
                     </td>
                   </tr>
+                  <tr>
+                    <td colSpan={3} className="px-4 py-3 text-right text-sm font-bold text-gray-900">
+                      Total Harga:
+                    </td>
+                    <td colSpan={2} className="px-4 py-3 text-left text-sm font-bold text-green-600">
+                      {(() => {
+                        const totalAmount = 
+                          queuedUsages.reduce((sum, u) => sum + (parseFloat(u.qty || "0") * parseFloat(u.unitPrice || "0")), 0) +
+                          queuedStockAdds.reduce((sum, s) => sum + (parseFloat(s.qty || "0") * parseFloat(s.unitPrice || "0")), 0) +
+                          queuedTirePurchases.reduce((sum, t) => sum + (parseInt(t.qty || "0", 10) * parseFloat(t.unitPrice || "0")), 0) +
+                          queuedServices.reduce((sum, sv) => sum + parseFloat(sv.laborCost || "0"), 0) +
+                          queuedCash.reduce((sum, c) => sum + parseFloat(c.amount || "0"), 0);
+                        return `Rp ${totalAmount.toLocaleString('id-ID')}`;
+                      })()}
+                    </td>
+                  </tr>
                 </tfoot>
               </table>
             </div>
@@ -1039,7 +1139,12 @@ export default function CashComposerPage() {
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Harga Satuan (opsional)</label>
-            <input type="number" step="0.01" value={usageUnitPrice} onChange={(e) => setUsageUnitPrice(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            <CurrencyInput
+              value={usageUnitPrice}
+              onChange={(numeric) => setUsageUnitPrice(numeric)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              placeholder="Rp 0"
+            />
           </div>
           <div className="md:col-span-2">
             <label className="block text-sm font-medium mb-1">Keterangan</label>
@@ -1076,7 +1181,12 @@ export default function CashComposerPage() {
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Harga Satuan</label>
-            <input type="number" step="0.01" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            <CurrencyInput
+              value={unitPrice}
+              onChange={(numeric) => setUnitPrice(numeric)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              placeholder="Rp 0"
+            />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Rak Baris (1-4)</label>
@@ -1147,11 +1257,20 @@ export default function CashComposerPage() {
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Harga/ban</label>
-            <input type="number" step="0.01" value={tireUnitPrice} onChange={(e) => setTireUnitPrice(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            <CurrencyInput
+              value={tireUnitPrice}
+              onChange={(numeric) => setTireUnitPrice(numeric)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              placeholder="Rp 0"
+            />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Tanggal Beli</label>
             <input type="date" value={tirePurchaseDate} onChange={(e) => setTirePurchaseDate(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Nomor Seri</label>
+            <input type="text" value={tireSerialNumber} onChange={(e) => setTireSerialNumber(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="SN ban (opsional)" />
           </div>
           <div className="md:col-span-3">
             <label className="block text-sm font-medium mb-1">Deskripsi</label>
@@ -1198,7 +1317,12 @@ export default function CashComposerPage() {
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Biaya Jasa</label>
-            <input type="number" step="0.01" value={laborCost} onChange={(e) => setLaborCost(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" />
+            <CurrencyInput
+              value={laborCost}
+              onChange={(numeric) => setLaborCost(numeric)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              placeholder="Rp 0"
+            />
           </div>
           <div className="md:col-span-3">
             <label className="block text sm font-medium mb-1">Deskripsi</label>
@@ -1261,21 +1385,30 @@ export default function CashComposerPage() {
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Harga Satuan</label>
-            <input type="number" step="0.01" value={cashUnitPrice} onChange={(e) => {
-              setCashUnitPrice(e.target.value);
-              // Auto-calculate amount if both qty and unitPrice are filled
-              if (e.target.value && cashQty) {
-                const qty = parseFloat(cashQty);
-                const unitPrice = parseFloat(e.target.value);
-                if (qty > 0 && unitPrice >= 0) {
-                  setAmount((qty * unitPrice).toString());
+            <CurrencyInput
+              value={cashUnitPrice}
+              onChange={(numeric) => {
+                setCashUnitPrice(numeric);
+                if (numeric && cashQty) {
+                  const qtyNum = parseFloat(cashQty);
+                  const priceNum = parseFloat(numeric);
+                  if (qtyNum > 0 && priceNum >= 0) {
+                    setAmount((qtyNum * priceNum).toString());
+                  }
                 }
-              }
-            }} className="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="0" />
+              }}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              placeholder="Rp 0"
+            />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Jumlah (auto atau manual)</label>
-            <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="Qty × Harga Satuan" />
+            <CurrencyInput
+              value={amount}
+              onChange={(numeric) => setAmount(numeric)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              placeholder="Rp 0"
+            />
             <p className="text-xs text-gray-500 mt-1">Otomatis: Qty × Harga Satuan</p>
           </div>
           {/* No. Nota and Tanggal Nota removed - they come from header (No. Nota field and Tanggal Transaksi) */}

@@ -38,6 +38,8 @@ exports.getAllCashTransactions = async (req, res, next) => {
       date_to,
       search,
       account,
+      supplier,
+      item_name,
     } = req.query;
 
     const offset = (page - 1) * limit;
@@ -62,10 +64,22 @@ exports.getAllCashTransactions = async (req, res, next) => {
       whereClause[Op.or] = [
         { description: { [Op.iLike]: `%${search}%` } },
         { reference_number: { [Op.iLike]: `%${search}%` } },
+        { supplier: { [Op.iLike]: `%${search}%` } },
       ];
     }
     if (account && account !== "All") {
       whereClause.account = account;
+    }
+    if (supplier) {
+      whereClause.supplier = { [Op.iLike]: `%${supplier}%` };
+    }
+    if (item_name) {
+      const like = { [Op.iLike]: `%${item_name}%` };
+      whereClause[Op.or] = [
+        ...(whereClause[Op.or] || []),
+        { description: like },
+        { reference_number: like },
+      ];
     }
 
     const result = await CashTransaction.findAndCountAll({
@@ -138,19 +152,42 @@ exports.getAllCashTransactions = async (req, res, next) => {
       };
     });
 
+    // Pagination with summary-row awareness
+    const baseTotal = result.count;
+    const totalWithSummary = baseTotal + 1; // include grand total row
+    const requestedPage = parseInt(page);
+    const pageLimit = parseInt(limit);
+    const totalPagesWithSummary = Math.ceil(totalWithSummary / pageLimit) || 1;
+    const isLastPage = requestedPage >= totalPagesWithSummary;
+
+    // Append a synthetic summary row ONLY on the last page
+    const responseRows = [...enhancedTransactions];
+    if (isLastPage) {
+      responseRows.push({
+        id: -1,
+        is_summary: true,
+        description: "Grand Total",
+        transaction_type: null,
+        total_debit: parseFloat(totalDebit || 0),
+        total_kredit: parseFloat(totalKredit || 0),
+        saldo: isNaN(saldo) ? 0 : saldo,
+        running_balance: isNaN(saldo) ? 0 : saldo,
+      });
+    }
+
     res.json({
       success: true,
-      data: enhancedTransactions,
+      data: responseRows,
       summary: {
         total_debit: parseFloat(totalDebit || 0),
         total_kredit: parseFloat(totalKredit || 0),
         saldo: isNaN(saldo) ? 0 : saldo,
       },
       pagination: {
-        total: result.count,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(result.count / limit),
+        total: totalWithSummary,
+        page: requestedPage,
+        limit: pageLimit,
+        totalPages: totalPagesWithSummary,
       },
     });
   } catch (err) {
@@ -170,6 +207,8 @@ exports.getAllTempoTransactions = async (req, res, next) => {
       date_to,
       search,
       account,
+      supplier,
+      item_name,
     } = req.query;
     const offset = (page - 1) * limit;
 
@@ -189,10 +228,22 @@ exports.getAllTempoTransactions = async (req, res, next) => {
       whereClause[Op.or] = [
         { description: { [Op.iLike]: `%${search}%` } },
         { reference_number: { [Op.iLike]: `%${search}%` } },
+        { supplier: { [Op.iLike]: `%${search}%` } },
       ];
     }
     if (account && account !== "All") {
       whereClause.account = account;
+    }
+    if (supplier) {
+      whereClause.supplier = { [Op.iLike]: `%${supplier}%` };
+    }
+    if (item_name) {
+      const like = { [Op.iLike]: `%${item_name}%` };
+      whereClause[Op.or] = [
+        ...(whereClause[Op.or] || []),
+        { description: like },
+        { reference_number: like },
+      ];
     }
 
     const result = await CashTransaction.findAndCountAll({
@@ -275,19 +326,42 @@ exports.getAllTempoTransactions = async (req, res, next) => {
       };
     });
 
+    // Pagination with summary-row awareness
+    const baseTotal = result.count;
+    const totalWithSummary = baseTotal + 1; // include grand total row
+    const requestedPage = parseInt(page);
+    const pageLimit = parseInt(limit);
+    const totalPagesWithSummary = Math.ceil(totalWithSummary / pageLimit) || 1;
+    const isLastPage = requestedPage >= totalPagesWithSummary;
+
+    // Append a synthetic summary row ONLY on the last page
+    const responseRows = [...enhancedTransactions];
+    if (isLastPage) {
+      responseRows.push({
+        id: -1,
+        is_summary: true,
+        description: "Grand Total",
+        transaction_type: null,
+        total_debit: parseFloat(totalDebitTempo || 0),
+        total_kredit: parseFloat(totalKreditTempo || 0),
+        saldo: isNaN(saldo) ? 0 : saldo,
+        running_balance: isNaN(saldo) ? 0 : saldo,
+      });
+    }
+
     res.json({
       success: true,
-      data: enhancedTransactions,
+      data: responseRows,
       summary: {
         total_debit_tempo: parseFloat(totalDebitTempo || 0),
         total_kredit_tempo: parseFloat(totalKreditTempo || 0),
         saldo: isNaN(saldo) ? 0 : saldo,
       },
       pagination: {
-        total: result.count,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(result.count / limit),
+        total: totalWithSummary,
+        page: requestedPage,
+        limit: pageLimit,
+        totalPages: totalPagesWithSummary,
       },
     });
   } catch (err) {
