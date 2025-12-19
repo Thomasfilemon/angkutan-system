@@ -11,7 +11,8 @@
     "seeder": "node src/utils/runSeeder.js",
     "migrate:fresh": "node src/utils/migrateFresh.js",
     "hash-passwords": "node src/utils/hashPasswords.js",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "postinstall": "npx playwright install chromium"
   },
   "keywords": [],
   "author": "",

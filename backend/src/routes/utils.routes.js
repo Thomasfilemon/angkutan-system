@@ -2,6 +2,72 @@ const express = require("express");
 const { chromium } = require("playwright");
 const router = express.Router();
 
+// Helper function to parse Google Maps URL without browser
+function parseGoogleMapsUrl(url) {
+  // Pattern 1: @lat,lng format (most common)
+  let match = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (match) {
+    return {
+      lat: parseFloat(match[1]),
+      lng: parseFloat(match[2]),
+    };
+  }
+
+  // Pattern 2: !3dlat!4dlng format
+  match = url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (match) {
+    return {
+      lat: parseFloat(match[1]),
+      lng: parseFloat(match[2]),
+    };
+  }
+
+  // Pattern 3: /@lat,lng,zoom format
+  match = url.match(/\/@(-?\d+\.\d+),(-?\d+\.\d+),(\d+\.?\d*)/);
+  if (match) {
+    return {
+      lat: parseFloat(match[1]),
+      lng: parseFloat(match[2]),
+    };
+  }
+
+  // Pattern 4: place/.../@lat,lng format
+  match = url.match(/place\/[^@]+@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (match) {
+    return {
+      lat: parseFloat(match[1]),
+      lng: parseFloat(match[2]),
+    };
+  }
+
+  return null;
+}
+
+// Helper function to use Google Maps Geocoding API (if API key available)
+async function geocodeWithGoogleMaps(locationName) {
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const response = await fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(locationName)}&key=${apiKey}`
+    );
+    const data = await response.json();
+    
+    if (data.status === "OK" && data.results && data.results.length > 0) {
+      const location = data.results[0].geometry.location;
+      return {
+        lat: location.lat,
+        lng: location.lng,
+      };
+    }
+  } catch (err) {
+    console.error("Geocoding API error:", err.message);
+  }
+  
+  return null;
+}
+
 // GET /api/utils/resolve-location - Helpful error message
 router.get("/resolve-location", (req, res) => {
   res.status(405).json({
@@ -28,8 +94,35 @@ router.post("/resolve-location", async (req, res) => {
       });
     }
 
-    // 2. Scrape from Google Maps
-    const browser = await chromium.launch({ headless: true });
+    // 2. Try to parse Google Maps URL directly (no browser needed)
+    if (input.includes("google.com/maps") || input.includes("maps.google.com")) {
+      const coords = parseGoogleMapsUrl(input);
+      if (coords) {
+        return res.json({
+          ...coords,
+          method: "url-parse"
+        });
+      }
+    }
+
+    // 3. Try Google Maps Geocoding API (lighter than scraping)
+    if (!input.startsWith("http")) {
+      const geocodeResult = await geocodeWithGoogleMaps(input);
+      if (geocodeResult) {
+        return res.json({
+          ...geocodeResult,
+          method: "geocoding-api"
+        });
+      }
+    }
+
+    // 4. Fallback: Scrape from Google Maps using Playwright (only if needed)
+    // This is resource-intensive, so we try lighter methods first
+    console.log("Using Playwright fallback for:", input);
+    const browser = await chromium.launch({ 
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'] // Required for Render
+    });
     const context = await browser.newContext({
       userAgent:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.64 Safari/537.36",
@@ -115,9 +208,22 @@ router.post("/resolve-location", async (req, res) => {
       return res.json({ ...coords, method: "playwright-scrape" });
     }
 
-    return res.status(404).json({ message: "Coordinates not found in Google Maps page." });
+    return res.status(404).json({ 
+      message: "Coordinates not found. Please provide a valid Google Maps URL, location name, or coordinates.",
+      suggestion: "If you have a Google Maps API key, set GOOGLE_MAPS_API_KEY in environment variables for better performance."
+    });
   } catch (err) {
     console.error(`Scraping error: ${err.stack}`);
+    
+    // If Playwright fails due to missing browsers, provide helpful error
+    if (err.message.includes("Executable doesn't exist") || err.message.includes("playwright")) {
+      return res.status(500).json({ 
+        message: "Browser automation not available. Please ensure Playwright browsers are installed.",
+        error: "Run 'npx playwright install chromium' during deployment",
+        fallback: "Consider using Google Maps Geocoding API instead (set GOOGLE_MAPS_API_KEY)"
+      });
+    }
+    
     return res.status(500).json({ message: "Scraping failed", error: err.message });
   }
 });
