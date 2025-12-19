@@ -43,6 +43,32 @@ function parseGoogleMapsUrl(url) {
   return null;
 }
 
+// Helper function to use OpenStreetMap Nominatim (free, no API key needed)
+async function geocodeWithNominatim(locationName) {
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationName)}&limit=1`,
+      {
+        headers: {
+          'User-Agent': 'Angkutan-System/1.0' // Required by Nominatim
+        }
+      }
+    );
+    const data = await response.json();
+    
+    if (data && data.length > 0) {
+      return {
+        lat: parseFloat(data[0].lat),
+        lng: parseFloat(data[0].lon),
+      };
+    }
+  } catch (err) {
+    console.error("Nominatim geocoding error:", err.message);
+  }
+  
+  return null;
+}
+
 // Helper function to use Google Maps Geocoding API (if API key available)
 async function geocodeWithGoogleMaps(locationName) {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
@@ -105,7 +131,18 @@ router.post("/resolve-location", async (req, res) => {
       }
     }
 
-    // 3. Try Google Maps Geocoding API (lighter than scraping)
+    // 3. Try OpenStreetMap Nominatim (free, no API key needed)
+    if (!input.startsWith("http")) {
+      const nominatimResult = await geocodeWithNominatim(input);
+      if (nominatimResult) {
+        return res.json({
+          ...nominatimResult,
+          method: "nominatim"
+        });
+      }
+    }
+
+    // 4. Try Google Maps Geocoding API (if API key available)
     if (!input.startsWith("http")) {
       const geocodeResult = await geocodeWithGoogleMaps(input);
       if (geocodeResult) {
@@ -116,13 +153,30 @@ router.post("/resolve-location", async (req, res) => {
       }
     }
 
-    // 4. Fallback: Scrape from Google Maps using Playwright (only if needed)
+    // 5. Fallback: Scrape from Google Maps using Playwright (only if needed)
     // This is resource-intensive, so we try lighter methods first
+    // Only use Playwright if it's a URL that couldn't be parsed, or if all geocoding failed
     console.log("Using Playwright fallback for:", input);
-    const browser = await chromium.launch({ 
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'] // Required for Render
-    });
+    
+    // Check if Playwright is available before trying to use it
+    let browser;
+    try {
+      browser = await chromium.launch({ 
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox'] // Required for Render
+      });
+    } catch (playwrightError) {
+      // If Playwright fails, return helpful error
+      if (playwrightError.message.includes("Executable doesn't exist") || playwrightError.message.includes("playwright")) {
+        return res.status(503).json({ 
+          message: "Location geocoding failed. Browser automation is not available.",
+          error: "Playwright browsers are not installed",
+          suggestion: "For location names, use OpenStreetMap Nominatim (already tried) or set GOOGLE_MAPS_API_KEY for Google Geocoding API",
+          tried_methods: ["direct-coords", "url-parse", "nominatim", "google-geocoding-api"]
+        });
+      }
+      throw playwrightError;
+    }
     const context = await browser.newContext({
       userAgent:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.64 Safari/537.36",
