@@ -2,6 +2,15 @@ const express = require("express");
 const { chromium } = require("playwright");
 const router = express.Router();
 
+// GET /api/utils/resolve-location - Helpful error message
+router.get("/resolve-location", (req, res) => {
+  res.status(405).json({
+    message: "Method not allowed. This endpoint requires POST request.",
+    usage: "POST /api/utils/resolve-location",
+    body: { input: "string (Google Maps URL, location name, or coordinates)" }
+  });
+});
+
 // POST /api/utils/resolve-location
 router.post("/resolve-location", async (req, res) => {
   const { input } = req.body;

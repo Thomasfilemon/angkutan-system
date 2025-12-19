@@ -131,6 +131,7 @@ app.use("/api/web/buku-kas", webBukuKasRoutes);
 app.use("/api/web/big-delivery-orders", webBigDeliveryOrderRoutes);
 app.use("/api/web/payments", webPaymentsRoutes);
 app.use("/api/web/utils", utilsRoutes);
+app.use("/api/utils", utilsRoutes); // Also mount at /api/utils for frontend compatibility
 app.use("/api/web/deposit-groups", webDepositGroupRoutes);
 app.use("/api/web/analytics", webAnalyticsRoutes);
 app.use("/api/web/tempo-details", webTempoDetailRoutes); // NEW: Mount tempo details routes

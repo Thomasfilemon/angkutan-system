@@ -1,5 +1,8 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-  <style name="AppTheme" parent="Theme.EdgeToEdge">
+  <!-- Use a standard MaterialComponents theme as the app base theme.
+       `Theme.EdgeToEdge` is not available in this project, which caused
+       the AAPT error during Android resource linking. -->
+  <style name="AppTheme" parent="Theme.MaterialComponents.DayNight.NoActionBar">
     <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
     <item name="colorPrimary">@color/colorPrimary</item>
     <item name="android:statusBarColor">#ffffff</item>
