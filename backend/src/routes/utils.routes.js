@@ -1,6 +1,6 @@
 const express = require("express");
 const { chromium } = require("playwright");
-const router = express.Router();
+const router = require("express").Router();
 
 // Helper function to parse Google Maps URL without browser
 function parseGoogleMapsUrl(url) {
@@ -153,29 +153,42 @@ router.post("/resolve-location", async (req, res) => {
       }
     }
 
-    // 5. Fallback: Scrape from Google Maps using Playwright (only if needed)
-    // This is resource-intensive, so we try lighter methods first
-    // Only use Playwright if it's a URL that couldn't be parsed, or if all geocoding failed
+    // 5. Fallback: Scrape from Google Maps using Playwright (DEV ONLY)
+    // Di production (Render) kita TIDAK pakai Playwright karena browser tidak tersedia.
+    // Kalau semua metode di atas gagal di production, kita minta user isi koordinat manual.
+    const isProd = process.env.NODE_ENV === "production";
+    const allowPlaywright =
+      !isProd && process.env.ENABLE_PLAYWRIGHT_FALLBACK === "true";
+
+    if (!allowPlaywright) {
+      return res.status(200).json({
+        lat: null,
+        lng: null,
+        method: "manual-required",
+        message:
+          "Tidak bisa menentukan koordinat dari alamat ini. Silakan masukkan koordinat (lat,lng) secara manual dari Google Maps.",
+        tried_methods: ["direct-coords", "url-parse", "nominatim", "geocoding-api"],
+      });
+    }
+
     console.log("Using Playwright fallback for:", input);
-    
-    // Check if Playwright is available before trying to use it
+
     let browser;
     try {
-      browser = await chromium.launch({ 
+      browser = await chromium.launch({
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'] // Required for Render
+        args: ["--no-sandbox", "--disable-setuid-sandbox"], // aman untuk dev container
       });
     } catch (playwrightError) {
-      // If Playwright fails, return helpful error
-      if (playwrightError.message.includes("Executable doesn't exist") || playwrightError.message.includes("playwright")) {
-        return res.status(503).json({ 
-          message: "Location geocoding failed. Browser automation is not available.",
-          error: "Playwright browsers are not installed",
-          suggestion: "For location names, use OpenStreetMap Nominatim (already tried) or set GOOGLE_MAPS_API_KEY for Google Geocoding API",
-          tried_methods: ["direct-coords", "url-parse", "nominatim", "google-geocoding-api"]
-        });
-      }
-      throw playwrightError;
+      console.error("Playwright launch error:", playwrightError.message);
+      return res.status(200).json({
+        lat: null,
+        lng: null,
+        method: "manual-required",
+        message:
+          "Gagal membuka browser otomatis di environment ini. Silakan masukkan koordinat (lat,lng) secara manual.",
+        tried_methods: ["direct-coords", "url-parse", "nominatim", "geocoding-api"],
+      });
     }
     const context = await browser.newContext({
       userAgent:
