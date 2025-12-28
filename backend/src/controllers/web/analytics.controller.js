@@ -141,26 +141,26 @@ const getVehicleExpenditureAnalytics = async (req, res) => {
           CASE 
             WHEN dgm.id IS NOT NULL THEN 
               -- When deposit exists, count per actual_load_quantity (or minimal if actual is null)
-              COALESCE(do.actual_load_quantity, do.minimal_load_quantity, 0)
+              COALESCE(d.actual_load_quantity, d.minimal_load_quantity, 0)
             ELSE 
               0
           END
         ), 0) as total_do_quantity,
-        COUNT(DISTINCT CASE WHEN dgm.id IS NOT NULL THEN do.id END) as do_count_with_deposit,
+        COUNT(DISTINCT CASE WHEN dgm.id IS NOT NULL THEN d.id END) as do_count_with_deposit,
         COALESCE(SUM(
           CASE 
             WHEN dgm.id IS NOT NULL THEN 
               -- When deposit exists, calculate value based on actual quantity
-              COALESCE(do.actual_load_quantity, do.minimal_load_quantity, 0) * COALESCE(do.unit_price, 0)
+              COALESCE(d.actual_load_quantity, d.minimal_load_quantity, 0) * COALESCE(d.unit_price, 0)
             ELSE 
               0
           END
         ), 0) as total_do_value
       FROM vehicles v
-      LEFT JOIN delivery_orders do ON v.id = do.vehicle_id 
-        AND do.completed_at BETWEEN :startDate AND :endDate
-        AND do.status = 'completed'
-      LEFT JOIN deposit_group_members dgm ON do.id = dgm.delivery_order_id
+      LEFT JOIN delivery_orders d ON v.id = d.vehicle_id 
+        AND d.completed_at BETWEEN :startDate AND :endDate
+        AND d.status = 'completed'
+      LEFT JOIN deposit_group_members dgm ON d.id = dgm.delivery_order_id
       WHERE (:vehicleId IS NULL OR v.id = :vehicleId)
       GROUP BY v.id, v.license_plate, v.type
       ORDER BY total_do_quantity DESC

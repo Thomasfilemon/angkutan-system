@@ -6,11 +6,14 @@ export interface StockUsageItemInput {
 	unit?: string;
 	quantity: number;
 	unit_price?: number; // optional price per unit to record cost
+	serial_number?: string; // optional serial number (for tires)
 }
 
 export interface CreateStockUsagePayload {
 	usage_date?: string;
 	vehicle_id: number;
+	odometer?: number | null;
+	hour_meter?: number | null;
 	notes?: string;
 	items: StockUsageItemInput[];
 	recap_number?: string;

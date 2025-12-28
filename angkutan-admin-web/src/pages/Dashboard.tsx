@@ -425,9 +425,18 @@ const Dashboard = () => {
           {/* --- BAGIAN 2: Rincian Pengeluaran & Profit --- */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 bg-white p-6 rounded-lg shadow-md">
-              <h3 className="text-xl font-semibold text-gray-800 mb-4">
-                Rincian Pengeluaran
-              </h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-semibold text-gray-800">
+                  Rincian Pengeluaran
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => (window.location.href = "/vehicles/expenditure")}
+                  className="text-xs md:text-sm bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold px-3 py-1 rounded border border-blue-200"
+                >
+                  Lihat Pengeluaran Per Mobil (Tabel)
+                </button>
+              </div>
               <div className="h-80">
                 <Bar
                   data={{

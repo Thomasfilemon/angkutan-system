@@ -26,6 +26,11 @@ module.exports = (sequelize) => {
 					key: "id",
 				},
 			},
+			// Optional serial number (used mainly for tires)
+			serial_number: {
+				type: DataTypes.STRING(100),
+				allowNull: true,
+			},
 			quantity: {
 				type: DataTypes.DECIMAL(10, 2),
 				allowNull: false,

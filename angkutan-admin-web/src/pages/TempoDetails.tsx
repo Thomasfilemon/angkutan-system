@@ -729,7 +729,7 @@ const TempoDetails: React.FC = () => {
                   className="w-4 h-4"
                 />
               </th>
-              <th className="p-3 text-left">ID</th>
+              <th className="p-3 text-left">No Nota</th>
               <th className="p-3 text-left">Due Date</th>
               <th className="p-3 text-left">Supplier</th>
               <th className="p-3 text-left">Amount</th>
@@ -768,7 +768,11 @@ const TempoDetails: React.FC = () => {
                       />
                     )}
                   </td>
-                  <td className="p-3">{detail.id}</td>
+                  <td className="p-3">
+                    {detail.cashTransaction?.reference_number ||
+                      detail.cashTransaction?.no_nota?.[0] ||
+                      '-'}
+                  </td>
                   <td className="p-3">{formatDate(detail.due_date)}</td>
                   <td className="p-3">{detail.store_name}</td>
                   <td className="p-3">{formatCurrency(detail.amount)}</td>

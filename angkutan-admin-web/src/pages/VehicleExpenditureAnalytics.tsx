@@ -25,6 +25,40 @@ interface ServiceData {
   status: string;
 }
 
+interface UsageNoteItem {
+  total_price?: number;
+}
+
+interface UsageNote {
+  id: number;
+  note_number: string;
+  usage_date: string;
+  items: UsageNoteItem[];
+}
+
+interface DriverExpenseSummary {
+  totalUangJalan: number;
+  totalGajiDriver: number;
+  totalOtherDriverExpenses: number;
+}
+
+interface StockUsageSummary {
+  totalStockUsageCost: number;
+  serviceStockUsageCost: number;
+  directUsageCost: number;
+}
+
+interface VehicleFinanceMetrics {
+  grossIncome: number;
+  driverExpenses?: DriverExpenseSummary;
+  stockUsage?: StockUsageSummary;
+  revenueBuckets?: {
+    paid: number;
+    partial: number;
+    completed: number;
+  };
+}
+
 interface SummaryData {
   total_stock_expenditure: number;
   total_vehicles: number;
@@ -55,6 +89,10 @@ const VehicleExpenditureAnalytics = () => {
   const [expandedVehicle, setExpandedVehicle] = useState<number | null>(null);
   const [vehicleServices, setVehicleServices] = useState<Record<number, ServiceData[]>>({});
   const [loadingServices, setLoadingServices] = useState<Record<number, boolean>>({});
+  const [vehicleUsageNotes, setVehicleUsageNotes] = useState<Record<number, UsageNote[]>>({});
+  const [loadingUsageNotes, setLoadingUsageNotes] = useState<Record<number, boolean>>({});
+  const [vehicleFinance, setVehicleFinance] = useState<Record<number, VehicleFinanceMetrics>>({});
+  const [loadingFinance, setLoadingFinance] = useState<Record<number, boolean>>({});
 
   const fetchAnalytics = async () => {
     try {
@@ -151,17 +189,80 @@ const VehicleExpenditureAnalytics = () => {
 
   const fetchVehicleServices = async (vehicleId: number) => {
     try {
-      setLoadingServices(prev => ({ ...prev, [vehicleId]: true }));
-      
-      const response = await apiClient.get(`/services?vehicleId=${vehicleId}&limit=100`);
-      const services = response.data.data || response.data;
-      
-      setVehicleServices(prev => ({ ...prev, [vehicleId]: services }));
+      setLoadingServices((prev) => ({ ...prev, [vehicleId]: true }));
+
+      const response = await apiClient.get("/services", {
+        params: { vehicle_id: vehicleId, limit: 100 },
+      });
+      const raw = response.data?.data || response.data || [];
+
+      const services: ServiceData[] = (raw as any[]).map((s) => {
+        const labor = parseFloat(s.labor_cost ?? 0) || 0;
+        const parts = parseFloat(s.parts_cost ?? 0) || 0;
+        return {
+          id: s.id,
+          service_number: s.service_number,
+          service_date: s.service_date,
+          description: s.description,
+          total_cost: (s.total_cost ?? (labor + parts)) || 0,
+          status: s.status || "completed",
+        };
+      });
+
+      setVehicleServices((prev) => ({ ...prev, [vehicleId]: services }));
     } catch (err: any) {
-      console.error('Failed to fetch vehicle services:', err);
-      setVehicleServices(prev => ({ ...prev, [vehicleId]: [] }));
+      console.error("Failed to fetch vehicle services:", err);
+      setVehicleServices((prev) => ({ ...prev, [vehicleId]: [] }));
     } finally {
-      setLoadingServices(prev => ({ ...prev, [vehicleId]: false }));
+      setLoadingServices((prev) => ({ ...prev, [vehicleId]: false }));
+    }
+  };
+
+  const fetchVehicleUsageNotes = async (vehicleId: number) => {
+    try {
+      setLoadingUsageNotes((prev) => ({ ...prev, [vehicleId]: true }));
+
+      const response = await apiClient.get("/stock/usage-notes", {
+        params: { vehicle_id: vehicleId, limit: 100 },
+      });
+      const notes = (response.data?.data || response.data || []) as UsageNote[];
+      setVehicleUsageNotes((prev) => ({ ...prev, [vehicleId]: notes }));
+    } catch (err: any) {
+      console.error("Failed to fetch usage notes:", err);
+      setVehicleUsageNotes((prev) => ({ ...prev, [vehicleId]: [] }));
+    } finally {
+      setLoadingUsageNotes((prev) => ({ ...prev, [vehicleId]: false }));
+    }
+  };
+
+  const fetchVehicleFinance = async (vehicleId: number) => {
+    try {
+      setLoadingFinance((prev) => ({ ...prev, [vehicleId]: true }));
+
+      const params = new URLSearchParams();
+      if (filterType === "custom" && customStartDate && customEndDate) {
+        params.append("startDate", customStartDate);
+        params.append("endDate", customEndDate);
+      } else {
+        params.append("timeRange", timeRange);
+      }
+      params.append("vehicleId", String(vehicleId));
+
+      const response = await apiClient.get(`/analytics/dashboard?${params.toString()}`);
+      const data = response.data?.data || response.data;
+      const metrics: VehicleFinanceMetrics = {
+        grossIncome: data.grossIncome || 0,
+        driverExpenses: data.driverExpenses,
+        stockUsage: data.stockUsage,
+        revenueBuckets: data.revenueBuckets,
+      };
+
+      setVehicleFinance((prev) => ({ ...prev, [vehicleId]: metrics }));
+    } catch (err: any) {
+      console.error("Failed to fetch vehicle finance metrics:", err);
+      setVehicleFinance((prev) => ({ ...prev, [vehicleId]: { grossIncome: 0 } }));
+    } finally {
+      setLoadingFinance((prev) => ({ ...prev, [vehicleId]: false }));
     }
   };
 
@@ -172,6 +273,12 @@ const VehicleExpenditureAnalytics = () => {
       setExpandedVehicle(vehicleId);
       if (!vehicleServices[vehicleId]) {
         fetchVehicleServices(vehicleId);
+      }
+      if (!vehicleUsageNotes[vehicleId]) {
+        fetchVehicleUsageNotes(vehicleId);
+      }
+      if (!vehicleFinance[vehicleId]) {
+        fetchVehicleFinance(vehicleId);
       }
     }
   };
@@ -440,54 +547,155 @@ const VehicleExpenditureAnalytics = () => {
                         <tr>
                           <td colSpan={7} className="px-6 py-4 bg-gray-50">
                             <div className="bg-white rounded-lg shadow-sm border">
-                              <div className="p-4">
-                                <h4 className="text-sm font-medium text-gray-900 mb-3">
-                                  Daftar Service - {vehicle.license_plate}
-                                </h4>
-                                
-                                {loadingServices[vehicle.vehicle_id] ? (
-                                  <div className="text-center py-4">
-                                    <div className="text-sm text-gray-500">Memuat data service...</div>
-                                  </div>
-                                ) : vehicleServices[vehicle.vehicle_id] && vehicleServices[vehicle.vehicle_id].length > 0 ? (
-                                  <div className="space-y-2">
-                                    {vehicleServices[vehicle.vehicle_id].map((service) => (
-                                      <div
-                                        key={service.id}
-                                        className="flex items-center justify-between p-3 bg-gray-50 rounded-md hover:bg-gray-100 cursor-pointer transition duration-200"
-                                        onClick={() => handleServiceDetail(service.id)}
-                                      >
-                                        <div className="flex-1">
-                                          <div className="text-sm font-medium text-gray-900">
-                                            {service.service_number}
-                                          </div>
-                                          <div className="text-xs text-gray-500">
-                                            {formatDate(service.service_date)} - {service.description}
-                                          </div>
-                                        </div>
-                                        <div className="flex items-center space-x-2">
-                                          <span className="text-sm font-medium text-gray-900">
-                                            {formatCurrency(service.total_cost)}
-                                          </span>
-                                          <span className={`px-2 py-1 text-xs rounded-full ${
-                                            service.status === 'completed' 
-                                              ? 'bg-green-100 text-green-800' 
-                                              : 'bg-yellow-100 text-yellow-800'
-                                          }`}>
-                                            {service.status}
-                                          </span>
-                                          <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                          </svg>
+                              <div className="p-4 space-y-6">
+                                {/* Ringkasan Keuangan Kendaraan */}
+                                <div>
+                                  <h4 className="text-sm font-medium text-gray-900 mb-2">
+                                    Ringkasan Keuangan - {vehicle.license_plate}
+                                  </h4>
+                                  {loadingFinance[vehicle.vehicle_id] ? (
+                                    <div className="text-sm text-gray-500 py-2">
+                                      Memuat ringkasan...
+                                    </div>
+                                  ) : (
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                                      <div className="bg-gray-50 p-3 rounded">
+                                        <div className="text-gray-500">Pendapatan (DO & Deposit)</div>
+                                        <div className="font-semibold text-green-700">
+                                          {formatCurrency(
+                                            vehicleFinance[vehicle.vehicle_id]?.revenueBuckets?.paid || 0
+                                          )}
                                         </div>
                                       </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <div className="text-center py-4">
-                                    <div className="text-sm text-gray-500">Tidak ada data service</div>
-                                  </div>
-                                )}
+                                      <div className="bg-gray-50 p-3 rounded">
+                                        <div className="text-gray-500">Uang Jalan + Gaji</div>
+                                        <div className="font-semibold text-red-700">
+                                          {formatCurrency(
+                                            (vehicleFinance[vehicle.vehicle_id]?.driverExpenses?.totalUangJalan || 0) +
+                                              (vehicleFinance[vehicle.vehicle_id]?.driverExpenses?.totalGajiDriver || 0)
+                                          )}
+                                        </div>
+                                      </div>
+                                      <div className="bg-gray-50 p-3 rounded">
+                                        <div className="text-gray-500">Biaya Lain Driver + Stok Langsung</div>
+                                        <div className="font-semibold text-red-700">
+                                          {formatCurrency(
+                                            (vehicleFinance[vehicle.vehicle_id]?.driverExpenses?.totalOtherDriverExpenses || 0) +
+                                              (vehicleFinance[vehicle.vehicle_id]?.stockUsage?.directUsageCost || 0)
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Daftar Service */}
+                                <div>
+                                  <h4 className="text-sm font-medium text-gray-900 mb-3">
+                                    Daftar Service - {vehicle.license_plate}
+                                  </h4>
+
+                                  {loadingServices[vehicle.vehicle_id] ? (
+                                    <div className="text-center py-4">
+                                      <div className="text-sm text-gray-500">Memuat data service...</div>
+                                    </div>
+                                  ) : vehicleServices[vehicle.vehicle_id] &&
+                                    vehicleServices[vehicle.vehicle_id].length > 0 ? (
+                                    <div className="space-y-2">
+                                      {vehicleServices[vehicle.vehicle_id].map((service) => (
+                                        <div
+                                          key={service.id}
+                                          className="flex items-center justify-between p-3 bg-gray-50 rounded-md hover:bg-gray-100 cursor-pointer transition duration-200"
+                                          onClick={() => handleServiceDetail(service.id)}
+                                        >
+                                          <div className="flex-1">
+                                            <div className="text-sm font-medium text-gray-900">
+                                              {service.service_number}
+                                            </div>
+                                            <div className="text-xs text-gray-500">
+                                              {formatDate(service.service_date)} - {service.description}
+                                            </div>
+                                          </div>
+                                          <div className="flex items-center space-x-2">
+                                            <span className="text-sm font-medium text-gray-900">
+                                              {formatCurrency(service.total_cost || 0)}
+                                            </span>
+                                            <span
+                                              className={`px-2 py-1 text-xs rounded-full ${
+                                                service.status === "completed"
+                                                  ? "bg-green-100 text-green-800"
+                                                  : "bg-yellow-100 text-yellow-800"
+                                              }`}
+                                            >
+                                              {service.status}
+                                            </span>
+                                            <svg
+                                              className="w-4 h-4 text-gray-400"
+                                              fill="none"
+                                              stroke="currentColor"
+                                              viewBox="0 0 24 24"
+                                            >
+                                              <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth={2}
+                                                d="M9 5l7 7-7 7"
+                                              />
+                                            </svg>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div className="text-center py-4">
+                                      <div className="text-sm text-gray-500">Tidak ada data service</div>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Stok Langsung (Stok Sekali Lewat) */}
+                                <div>
+                                  <h4 className="text-sm font-medium text-gray-900 mb-3">
+                                    Stok Langsung (Stok Sekali Lewat) - {vehicle.license_plate}
+                                  </h4>
+                                  {loadingUsageNotes[vehicle.vehicle_id] ? (
+                                    <div className="text-center py-4">
+                                      <div className="text-sm text-gray-500">Memuat data stok langsung...</div>
+                                    </div>
+                                  ) : vehicleUsageNotes[vehicle.vehicle_id] &&
+                                    vehicleUsageNotes[vehicle.vehicle_id].length > 0 ? (
+                                    <div className="space-y-2">
+                                      {vehicleUsageNotes[vehicle.vehicle_id].map((note) => {
+                                        const total = (note.items || []).reduce((sum, item) => {
+                                          const val = parseFloat(String(item.total_price || 0)) || 0;
+                                          return sum + val;
+                                        }, 0);
+                                        return (
+                                          <div
+                                            key={note.id}
+                                            className="flex items-center justify-between p-3 bg-gray-50 rounded-md"
+                                          >
+                                            <div className="flex-1">
+                                              <div className="text-sm font-medium text-gray-900">
+                                                {note.note_number}
+                                              </div>
+                                              <div className="text-xs text-gray-500">
+                                                {formatDate(note.usage_date)}
+                                              </div>
+                                            </div>
+                                            <div className="text-sm font-medium text-gray-900">
+                                              {formatCurrency(total)}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : (
+                                    <div className="text-center py-4">
+                                      <div className="text-sm text-gray-500">Tidak ada stok langsung untuk kendaraan ini</div>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </td>

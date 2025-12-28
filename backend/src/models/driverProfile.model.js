@@ -39,12 +39,6 @@ module.exports = (sequelize) => {
       validate: {
         notEmpty: {
           msg: 'Phone number cannot be empty'
-        },
-        isPhoneNumber(value) {
-          const phoneRegex = /^(\+62|62|0)[0-9]{8,13}$/;
-          if (!phoneRegex.test(value.replace(/\s|-/g, ''))) {
-            throw new Error('Invalid Indonesian phone number format');
-          }
         }
       }
     },
@@ -56,8 +50,8 @@ module.exports = (sequelize) => {
           msg: 'Address cannot be empty'
         },
         len: {
-          args: [10, 500],
-          msg: 'Address must be between 10 and 500 characters'
+          args: [1, 500],
+          msg: 'Address must be between 1 and 500 characters'
         }
       }
     },

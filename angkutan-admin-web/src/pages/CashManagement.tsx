@@ -142,6 +142,18 @@ const CashManagementPage = () => {
   const [showItemEditor, setShowItemEditor] = useState(false);
   const [itemEditorTransaction, setItemEditorTransaction] = useState<CashTransaction | null>(null);
   const [itemRows, setItemRows] = useState<Array<{ id: number; type: string; description: string; supplier?: string; amount: number }>>([]);
+
+  // Meta-only editor (no change to description/items)
+  const [showMetaEditor, setShowMetaEditor] = useState(false);
+  const [metaEditorTransaction, setMetaEditorTransaction] = useState<CashTransaction | null>(null);
+  const [metaForm, setMetaForm] = useState({
+    supplier: "",
+    reference_number: "",
+    account: "General",
+    transaction_date: new Date().toISOString().split("T")[0],
+    date_nota: "",
+    tanggal_jatuh_tempo: "",
+  });
   useEffect(() => {
     setSearchInput(filters.search || "");
     setSupplierInput(filters.supplier || "");
@@ -808,6 +820,22 @@ const CashManagementPage = () => {
     setItemEditorTransaction(txn);
     setShowItemEditor(true);
   };
+
+  const openMetaEditor = (txn: CashTransaction) => {
+    setMetaEditorTransaction(txn);
+    setMetaForm({
+      supplier: txn.supplier || "",
+      reference_number: txn.reference_number || "",
+      account: txn.account || "General",
+      transaction_date: txn.transaction_date,
+      date_nota:
+        Array.isArray(txn.date_nota) && txn.date_nota.length > 0
+          ? txn.date_nota[0]
+          : "",
+      tanggal_jatuh_tempo: txn.tanggal_jatuh_tempo || "",
+    });
+    setShowMetaEditor(true);
+  };
   const saveItemEditor = async () => {
     if (!itemEditorTransaction) return;
     const total = itemRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
@@ -850,6 +878,40 @@ const CashManagementPage = () => {
     } catch (e: any) {
       console.error(e);
       toast.error(e?.response?.data?.message || 'Gagal menyimpan perubahan item');
+    }
+  };
+
+  const saveMetaEditor = async () => {
+    if (!metaEditorTransaction) return;
+    try {
+      const payload: any = {
+        supplier: metaForm.supplier || undefined,
+        reference_number: metaForm.reference_number || undefined,
+        account: metaForm.account || undefined,
+        transaction_date: metaForm.transaction_date || undefined,
+      };
+
+      // Optional: update single Tanggal Nota (stored as first element of date_nota array)
+      if (metaForm.date_nota) {
+        payload.date_nota = [metaForm.date_nota];
+      }
+
+      // Only send due date for tempo transactions
+      if (
+        metaEditorTransaction.transaction_type === "debit_tempo" ||
+        metaEditorTransaction.transaction_type === "kredit_tempo"
+      ) {
+        payload.tanggal_jatuh_tempo = metaForm.tanggal_jatuh_tempo || undefined;
+      }
+
+      await apiClient.put(`/cash/transactions/${metaEditorTransaction.id}`, payload);
+      setShowMetaEditor(false);
+      setMetaEditorTransaction(null);
+      await fetchTransactions();
+      toast.success("Info transaksi berhasil diperbarui");
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.response?.data?.message || "Gagal menyimpan info transaksi");
     }
   };
 
@@ -1767,6 +1829,12 @@ const CashManagementPage = () => {
                     <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
                       <div className="flex justify-center space-x-2">
                         <button
+                          onClick={() => openMetaEditor(transaction)}
+                          className="text-indigo-600 hover:text-indigo-900 text-xs"
+                        >
+                          Edit Info
+                        </button>
+                        <button
                           onClick={() => handleEdit(transaction)}
                           className="text-blue-600 hover:text-blue-900"
                         >
@@ -2358,6 +2426,141 @@ const CashManagementPage = () => {
                   className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
                 >
                   Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showMetaEditor && metaEditorTransaction && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-6 border w-full max-w-lg shadow-lg rounded-md bg-white">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Edit Info Transaksi
+            </h3>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">No. Nota</label>
+                  <input
+                    type="text"
+                    value={metaForm.reference_number}
+                    onChange={(e) =>
+                      setMetaForm((prev) => ({ ...prev, reference_number: e.target.value }))
+                    }
+                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Tanggal Nota</label>
+                  <input
+                    type="date"
+                    value={metaForm.date_nota}
+                    onChange={(e) =>
+                      setMetaForm((prev) => ({ ...prev, date_nota: e.target.value }))
+                    }
+                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Supplier</label>
+                  <input
+                    type="text"
+                    value={metaForm.supplier}
+                    onChange={(e) =>
+                      setMetaForm((prev) => ({ ...prev, supplier: e.target.value }))
+                    }
+                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Ref / No. Rekapan</label>
+                  <input
+                    type="text"
+                    value={metaForm.reference_number}
+                    onChange={(e) =>
+                      setMetaForm((prev) => ({
+                        ...prev,
+                        reference_number: e.target.value,
+                      }))
+                    }
+                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Tanggal Transaksi</label>
+                  <input
+                    type="date"
+                    value={metaForm.transaction_date}
+                    onChange={(e) =>
+                      setMetaForm((prev) => ({
+                        ...prev,
+                        transaction_date: e.target.value,
+                      }))
+                    }
+                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Akun</label>
+                  <select
+                    value={metaForm.account}
+                    onChange={(e) =>
+                      setMetaForm((prev) => ({ ...prev, account: e.target.value }))
+                    }
+                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
+                  >
+                    {[...accounts, "General"]?.map((acc) => (
+                      <option key={acc} value={acc}>
+                        {acc}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {(metaEditorTransaction.transaction_type === "debit_tempo" ||
+                metaEditorTransaction.transaction_type === "kredit_tempo") && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Tanggal Jatuh Tempo
+                  </label>
+                  <input
+                    type="date"
+                    value={metaForm.tanggal_jatuh_tempo}
+                    onChange={(e) =>
+                      setMetaForm((prev) => ({
+                        ...prev,
+                        tanggal_jatuh_tempo: e.target.value,
+                      }))
+                    }
+                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
+                  />
+                </div>
+              )}
+
+              <div className="flex justify-end space-x-2 pt-4">
+                <button
+                  onClick={() => {
+                    setShowMetaEditor(false);
+                    setMetaEditorTransaction(null);
+                  }}
+                  className="px-4 py-2 rounded border border-gray-300 text-gray-700 hover:bg-gray-100"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={saveMetaEditor}
+                  className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
+                >
+                  Simpan
                 </button>
               </div>
             </div>

@@ -87,29 +87,14 @@ exports.createDriver = async (req, res, next) => {
 
     if (!profileData.phone || profileData.phone.trim() === '') {
       validationErrors.push('Phone number is required');
-    } else {
-      // Validate Indonesian phone number format
-      const cleanPhone = profileData.phone.replace(/\s|-/g, '');
-      const phoneRegex = /^(\+62|62|0)[0-9]{8,13}$/;
-      if (!phoneRegex.test(cleanPhone)) {
-        validationErrors.push('Phone number must be a valid Indonesian phone number (e.g., 081234567890, +6281234567890, or 6281234567890)');
-      }
     }
 
     if (!profileData.address || profileData.address.trim() === '') {
       validationErrors.push('Address is required');
     } else {
       const trimmedAddress = profileData.address.trim();
-      const addressWords = trimmedAddress.split(/\s+/).filter(word => word.length > 0);
-      
-      if (addressWords.length < 10) {
-        validationErrors.push('Address must contain at least 10 words');
-      }
-      
-      if (trimmedAddress.length < 10) {
-        validationErrors.push('Address must be at least 10 characters long');
-      }
-      
+
+      // Only enforce a very generous max length; no word or min-length restriction
       if (trimmedAddress.length > 500) {
         validationErrors.push('Address must not exceed 500 characters');
       }

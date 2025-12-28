@@ -1214,7 +1214,7 @@ const getDistinctSuppliers = async (req, res, next) => {
 const createUsageNote = async (req, res, next) => {
 	const t = await sequelize.transaction();
 	try {
-		const { usage_date, vehicle_id, notes, items } = req.body;
+		const { usage_date, vehicle_id, notes, items, odometer, hour_meter } = req.body;
 		// items: [{ item_id? , item_name, quantity, unit_price? }]
 
 		if (!vehicle_id) {
@@ -1238,6 +1238,9 @@ const createUsageNote = async (req, res, next) => {
 				note_number: noteNumber,
 				usage_date: usage_date || new Date(),
 				vehicle_id,
+				// Optional readings (nullable by design)
+				odometer: odometer !== undefined && odometer !== null ? odometer : null,
+				hour_meter: hour_meter !== undefined && hour_meter !== null ? hour_meter : null,
 				notes: notes || null,
 				created_by: creator,
 			},
@@ -1247,6 +1250,8 @@ const createUsageNote = async (req, res, next) => {
 		// Process each item with FIFO deduction; create item if needed
 		for (const input of items) {
 			let targetItemId = input.item_id || null;
+			// Optional per-item serial number (mainly for tires)
+			const serialNumber = input.serial_number || null;
 			let unitPriceForTxn = 0;
 
 			// Ensure stock item exists when item_id is provided, otherwise create it
@@ -1361,6 +1366,7 @@ const createUsageNote = async (req, res, next) => {
 					unit_price: unitPriceForTxn,
 					total_price: unitPriceForTxn * qty,
 					from_stock: true,
+					serial_number: serialNumber,
 				},
 				{ transaction: t }
 			);
@@ -1645,7 +1651,7 @@ const listUsageNotes = async (req, res, next) => {
 				{ 
 					model: StockUsageNoteItem, 
 					as: "items", 
-					attributes: ["id", "item_id", "quantity", "unit_price", "total_price"],
+					attributes: ["id", "item_id", "quantity", "unit_price", "total_price", "serial_number"],
 					include: [{
 						model: StockItem,
 						as: "stockItem",

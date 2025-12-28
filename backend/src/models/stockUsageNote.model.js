@@ -28,6 +28,16 @@ module.exports = (sequelize) => {
 					key: "id",
 				},
 			},
+			// Optional odometer reading at the time of usage (km)
+			odometer: {
+				type: DataTypes.INTEGER,
+				allowNull: true,
+			},
+			// Optional hour meter reading at the time of usage (for non-road equipment)
+			hour_meter: {
+				type: DataTypes.DECIMAL(10, 2),
+				allowNull: true,
+			},
 			notes: {
 				type: DataTypes.TEXT,
 				allowNull: true,

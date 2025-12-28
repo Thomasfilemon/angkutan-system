@@ -43,6 +43,8 @@ interface StockUsageNote {
 	note_number: string;
 	usage_date: string;
 	vehicle_id: number;
+	odometer?: number | null;
+	hour_meter?: number | null;
 	notes?: string;
 	vehicle: {
 		id: number;
@@ -82,15 +84,20 @@ const StockUsageRecapPage = () => {
 		}
 	};
 
-	// Helper function to parse merk from notes (stored as JSON)
-	const parseMerkFromNotes = (notes?: string): string => {
-		if (!notes) return "-";
+	// Helper function to parse merk & keterangan from notes (stored as JSON)
+	const parseNotesMetadata = (notes?: string): { merk: string; keterangan: string } => {
+		if (!notes) return { merk: "-", keterangan: "-" };
 		try {
 			const parsed = JSON.parse(notes);
-			return parsed.merk || "-";
+			const merk = parsed.merk || "-";
+			const keterangan = parsed.notes || parsed.otherNotes || "-";
+			return {
+				merk: merk || "-",
+				keterangan: keterangan && String(keterangan).trim().length > 0 ? String(keterangan) : "-",
+			};
 		} catch {
-			// If not JSON, return "-"
-			return "-";
+			// If not JSON, treat the raw notes as keterangan
+			return { merk: "-", keterangan: notes || "-" };
 		}
 	};
 
@@ -317,16 +324,19 @@ const StockUsageRecapPage = () => {
 								Tanggal
 							</th>
 							<th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">
-								Kendaraan
+								Odo / Hour Meter
 							</th>
 							<th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">
-								Recap Number
+								No. Pol
 							</th>
 							<th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">
 								Supplier
 							</th>
 							<th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">
-								Merk
+								Nama Barang - Merk
+							</th>
+							<th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">
+								Satuan
 							</th>
 							<th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">
 								Harga Satuan
@@ -335,7 +345,10 @@ const StockUsageRecapPage = () => {
 								Total Harga
 							</th>
 							<th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">
-								Quantity
+								Keterangan
+							</th>
+							<th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase">
+								No Seri
 							</th>
 						</tr>
 					</thead>
@@ -365,7 +378,7 @@ const StockUsageRecapPage = () => {
 								return sum + qty;
 							}, 0) || 0;
 							const firstItem = note.items?.[0];
-							const unit = firstItem?.stockItem?.unit || firstItem?.unit || "pcs";
+							const unit = firstItem?.stockItem?.unit || firstItem?.unit || "Pcs";
 							
 							// Calculate total price and unit price
 							const totalPrice = note.items?.reduce((sum, item) => {
@@ -374,6 +387,17 @@ const StockUsageRecapPage = () => {
 							}, 0) || 0;
 							
 							const unitPrice = firstItem ? parseFloat(firstItem.unit_price?.toString() || "0") : 0;
+							const serialNumber = (firstItem as any)?.serial_number || "-";
+							const { merk, keterangan } = parseNotesMetadata(note.notes);
+
+							const odoDisplay =
+								(note.odometer !== null && note.odometer !== undefined && !isNaN(Number(note.odometer)))
+									? `Odo: ${note.odometer}`
+									: undefined;
+							const hourDisplay =
+								(note.hour_meter !== null && note.hour_meter !== undefined && !isNaN(Number(note.hour_meter)))
+									? `Hour: ${note.hour_meter}`
+									: undefined;
 
 							return (
 								<tr key={note.id} className="hover:bg-gray-50">
@@ -384,22 +408,29 @@ const StockUsageRecapPage = () => {
 										{formatDate(note.usage_date)}
 									</td>
 									<td className="px-5 py-3 border-b border-gray-200 text-sm text-gray-900">
-										{note.vehicle?.license_plate || `#${note.vehicle_id}`}
-									</td>
-									<td className="px-5 py-3 border-b border-gray-200 text-sm">
-										{recap?.recap_number ? (
-											<span className="text-blue-600 font-medium">
-												{recap.recap_number}
+										{odoDisplay || hourDisplay ? (
+											<span>
+												{odoDisplay}
+												{odoDisplay && hourDisplay ? " / " : ""}
+												{!odoDisplay && hourDisplay ? hourDisplay : hourDisplay && !odoDisplay ? hourDisplay : ""}
 											</span>
 										) : (
 											<span className="text-gray-400">-</span>
 										)}
 									</td>
 									<td className="px-5 py-3 border-b border-gray-200 text-sm text-gray-900">
+										{note.vehicle?.license_plate || `#${note.vehicle_id}`}
+									</td>
+									<td className="px-5 py-3 border-b border-gray-200 text-sm text-gray-900">
 										{recap?.supplier || "-"}
 									</td>
 									<td className="px-5 py-3 border-b border-gray-200 text-sm text-gray-900">
-										{parseMerkFromNotes(note.notes)}
+										{firstItem
+											? `${firstItem.stockItem?.item_name || firstItem.item_name || "-"}${merk && merk !== "-" ? ` - ${merk}` : ""}`
+											: "-"}
+									</td>
+									<td className="px-5 py-3 border-b border-gray-200 text-sm text-gray-900">
+										{unit || "-"}
 									</td>
 									<td className="px-5 py-3 border-b border-gray-200 text-sm text-right">
 										{unitPrice > 0 ? formatCurrency(unitPrice) : "-"}
@@ -407,9 +438,12 @@ const StockUsageRecapPage = () => {
 									<td className="px-5 py-3 border-b border-gray-200 text-sm text-right">
 										{totalPrice > 0 ? formatCurrency(totalPrice) : "-"}
 									</td>
-									<td className="px-5 py-3 border-b border-gray-200 text-sm text-gray-900">
-										{totalQuantity > 0 ? `${totalQuantity} ${unit}` : "-"}
-									</td>
+							<td className="px-5 py-3 border-b border-gray-200 text-sm text-gray-900">
+								{keterangan}
+							</td>
+							<td className="px-5 py-3 border-b border-gray-200 text-sm text-gray-900">
+								{serialNumber || "-"}
+							</td>
 								</tr>
 							);
 						})}

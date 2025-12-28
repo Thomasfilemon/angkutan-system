@@ -202,6 +202,9 @@ export default function CashComposerPage() {
   const [usageItemName, setUsageItemName] = useState("");
   const [usageItemUnit, setUsageItemUnit] = useState("Pcs");
   const [usageMerk, setUsageMerk] = useState(""); // Merk/Brand for stock usage
+  const [usageOdometer, setUsageOdometer] = useState(""); // Odometer (nullable)
+  const [usageHourMeter, setUsageHourMeter] = useState(""); // Hour meter (nullable)
+  const [usageSerialNumber, setUsageSerialNumber] = useState(""); // Serial number (nullable, e.g. for tires)
   const [usageQty, setUsageQty] = useState("");
   const [usageUnitPrice, setUsageUnitPrice] = useState("");
   const [usageDescription, setUsageDescription] = useState("");
@@ -238,7 +241,19 @@ export default function CashComposerPage() {
   const [laborCost, setLaborCost] = useState("");
 
   // Queues for batch save
-  type QueuedUsage = { vehicleId: string; itemId: string; itemName: string; itemUnit: string; merk?: string; qty: string; unitPrice?: string; description: string };
+  type QueuedUsage = { 
+    vehicleId: string; 
+    itemId: string; 
+    itemName: string; 
+    itemUnit: string; 
+    merk?: string; 
+    qty: string; 
+    unitPrice?: string; 
+    description: string;
+    odometer?: string;
+    hourMeter?: string;
+    serialNumber?: string;
+  };
   type QueuedStockAdd = { itemId: string; itemName: string; itemUnit: string; qty: string; unitPrice: string; createNewBatch: boolean; description: string; rackRow?: string; rackLevel?: string; merk?: string };
   type QueuedTirePurchase = { brand: string; size: string; type: string; condition: string; qty: string; unitPrice: string; date: string; description: string; serialNumber?: string };
   type QueuedService = { vehicleId: string; serviceDate: string; serviceType: string; workshopName: string; laborCost: string; description: string };
@@ -280,6 +295,9 @@ export default function CashComposerPage() {
         qty: usageQty,
         unitPrice: usageUnitPrice,
         description: usageDescription,
+        odometer: usageOdometer || undefined,
+        hourMeter: usageHourMeter || undefined,
+        serialNumber: usageSerialNumber || undefined,
       },
     ]);
     toast.success("Ditambahkan ke antrian");
@@ -288,6 +306,9 @@ export default function CashComposerPage() {
     setUsageItemName("");
     setUsageItemUnit("Pcs");
     setUsageMerk("");
+    setUsageOdometer("");
+    setUsageHourMeter("");
+    setUsageSerialNumber("");
     setUsageQty("");
     setUsageUnitPrice("");
     setUsageDescription("");
@@ -315,6 +336,8 @@ export default function CashComposerPage() {
       const payload: CreateStockUsagePayload = {
         vehicle_id: parseInt(vehicleId, 10),
         usage_date: new Date().toISOString().split("T")[0],
+        odometer: usageOdometer ? parseInt(usageOdometer, 10) : null,
+        hour_meter: usageHourMeter ? parseFloat(usageHourMeter) : null,
         notes: saveMerkToNotes(usageMerk, usageDescription || `Composer: ${usageItemName || "Item"}`),
         items: [ {
           item_id: usageItemId ? parseInt(usageItemId, 10) : undefined,
@@ -322,6 +345,7 @@ export default function CashComposerPage() {
           unit: usageItemUnit,
           quantity: q,
           unit_price: usageUnitPrice ? parseFloat(usageUnitPrice) : undefined,
+          serial_number: usageSerialNumber || undefined,
         } ],
         recap_number: recap.recap_number,
         cash_options: { create_cash: true, is_tempo: isTempo, account: composerAccount, supplier: composerSupplier || undefined, due_date: isTempo ? composerDueDate || undefined : undefined },
@@ -579,8 +603,20 @@ export default function CashComposerPage() {
         const payload: CreateStockUsagePayload = {
           vehicle_id: parseInt(u.vehicleId, 10),
           usage_date: new Date().toISOString().split("T")[0],
+          odometer: u.odometer ? parseInt(u.odometer, 10) : null,
+          hour_meter: u.hourMeter ? parseFloat(u.hourMeter) : null,
           notes: saveMerkToNotes(u.merk || "", u.description || `Composer: ${u.itemName || "Item"}`),
-          items: [ { item_id: u.itemId ? parseInt(u.itemId, 10) : undefined, item_name: u.itemName || undefined, unit: u.itemUnit, quantity: q, unit_price: u.unitPrice ? parseFloat(u.unitPrice) : undefined } ],
+          items: [
+            {
+              item_id: u.itemId ? parseInt(u.itemId, 10) : undefined,
+              item_name: u.itemName || undefined,
+              unit: u.itemUnit,
+              quantity: q,
+              unit_price: u.unitPrice ? parseFloat(u.unitPrice) : undefined,
+              // Pass serial number through to backend so it can be shown in recap
+              serial_number: u.serialNumber || undefined,
+            },
+          ],
           recap_number: recap.recap_number,
           cash_options: { create_cash: false }, // Don't create individual cash transactions
         };
@@ -934,6 +970,13 @@ export default function CashComposerPage() {
                       <td className="px-4 py-3 text-sm text-gray-900">
                         <div>Kendaraan: {vehicles.find(v => v.id.toString() === item.vehicleId)?.license_plate || item.vehicleId}</div>
                         <div>Item: {item.itemName || item.itemId}</div>
+                        {(item.odometer || item.hourMeter) && (
+                          <div className="text-gray-500">
+                            {item.odometer && <>Odo: {item.odometer}</>}
+                            {item.hourMeter && <> {item.odometer ? " / " : ""}Hour: {item.hourMeter}</>}
+                          </div>
+                        )}
+                        {item.serialNumber && <div className="text-gray-500">No Seri: {item.serialNumber}</div>}
                         {item.merk && <div className="text-gray-500">Merk: {item.merk}</div>}
                         <div className="text-gray-500">{item.description || '-'}</div>
                       </td>
@@ -1144,6 +1187,26 @@ export default function CashComposerPage() {
           <div>
             <label className="block text-sm font-medium mb-1">Merk</label>
             <input type="text" value={usageMerk} onChange={(e) => setUsageMerk(e.target.value)} placeholder="Merk/Brand" className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Odometer</label>
+            <input
+              type="number"
+              value={usageOdometer}
+              onChange={(e) => setUsageOdometer(e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              placeholder="km"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">No Seri</label>
+            <input
+              type="text"
+              value={usageSerialNumber}
+              onChange={(e) => setUsageSerialNumber(e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              placeholder="No seri ban / barang"
+            />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Qty</label>

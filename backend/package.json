@@ -8,6 +8,7 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "migrate": "node src/utils/runMigrations.js",
+    "migrate:one": "node src/utils/runSingleMigration.js",
     "seeder": "node src/utils/runSeeder.js",
     "migrate:fresh": "node src/utils/migrateFresh.js",
     "hash-passwords": "node src/utils/hashPasswords.js",

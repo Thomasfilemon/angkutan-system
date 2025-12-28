@@ -178,7 +178,19 @@ export default function TempoComposerPage() {
   }, [composerAccount, composerSupplier, composerDueDate, composerTransactionDate, recapNumber]);
 
   // Queue states
-  const [queuedUsages, setQueuedUsages] = useState<Array<{ vehicleId: string; itemId: string; itemName: string; itemUnit: string; merk?: string; qty: string; unitPrice?: string; description: string }>>([]);
+  const [queuedUsages, setQueuedUsages] = useState<Array<{ 
+    vehicleId: string; 
+    itemId: string; 
+    itemName: string; 
+    itemUnit: string; 
+    merk?: string; 
+    qty: string; 
+    unitPrice?: string; 
+    description: string;
+    odometer?: string;
+    hourMeter?: string;
+    serialNumber?: string;
+  }>>([]);
   const [queuedStockAdds, setQueuedStockAdds] = useState<Array<{ itemId: string; itemName: string; itemUnit: string; qty: string; unitPrice: string; createNewBatch: boolean; description: string; rackRow?: string; rackLevel?: string; merk?: string }>>([]);
   const [queuedTirePurchases, setQueuedTirePurchases] = useState<Array<{ brand: string; size: string; type: string; condition: string; qty: string; unitPrice: string; date: string; description: string; serialNumber?: string }>>([]);
   const [queuedServices, setQueuedServices] = useState<Array<{ vehicleId: string; serviceDate: string; serviceType: string; workshopName: string; laborCost: string; description: string }>>([]);
@@ -208,6 +220,9 @@ export default function TempoComposerPage() {
   const [usageItemName, setUsageItemName] = useState("");
   const [usageItemUnit, setUsageItemUnit] = useState("");
   const [usageMerk, setUsageMerk] = useState(""); // Merk/Brand for stock usage
+  const [usageOdometer, setUsageOdometer] = useState(""); // Odometer (nullable)
+  const [usageHourMeter, setUsageHourMeter] = useState(""); // Hour meter (nullable)
+  const [usageSerialNumber, setUsageSerialNumber] = useState(""); // Serial number (nullable, e.g. for tires)
   const [usageQty, setUsageQty] = useState("");
   const [usageUnitPrice, setUsageUnitPrice] = useState("");
   const [usageDescription, setUsageDescription] = useState("");
@@ -274,7 +289,19 @@ export default function TempoComposerPage() {
 
   const queueStockUsage = () => {
     if (!usageVehicleId || !usageQty) return toast.error("Kendaraan dan jumlah wajib");
-    setQueuedUsages((prev) => [...prev, { vehicleId: usageVehicleId, itemId: usageItemId, itemName: usageItemName, itemUnit: usageItemUnit, merk: usageMerk || undefined, qty: usageQty, unitPrice: usageUnitPrice, description: usageDescription }]);
+    setQueuedUsages((prev) => [...prev, { 
+      vehicleId: usageVehicleId, 
+      itemId: usageItemId, 
+      itemName: usageItemName, 
+      itemUnit: usageItemUnit, 
+      merk: usageMerk || undefined, 
+      qty: usageQty, 
+      unitPrice: usageUnitPrice, 
+      description: usageDescription,
+      odometer: usageOdometer || undefined,
+      hourMeter: usageHourMeter || undefined,
+      serialNumber: usageSerialNumber || undefined,
+    }]);
     toast.success("Ditambahkan ke antrian");
     // Clear form after queueing
     setUsageVehicleId("");
@@ -282,6 +309,9 @@ export default function TempoComposerPage() {
     setUsageItemName("");
     setUsageItemUnit("");
     setUsageMerk("");
+    setUsageOdometer("");
+    setUsageHourMeter("");
+    setUsageSerialNumber("");
     setUsageQty("");
     setUsageUnitPrice("");
     setUsageDescription("");
@@ -308,8 +338,17 @@ export default function TempoComposerPage() {
         const payload: CreateStockUsagePayload = {
           vehicle_id: parseInt(u.vehicleId, 10),
           usage_date: new Date().toISOString().split("T")[0],
+          odometer: u.odometer ? parseInt(u.odometer, 10) : null,
+          hour_meter: u.hourMeter ? parseFloat(u.hourMeter) : null,
           notes: saveMerkToNotes(u.merk || "", u.description || `Tempo Composer: ${u.itemName || "Item"}`),
-          items: [ { item_id: u.itemId ? parseInt(u.itemId, 10) : undefined, item_name: u.itemName || undefined, unit: u.itemUnit, quantity: q, unit_price: u.unitPrice ? parseFloat(u.unitPrice) : undefined } ],
+          items: [ { 
+            item_id: u.itemId ? parseInt(u.itemId, 10) : undefined, 
+            item_name: u.itemName || undefined, 
+            unit: u.itemUnit, 
+            quantity: q, 
+            unit_price: u.unitPrice ? parseFloat(u.unitPrice) : undefined,
+            serial_number: u.serialNumber || undefined,
+          } ],
           recap_number: recap.recap_number,
           cash_options: { create_cash: true, is_tempo: true, account: composerAccount, supplier: composerSupplier || undefined, due_date: composerDueDate || undefined },
         };
@@ -574,8 +613,19 @@ export default function TempoComposerPage() {
         const payload: CreateStockUsagePayload = {
           vehicle_id: parseInt(u.vehicleId, 10),
           usage_date: new Date().toISOString().split("T")[0],
+          odometer: u.odometer ? parseInt(u.odometer, 10) : null,
+          hour_meter: u.hourMeter ? parseFloat(u.hourMeter) : null,
           notes: saveMerkToNotes(u.merk || "", u.description || `Tempo Composer: ${u.itemName || "Item"}`),
-          items: [ { item_id: u.itemId ? parseInt(u.itemId, 10) : undefined, item_name: u.itemName || undefined, unit: u.itemUnit, quantity: q, unit_price: u.unitPrice ? parseFloat(u.unitPrice) : undefined } ],
+          items: [
+            {
+              item_id: u.itemId ? parseInt(u.itemId, 10) : undefined,
+              item_name: u.itemName || undefined,
+              unit: u.itemUnit,
+              quantity: q,
+              unit_price: u.unitPrice ? parseFloat(u.unitPrice) : undefined,
+              serial_number: u.serialNumber || undefined,
+            },
+          ],
           recap_number: recap.recap_number,
           cash_options: { create_cash: false }, // Don't create individual cash transactions
         };
@@ -891,9 +941,16 @@ export default function TempoComposerPage() {
                       <td className="px-4 py-3 text-sm">
                         <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">Stok Digunakan</span>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-900">
+                  <td className="px-4 py-3 text-sm text-gray-900">
                         <div>Kendaraan: {vehicles.find(v => v.id.toString() === item.vehicleId)?.license_plate || item.vehicleId}</div>
                         <div>Item: {item.itemName || item.itemId}</div>
+                        {(item.odometer || item.hourMeter) && (
+                          <div className="text-gray-500">
+                            {item.odometer && <>Odo: {item.odometer}</>}
+                            {item.hourMeter && <> {item.odometer ? " / " : ""}Hour: {item.hourMeter}</>}
+                          </div>
+                        )}
+                        {item.serialNumber && <div className="text-gray-500">No Seri: {item.serialNumber}</div>}
                         {item.merk && <div className="text-gray-500">Merk: {item.merk}</div>}
                         <div className="text-gray-500">{item.description || '-'}</div>
                       </td>
@@ -1104,6 +1161,26 @@ export default function TempoComposerPage() {
           <div>
             <label className="block text-sm font-medium mb-1">Merk</label>
             <input type="text" value={usageMerk} onChange={(e) => setUsageMerk(e.target.value)} placeholder="Merk/Brand" className="w-full border border-gray-300 rounded-md px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Odometer</label>
+            <input
+              type="number"
+              value={usageOdometer}
+              onChange={(e) => setUsageOdometer(e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              placeholder="km"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">No Seri</label>
+            <input
+              type="text"
+              value={usageSerialNumber}
+              onChange={(e) => setUsageSerialNumber(e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              placeholder="No seri ban / barang"
+            />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Jumlah</label>
