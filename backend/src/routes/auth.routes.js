@@ -15,11 +15,11 @@ const {
 router.post("/mobile/login", ...validateLogin, authController.mobileLogin);
 router.post("/web/login", ...validateLogin, authController.webLogin);
 
-// Protected register route (owner only)
+// Protected register route (admin (and owner) can register new users)
 router.post(
   "/register",
   verifyToken,
-  checkRole(["owner"]),
+  checkRole(["owner", "admin"]),
   ...validateRegistration,
   authController.register
 );

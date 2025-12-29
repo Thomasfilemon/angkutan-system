@@ -10,12 +10,12 @@ const validateRegistration = [
     .isLength({ min: 6 })
     .withMessage("Password must be at least 6 characters long."),
   body("role")
-    .isIn(["admin", "driver"])
-    .withMessage("Role must be either admin or driver."),
-  body("fullName").notEmpty().withMessage("Full name is required."),
-  body("phone")
-    .isMobilePhone("id-ID")
-    .withMessage("A valid Indonesian phone number is required."),
+    .isIn(["admin", "finance", "inventory", "operations", "driver"])
+    .withMessage(
+      "Role must be one of: admin, finance, inventory, operations, driver."
+    ),
+  // For non-driver roles, profile fields can be optional.
+  // The dashboard will initially just send username/password/role.
 
   // Custom middleware to handle the validation result
   (req, res, next) => {

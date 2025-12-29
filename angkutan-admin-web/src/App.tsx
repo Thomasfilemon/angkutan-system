@@ -1,4 +1,4 @@
-import React from "react";
+import React, { Suspense, lazy } from "react";
 import {
   BrowserRouter as Router,
   Routes,
@@ -8,57 +8,86 @@ import {
 import MainLayout from "./components/MainLayout";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
-import { useAuth } from "./components/AuthContext";
-import VehiclesPage from "./pages/Vehicles";
-import VehicleCreatePage from "./pages/VehicleCreate";
-import VehicleEditPage from "./pages/VehicleEdit";
-import TireManagementPage from "./pages/TireManagement";
-import DriversPage from "./pages/Drivers";
-import DriverCreatePage from "./pages/DriverCreate";
-import DriverEditPage from "./pages/DriverEdit";
-import TripsPage from "./pages/Trips";
-import PurchaseOrderCreatePage from "./pages/PurchaseOrderCreate";
-import PurchaseOrderDetailPage from "./pages/PurchaseOrderDetail";
-import PurchaseOrderEditPage from "./pages/PurchaseOrderEdit";
-import DeliveryOrderCreatePage from "./pages/DeliveryOrderCreatePage";
-import CreateDeliveryFromPO from "./pages/CreateDeliveryFromPO";
-import DeliveryOrdersPage from "./pages/DeliveryOrders";
-import DeliveryOrderDetailPage from "./pages/DeliveryOrderDetail";
-import EditDeliveryOrder from "./pages/EditDeliveryOrder";
-import BigDOListPage from "./pages/BigDOListPage";
-import BigDOCreatePage from "./pages/BigDOCreatePage";
-import BigDODetailPage from "./pages/BigDODetailPage";
-import StockManagementPage from "./pages/StockManagement";
-import StockCreatePage from "./pages/StockCreate";
-import ServiceManagementPage from "./pages/ServiceManagement";
-import ServiceCreatePage from "./pages/ServiceCreate";
-import ServiceDetailPage from "./pages/ServiceDetail";
-import ServiceEditPage from "./pages/ServiceEdit";
-import RitaseDashboard from "./pages/Ritase/RitaseDashboard";
-import POPaymentDetail from "./pages/Ritase/POPaymentDetail";
-import DOPaymentManagement from "./pages/Ritase/DOPaymentManagement";
-import TireInventoryPage from "./pages/TireInventory";
-import TireInventoryCreatePage from "./pages/TireInventoryCreate";
-import TireInventoryEditPage from "./pages/TireInventoryEdit";
-import RemovedTiresPage from "./pages/RemovedTires";
-import StockBatchesPage from "./pages/StockBatches";
-import CashManagementPage from "./pages/CashManagement";
-import TempoManagementPage from "./pages/CashTempoManagement";
-import CashComposerPage from "./pages/CashComposer";
-import TempoComposerPage from "./pages/TempoComposer";
-import StockHistoryPage from "./pages/StockHistory";
-import VehicleServiceHistory from "./pages/VehicleServiceHistory";
-import VehicleExpenditureAnalytics from "./pages/VehicleExpenditureAnalytics";
-import PaymentsRoutes from "./modules/payments/routes";
-import InvoiceDetail from "./pages/Ritase/InvoiceDetail";
-import DepositGroupManagement from "./pages/DepositGroupManagement";
-import DOProfitabilityReport from './pages/Ritase/DOProfitabilityReport'; // Import the new page
-import TempoDetailsPage from "./pages/TempoDetails";
-import StockUsageRecapPage from "./pages/StockUsageRecapPage";
+import { useAuth, UserRole } from "./components/AuthContext";
 import { Toaster } from "react-hot-toast";
 
-import ComprehensiveRitaseTable from "./pages/Ritase/ComprehensiveRitaseTable";
-import POSpecificRitaseTable from "./pages/Ritase/POSpecificRitaseTable";
+const VehiclesPage = lazy(() => import("./pages/Vehicles"));
+const VehicleCreatePage = lazy(() => import("./pages/VehicleCreate"));
+const VehicleEditPage = lazy(() => import("./pages/VehicleEdit"));
+const TireManagementPage = lazy(() => import("./pages/TireManagement"));
+const DriversPage = lazy(() => import("./pages/Drivers"));
+const DriverCreatePage = lazy(() => import("./pages/DriverCreate"));
+const DriverEditPage = lazy(() => import("./pages/DriverEdit"));
+const TripsPage = lazy(() => import("./pages/Trips"));
+const PurchaseOrderCreatePage = lazy(() => import("./pages/PurchaseOrderCreate"));
+const PurchaseOrderDetailPage = lazy(() => import("./pages/PurchaseOrderDetail"));
+const PurchaseOrderEditPage = lazy(() => import("./pages/PurchaseOrderEdit"));
+const DeliveryOrderCreatePage = lazy(() => import("./pages/DeliveryOrderCreatePage"));
+const CreateDeliveryFromPO = lazy(() => import("./pages/CreateDeliveryFromPO"));
+const DeliveryOrdersPage = lazy(() => import("./pages/DeliveryOrders"));
+const DeliveryOrderDetailPage = lazy(() => import("./pages/DeliveryOrderDetail"));
+const EditDeliveryOrder = lazy(() => import("./pages/EditDeliveryOrder"));
+const BigDOListPage = lazy(() => import("./pages/BigDOListPage"));
+const BigDOCreatePage = lazy(() => import("./pages/BigDOCreatePage"));
+const BigDODetailPage = lazy(() => import("./pages/BigDODetailPage"));
+const StockManagementPage = lazy(() => import("./pages/StockManagement"));
+const StockCreatePage = lazy(() => import("./pages/StockCreate"));
+const ServiceManagementPage = lazy(() => import("./pages/ServiceManagement"));
+const ServiceCreatePage = lazy(() => import("./pages/ServiceCreate"));
+const ServiceDetailPage = lazy(() => import("./pages/ServiceDetail"));
+const ServiceEditPage = lazy(() => import("./pages/ServiceEdit"));
+const RitaseDashboard = lazy(() => import("./pages/Ritase/RitaseDashboard"));
+const POPaymentDetail = lazy(() => import("./pages/Ritase/POPaymentDetail"));
+const DOPaymentManagement = lazy(() => import("./pages/Ritase/DOPaymentManagement"));
+const TireInventoryPage = lazy(() => import("./pages/TireInventory"));
+const TireInventoryCreatePage = lazy(() => import("./pages/TireInventoryCreate"));
+const TireInventoryEditPage = lazy(() => import("./pages/TireInventoryEdit"));
+const RemovedTiresPage = lazy(() => import("./pages/RemovedTires"));
+const StockBatchesPage = lazy(() => import("./pages/StockBatches"));
+const CashManagementPage = lazy(() => import("./pages/CashManagement"));
+const TempoManagementPage = lazy(() => import("./pages/CashTempoManagement"));
+const CashComposerPage = lazy(() => import("./pages/CashComposer"));
+const TempoComposerPage = lazy(() => import("./pages/TempoComposer"));
+const StockHistoryPage = lazy(() => import("./pages/StockHistory"));
+const VehicleServiceHistory = lazy(() => import("./pages/VehicleServiceHistory"));
+const VehicleExpenditureAnalytics = lazy(() => import("./pages/VehicleExpenditureAnalytics"));
+const PaymentsRoutes = lazy(() => import("./modules/payments/routes"));
+const InvoiceDetail = lazy(() => import("./pages/Ritase/InvoiceDetail"));
+const DepositGroupManagement = lazy(() => import("./pages/DepositGroupManagement"));
+const DOProfitabilityReport = lazy(() => import("./pages/Ritase/DOProfitabilityReport"));
+const TempoDetailsPage = lazy(() => import("./pages/TempoDetails"));
+const StockUsageRecapPage = lazy(() => import("./pages/StockUsageRecapPage"));
+const UserManagementPage = lazy(() => import("./pages/UserManagement"));
+const UnauthorizedPage = lazy(() => import("./pages/Unauthorized"));
+
+const ComprehensiveRitaseTable = lazy(
+  () => import("./pages/Ritase/ComprehensiveRitaseTable")
+);
+const POSpecificRitaseTable = lazy(
+  () => import("./pages/Ritase/POSpecificRitaseTable")
+);
+
+type RequireRolesProps = {
+  roles: UserRole[];
+  children: React.ReactElement;
+};
+
+const RequireRoles: React.FC<RequireRolesProps> = ({
+  roles,
+  children,
+}) => {
+  const { user } = useAuth();
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (!roles.includes(user.role)) {
+    return <Navigate to="/unauthorized" replace />;
+  }
+
+  return children;
+};
 
 function App() {
   const { token } = useAuth();
@@ -66,16 +95,23 @@ function App() {
   return (
     <Router>
       <Toaster position="top-center" reverseOrder={false} />
-      <Routes>
-        <Route
-          path="/login"
-          element={!token ? <Login /> : <Navigate to="/" replace />}
-        />
+      <Suspense
+        fallback={
+          <div className="flex items-center justify-center h-screen bg-gray-50">
+            <div className="text-gray-600 text-sm">Loading dashboard…</div>
+          </div>
+        }
+      >
+        <Routes>
+          <Route
+            path="/login"
+            element={!token ? <Login /> : <Navigate to="/" replace />}
+          />
 
-        <Route
-          path="/*"
-          element={token ? <MainLayout /> : <Navigate to="/login" replace />}
-        >
+          <Route
+            path="/*"
+            element={token ? <MainLayout /> : <Navigate to="/login" replace />}
+          >
           <Route path="" element={<Dashboard />} />
 
           {/* Ritase dan Buku Kas */}
@@ -184,8 +220,18 @@ function App() {
           <Route path="tempo/composer" element={<TempoComposerPage />} />
           <Route path="tempoDetails" element={<TempoDetailsPage />} />
           <Route path="deposit-groups" element={<DepositGroupManagement />} />
+          <Route
+            path="users"
+            element={
+              <RequireRoles roles={['admin', 'owner']}>
+                <UserManagementPage />
+              </RequireRoles>
+            }
+          />
+          <Route path="unauthorized" element={<UnauthorizedPage />} />
         </Route>
       </Routes>
+      </Suspense>
     </Router>
   );
 }

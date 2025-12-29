@@ -3,10 +3,18 @@
 import React, { createContext, useState, useContext, ReactNode, useEffect } from 'react';
 
 // Define the shape of the user object, based on your backend response
-interface User {
+export type UserRole =
+  | 'admin'
+  | 'owner'
+  | 'driver'
+  | 'finance'
+  | 'inventory'
+  | 'operations';
+
+export interface User {
   id: number;
   username: string;
-  role: 'admin' | 'owner' | 'driver';
+  role: UserRole;
 }
 
 interface AuthContextType {

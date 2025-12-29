@@ -95,9 +95,10 @@ const checkRole = (allowedRoles) => {
 
       if (!allowedRoles.includes(req.user.role)) {
         return res.status(403).json({
-          message: `Access denied. Required roles: ${allowedRoles.join(
-            ", "
-          )}. Your role: ${req.user.role}`,
+          message: "Not authorized to access this resource",
+          requiredRoles: allowedRoles,
+          role: req.user.role,
+          code: "ROLE_FORBIDDEN",
         });
       }
 

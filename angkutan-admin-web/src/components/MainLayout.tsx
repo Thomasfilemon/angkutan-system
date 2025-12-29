@@ -163,6 +163,43 @@ const MainLayout = () => {
               </details>
             </li>
 
+            {/* Administration Section (Admin highest role) */}
+            {(user?.role === "admin" || user?.role === "owner") && (
+              <li className="mb-4 mt-6">
+                <details className="group">
+                  <summary className="flex items-center p-2 rounded hover:bg-gray-700 cursor-pointer select-none">
+                    <span className="text-xl mr-3">👤</span>
+                    <span className={`${sidebarMinimized ? "hidden" : "block"}`}>
+                      Administration
+                    </span>
+                    <span className="ml-auto text-xs text-gray-300 group-open:hidden">
+                      ▼
+                    </span>
+                    <span className="ml-auto text-xs text-gray-300 hidden group-open:inline">
+                      ▲
+                    </span>
+                  </summary>
+                  {!sidebarMinimized && (
+                    <ul className="ml-8 mt-2 space-y-2">
+                      <li>
+                        <Link
+                          to="/users"
+                          className={`block p-2 rounded hover:bg-gray-700 ${
+                            isActiveLink("/users")
+                              ? "bg-gray-700 border-l-4 border-blue-500"
+                              : ""
+                          }`}
+                          title="User Management"
+                        >
+                          User Management
+                        </Link>
+                      </li>
+                    </ul>
+                  )}
+                </details>
+              </li>
+            )}
+
             {/* Operations Section */}
             {!sidebarMinimized && (
               <li className="mb-2">

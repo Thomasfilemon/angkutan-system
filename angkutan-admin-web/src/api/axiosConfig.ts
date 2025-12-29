@@ -123,6 +123,12 @@ apiClient.interceptors.response.use(
       localStorage.removeItem("token");
       localStorage.removeItem("user");
       window.location.href = "/login";
+      return Promise.reject(error);
+    }
+    if (error.response?.status === 403) {
+      // Centralized unauthorized-view redirect
+      window.location.href = "/unauthorized";
+      return Promise.reject(error);
     }
     return Promise.reject(error);
   }
@@ -133,6 +139,10 @@ authClient.interceptors.response.use(
     return response;
   },
   (error) => {
+    if (error.response?.status === 403) {
+      window.location.href = "/unauthorized";
+      return Promise.reject(error);
+    }
     if (
       error.response?.status === 401 &&
       !error.config?.url?.includes("/auth/web/login")

@@ -38,8 +38,9 @@ module.exports = (sequelize) => {
       allowNull: false,
       validate: {
         isIn: {
-          args: [['owner', 'admin', 'driver']],
-          msg: 'Role must be one of: owner, admin, driver'
+          // Extended roles to support finer-grained web roles
+          args: [['owner', 'admin', 'finance', 'inventory', 'operations', 'driver']],
+          msg: 'Role must be one of: owner, admin, finance, inventory, operations, driver'
         }
       }
     },

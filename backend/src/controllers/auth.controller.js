@@ -65,9 +65,10 @@ const webLogin = async (req, res, next) => {
     const { username, password } = req.body;
 
     const user = await User.findOne({
-      where: { 
-        username, 
-        role: { [Op.in]: ["owner", "admin"] } 
+      where: {
+        username,
+        // Allow extended admin-type roles to log into the web dashboard
+        role: { [Op.in]: ["owner", "admin", "finance", "inventory", "operations"] }
       },
     });
     if (!user) {
