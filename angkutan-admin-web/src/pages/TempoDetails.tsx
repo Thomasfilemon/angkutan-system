@@ -756,7 +756,20 @@ const TempoDetails: React.FC = () => {
                 </td>
               </tr>
             ) : (
-              tempoDetails.map((detail) => (
+              [...tempoDetails]
+                .sort((a, b) => {
+                  const aPending = (a.status || "").toLowerCase() === "pending";
+                  const bPending = (b.status || "").toLowerCase() === "pending";
+                  if (aPending !== bPending) {
+                    // Pending first
+                    return aPending ? -1 : 1;
+                  }
+                  // Newest created_at first within same status
+                  const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+                  const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+                  return bTime - aTime;
+                })
+                .map((detail) => (
                 <tr key={detail.id} className={`border-t ${selectedIds.has(detail.id) ? 'bg-blue-50' : ''}`}>
                   <td className="p-3">
                     {detail.status === 'pending' && (

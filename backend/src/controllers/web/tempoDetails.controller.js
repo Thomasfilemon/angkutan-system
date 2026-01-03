@@ -48,7 +48,11 @@ exports.getAllTempoDetails = async (req, res, next) => {
       include: includeOptions,
       limit: parseInt(limit),
       offset: parseInt(offset),
-      order: [['due_date', 'DESC']],
+      // Sort so that pending entries appear first, newest created at the top
+      order: [
+        [sequelize.literal(`CASE WHEN "TempoDetail"."status" = 'pending' THEN 0 ELSE 1 END`), 'ASC'],
+        ['created_at', 'DESC'],
+      ],
       distinct: true, // Important for correct count when using JOINs
     });
 

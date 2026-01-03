@@ -809,9 +809,15 @@ export default function CashComposerPage() {
           if (c.merk) parts.push(`Merk: ${c.merk}`);
           displayDesc = parts.join(" - ");
         }
-        
+
+        // Derive "type" label from selected category so it matches Buku Kas categories
+        const matchedCategory =
+          categories.find((cat) => cat.id.toString() === c.categoryId) || null;
+        const typeLabel = matchedCategory?.category_name || "Cash";
+
         transactionDetails.push({
-          type: "Cash",
+          // Example: "Peralatan Mekanik", "Pengeluaran Mobil", etc.
+          type: typeLabel,
           description: displayDesc,
           amount: a,
           supplier: composerSupplier || undefined,
