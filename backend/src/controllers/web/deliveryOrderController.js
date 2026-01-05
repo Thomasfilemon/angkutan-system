@@ -1203,6 +1203,86 @@ exports.cancelDeliveryOrder = async (req, res, next) => {
 };
 
 /**
+ * 🎯 DELETE STANDALONE DELIVERY ORDER
+ * Only allowed for DO without Purchase Order (purchase_order_id is null)
+ * and already cancelled or completed. This will remove the DO so it no longer
+ * contributes to vehicle revenue / pendapatan mobil calculations.
+ */
+exports.deleteStandaloneDeliveryOrder = async (req, res, next) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { id } = req.params;
+    console.log("[deleteStandaloneDeliveryOrder] Request to delete DO id:", id);
+
+    const deliveryOrder = await DeliveryOrder.findByPk(id, { transaction });
+    console.log(
+      "[deleteStandaloneDeliveryOrder] Loaded DO:",
+      deliveryOrder ? { id: deliveryOrder.id, status: deliveryOrder.status, purchase_order_id: deliveryOrder.purchase_order_id } : null
+    );
+
+    if (!deliveryOrder) {
+      await transaction.rollback();
+      return res
+        .status(404)
+        .json({ success: false, message: "Delivery Order not found" });
+    }
+
+    // Only standalone DO (not linked to any Purchase Order)
+    if (deliveryOrder.purchase_order_id) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message:
+          "Only standalone Delivery Orders (without Purchase Order) can be deleted.",
+      });
+    }
+
+    // Require DO to be cancelled or completed to avoid accidental deletion
+    if (!["cancelled", "completed"].includes(deliveryOrder.status)) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message:
+          "Only cancelled or completed Delivery Orders can be deleted.",
+      });
+    }
+
+    // Ensure this DO is not the main DO of an active Big DO
+    const bigDO = await BigDeliveryOrder.findOne({
+      where: {
+        main_delivery_order_id: id,
+        status: { [Op.not]: "cancelled" },
+      },
+      transaction,
+    });
+
+    if (bigDO) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message:
+          "Cannot delete Delivery Order that is the main DO of an active Big DO. Cancel the Big DO first.",
+      });
+    }
+
+    // At this point it's safe to hard delete the DO record.
+    await deliveryOrder.destroy({ transaction });
+
+    await transaction.commit();
+
+    return res.json({
+      success: true,
+      message: "Standalone Delivery Order deleted successfully.",
+    });
+  } catch (err) {
+    await transaction.rollback();
+    console.error("Error deleting standalone delivery order:", err);
+    res.status(500).json({ success: false, message: err.message });
+    next(err);
+  }
+};
+
+/**
  * 🎯 COMPLETE DELIVERY ORDER
  */
 exports.completeDeliveryOrder = async (req, res, next) => {

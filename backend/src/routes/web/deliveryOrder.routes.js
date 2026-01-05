@@ -8,6 +8,16 @@ const uploadMemory = require("../../middlewares/uploadMemory.middleware");
 
 router.use(verifyToken);
 
+// Debug middleware to verify that web DO router is actually handling requests
+router.use((req, res, next) => {
+  console.log(
+    `[WEB DO ROUTER] ${req.method} ${req.originalUrl} (user: ${
+      req.user?.username || "unknown"
+    })`
+  );
+  next();
+});
+
 // ✅ Core DO management routes
 router.get(
   "/",
@@ -67,6 +77,13 @@ router.patch(
   "/:id/complete-deposit",
   checkRole(["admin", "owner"]),
   webDOController.completeDeliveryOrder
+);
+
+// Hard delete for standalone DOs (no PO, already cancelled)
+router.delete(
+  "/:id",
+  checkRole(["admin", "owner"]),
+  webDOController.deleteStandaloneDeliveryOrder
 );
 
 module.exports = router;

@@ -212,23 +212,8 @@ const TempoDetails: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!window.confirm('Are you sure you want to delete this tempo detail?')) return;
-    try {
-      await apiClient.delete(`/tempo-details/${id}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-      });
-      toast.success('Tempo detail deleted successfully');
-      fetchTempoDetails();
-    } catch (error: any) {
-      console.error('Error deleting tempo detail:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-      });
-      toast.error('Failed to delete tempo detail');
-    }
-  };
+  // Per request: hide per-row delete in detail table to keep UI clean.
+  // Bulk or higher-level deletion can be handled elsewhere if needed.
 
   useEffect(() => {
     fetchTempoDetails();
@@ -806,14 +791,6 @@ const TempoDetails: React.FC = () => {
                   </td>
                   <td className="p-3">{formatDate(detail.created_at)}</td>
                   <td className="p-3">{formatDate(detail.updated_at)}</td>
-                  <td className="p-3">
-                    <button
-                      onClick={() => handleDelete(detail.id)}
-                      className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600"
-                    >
-                      Delete
-                    </button>
-                  </td>
                 </tr>
               ))
             )}

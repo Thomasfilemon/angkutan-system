@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import apiClient from "../api/axiosConfig";
+import toast from "react-hot-toast";
 
 // Build a safe backend base URL for links. Prefer env var, otherwise
 // default to http://localhost:3000 during local development.
@@ -42,6 +43,10 @@ interface DeliveryOrder {
     po_number: string;
     unit?: string;
   };
+  big_do_context?: {
+    type: string;
+    message?: string;
+  } | null;
   surat_jalan_photo_url?: string;
   ongkosan?: number;
 }
@@ -130,6 +135,65 @@ const DeliveryOrdersPage = () => {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const isStandaloneDO = (order: DeliveryOrder) => {
+    return !order.purchaseOrder || !order.purchaseOrder.po_number;
+  };
+
+  const handleCancelDO = async (order: DeliveryOrder) => {
+    if (!isStandaloneDO(order)) {
+      toast.error("Cancel via PO for DOs that belong to a Purchase Order.");
+      return;
+    }
+    const confirmed = window.confirm(
+      `Cancel DO ${order.do_number}? This will free the vehicle and driver.`
+    );
+    if (!confirmed) return;
+
+    try {
+      await apiClient.patch(`/delivery-orders/${order.id}/cancel`, {
+        cancellation_reason: "Cancelled from web admin list",
+      });
+      toast.success(`DO ${order.do_number} cancelled.`);
+      fetchDeliveryOrders();
+    } catch (err: any) {
+      console.error("Error cancelling DO:", err);
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        "Failed to cancel Delivery Order.";
+      toast.error(msg);
+    }
+  };
+
+  const handleDeleteStandaloneDO = async (order: DeliveryOrder) => {
+    if (!isStandaloneDO(order)) {
+      toast.error("Only standalone DO (without PO) can be deleted here.");
+      return;
+    }
+    if (!["cancelled", "completed"].includes(order.status)) {
+      toast.error("Only cancelled or completed DO can be deleted.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `PERMANENTLY delete DO ${order.do_number}? This will remove its contribution from pendapatan mobil.`
+    );
+    if (!confirmed) return;
+
+    try {
+      await apiClient.delete(`/delivery-orders/${order.id}`);
+      toast.success(`DO ${order.do_number} deleted.`);
+      setDeliveryOrders((prev) => prev.filter((d) => d.id !== order.id));
+    } catch (err: any) {
+      console.error("Error deleting DO:", err);
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        "Failed to delete Delivery Order.";
+      toast.error(msg);
     }
   };
 
@@ -604,6 +668,56 @@ const DeliveryOrdersPage = () => {
                               </svg>
                             </button>
                           )}
+
+                        {/* Cancel standalone DO */}
+                        {isStandaloneDO(dOrder) &&
+                          dOrder.status !== "completed" &&
+                          dOrder.status !== "cancelled" && (
+                            <button
+                              onClick={() => handleCancelDO(dOrder)}
+                              className="inline-flex items-center justify-center w-7 h-7 text-orange-600 hover:text-orange-800 hover:bg-orange-50 rounded-md transition-all duration-200"
+                              title="Cancel standalone DO"
+                            >
+                              <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M6 18L18 6M6 6l12 12"
+                                />
+                              </svg>
+                            </button>
+                          )}
+
+                        {/* Delete standalone cancelled / completed DO */}
+                        {isStandaloneDO(dOrder) &&
+                          (dOrder.status === "cancelled" ||
+                            dOrder.status === "completed") && (
+                          <button
+                            onClick={() => handleDeleteStandaloneDO(dOrder)}
+                            className="inline-flex items-center justify-center w-7 h-7 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md transition-all duration-200"
+                            title="Delete standalone DO (affects pendapatan mobil)"
+                          >
+                            <svg
+                              className="w-4 h-4"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5-3h4m-7 3h10"
+                              />
+                            </svg>
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
