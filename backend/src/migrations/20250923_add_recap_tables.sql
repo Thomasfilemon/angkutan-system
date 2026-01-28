@@ -26,10 +26,11 @@ CREATE INDEX IF NOT EXISTS idx_recap_notes_date ON recap_notes (recap_date);
 CREATE INDEX IF NOT EXISTS idx_recap_notes_status ON recap_notes (status);
 
 -- recap_note_items
+-- NOTE: base schema (init.sql) and Sequelize model use column name "type", not "item_type"
 CREATE TABLE IF NOT EXISTS recap_note_items (
   id SERIAL PRIMARY KEY,
   recap_id INTEGER NOT NULL REFERENCES recap_notes(id) ON DELETE CASCADE,
-  item_type VARCHAR(20) NOT NULL CHECK (item_type IN ('service','stock','stock_usage','cash','tire_purchase')),
+  type VARCHAR(20) NOT NULL CHECK (type IN ('service','stock','stock_usage','cash','tire_purchase')),
   reference_id INTEGER,
   description TEXT NOT NULL,
   amount NUMERIC(18,2) NOT NULL DEFAULT 0,
@@ -37,7 +38,7 @@ CREATE TABLE IF NOT EXISTS recap_note_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_recap_items_recap_id ON recap_note_items (recap_id);
-CREATE INDEX IF NOT EXISTS idx_recap_items_type ON recap_note_items (item_type);
+CREATE INDEX IF NOT EXISTS idx_recap_items_type ON recap_note_items (type);
 
 COMMIT;
 

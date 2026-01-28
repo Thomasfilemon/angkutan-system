@@ -20,6 +20,8 @@ stockRouter.delete('/usage-notes/:id', stockController.deleteUsageNote);
 
 // Stock items routes
 stockRouter.get('/batches/:batchId/history', stockController.getStockBatchHistory);
+// NEW: Aggregated stock per item_name (merge different suppliers/brands)
+stockRouter.get('/summary/by-name', stockController.getAggregatedStockByName);
 stockRouter.get('/', stockController.getAllStockItems);
 stockRouter.post('/', stockController.createStockItem);
 stockRouter.post('/adjust', stockController.adjustStock);

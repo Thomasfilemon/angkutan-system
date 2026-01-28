@@ -93,6 +93,119 @@ const calculateCurrentStock = async (itemId) => {
 	return { totalQuantity, totalValue, averagePrice };
 };
 
+// NEW: Aggregated stock by item_name (merge different suppliers/brands)
+// Returns one row per item_name with:
+// - total_stock: SUM of all batches' quantity for all items with that name
+// - min_stock_target: MAX(min_stock) across those items (so 4 & 4 => 4, not 8)
+// - is_low_stock: total_stock <= min_stock_target
+// - stock_status: "out_of_stock" | "low_stock" | "adequate"
+const getAggregatedStockByName = async (req, res, next) => {
+	try {
+		const { search, category_id, low_stock } = req.query;
+
+		// Base where for StockItem
+		const where = {};
+		if (category_id) where.category_id = category_id;
+		if (search) {
+			where.item_name = { [Op.iLike]: `%${search}%` };
+		}
+
+		// 1) Load all items (filtered) with their batches
+		const items = await StockItem.findAll({
+			where,
+			include: [
+				{
+					model: StockBatch,
+					as: "batches",
+					attributes: ["id", "quantity", "unit_price"],
+					required: false,
+				},
+			],
+			order: [["item_name", "ASC"]],
+		});
+
+		// 2) Group in JS by item_name and aggregate
+		const grouped = {};
+
+		for (const item of items) {
+			const name = item.item_name;
+			if (!grouped[name]) {
+				grouped[name] = {
+					item_name: name,
+					unit: item.unit,
+					min_stock_target: parseFloat(item.min_stock) || 0,
+					total_stock: 0,
+					items: [], // optional detail list if frontend wants to expand
+				};
+			}
+
+			const group = grouped[name];
+
+			// Use the highest min_stock among all items with same name
+			const itemMin = parseFloat(item.min_stock) || 0;
+			if (itemMin > group.min_stock_target) {
+				group.min_stock_target = itemMin;
+			}
+
+			// Sum all positive batch quantities
+			const batches = item.batches || [];
+			let itemTotal = 0;
+			for (const b of batches) {
+				const q = parseFloat(b.quantity) || 0;
+				if (q > 0) itemTotal += q;
+			}
+
+			group.total_stock += itemTotal;
+
+			// Keep per-item detail for drill-down
+			group.items.push({
+				id: item.id,
+				item_code: item.item_code,
+				supplier: item.supplier,
+				unit: item.unit,
+				min_stock: parseFloat(item.min_stock) || 0,
+				current_stock: itemTotal,
+			});
+		}
+
+		// 3) Finalize list with status flags
+		let result = Object.values(grouped).map((g) => {
+			const total = g.total_stock;
+			const minTarget = g.min_stock_target;
+
+			const isLow = total <= minTarget;
+			let status = "adequate";
+			if (total <= 0) status = "out_of_stock";
+			else if (isLow) status = "low_stock";
+
+			return {
+				item_name: g.item_name,
+				unit: g.unit,
+				total_stock: total,
+				min_stock_target: minTarget,
+				is_low_stock: isLow,
+				stock_status: status,
+				items: g.items,
+			};
+		});
+
+		// Optional filter: only low stock / out of stock
+		if (low_stock === "true") {
+			result = result.filter(
+				(r) => r.stock_status === "low_stock" || r.stock_status === "out_of_stock"
+			);
+		}
+
+		res.json({
+			success: true,
+			data: result,
+		});
+	} catch (err) {
+		console.error("Error in getAggregatedStockByName:", err);
+		next(err);
+	}
+};
+
 // Generate usage note number
 const generateUsageNoteNumber = async () => {
 	const date = new Date();
@@ -1948,4 +2061,5 @@ module.exports = {
 	listUsageNotes,
 	getUsageNoteDetail,
 	deleteUsageNote,
+	getAggregatedStockByName,
 };
